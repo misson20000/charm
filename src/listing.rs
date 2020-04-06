@@ -1,7 +1,9 @@
 use std::sync;
 use std::vec;
 use std::string;
-use std::cell;
+use std::task;
+
+use std::future::Future;
 
 use crate::addr;
 use crate::space;
@@ -35,15 +37,15 @@ impl Break {
     }
 }
 
-struct HexLineInternal {
-    future: std::option::Option<futures::future::BoxFuture<'static, space::FetchResult>>,
-    result: std::option::Option<space::FetchResult>,
+enum HexLineAsyncState {
+    Pending(std::pin::Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync>>),
+    Finished(space::FetchResult)
 }
 
 struct HexLine {
     addr: addr::Address,
     size: addr::Size,
-    internal: cell::RefCell<HexLineInternal>
+    internal: sync::RwLock<HexLineAsyncState>
 }
 
 impl HexLine {
@@ -51,22 +53,32 @@ impl HexLine {
         1
     }
 
+    fn progress(&self, cx: &mut task::Context) {
+        let mut ih = self.internal.write().unwrap();
+        match &mut *ih {
+            HexLineAsyncState::Pending(future) => {
+                println!("HexLine {} polling", self.addr);
+                match future.as_mut().poll(cx) {
+                    task::Poll::Ready(result) => { std::mem::replace(&mut *ih, HexLineAsyncState::Finished(result)); },
+                    task::Poll::Pending => ()
+                }
+            },
+            HexLineAsyncState::Finished(_) => ()
+        }
+    }
+    
     fn render<'out>(&'out self, vec: &'out mut vec::Vec<string::String>) {
         vec.clear();
-        let mut internal = self.internal.borrow_mut();
-        match &internal.result {
-            None => {
-                internal.result = Some(futures::executor::block_on(std::mem::replace(&mut internal.future, None).unwrap()));
-            },
-            _ => ()
-        };
+        
         let bytes = self.size.round_up().bytes as usize;
-        let region = match &internal.result {
-            Some(space::FetchResult::Ok(ref data)) => &data[..bytes],
-            Some(space::FetchResult::Partial(ref data, amt)) => &data[..std::cmp::min(*amt, bytes)],
-            Some(space::FetchResult::Unreadable) => &[],
-            Some(space::FetchResult::IoError(_)) => &[],
-            None => &[]
+        let ih = self.internal.read().unwrap();
+        
+        let (state, region) = match *ih {
+            HexLineAsyncState::Finished(space::FetchResult::Ok(ref data)) => ("Ok", &data[..bytes]),
+            HexLineAsyncState::Finished(space::FetchResult::Partial(ref data, amt)) => ("Partial", &data[..std::cmp::min(amt, bytes)]),
+            HexLineAsyncState::Finished(space::FetchResult::Unreadable) => ("Unreadable", &[] as &[u8]),
+            HexLineAsyncState::Finished(space::FetchResult::IoError(_)) => ("IO Error", &[] as &[u8]),
+            HexLineAsyncState::Pending(_) => ("Pending", &[] as &[u8])
         };
         let mut str = std::string::String::new();
         str+= &format!("{} ", self.addr);
@@ -93,6 +105,8 @@ impl HexLine {
                 str+= ".";
             }
         }
+        str+= "  ";
+        str+= state;
         vec.push(str);
     }
 }
@@ -103,31 +117,30 @@ enum LineGroupType {
 }
 
 pub struct LineGroup {
-    space: sync::Arc<dyn space::AddressSpace>,
+    space: sync::Arc<dyn space::AddressSpace + Send + Sync>,
     group_type: LineGroupType,
-    pub lines: cell::RefCell<vec::Vec<string::String>>,
+    pub lines: sync::RwLock<vec::Vec<string::String>>,
 }
 
 impl LineGroup {
-    fn make_break(space: sync::Arc<dyn space::AddressSpace>, index: usize) -> LineGroup {
+    fn make_break(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, index: usize) -> LineGroup {
         LineGroup {
             space,
             group_type: LineGroupType::Break(index),
-            lines: cell::RefCell::new(vec![]),
+            lines: sync::RwLock::new(vec![]),
         }
     }
     
-    fn make_line(space: sync::Arc<dyn space::AddressSpace>, a: addr::Address, s: addr::Size) -> LineGroup {
+    fn make_line(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, a: addr::Address, s: addr::Size) -> LineGroup {
         LineGroup {
             space: space.clone(),
             group_type: LineGroupType::Hex(HexLine {
                 addr: a, size: s,
-                internal: cell::RefCell::new(HexLineInternal {
-                    future: Some(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize])),
-                    result: None
-                })
+                internal: sync::RwLock::new(
+                    HexLineAsyncState::Pending(
+                        Box::pin(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize]))))
             }),
-            lines: cell::RefCell::new(vec![]),
+            lines: sync::RwLock::new(vec![]),
         }
     }
     
@@ -138,10 +151,18 @@ impl LineGroup {
         }
     }
 
+    pub fn progress(&self, cx: &mut task::Context) {
+        match self.group_type {
+            LineGroupType::Hex(ref hex) => hex.progress(cx),
+            LineGroupType::Break(_) => ()
+        }
+    }
+
+    
     pub fn render<'b>(&'b self, breaks: &'b vec::Vec<Break>) {
         match self.group_type {
-            LineGroupType::Hex(ref hex) => hex.render(&mut self.lines.borrow_mut()),
-            LineGroupType::Break(i) => breaks[i].render(&mut self.lines.borrow_mut())
+            LineGroupType::Hex(ref hex) => hex.render(&mut self.lines.write().unwrap()),
+            LineGroupType::Break(i) => breaks[i].render(&mut self.lines.write().unwrap())
         }
     }
 }
@@ -172,7 +193,7 @@ We don't ever fragment "line groups" with the same address.
  */
 
 pub struct ListingEngine {
-    space: sync::Arc<dyn space::AddressSpace>,
+    space: sync::Arc<dyn space::AddressSpace + Send + Sync>,
 
     pub breaks: vec::Vec<Break>,
     
@@ -191,7 +212,7 @@ pub struct ListingEngine {
 }
 
 impl ListingEngine {
-    pub fn new(space: sync::Arc<dyn space::AddressSpace>, window_height: usize) -> ListingEngine {
+    pub fn new(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, window_height: usize) -> ListingEngine {
         let mut le = ListingEngine {
             space,
             breaks: vec![
@@ -215,7 +236,7 @@ impl ListingEngine {
     }
 
     #[cfg(feature = "test_listing")]
-    pub fn test_engine(space: sync::Arc<dyn space::AddressSpace>) {
+    pub fn test_engine(space: sync::Arc<dyn space::AddressSpace + Send + Sync>) {
         let mut le = ListingEngine::new(space, 12);
         
         ncurses::initscr();
@@ -250,7 +271,7 @@ impl ListingEngine {
             
             for lg in self.line_groups.iter() {
                 lg.render(&self.breaks);
-                for l in lg.lines.borrow().iter() {
+                for l in lg.lines.read().unwrap().iter() {
                     if lineno == self.top_margin {
                         ncurses::addstr("  top margin\n");
                     }

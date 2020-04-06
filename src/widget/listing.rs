@@ -1,6 +1,7 @@
-use std::rc;
 use std::sync;
-use std::cell;
+use std::pin;
+use std::task;
+use std::option;
 
 use crate::listing;
 use crate::space;
@@ -23,6 +24,9 @@ struct Config {
 
 pub struct ListingWidget {
     engine: listing::ListingEngine,
+    rt: sync::Arc<tokio::runtime::Runtime>,
+    render_task: option::Option<tokio::task::JoinHandle<()>>,
+    render_waker: sync::Mutex<option::Option<task::Waker>>,
     config: Config,
 
     last_animation_time: i64,
@@ -32,10 +36,19 @@ pub struct ListingWidget {
     scroll_bonked_bottom: bool,
 }
 
+struct ListingPoller {
+    lw: sync::Arc<sync::RwLock<ListingWidget>>
+}
+
 impl ListingWidget {
-    pub fn new(aspace: sync::Arc<dyn space::AddressSpace>) -> ListingWidget {
+    pub fn new(
+        aspace: sync::Arc<dyn space::AddressSpace + Send + Sync>,
+        rt: sync::Arc<tokio::runtime::Runtime>) -> ListingWidget {
         ListingWidget {
             engine: listing::ListingEngine::new(aspace, 12),
+            rt,
+            render_task: None,
+            render_waker: sync::Mutex::new(None),
             
             config: Config {
                 lookahead: 5,
@@ -57,8 +70,11 @@ impl ListingWidget {
     }
     
     pub fn attach(self, da: &gtk::DrawingArea) {
-        let rc: rc::Rc<cell::RefCell<Self>> = rc::Rc::new(cell::RefCell::new(self));
+        let rc: sync::Arc<sync::RwLock<Self>> = sync::Arc::new(sync::RwLock::new(self));
 
+        let mut sh = rc.write().unwrap();
+        (*sh).render_task = Some((*sh).rt.spawn(ListingPoller { lw: rc.clone() }));
+        
         /* Events I might be interested in
         - connect_button_press_event
         - connect_button_release_event
@@ -78,12 +94,11 @@ impl ListingWidget {
         - connect_selection_request_event
         - connect_size_allocate
          */
-        
-        { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.borrow().draw(da, cr)); }
-        { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.borrow_mut().scroll_event(da, es)); }
-        { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.borrow_mut().size_allocate(da, al)); }
 
-        { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.borrow_mut().tick_callback(da, fc)); }
+        { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.read().unwrap().draw(da, cr)); }
+        { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.write().unwrap().scroll_event(da, es)); }
+        { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.write().unwrap().size_allocate(da, al)); }
+        { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.write().unwrap().tick_callback(da, fc)); }
 
         da.add_events(gdk::EventMask::SCROLL_MASK | gdk::EventMask::SMOOTH_SCROLL_MASK);
         da.set_size_request(1300, 400);
@@ -103,7 +118,7 @@ impl ListingWidget {
         let leb = &self.engine;
         for lg in leb.line_groups.iter() {
             lg.render(&leb.breaks);
-            for l in lg.lines.borrow().iter() {
+            for l in lg.lines.read().unwrap().iter() {
                 let offset = (lineno as isize - leb.top_margin as isize) as f64 - self.scroll_position;
                 
                 if lineno >= leb.top_margin && lineno < leb.top_margin + leb.window_height {
@@ -158,6 +173,7 @@ impl ListingWidget {
             if self.scroll_position > (self.config.lookahead as f64) {
                 let amt_attempted = self.scroll_position as usize - self.config.lookahead;
                 let amt_actual = self.engine.scroll_down(amt_attempted);
+                self.update_futures();
                 self.scroll_position-= amt_actual as f64;
                 if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
                     /* we are now bonked on the bottom... */
@@ -169,6 +185,7 @@ impl ListingWidget {
             if self.scroll_position < (self.config.lookahead as f64) {
                 let amt_attempted = ((self.config.lookahead as f64) - self.scroll_position) as usize;
                 let amt_actual = self.engine.scroll_up(amt_attempted);
+                self.update_futures();
                 self.scroll_position+= amt_actual as f64;
                 if amt_actual < amt_attempted && self.scroll_velocity < 0.0 {
                     /* we are now bonked on the top... */
@@ -194,10 +211,22 @@ impl ListingWidget {
             
             self.last_animation_time = fc.get_frame_time();
         //}
-                
+
+        da.queue_draw(); // TODO: lol
+        
         Continue(true)
     }
 
+    fn update_futures(&self) {
+        let mut waker = self.render_waker.lock().unwrap();
+
+        let opt = std::mem::replace(&mut *waker, None);
+        match opt {
+            Some(wk) => wk.wake(),
+            None => ()
+        };
+    }
+    
     fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
         let height = al.height as f64;
         let lines = f64::max((height - 2.0 * self.config.padding) / self.config.font_size, 0.0) as usize;
@@ -208,5 +237,23 @@ impl ListingWidget {
             + (2 * self.config.lookahead); // lookahead works in both directions
         
         self.engine.resize_window(window_size);
+        self.update_futures();
+    }
+}
+
+impl std::future::Future for ListingPoller {
+    type Output = ();
+
+    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
+        let lw = self.lw.read().unwrap();
+        
+        let mut waker = lw.render_waker.lock().unwrap();
+        std::mem::replace(&mut *waker, Some(cx.waker().clone()));
+
+        for lg in &lw.engine.line_groups {
+            lg.progress(cx);
+        }
+        
+        task::Poll::Pending // live forever
     }
 }

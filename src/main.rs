@@ -5,6 +5,7 @@ extern crate gio;
 extern crate gtk;
 extern crate gdk;
 extern crate futures;
+extern crate tokio;
 
 #[cfg(feature = "test_listing")]
 extern crate ncurses;
@@ -26,7 +27,10 @@ fn draw_fn(_a: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::prelude::Inhibit 
     Inhibit(false)
 }
 
-fn build_ui(application: &gtk::Application, aspace: std::sync::Arc<dyn space::AddressSpace>) {
+fn build_ui(
+    application: &gtk::Application,
+    aspace: std::sync::Arc<dyn space::AddressSpace + Send + Sync>,
+    rt: std::sync::Arc<tokio::runtime::Runtime>) {
     let window = gtk::ApplicationWindow::new(application);
 
     window.set_title("Charm");
@@ -38,7 +42,7 @@ fn build_ui(application: &gtk::Application, aspace: std::sync::Arc<dyn space::Ad
     let tree = gtk::TreeView::new();
     let da = gtk::DrawingArea::new();
 
-    widget::listing::ListingWidget::new(aspace)
+    widget::listing::ListingWidget::new(aspace, rt)
         .attach(&da);
 
     pane.add(&da);
@@ -52,14 +56,23 @@ fn build_ui(application: &gtk::Application, aspace: std::sync::Arc<dyn space::Ad
 fn main() {
     println!("Hello, world!");
 
+    let rt = std::sync::Arc::new(
+        tokio::runtime::Builder::new()
+            .threaded_scheduler()
+            .enable_all()
+            .build().unwrap());
+    
     let application =
         gtk::Application::new(Some("net.xenotoad.charm"), Default::default())
         .expect("Initialization failed..");
 
-    let fas = std::sync::Arc::new(space::file::FileAddressSpace::open("/proc/self/exe").unwrap());
+    let fas = std::sync::Arc::new(
+        space::file::FileAddressSpace::open(
+            rt.handle().clone(),
+            "/proc/self/exe").unwrap());
     
     application.connect_activate(move |app| {
-        build_ui(app, fas.clone());
+        build_ui(app, fas.clone(), rt.clone());
     });
 
     application.run(&std::env::args().collect::<Vec<_>>());

@@ -13,6 +13,7 @@ gio = "0.8.1"
 cairo-rs = "0.8.1"
 ncurses = "5.99.0"
 futures = "0.3.4"
+tokio = { version = "0.2", features = ["full"] }
 
 [features]
 default = []

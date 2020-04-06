@@ -11,7 +11,7 @@ pub enum FetchResult {
 }
 
 pub trait AddressSpace {
-    fn fetch(self: sync::Arc<Self>, loc: addr::Address, size: addr::Size, out: vec::Vec<u8>) -> futures::future::BoxFuture<'static, FetchResult>;
+    fn fetch(self: sync::Arc<Self>, loc: addr::Address, size: addr::Size, out: vec::Vec<u8>) -> std::pin::Pin<Box<dyn futures::Future<Output = FetchResult> + Send + Sync>>;
 }
 
 pub mod file;

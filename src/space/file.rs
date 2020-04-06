@@ -1,5 +1,7 @@
 use std::sync;
 use std::vec;
+use std::task;
+use std::pin;
 use std::io::Read;
 use std::io::Seek;
 
@@ -12,9 +14,11 @@ struct Inner {
 
 pub struct FileAddressSpace {
     inner: sync::RwLock<Inner>,
+    tokio_handle: tokio::runtime::Handle,
 }
 
 struct FetchFuture {
+    delay: pin::Pin<Box<tokio::time::Delay>>, // pin projection is obnoxious and prevents us from mutating the other fields here
     fas: sync::Arc<FileAddressSpace>,
     addr: addr::Address,
     size: addr::Size,
@@ -22,11 +26,12 @@ struct FetchFuture {
 }
 
 impl FileAddressSpace {
-    pub fn open(path: &'_ str) -> std::io::Result<FileAddressSpace> {
+    pub fn open(rt: tokio::runtime::Handle, path: &'_ str) -> std::io::Result<FileAddressSpace> {
         Ok(FileAddressSpace {
             inner: sync::RwLock::<Inner>::new(Inner {
                 file: std::fs::File::open(path)?,
             }),
+            tokio_handle: rt
         })
     }
 
@@ -48,19 +53,27 @@ impl FileAddressSpace {
 impl futures::Future for FetchFuture {
     type Output = space::FetchResult;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> std::task::Poll<space::FetchResult> {
-        let workaround = &mut *self;
-        std::task::Poll::Ready(workaround.fas.read_sync(workaround.addr, workaround.size, std::mem::replace(&mut workaround.out, vec::Vec::new())))
+    fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<space::FetchResult> {
+        match self.delay.as_mut().poll(cx) {
+            task::Poll::Ready(_) => {
+                let workaround = &mut *self;
+                task::Poll::Ready(workaround.fas.read_sync(workaround.addr, workaround.size, std::mem::replace(&mut workaround.out, vec::Vec::new())))
+            },
+            task::Poll::Pending => task::Poll::Pending
+        }
     }
 }
 
 impl space::AddressSpace for FileAddressSpace {
-    fn fetch(self: sync::Arc<Self>, addr: addr::Address, size: addr::Size, out: vec::Vec<u8>) -> futures::future::BoxFuture<'static, space::FetchResult> {
-        std::boxed::Box::pin(FetchFuture {
-            fas: self.clone(),
-            addr,
-            size,
-            out,
+    fn fetch(self: sync::Arc<Self>, addr: addr::Address, size: addr::Size, out: vec::Vec<u8>) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
+        self.tokio_handle.enter(|| {
+            Box::pin(FetchFuture {
+                delay: Box::pin(tokio::time::delay_for(tokio::time::Duration::new(1, 0))),
+                fas: self.clone(),
+                addr,
+                size,
+                out,
+            })
         })
     }
 }
