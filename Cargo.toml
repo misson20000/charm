@@ -1,0 +1,19 @@
+[package]
+name = "charm"
+version = "0.1.0"
+authors = ["misson20000 <xenotoad@xenotoad.net>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gtk = "0.8.1"
+gdk = "0.12.1"
+gio = "0.8.1"
+cairo-rs = "0.8.1"
+ncurses = "5.99.0"
+futures = "0.3.4"
+
+[features]
+default = []
+test_listing = []
