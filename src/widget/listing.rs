@@ -103,16 +103,20 @@ impl ListingWidget {
         da.add_events(gdk::EventMask::SCROLL_MASK | gdk::EventMask::SMOOTH_SCROLL_MASK);
         da.set_size_request(1300, 400);
     }
+
+    fn setup_font(&self, cr: &cairo::Context) {
+        cr.select_font_face("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(self.config.font_size);
+    }
     
-    pub fn draw(&self, _da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+    pub fn draw(&self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
         /* our bounds are given by get_allocated_width and get_allocated_height */
         cr.set_source_rgb(0.1, 0.1, 0.1);
         cr.paint();
-        
-        cr.select_font_face("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(self.config.font_size);
-        cr.set_source_rgb(0.9, 1.0, 0.9);
 
+        self.setup_font(cr);
+        let extents = cr.font_extents();
+        
         let mut lineno: usize = 0;
         
         let leb = &self.engine;
@@ -122,14 +126,29 @@ impl ListingWidget {
                 let offset = (lineno as isize - leb.top_margin as isize) as f64 - self.scroll_position;
                 
                 if lineno >= leb.top_margin && lineno < leb.top_margin + leb.window_height {
-                    cr.move_to(self.config.padding, self.config.padding + self.config.font_size * (1.0 + offset));
+                    let y = self.config.padding + extents.height * offset;
+                    cr.set_source_rgb(0.86, 0.9, 0.86);
+                    cr.move_to(self.config.padding, y + extents.height);
                     cr.show_text(l);
+
+                    match &lg.group_type {
+                        listing::LineGroupType::Hex(hl) => {
+                            if hl.distance_from_break % 0x100 == 0 {
+                                cr.set_source_rgb(0.05, 0.05, 0.05);
+                                cr.move_to(0.0, y + extents.descent);
+                                cr.line_to(da.get_allocated_width() as f64, y + extents.descent);
+                                cr.stroke();
+                            }
+                        },
+                        _ => ()
+                    }
                 }
                 lineno+= 1;
             }
         }
 
         /* DEBUG */
+        /*
         let debug = vec![
             format!("lookahead: {}", self.config.lookahead),
             format!("scroll position: {} lines", self.scroll_position),
@@ -142,7 +161,7 @@ impl ListingWidget {
             cr.move_to(1000.0, 40.0 + (self.config.font_size * lineno as f64));
             cr.show_text(&line);
             lineno+= 1;
-        }
+        }*/
         
         gtk::Inhibit(false)
     }

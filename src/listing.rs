@@ -42,9 +42,10 @@ enum HexLineAsyncState {
     Finished(space::FetchResult)
 }
 
-struct HexLine {
-    addr: addr::Address,
-    size: addr::Size,
+pub struct HexLine {
+    pub addr: addr::Address,
+    pub size: addr::Size,
+    pub distance_from_break: u64,
     internal: sync::RwLock<HexLineAsyncState>
 }
 
@@ -57,7 +58,6 @@ impl HexLine {
         let mut ih = self.internal.write().unwrap();
         match &mut *ih {
             HexLineAsyncState::Pending(future) => {
-                println!("HexLine {} polling", self.addr);
                 match future.as_mut().poll(cx) {
                     task::Poll::Ready(result) => { std::mem::replace(&mut *ih, HexLineAsyncState::Finished(result)); },
                     task::Poll::Pending => ()
@@ -111,14 +111,14 @@ impl HexLine {
     }
 }
 
-enum LineGroupType {
+pub enum LineGroupType {
     Hex(HexLine),
     Break(usize) // index
 }
 
 pub struct LineGroup {
     space: sync::Arc<dyn space::AddressSpace + Send + Sync>,
-    group_type: LineGroupType,
+    pub group_type: LineGroupType,
     pub lines: sync::RwLock<vec::Vec<string::String>>,
 }
 
@@ -131,11 +131,12 @@ impl LineGroup {
         }
     }
     
-    fn make_line(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, a: addr::Address, s: addr::Size) -> LineGroup {
+    fn make_line(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, a: addr::Address, s: addr::Size, distance_from_break: u64) -> LineGroup {
         LineGroup {
             space: space.clone(),
             group_type: LineGroupType::Hex(HexLine {
                 addr: a, size: s,
+                distance_from_break,
                 internal: sync::RwLock::new(
                     HexLineAsyncState::Pending(
                         Box::pin(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize]))))
@@ -435,7 +436,7 @@ impl ListingEngine {
                 } else {
                     let end_addr = self.top_address;
                     self.top_address = b.begin_line_including(self.top_address - addr::Size { bytes: 0, bits: 1});
-                    LineGroup::make_line(self.space.clone(), self.top_address, end_addr - self.top_address)
+                    LineGroup::make_line(self.space.clone(), self.top_address, end_addr - self.top_address, (self.top_address - b.address).bytes)
                 }
             }
         };
@@ -453,8 +454,9 @@ impl ListingEngine {
         
         let lg = if self.bottom_next_break_index >= self.breaks.len() || self.breaks[self.bottom_next_break_index].address >= addr + LINE_SIZE {
             // produce a regular line
+            let cb = &self.breaks[self.bottom_current_break_index];
             self.bottom_address+= LINE_SIZE;
-            LineGroup::make_line(self.space.clone(), addr, addr::Size::from(LINE_SIZE))
+            LineGroup::make_line(self.space.clone(), addr, addr::Size::from(LINE_SIZE), (addr - cb.address).bytes)
         } else {
             let b = &self.breaks[self.bottom_next_break_index];
             if b.address <= addr {
@@ -465,8 +467,9 @@ impl ListingEngine {
                 LineGroup::make_break(self.space.clone(), self.bottom_current_break_index)
             } else {
                 // produce a truncated line
+                let cb = &self.breaks[self.bottom_current_break_index];
                 self.bottom_address = b.address;
-                LineGroup::make_line(self.space.clone(), addr, b.address - addr)
+                LineGroup::make_line(self.space.clone(), addr, b.address - addr, (addr - cb.address).bytes)
             }
         };
         
