@@ -26,7 +26,7 @@ struct FetchFuture {
 }
 
 impl FileAddressSpace {
-    pub fn open(rt: tokio::runtime::Handle, path: &'_ str) -> std::io::Result<FileAddressSpace> {
+    pub fn open(rt: tokio::runtime::Handle, path: &'_ std::path::PathBuf) -> std::io::Result<FileAddressSpace> {
         Ok(FileAddressSpace {
             inner: sync::RwLock::<Inner>::new(Inner {
                 file: std::fs::File::open(path)?,

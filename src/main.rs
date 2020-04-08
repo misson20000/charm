@@ -24,7 +24,8 @@ use gio::prelude::*;
 use gtk::prelude::*;
 
 struct CharmUi {
-    window: gtk::ApplicationWindow
+    window: gtk::ApplicationWindow,
+    notebook: gtk::Notebook,
 }
 
 struct CharmApplication {
@@ -47,37 +48,79 @@ impl CharmApplication {
                 window.set_position(gtk::WindowPosition::Center);
                 window.set_default_size(800, 600);
 
-                let pane = gtk::Paned::new(gtk::Orientation::Horizontal);
-                let tree = gtk::TreeView::new();
-                
-                /*
-                let da = gtk::DrawingArea::new();
-                widget::listing::ListingWidget::new(aspace, rt)
-                .attach(&da);
-                
-                pane.add(&da);
-                 */
-                
-                pane.add(&tree);
+                let main_box = gtk::Box::new(gtk::Orientation::Vertical, 24);
 
-                window.add(&pane);
+                {
+                    let menu_bar = gtk::MenuBar::new();
+                    {
+                        let file_menu = gtk::Menu::new();
+                        let item1 = gtk::MenuItem::new_with_label("File Item #1");
+                        let item2 = gtk::MenuItem::new_with_label("File Item #2");
+                        file_menu.append(&item1);
+                        file_menu.append(&item2);
+                        
+                        let file_item = gtk::MenuItem::new_with_label("File");
+                        file_item.set_submenu(Some(&file_menu));
+                        menu_bar.append(&file_item);
+                    }
+                    {
+                        let help_menu = gtk::Menu::new();
+                        let item1 = gtk::MenuItem::new_with_label("Help Item #1");
+                        let item2 = gtk::MenuItem::new_with_label("Help Item #2");
+                        help_menu.append(&item1);
+                        help_menu.append(&item2);
 
+                        let help_item = gtk::MenuItem::new_with_label("Help");
+                        help_item.set_submenu(Some(&help_menu));
+                        menu_bar.append(&help_item);
+                    }
+                    main_box.pack_start(&menu_bar, false, false, 0);
+                }
+
+                let notebook = gtk::Notebook::new();
+                main_box.pack_start(&notebook, true, true, 0);                
+                
+                window.add(&main_box);
                 window.show_all();
 
                 self.ui = Some(CharmUi {
-                    window
+                    window,
+                    notebook
                 });
             }
         }
     }
 
+    fn append_page_for_file(&self, file: &gio::File) {
+        let pane = gtk::Paned::new(gtk::Orientation::Horizontal);
+        let tree = gtk::TreeView::new();
+
+        let fas = std::sync::Arc::new(
+            space::file::FileAddressSpace::open(
+                self.rt.handle().clone(),
+                &file.get_path().unwrap()).unwrap());
+        
+        let da = gtk::DrawingArea::new();
+        widget::listing::ListingWidget::new(fas, self.rt.handle().clone()).attach(&da);
+        
+        pane.add(&da);
+
+        let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, option::Option::<&gio::Cancellable>::None).unwrap();
+        let dn = attributes.get_attribute_as_string("standard::display-name").unwrap();
+        println!("file display name: {}", dn.as_str());
+        
+        pane.add(&tree);
+        let ui = self.ui.as_ref().unwrap();
+        ui.notebook.append_page(&pane, Some(&gtk::Label::new(Some(dn.as_str()))));
+        ui.notebook.show_all();
+    }
+
     fn open(&mut self, files: &[gio::File], hint: &str) {
         println!("charm application opening {:?} hint {}", files, hint);
 
-        /*let fas = std::sync::Arc::new(
-        space::file::FileAddressSpace::open(
-        rt.handle().clone(),
-        "/proc/self/exe").unwrap());*/
+        for f in files {
+            self.append_page_for_file(&f);
+        }
     }
 }
 

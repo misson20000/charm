@@ -24,7 +24,7 @@ struct Config {
 
 pub struct ListingWidget {
     engine: listing::ListingEngine,
-    rt: sync::Arc<tokio::runtime::Runtime>,
+    rt: tokio::runtime::Handle,
     render_task: option::Option<tokio::task::JoinHandle<()>>,
     render_waker: sync::Mutex<option::Option<task::Waker>>,
     config: Config,
@@ -43,7 +43,7 @@ struct ListingPoller {
 impl ListingWidget {
     pub fn new(
         aspace: sync::Arc<dyn space::AddressSpace + Send + Sync>,
-        rt: sync::Arc<tokio::runtime::Runtime>) -> ListingWidget {
+        rt: tokio::runtime::Handle) -> ListingWidget {
         ListingWidget {
             engine: listing::ListingEngine::new(aspace, 12),
             rt,
