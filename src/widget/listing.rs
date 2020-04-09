@@ -53,12 +53,12 @@ impl ListingWidget {
             config: Config {
                 lookahead: 5,
                 scroll_wheel_impulse: 80.0,
-                scroll_deceleration: 400.0,
+                scroll_deceleration: 600.0,
                 scroll_spring: 120.0,
                 scroll_spring_damping: 17.0,
                 animation_integration_step: 1.0/120.0,
                 padding: 20.0,
-                font_size: 13.0,
+                font_size: 14.0,
             },
 
             last_animation_time: 0,

@@ -2,6 +2,7 @@ use std::sync;
 use std::vec;
 use std::task;
 use std::pin;
+use std::string;
 use std::io::Read;
 use std::io::Seek;
 
@@ -14,6 +15,7 @@ struct Inner {
 
 pub struct FileAddressSpace {
     inner: sync::RwLock<Inner>,
+    label: string::String,
     tokio_handle: tokio::runtime::Handle,
 }
 
@@ -26,11 +28,12 @@ struct FetchFuture {
 }
 
 impl FileAddressSpace {
-    pub fn open(rt: tokio::runtime::Handle, path: &'_ std::path::PathBuf) -> std::io::Result<FileAddressSpace> {
+    pub fn open(rt: tokio::runtime::Handle, path: &'_ std::path::PathBuf, label: &str) -> std::io::Result<FileAddressSpace> {
         Ok(FileAddressSpace {
             inner: sync::RwLock::<Inner>::new(Inner {
                 file: std::fs::File::open(path)?,
             }),
+            label: label.to_string(),
             tokio_handle: rt
         })
     }
@@ -65,6 +68,10 @@ impl futures::Future for FetchFuture {
 }
 
 impl space::AddressSpace for FileAddressSpace {
+    fn get_label(&self) -> &str {
+        return &self.label;
+    }
+    
     fn fetch(self: sync::Arc<Self>, addr: addr::Address, size: addr::Size, out: vec::Vec<u8>) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
         self.tokio_handle.enter(|| {
             Box::pin(FetchFuture {
