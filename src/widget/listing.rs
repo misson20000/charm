@@ -204,6 +204,13 @@ pub mod config {
     }
 }
 
+struct InternalRenderingExtents {
+    line_height: f64,
+    font_extents: cairo::FontExtents,
+    addr_pane_width: f64,
+    padding: f64
+}
+
 pub struct ListingWidget {
     engine: listing::ListingEngine,
     rt: tokio::runtime::Handle,
@@ -307,16 +314,22 @@ impl ListingWidget {
         cr.paint();
 
         self.setup_font(&cfg, cr, cfg.addr_pane_bold);
-        let extents = cr.font_extents();
+        let font_extents = cr.font_extents();
 
-        if extents.height != self.line_height {
+        if font_extents.height != self.line_height {
             self.resize_window(&cfg, da.get_allocated_height() as f64);
-            self.line_height = extents.height;
+            self.line_height = font_extents.height;
         }
         
         let addr_pane_extents = cr.text_extents("0x0000000000000000.0");
         let addr_pane_width = cfg.padding * 2.0 + addr_pane_extents.width;
-        let listing_x_offset = addr_pane_width + cfg.padding;
+
+        let ire = InternalRenderingExtents {
+            line_height: font_extents.height,
+            font_extents,
+            addr_pane_width,
+            padding: cfg.padding
+        };
         
         cairo_set_source_rgba(cr, cfg.addr_pane_color);
         cr.rectangle(0.0, 0.0, addr_pane_width, da.get_allocated_height() as f64);
@@ -324,38 +337,24 @@ impl ListingWidget {
         
         let mut lineno: usize = 0;
         
-        let leb = &self.engine;
-        for lg in leb.line_groups.iter() {
-            lg.render(&leb.breaks);
-            for l in lg.lines.read().unwrap().iter() {
-                let offset = (lineno as isize - leb.top_margin as isize) as f64 - self.scroll_position;
-                
-                if lineno >= leb.top_margin && lineno < leb.top_margin + leb.window_height {
-                    let y = cfg.padding + extents.height * offset;
-                    cairo_set_source_rgba(cr, cfg.text_color);
-                    self.setup_font(&cfg, cr, false);
-                    cr.move_to(listing_x_offset, y + extents.height);
-                    cr.show_text(l);
+        for lg in self.engine.line_groups.iter() {
+            //lg.render();
 
-                    match &lg.group_type {
-                        listing::LineGroupType::Hex(hl) => {
-                            self.setup_font(&cfg, cr, cfg.addr_pane_bold);
-                            cairo_set_source_rgba(cr, cfg.addr_color);
-                            cr.move_to(cfg.padding, y + extents.height);
-                            cr.show_text(&format!("{}", hl.addr));
-                            
-                            if hl.distance_from_break % 0x100 == 0 {
-                                cairo_set_source_rgba(cr, cfg.ridge_color);
-                                cr.move_to(listing_x_offset, y + extents.descent);
-                                cr.line_to(da.get_allocated_width() as f64, y + extents.descent);
-                                cr.stroke();
-                            }
-                        },
-                        _ => ()
-                    }
-                }
-                lineno+= 1;
+            cr.save();
+            cr.translate(0.0, cfg.padding + ire.line_height * ((lineno as isize - self.engine.top_margin as isize) as f64 - self.scroll_position));
+
+            match &lg.group_type {
+                listing::LineGroupType::Hex(hl) => {
+                    self.draw_hex_group(&hl, &cr, &cfg, &ire, da.get_allocated_width() as f64);
+                },
+                listing::LineGroupType::Break(bidx) => {
+                    self.draw_break_group(&self.engine.breaks[*bidx], &cr, &cfg, &ire, da.get_allocated_width() as f64);
+                },
             }
+
+            cr.restore();
+            
+            lineno+= lg.num_lines(&self.engine.breaks);
         }
 
         /* DEBUG */
@@ -375,6 +374,44 @@ impl ListingWidget {
         }*/
         
         gtk::Inhibit(false)
+    }
+
+    fn draw_hex_group(&self, hl: &listing::HexLine, cr: &cairo::Context, cfg: &Config, ire: &InternalRenderingExtents, width: f64) {
+        // draw ridge
+        if hl.distance_from_break % 0x100 == 0 {
+            cairo_set_source_rgba(cr, cfg.ridge_color);
+            cr.move_to(ire.addr_pane_width, ire.font_extents.descent);
+            cr.line_to(width, ire.font_extents.descent);
+            cr.stroke();
+        }
+
+        // draw address in addr pane
+        self.setup_font(&cfg, cr, cfg.addr_pane_bold);
+        cairo_set_source_rgba(cr, cfg.addr_color);
+        cr.move_to(cfg.padding, ire.line_height);
+        cr.show_text(&format!("{}", hl.addr));
+
+        // draw hex string
+        self.setup_font(&cfg, cr, false);
+        cairo_set_source_rgba(cr, cfg.text_color);
+        cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height);
+        cr.show_text(&hl.render());                
+    }
+
+    fn draw_break_group(&self, brk: &listing::Break, cr: &cairo::Context, cfg: &Config, ire: &InternalRenderingExtents, _width: f64) {
+        /*
+        // draw address in addr pane
+        self.setup_font(&cfg, cr, cfg.addr_pane_bold);
+        cairo_set_source_rgba(cr, cfg.addr_color);
+        cr.move_to(cfg.padding, extents.height);
+        cr.show_text(&format!("{}", hl.addr));
+         */
+
+        // draw label
+        self.setup_font(&cfg, cr, true);
+        cairo_set_source_rgba(cr, cfg.text_color);
+        cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height * 2.0);
+        cr.show_text(&brk.label);
     }
 
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {

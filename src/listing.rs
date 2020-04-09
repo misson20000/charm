@@ -14,8 +14,8 @@ const LINE_SIZE: u64 = 16;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Break {
-    address: addr::Address,
-    label: string::String,
+    pub address: addr::Address,
+    pub label: string::String,
 }
 
 impl Break {
@@ -28,12 +28,6 @@ impl Break {
 
     fn num_lines(&self) -> usize {
         2
-    }
-
-    fn render<'a>(&self, vec: &'a mut vec::Vec<string::String>) {
-        vec.clear();
-        vec.push(string::String::new());
-        vec.push(format!("{}:", self.label));
     }
 }
 
@@ -67,9 +61,7 @@ impl HexLine {
         }
     }
     
-    fn render<'out>(&'out self, vec: &'out mut vec::Vec<string::String>) {
-        vec.clear();
-        
+    pub fn render(&self) -> string::String {
         let bytes = self.size.round_up().bytes as usize;
         let ih = self.internal.read().unwrap();
         
@@ -105,7 +97,8 @@ impl HexLine {
         }
         str+= "  ";
         str+= state;
-        vec.push(str);
+
+        str
     }
 }
 
@@ -117,7 +110,6 @@ pub enum LineGroupType {
 pub struct LineGroup {
     space: sync::Arc<dyn space::AddressSpace + Send + Sync>,
     pub group_type: LineGroupType,
-    pub lines: sync::RwLock<vec::Vec<string::String>>,
 }
 
 impl LineGroup {
@@ -125,7 +117,6 @@ impl LineGroup {
         LineGroup {
             space,
             group_type: LineGroupType::Break(index),
-            lines: sync::RwLock::new(vec![]),
         }
     }
     
@@ -137,13 +128,12 @@ impl LineGroup {
                 distance_from_break,
                 internal: sync::RwLock::new(
                     HexLineAsyncState::Pending(
-                        Box::pin(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize]))))
+                        Box::pin(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize])))),
             }),
-            lines: sync::RwLock::new(vec![]),
         }
     }
     
-    fn num_lines<'b>(&'b self, breaks: &'b vec::Vec<Break>) -> usize {
+    pub fn num_lines<'b>(&'b self, breaks: &'b vec::Vec<Break>) -> usize {
         match self.group_type {
             LineGroupType::Hex(ref hex) => hex.num_lines(),
             LineGroupType::Break(i) => breaks[i].num_lines()
@@ -155,15 +145,7 @@ impl LineGroup {
             LineGroupType::Hex(ref hex) => hex.progress(cx),
             LineGroupType::Break(_) => ()
         }
-    }
-
-    
-    pub fn render<'b>(&'b self, breaks: &'b vec::Vec<Break>) {
-        match self.group_type {
-            LineGroupType::Hex(ref hex) => hex.render(&mut self.lines.write().unwrap()),
-            LineGroupType::Break(i) => breaks[i].render(&mut self.lines.write().unwrap())
-        }
-    }
+    }    
 }
 
 /*
