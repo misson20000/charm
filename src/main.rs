@@ -61,6 +61,8 @@ impl CharmWindow {
             main_box.pack_start(&menu_bar_widget, false, false, 0);
         }
 
+        let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        
         let notebook = gtk::Notebook::new();
         notebook.popup_enable();
         notebook.set_group_name(Some("listing"));
@@ -74,7 +76,10 @@ impl CharmWindow {
                 w.notebook.clone()
             });
         }
-        main_box.pack_start(&notebook, true, true, 0);                
+        paned.add(&notebook);
+        paned.add(&widget::listing::config::build_config_editor());
+        
+        main_box.pack_start(&paned, true, true, 0);                
         
         window.add(&main_box);
 

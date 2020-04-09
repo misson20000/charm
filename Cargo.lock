@@ -90,6 +90,7 @@ dependencies = [
  "gdk",
  "gio",
  "gtk",
+ "lazy_static",
  "ncurses",
  "tokio",
 ]

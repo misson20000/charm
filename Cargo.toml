@@ -7,12 +7,13 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gtk = "0.8.1"
+gtk = { version = "0.8.1", features = ["v3_20"] }
 gdk = "0.12.1"
 gio = "0.8.1"
 cairo-rs = "0.8.1"
 ncurses = "5.99.0"
 futures = "0.3.4"
+lazy_static = "1.4.0"
 tokio = { version = "0.2", features = ["full"] }
 
 [features]

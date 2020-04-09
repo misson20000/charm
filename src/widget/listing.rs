@@ -6,20 +6,156 @@ use std::option;
 use crate::listing;
 use crate::space;
 
+use lazy_static::lazy_static;
+
 use gtk::prelude::*;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 
-struct Config {
+pub struct Config {
     lookahead: usize, // lines
     scroll_wheel_impulse: f64, // lines/second
     scroll_deceleration: f64, // lines/second^2
     scroll_spring: f64, // 1/second^2
     scroll_spring_damping: f64, // viscous damping coefficient
-    animation_integration_step: f64, // seconds
     
     padding: f64, // pixels
     font_size: f64, // pixels
+
+    background_color: gdk::RGBA,
+    ridge_color: gdk::RGBA,
+    text_color: gdk::RGBA,
+    
+    version: usize, // incremented when this changes
+}
+
+fn make_gdk_rgb(red: f64, blue: f64, green: f64) -> gdk::RGBA {
+    gdk::RGBA { red, blue, green, alpha: 1.0 }
+}
+
+fn make_gdb_black(alpha: f64) -> gdk::RGBA {
+    gdk::RGBA { red: 0.0, blue: 0.0, green: 0.0, alpha }
+}
+
+lazy_static! {
+    static ref CONFIG: sync::Mutex<Config> = sync::Mutex::new(Config {
+        lookahead: 5,
+        scroll_wheel_impulse: 60.0,
+        scroll_deceleration: 620.0,
+        scroll_spring: 240.0,
+        scroll_spring_damping: 17.0,
+
+        padding: 10.0,
+        font_size: 14.0,
+
+        background_color: make_gdk_rgb(0.1, 0.1, 0.1),
+        ridge_color: make_gdb_black(0.05),
+        text_color: make_gdk_rgb(0.86, 0.9, 0.86),
+
+        version: 0,
+    });
+}
+
+pub mod config {
+    use gtk::prelude::*;
+    
+    type Config = crate::widget::listing::Config;
+    
+    fn edit_spinbutton_usize<F: 'static>(label: &str, default: usize, setter: F) -> gtk::ListBoxRow where
+        F: Fn(&mut Config, usize) {
+        let lbr = gtk::ListBoxRow::new();
+        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
+
+        let sb = gtk::SpinButton::new(
+            Some(&gtk::Adjustment::new(
+                default as f64,
+                0.0,
+                f64::MAX,
+                1.0,
+                10.0,
+                10.0
+            )), 0.001, 3);
+        sb.set_numeric(true);
+        sb.set_snap_to_ticks(true);
+        sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
+        sb.set_wrap(false);
+        sb.connect_value_changed(move |sb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), sb.get_value_as_int() as usize));
+        
+        bx.pack_end(&sb, false, false, 0);
+        lbr.add(&bx);
+        
+        lbr
+    }
+
+    fn edit_spinbutton_f64<F: 'static>(label: &str, default: f64, setter: F) -> gtk::ListBoxRow where
+        F: Fn(&mut Config, f64) {
+        let lbr = gtk::ListBoxRow::new();
+        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
+
+        let sb = gtk::SpinButton::new(
+            Some(&gtk::Adjustment::new(
+                default,
+                0.0,
+                f64::MAX,
+                1.0,
+                10.0,
+                10.0
+            )), 0.001, 3);
+        sb.set_numeric(true);
+        sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
+        sb.set_wrap(false);
+        sb.connect_value_changed(move |sb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), sb.get_value()));
+        
+        bx.pack_end(&sb, false, false, 0);
+        lbr.add(&bx);
+        
+        lbr
+    }
+
+    fn edit_color<F: 'static>(label: &str, default: gdk::RGBA, setter: F) -> gtk::ListBoxRow where
+        F: Fn(&mut Config, gdk::RGBA) {
+        let lbr = gtk::ListBoxRow::new();
+        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
+
+        let cb = gtk::ColorButtonBuilder::new()
+            .rgba(&default)
+            .show_editor(true)
+            .title(label)
+            .use_alpha(true)
+            .build();
+        gtk::ColorChooserExt::connect_property_rgba_notify(&cb, move |cb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), cb.get_rgba()));
+        
+        bx.pack_end(&cb, false, false, 0);
+        lbr.add(&bx);
+        
+        lbr
+    }
+    
+    pub fn build_config_editor() -> gtk::ListBox {
+        let lb = gtk::ListBox::new();
+
+        let current = crate::widget::listing::CONFIG.lock().unwrap();
+        
+        lb.add(&edit_spinbutton_usize("Lookahead", current.lookahead, |cfg, v| { cfg.lookahead = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Wheel Impulse", current.scroll_wheel_impulse, |cfg, v| { cfg.scroll_wheel_impulse = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Deceleration", current.scroll_deceleration, |cfg, v| { cfg.scroll_deceleration = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Spring", current.scroll_spring, |cfg, v| { cfg.scroll_spring = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Spring Damping", current.scroll_spring_damping, |cfg, v| { cfg.scroll_spring_damping = v; }));
+
+        lb.add(&edit_spinbutton_f64("Padding", current.padding, |cfg, v| { cfg.padding = v; }));
+        lb.add(&edit_spinbutton_f64("Font Size", current.font_size, |cfg, v| { cfg.font_size = v; }));
+
+        lb.add(&edit_color("Background Color", current.background_color, |cfg, v| { cfg.background_color = v; }));
+        lb.add(&edit_color("Ridge Color", current.ridge_color, |cfg, v| { cfg.ridge_color = v; }));
+        lb.add(&edit_color("Text Color", current.text_color, |cfg, v| { cfg.text_color = v; }));
+        
+        lb.show_all();
+        
+        return lb;
+    }
 }
 
 pub struct ListingWidget {
@@ -27,9 +163,10 @@ pub struct ListingWidget {
     rt: tokio::runtime::Handle,
     render_task: option::Option<tokio::task::JoinHandle<()>>,
     render_waker: sync::Mutex<option::Option<task::Waker>>,
-    config: Config,
 
+    last_config_version: usize,
     last_animation_time: i64,
+    
     scroll_position: f64,
     scroll_velocity: f64,
     scroll_bonked_top: bool,
@@ -38,6 +175,10 @@ pub struct ListingWidget {
 
 struct ListingPoller {
     lw: sync::Arc<sync::RwLock<ListingWidget>>
+}
+
+fn cairo_set_source_rgba(cr: &cairo::Context, rgba: gdk::RGBA) {
+    cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, rgba.alpha);
 }
 
 impl ListingWidget {
@@ -49,19 +190,10 @@ impl ListingWidget {
             rt,
             render_task: None,
             render_waker: sync::Mutex::new(None),
-            
-            config: Config {
-                lookahead: 5,
-                scroll_wheel_impulse: 80.0,
-                scroll_deceleration: 600.0,
-                scroll_spring: 120.0,
-                scroll_spring_damping: 17.0,
-                animation_integration_step: 1.0/120.0,
-                padding: 20.0,
-                font_size: 14.0,
-            },
 
+            last_config_version: 0,
             last_animation_time: 0,
+            
             scroll_position: 0.0,
             scroll_velocity: 0.0,
             scroll_bonked_bottom: false,
@@ -104,17 +236,19 @@ impl ListingWidget {
         da.set_size_request(1300, 400);
     }
 
-    fn setup_font(&self, cr: &cairo::Context) {
+    fn setup_font(&self, cfg: &Config, cr: &cairo::Context) {
         cr.select_font_face("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(self.config.font_size);
+        cr.set_font_size(cfg.font_size);
     }
     
     pub fn draw(&self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+        let cfg = CONFIG.lock().unwrap();
+        
         /* our bounds are given by get_allocated_width and get_allocated_height */
-        cr.set_source_rgb(0.1, 0.1, 0.1);
+        cairo_set_source_rgba(cr, cfg.background_color);
         cr.paint();
 
-        self.setup_font(cr);
+        self.setup_font(&cfg, cr);
         let extents = cr.font_extents();
         
         let mut lineno: usize = 0;
@@ -126,15 +260,15 @@ impl ListingWidget {
                 let offset = (lineno as isize - leb.top_margin as isize) as f64 - self.scroll_position;
                 
                 if lineno >= leb.top_margin && lineno < leb.top_margin + leb.window_height {
-                    let y = self.config.padding + extents.height * offset;
-                    cr.set_source_rgb(0.86, 0.9, 0.86);
-                    cr.move_to(self.config.padding, y + extents.height);
+                    let y = cfg.padding + extents.height * offset;
+                    cairo_set_source_rgba(cr, cfg.text_color);
+                    cr.move_to(cfg.padding, y + extents.height);
                     cr.show_text(l);
 
                     match &lg.group_type {
                         listing::LineGroupType::Hex(hl) => {
                             if hl.distance_from_break % 0x100 == 0 {
-                                cr.set_source_rgb(0.05, 0.05, 0.05);
+                                cairo_set_source_rgba(cr, cfg.ridge_color);
                                 cr.move_to(0.0, y + extents.descent);
                                 cr.line_to(da.get_allocated_width() as f64, y + extents.descent);
                                 cr.stroke();
@@ -167,7 +301,9 @@ impl ListingWidget {
     }
 
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
-        self.scroll_velocity+= es.get_delta().1 * self.config.scroll_wheel_impulse;
+        let cfg = CONFIG.lock().unwrap();
+        
+        self.scroll_velocity+= es.get_delta().1 * cfg.scroll_wheel_impulse;
         self.scroll_bonked_top = false;
         self.scroll_bonked_bottom = false;
         da.queue_draw();
@@ -176,6 +312,15 @@ impl ListingWidget {
     }
 
     fn tick_callback(&mut self, da: &gtk::DrawingArea, fc: &gdk::FrameClock) -> Continue {
+        let cfg = CONFIG.lock().unwrap();
+
+        if cfg.version > self.last_config_version {
+            self.size_allocate(da, &da.get_allocation());
+            da.queue_draw();
+            
+            self.last_config_version = cfg.version;
+        }
+        
         if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
             // if we fall too far behind, just drop frames
             self.last_animation_time = fc.get_frame_time();
@@ -189,8 +334,8 @@ impl ListingWidget {
             if self.scroll_velocity != 0.0 { da.queue_draw(); }
             
             /* try to scroll listing engine, setting bonk flags if necessary */
-            if self.scroll_position > (self.config.lookahead as f64) {
-                let amt_attempted = self.scroll_position as usize - self.config.lookahead;
+            if self.scroll_position > (cfg.lookahead as f64) {
+                let amt_attempted = self.scroll_position as usize - cfg.lookahead;
                 let amt_actual = self.engine.scroll_down(amt_attempted);
                 self.update_futures();
                 self.scroll_position-= amt_actual as f64;
@@ -201,8 +346,8 @@ impl ListingWidget {
                 }
             }
             
-            if self.scroll_position < (self.config.lookahead as f64) {
-                let amt_attempted = ((self.config.lookahead as f64) - self.scroll_position) as usize;
+            if self.scroll_position < (cfg.lookahead as f64) {
+                let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
                 let amt_actual = self.engine.scroll_up(amt_attempted);
                 self.update_futures();
                 self.scroll_position+= amt_actual as f64;
@@ -214,16 +359,16 @@ impl ListingWidget {
 
             /* if we are bonked, apply spring */
             if self.scroll_bonked_top {
-                self.scroll_velocity-= self.scroll_position * self.config.scroll_spring * ais;
-                self.scroll_velocity-= self.scroll_velocity * self.config.scroll_spring_damping * ais;
+                self.scroll_velocity-= self.scroll_position * cfg.scroll_spring * ais;
+                self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
             } else {
                 /* apply constant deceleration */
                 if self.scroll_velocity > 0.0 {
-                    self.scroll_velocity-= self.config.scroll_deceleration * ais;
+                    self.scroll_velocity-= cfg.scroll_deceleration * ais;
                     self.scroll_velocity = f64::max(0.0, self.scroll_velocity);
                 }
                 if self.scroll_velocity < 0.0 {
-                    self.scroll_velocity+= self.config.scroll_deceleration * ais;
+                    self.scroll_velocity+= cfg.scroll_deceleration * ais;
                     self.scroll_velocity = f64::min(0.0, self.scroll_velocity);
                 }
             }
@@ -247,13 +392,15 @@ impl ListingWidget {
     }
     
     fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
+        let cfg = CONFIG.lock().unwrap();
+        
         let height = al.height as f64;
-        let lines = f64::max((height - 2.0 * self.config.padding) / self.config.font_size, 0.0) as usize;
+        let lines = f64::max((height - 2.0 * cfg.padding) / cfg.font_size, 0.0) as usize;
         let window_size =
             lines
             + 1 // round-up
             + 1 // to accomodate scrolling
-            + (2 * self.config.lookahead); // lookahead works in both directions
+            + (2 * cfg.lookahead); // lookahead works in both directions
         
         self.engine.resize_window(window_size);
         self.update_futures();
