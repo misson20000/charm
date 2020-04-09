@@ -5,9 +5,11 @@ use std::option;
 
 use crate::listing;
 use crate::space;
+use crate::addr;
 
 use lazy_static::lazy_static;
 
+use hex_literal::hex;
 use gtk::prelude::*;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
@@ -19,12 +21,24 @@ pub struct Config {
     scroll_spring: f64, // 1/second^2
     scroll_spring_damping: f64, // viscous damping coefficient
     
+    scroll_align_integer: bool,
+    scroll_align_integer_spring: f64,
+    scroll_align_integer_spring_damping: f64,
+    scroll_align_position_tolerance: f64,
+    scroll_align_velocity_tolerance: f64,
+    
     padding: f64, // pixels
     font_size: f64, // pixels
 
     background_color: gdk::RGBA,
+    addr_pane_color: gdk::RGBA,
     ridge_color: gdk::RGBA,
+
+    addr_color: gdk::RGBA,
     text_color: gdk::RGBA,
+
+    addr_pane_bold: bool,
+    breaks_bold: bool,
     
     version: usize, // incremented when this changes
 }
@@ -33,8 +47,21 @@ fn make_gdk_rgb(red: f64, blue: f64, green: f64) -> gdk::RGBA {
     gdk::RGBA { red, blue, green, alpha: 1.0 }
 }
 
-fn make_gdb_black(alpha: f64) -> gdk::RGBA {
+fn make_gdk_rgba(red: f64, blue: f64, green: f64, alpha: f64) -> gdk::RGBA {
+    gdk::RGBA { red, blue, green, alpha }
+}
+
+fn make_gdk_black(alpha: f64) -> gdk::RGBA {
     gdk::RGBA { red: 0.0, blue: 0.0, green: 0.0, alpha }
+}
+
+fn make_gdk(bytes: [u8; 4]) -> gdk::RGBA {
+    gdk::RGBA {
+        red: bytes[0] as f64 / 255.0,
+        green: bytes[1] as f64 / 255.0,
+        blue: bytes[2] as f64 / 255.0,
+        alpha: bytes[3] as f64 / 255.0
+    }
 }
 
 lazy_static! {
@@ -44,14 +71,26 @@ lazy_static! {
         scroll_deceleration: 620.0,
         scroll_spring: 240.0,
         scroll_spring_damping: 17.0,
+        
+        scroll_align_integer: true,
+        scroll_align_integer_spring: 50.0,
+        scroll_align_integer_spring_damping: 80.0,
+        scroll_align_position_tolerance: 0.05,
+        scroll_align_velocity_tolerance: 2.0,
 
-        padding: 10.0,
+        padding: 15.0,
         font_size: 14.0,
 
-        background_color: make_gdk_rgb(0.1, 0.1, 0.1),
-        ridge_color: make_gdb_black(0.05),
-        text_color: make_gdk_rgb(0.86, 0.9, 0.86),
+        background_color: make_gdk(hex!("090909ff")),
+        addr_pane_color: make_gdk(hex!("ffffff12")),
+        ridge_color: make_gdk(hex!("0000000c")),
 
+        addr_color: make_gdk(hex!("8891efff")),
+        text_color: make_gdk(hex!("dbdbe6ff")),
+
+        addr_pane_bold: true,
+        breaks_bold: true,
+        
         version: 0,
     });
 }
@@ -145,11 +184,18 @@ pub mod config {
         lb.add(&edit_spinbutton_f64("Scroll Spring", current.scroll_spring, |cfg, v| { cfg.scroll_spring = v; }));
         lb.add(&edit_spinbutton_f64("Scroll Spring Damping", current.scroll_spring_damping, |cfg, v| { cfg.scroll_spring_damping = v; }));
 
+        lb.add(&edit_spinbutton_f64("Scroll Align Integer Spring", current.scroll_align_integer_spring, |cfg, v| { cfg.scroll_align_integer_spring = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Align Position Tolerance", current.scroll_align_position_tolerance, |cfg, v| { cfg.scroll_align_position_tolerance = v; }));
+        lb.add(&edit_spinbutton_f64("Scroll Align Velocity Tolerance", current.scroll_align_velocity_tolerance, |cfg, v| { cfg.scroll_align_velocity_tolerance = v; }));
+
         lb.add(&edit_spinbutton_f64("Padding", current.padding, |cfg, v| { cfg.padding = v; }));
         lb.add(&edit_spinbutton_f64("Font Size", current.font_size, |cfg, v| { cfg.font_size = v; }));
 
         lb.add(&edit_color("Background Color", current.background_color, |cfg, v| { cfg.background_color = v; }));
+        lb.add(&edit_color("Address Pane Color", current.addr_pane_color, |cfg, v| { cfg.addr_pane_color = v; }));
         lb.add(&edit_color("Ridge Color", current.ridge_color, |cfg, v| { cfg.ridge_color = v; }));
+
+        lb.add(&edit_color("Address Color", current.addr_color, |cfg, v| { cfg.addr_color = v; }));
         lb.add(&edit_color("Text Color", current.text_color, |cfg, v| { cfg.text_color = v; }));
         
         lb.show_all();
@@ -171,6 +217,10 @@ pub struct ListingWidget {
     scroll_velocity: f64,
     scroll_bonked_top: bool,
     scroll_bonked_bottom: bool,
+
+    line_height: f64,
+
+    cursor: addr::Address,
 }
 
 struct ListingPoller {
@@ -198,6 +248,10 @@ impl ListingWidget {
             scroll_velocity: 0.0,
             scroll_bonked_bottom: false,
             scroll_bonked_top: false,
+
+            line_height: 10.0,
+
+            cursor: addr::Address::default()
         }
     }
     
@@ -227,29 +281,46 @@ impl ListingWidget {
         - connect_size_allocate
          */
 
-        { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.read().unwrap().draw(da, cr)); }
+        { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.write().unwrap().draw(da, cr)); }
         { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.write().unwrap().scroll_event(da, es)); }
         { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.write().unwrap().size_allocate(da, al)); }
         { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.write().unwrap().tick_callback(da, fc)); }
 
         da.add_events(gdk::EventMask::SCROLL_MASK | gdk::EventMask::SMOOTH_SCROLL_MASK);
-        da.set_size_request(1300, 400);
+        //da.set_size_request(1300, 400);
     }
 
-    fn setup_font(&self, cfg: &Config, cr: &cairo::Context) {
-        cr.select_font_face("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    fn setup_font(&self, cfg: &Config, cr: &cairo::Context, bold: bool) {
+        cr.select_font_face(
+            "monospace",
+            cairo::FontSlant::Normal,
+            if bold { cairo::FontWeight::Bold }
+            else { cairo::FontWeight::Normal });
         cr.set_font_size(cfg.font_size);
     }
     
-    pub fn draw(&self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+    pub fn draw(&mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
         let cfg = CONFIG.lock().unwrap();
         
         /* our bounds are given by get_allocated_width and get_allocated_height */
         cairo_set_source_rgba(cr, cfg.background_color);
         cr.paint();
 
-        self.setup_font(&cfg, cr);
+        self.setup_font(&cfg, cr, cfg.addr_pane_bold);
         let extents = cr.font_extents();
+
+        if extents.height != self.line_height {
+            self.resize_window(&cfg, da.get_allocated_height() as f64);
+            self.line_height = extents.height;
+        }
+        
+        let addr_pane_extents = cr.text_extents("0x0000000000000000.0");
+        let addr_pane_width = cfg.padding * 2.0 + addr_pane_extents.width;
+        let listing_x_offset = addr_pane_width + cfg.padding;
+        
+        cairo_set_source_rgba(cr, cfg.addr_pane_color);
+        cr.rectangle(0.0, 0.0, addr_pane_width, da.get_allocated_height() as f64);
+        cr.fill();
         
         let mut lineno: usize = 0;
         
@@ -262,14 +333,20 @@ impl ListingWidget {
                 if lineno >= leb.top_margin && lineno < leb.top_margin + leb.window_height {
                     let y = cfg.padding + extents.height * offset;
                     cairo_set_source_rgba(cr, cfg.text_color);
-                    cr.move_to(cfg.padding, y + extents.height);
+                    self.setup_font(&cfg, cr, false);
+                    cr.move_to(listing_x_offset, y + extents.height);
                     cr.show_text(l);
 
                     match &lg.group_type {
                         listing::LineGroupType::Hex(hl) => {
+                            self.setup_font(&cfg, cr, cfg.addr_pane_bold);
+                            cairo_set_source_rgba(cr, cfg.addr_color);
+                            cr.move_to(cfg.padding, y + extents.height);
+                            cr.show_text(&format!("{}", hl.addr));
+                            
                             if hl.distance_from_break % 0x100 == 0 {
                                 cairo_set_source_rgba(cr, cfg.ridge_color);
-                                cr.move_to(0.0, y + extents.descent);
+                                cr.move_to(listing_x_offset, y + extents.descent);
                                 cr.line_to(da.get_allocated_width() as f64, y + extents.descent);
                                 cr.stroke();
                             }
@@ -315,7 +392,7 @@ impl ListingWidget {
         let cfg = CONFIG.lock().unwrap();
 
         if cfg.version > self.last_config_version {
-            self.size_allocate(da, &da.get_allocation());
+            self.resize_window(&cfg, da.get_allocated_height() as f64);
             da.queue_draw();
             
             self.last_config_version = cfg.version;
@@ -371,6 +448,20 @@ impl ListingWidget {
                     self.scroll_velocity+= cfg.scroll_deceleration * ais;
                     self.scroll_velocity = f64::min(0.0, self.scroll_velocity);
                 }
+                /* apply alignment spring */
+                if cfg.scroll_align_integer {
+                    let target = (self.scroll_position * self.line_height).round() / self.line_height;
+                    let delta = self.scroll_position - target;
+                    if delta.abs() < cfg.scroll_align_position_tolerance && self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
+                        // if we're close and we're moving slow, just snap
+                        self.scroll_position = target;
+                        self.scroll_velocity = 0.0;
+                    } else if self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
+                        // otherwise apply a spring force
+                        self.scroll_velocity+= (target - self.scroll_position) * cfg.scroll_align_integer_spring * ais;
+                        //self.scroll_velocity-= (self.scroll_velocity) * cfg.scroll_align_integer_spring_damping * ais;
+                    }
+                }
             }
             
             self.last_animation_time = fc.get_frame_time();
@@ -390,12 +481,9 @@ impl ListingWidget {
             None => ()
         };
     }
-    
-    fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
-        let cfg = CONFIG.lock().unwrap();
-        
-        let height = al.height as f64;
-        let lines = f64::max((height - 2.0 * cfg.padding) / cfg.font_size, 0.0) as usize;
+
+    fn resize_window(&mut self, cfg: &Config, height: f64) {
+        let lines = f64::max((height - 2.0 * cfg.padding) / self.line_height, 0.0) as usize;
         let window_size =
             lines
             + 1 // round-up
@@ -404,6 +492,10 @@ impl ListingWidget {
         
         self.engine.resize_window(window_size);
         self.update_futures();
+    }
+    
+    fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
+        self.resize_window(&CONFIG.lock().unwrap(), al.height as f64);
     }
 }
 

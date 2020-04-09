@@ -76,9 +76,23 @@ impl CharmWindow {
                 w.notebook.clone()
             });
         }
-        paned.add(&notebook);
-        paned.add(&widget::listing::config::build_config_editor());
-        
+        paned.pack1(&notebook, true, false);
+
+        {
+            let editor = widget::listing::config::build_config_editor();
+            editor.set_size_request(800, -1);
+            
+            let frame = gtk::Frame::new(None);
+            frame.set_shadow_type(gtk::ShadowType::In);
+            frame.set_margin_top(10);
+            frame.set_margin_bottom(10);
+            frame.set_margin_start(10);
+            frame.set_margin_end(10);
+            frame.add(&editor);
+            
+            paned.pack2(&frame, false, true);
+        }
+
         main_box.pack_start(&paned, true, true, 0);                
         
         window.add(&main_box);
@@ -202,7 +216,8 @@ impl CharmApplication {
             
             about_action.set_enabled(true);
             about_action.connect_activate(move |_act, _par| {
-                about_dialog.show_all();
+                about_dialog.run();
+                about_dialog.hide();
             });
             app.application.add_action(&about_action);
         }

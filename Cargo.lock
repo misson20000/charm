@@ -90,6 +90,7 @@ dependencies = [
  "gdk",
  "gio",
  "gtk",
+ "hex-literal",
  "lazy_static",
  "ncurses",
  "tokio",
@@ -394,6 +395,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "725cf19794cf90aa94e65050cb4191ff5d8fa87a498383774c47b332e3af952e"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "hex-literal"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "961de220ec9a91af2e1e5bd80d02109155695e516771762381ef8581317066e0"
+dependencies = [
+ "hex-literal-impl",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "hex-literal-impl"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d4c5c844e2fee0bf673d54c2c177f1713b3d2af2ff6e666b49cb7572e6cf42d"
+dependencies = [
+ "proc-macro-hack",
 ]
 
 [[package]]

@@ -27,8 +27,8 @@ pub fn bitshift_span(span: &mut [u8], shift: u8) {
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.bit {
-            0 => write!(f, "{:#016x}", self.byte),
-            _ => write!(f, "{:#016x}.{}", self.byte, self.bit)
+            0 => write!(f, "{:#018x}", self.byte),
+            _ => write!(f, "{:#018x}.{}", self.byte, self.bit)
         }
     }
 }

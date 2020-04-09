@@ -81,8 +81,6 @@ impl HexLine {
             HexLineAsyncState::Pending(_) => ("Pending", &[] as &[u8])
         };
         let mut str = std::string::String::new();
-        str+= &format!("{} ", self.addr);
-        str+= &std::str::from_utf8(&[' ' as u8; 20]).unwrap()[0..20 - str.len()];
         
         for i in 0..(LINE_SIZE as usize) {
             if i == 8 {
