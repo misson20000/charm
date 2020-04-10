@@ -37,8 +37,7 @@ enum HexLineAsyncState {
 }
 
 pub struct HexLine {
-    pub addr: addr::Address,
-    pub size: addr::Size,
+    pub extent: addr::Extent,
     pub distance_from_break: u64,
     internal: sync::RwLock<HexLineAsyncState>
 }
@@ -62,7 +61,7 @@ impl HexLine {
     }
     
     pub fn render(&self) -> string::String {
-        let bytes = self.size.round_up().bytes as usize;
+        let bytes = self.extent.size.round_up().bytes as usize;
         let ih = self.internal.read().unwrap();
         
         let (state, region) = match *ih {
@@ -120,20 +119,20 @@ impl LineGroup {
         }
     }
     
-    fn make_line(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, a: addr::Address, s: addr::Size, distance_from_break: u64) -> LineGroup {
+    fn make_line(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, extent: addr::Extent, distance_from_break: u64) -> LineGroup {
         LineGroup {
             space: space.clone(),
             group_type: LineGroupType::Hex(HexLine {
-                addr: a, size: s,
+                extent,
                 distance_from_break,
                 internal: sync::RwLock::new(
                     HexLineAsyncState::Pending(
-                        Box::pin(space.fetch(a, s, vec![0; (LINE_SIZE + 1) as usize])))),
+                        Box::pin(space.fetch(extent, vec![0; (LINE_SIZE + 1) as usize])))),
             }),
         }
     }
     
-    pub fn num_lines<'b>(&'b self, breaks: &'b vec::Vec<Break>) -> usize {
+    pub fn num_lines(&self, breaks: &vec::Vec<Break>) -> usize {
         match self.group_type {
             LineGroupType::Hex(ref hex) => hex.num_lines(),
             LineGroupType::Break(i) => breaks[i].num_lines()
@@ -362,7 +361,7 @@ impl ListingEngine {
             
             match lg.group_type {
                 LineGroupType::Hex(hex) => {
-                    self.top_address = hex.addr + hex.size;
+                    self.top_address = hex.extent.end();
                 },
                 LineGroupType::Break(i) => {
                     self.top_break_index = Some(i);
@@ -382,7 +381,7 @@ impl ListingEngine {
 
             match lg.group_type {
                 LineGroupType::Hex(hex) => {
-                    self.bottom_address = hex.addr;
+                    self.bottom_address = hex.extent.addr;
                 },
                 LineGroupType::Break(i) => {
                     self.bottom_current_break_index = i - 1; // if i was 0, we wind up ignoring this anyway
@@ -416,7 +415,10 @@ impl ListingEngine {
                 } else {
                     let end_addr = self.top_address;
                     self.top_address = b.begin_line_including(self.top_address - addr::Size { bytes: 0, bits: 1});
-                    LineGroup::make_line(self.space.clone(), self.top_address, end_addr - self.top_address, (self.top_address - b.address).bytes)
+                    LineGroup::make_line(
+                        self.space.clone(),
+                        addr::Extent::new(self.top_address, end_addr - self.top_address),
+                        (self.top_address - b.address).bytes)
                 }
             }
         };
@@ -436,7 +438,10 @@ impl ListingEngine {
             // produce a regular line
             let cb = &self.breaks[self.bottom_current_break_index];
             self.bottom_address+= LINE_SIZE;
-            LineGroup::make_line(self.space.clone(), addr, addr::Size::from(LINE_SIZE), (addr - cb.address).bytes)
+            LineGroup::make_line(
+                self.space.clone(),
+                addr::Extent::new(addr, addr::Size::from(LINE_SIZE)),
+                (addr - cb.address).bytes)
         } else {
             let b = &self.breaks[self.bottom_next_break_index];
             if b.address <= addr {
@@ -449,7 +454,10 @@ impl ListingEngine {
                 // produce a truncated line
                 let cb = &self.breaks[self.bottom_current_break_index];
                 self.bottom_address = b.address;
-                LineGroup::make_line(self.space.clone(), addr, b.address - addr, (addr - cb.address).bytes)
+                LineGroup::make_line(
+                    self.space.clone(),
+                    addr::Extent::new(addr, b.address - addr),
+                    (addr - cb.address).bytes)
             }
         };
         

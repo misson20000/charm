@@ -10,8 +10,35 @@ pub struct Size {
     pub bits: u8
 }
 
-pub fn round_span(addr: Address, extent: Size) -> (u64, u64) {
-    (addr.byte, (extent + Size {bytes: 0, bits: addr.bit}).round_up().bytes)
+#[derive(Default, PartialEq, Eq, Copy, Clone, Debug)]
+pub struct Extent {
+    pub addr: Address,
+    pub size: Size
+}
+
+#[derive(Default, PartialEq, Eq, Copy, Clone, Debug)]
+pub struct InfiniteExtent {
+    pub addr: Address,
+    pub size: Option<Size>
+}
+
+// for use with extents
+pub struct Triplet<T> {
+    pub before: Option<T>,
+    pub at: T,
+    pub after: Option<T>
+}
+
+pub mod unit {
+    use crate::addr::{Address, Size};
+
+    pub static NULL: Address = Address { byte: 0, bit: 0 };
+    pub static END: Address = Address { byte: u64::MAX, bit: 7 };
+    
+    pub static BIT: Size = Size { bytes: 0, bits: 1 };
+    pub static NYBBLE: Size = Size { bytes: 0, bits: 4 };
+    pub static BYTE: Size = Size { bytes: 1, bits: 0 };
+    pub static BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
 }
 
 pub fn bitshift_span(span: &mut [u8], shift: u8) {
@@ -68,6 +95,18 @@ impl std::ops::Add<u64> for Address {
 impl std::ops::AddAssign<u64> for Address {
     fn add_assign(&mut self, rhs: u64) {
         self.byte+= rhs;
+    }
+}
+
+impl std::ops::AddAssign<Size> for Address {
+    fn add_assign(&mut self, rhs: Size) {
+        *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit + rhs.bits);
+    }
+}
+
+impl std::ops::SubAssign<Size> for Address {
+    fn sub_assign(&mut self, rhs: Size) {
+        *self = Address::normalize_signed(self.byte - rhs.bytes, self.bit as i8 - rhs.bits as i8);
     }
 }
 
@@ -158,6 +197,56 @@ impl Size {
             *self
         } else {
             Size { bytes: self.bytes + 1, bits: 0 }
+        }
+    }
+}
+
+impl Extent {
+    pub fn new(addr: Address, size: Size) -> Extent {
+        Extent { addr, size }
+    }
+
+    pub fn between(begin: Address, end: Address) -> Extent {
+        Extent { addr: begin, size: end - begin }
+    }
+    
+    // be careful with this
+    pub fn end(&self) -> Address {
+        self.addr + self.size
+    }
+
+    // be careful with this
+    pub fn round(&self) -> (u64, u64) {
+        (self.addr.byte, (self.size + Size {bytes: 0, bits: self.addr.bit}).round_up().bytes)
+    }
+    
+    pub fn contains(&self, addr: Address) -> bool {
+        addr >= self.addr && addr < self.end()
+    }
+}
+
+impl InfiniteExtent {
+    pub fn new(addr: Address, size: Size) -> InfiniteExtent {
+        InfiniteExtent { addr, size: Some(size) }
+    }
+
+    pub fn between(begin: Address, end: Address) -> InfiniteExtent {
+        InfiniteExtent { addr: begin, size: Some(end - begin) }
+    }
+
+    pub fn infinite(addr: Address) -> InfiniteExtent {
+        InfiniteExtent { addr, size: None }
+    }
+
+    // be careful with this
+    pub fn end(&self) -> Option<Address> {
+        self.size.map(|sz| self.addr + sz)
+    }
+
+    pub fn contains(&self, addr: Address) -> bool {
+        addr >= self.addr && match self.size {
+            Some(sz) => addr < self.addr + sz,
+            None => true
         }
     }
 }
