@@ -11,9 +11,11 @@ extern crate tokio;
 extern crate ncurses;
 
 mod addr;
+mod ext;
 mod listing;
 mod space;
 mod widget;
+mod config;
 
 use std::rc;
 use std::sync;
@@ -79,7 +81,7 @@ impl CharmWindow {
         paned.pack1(&notebook, true, false);
 
         {
-            let editor = widget::listing::config::build_config_editor();
+            let editor = widget::config_editor::build_config_editor();
             editor.set_size_request(800, -1);
             
             let frame = gtk::Frame::new(None);

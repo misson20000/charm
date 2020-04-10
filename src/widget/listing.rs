@@ -6,214 +6,13 @@ use std::option;
 use crate::listing;
 use crate::space;
 use crate::addr;
+use crate::config;
 
-use lazy_static::lazy_static;
+use crate::ext::CairoExt;
 
-use hex_literal::hex;
 use gtk::prelude::*;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
-
-pub struct Config {
-    lookahead: usize, // lines
-    scroll_wheel_impulse: f64, // lines/second
-    scroll_deceleration: f64, // lines/second^2
-    scroll_spring: f64, // 1/second^2
-    scroll_spring_damping: f64, // viscous damping coefficient
-    
-    scroll_align_integer: bool,
-    scroll_align_integer_spring: f64,
-    scroll_align_integer_spring_damping: f64,
-    scroll_align_position_tolerance: f64,
-    scroll_align_velocity_tolerance: f64,
-    
-    padding: f64, // pixels
-    font_size: f64, // pixels
-
-    background_color: gdk::RGBA,
-    addr_pane_color: gdk::RGBA,
-    ridge_color: gdk::RGBA,
-
-    addr_color: gdk::RGBA,
-    text_color: gdk::RGBA,
-
-    addr_pane_bold: bool,
-    breaks_bold: bool,
-
-    cursor_bg_color: gdk::RGBA,
-    cursor_fg_color: gdk::RGBA,
-    cursor_blink_period: f64,
-    
-    version: usize, // incremented when this changes
-}
-
-fn make_gdk_rgb(red: f64, blue: f64, green: f64) -> gdk::RGBA {
-    gdk::RGBA { red, blue, green, alpha: 1.0 }
-}
-
-fn make_gdk_rgba(red: f64, blue: f64, green: f64, alpha: f64) -> gdk::RGBA {
-    gdk::RGBA { red, blue, green, alpha }
-}
-
-fn make_gdk_black(alpha: f64) -> gdk::RGBA {
-    gdk::RGBA { red: 0.0, blue: 0.0, green: 0.0, alpha }
-}
-
-fn make_gdk(bytes: [u8; 4]) -> gdk::RGBA {
-    gdk::RGBA {
-        red: bytes[0] as f64 / 255.0,
-        green: bytes[1] as f64 / 255.0,
-        blue: bytes[2] as f64 / 255.0,
-        alpha: bytes[3] as f64 / 255.0
-    }
-}
-
-lazy_static! {
-    static ref CONFIG: sync::Mutex<Config> = sync::Mutex::new(Config {
-        lookahead: 5,
-        scroll_wheel_impulse: 60.0,
-        scroll_deceleration: 620.0,
-        scroll_spring: 240.0,
-        scroll_spring_damping: 17.0,
-        
-        scroll_align_integer: true,
-        scroll_align_integer_spring: 50.0,
-        scroll_align_integer_spring_damping: 80.0,
-        scroll_align_position_tolerance: 0.05,
-        scroll_align_velocity_tolerance: 2.0,
-
-        padding: 15.0,
-        font_size: 14.0,
-
-        background_color: make_gdk(hex!("090909ff")),
-        addr_pane_color: make_gdk(hex!("ffffff12")),
-        ridge_color: make_gdk(hex!("0000000c")),
-
-        addr_color: make_gdk(hex!("8891efff")),
-        text_color: make_gdk(hex!("dbdbe6ff")),
-
-        addr_pane_bold: true,
-        breaks_bold: true,
-
-        cursor_bg_color: make_gdk(hex!("8891efff")),
-        cursor_fg_color: make_gdk(hex!("090909ff")),
-        cursor_blink_period: 1.0,
-        
-        version: 0,
-    });
-}
-
-pub mod config {
-    use gtk::prelude::*;
-    
-    type Config = crate::widget::listing::Config;
-    
-    fn edit_spinbutton_usize<F: 'static>(label: &str, default: usize, setter: F) -> gtk::ListBoxRow where
-        F: Fn(&mut Config, usize) {
-        let lbr = gtk::ListBoxRow::new();
-        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
-
-        let sb = gtk::SpinButton::new(
-            Some(&gtk::Adjustment::new(
-                default as f64,
-                0.0,
-                f64::MAX,
-                1.0,
-                10.0,
-                10.0
-            )), 0.001, 3);
-        sb.set_numeric(true);
-        sb.set_snap_to_ticks(true);
-        sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
-        sb.set_wrap(false);
-        sb.connect_value_changed(move |sb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), sb.get_value_as_int() as usize));
-        
-        bx.pack_end(&sb, false, false, 0);
-        lbr.add(&bx);
-        
-        lbr
-    }
-
-    fn edit_spinbutton_f64<F: 'static>(label: &str, default: f64, setter: F) -> gtk::ListBoxRow where
-        F: Fn(&mut Config, f64) {
-        let lbr = gtk::ListBoxRow::new();
-        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
-
-        let sb = gtk::SpinButton::new(
-            Some(&gtk::Adjustment::new(
-                default,
-                0.0,
-                f64::MAX,
-                1.0,
-                10.0,
-                10.0
-            )), 0.001, 3);
-        sb.set_numeric(true);
-        sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
-        sb.set_wrap(false);
-        sb.connect_value_changed(move |sb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), sb.get_value()));
-        
-        bx.pack_end(&sb, false, false, 0);
-        lbr.add(&bx);
-        
-        lbr
-    }
-
-    fn edit_color<F: 'static>(label: &str, default: gdk::RGBA, setter: F) -> gtk::ListBoxRow where
-        F: Fn(&mut Config, gdk::RGBA) {
-        let lbr = gtk::ListBoxRow::new();
-        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
-
-        let cb = gtk::ColorButtonBuilder::new()
-            .rgba(&default)
-            .show_editor(true)
-            .title(label)
-            .use_alpha(true)
-            .build();
-        gtk::ColorChooserExt::connect_property_rgba_notify(&cb, move |cb| setter(&mut crate::widget::listing::CONFIG.lock().unwrap(), cb.get_rgba()));
-        
-        bx.pack_end(&cb, false, false, 0);
-        lbr.add(&bx);
-        
-        lbr
-    }
-    
-    pub fn build_config_editor() -> gtk::ListBox {
-        let lb = gtk::ListBox::new();
-
-        let current = crate::widget::listing::CONFIG.lock().unwrap();
-        
-        lb.add(&edit_spinbutton_usize("Lookahead", current.lookahead, |cfg, v| { cfg.lookahead = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Wheel Impulse", current.scroll_wheel_impulse, |cfg, v| { cfg.scroll_wheel_impulse = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Deceleration", current.scroll_deceleration, |cfg, v| { cfg.scroll_deceleration = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Spring", current.scroll_spring, |cfg, v| { cfg.scroll_spring = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Spring Damping", current.scroll_spring_damping, |cfg, v| { cfg.scroll_spring_damping = v; }));
-
-        lb.add(&edit_spinbutton_f64("Scroll Align Integer Spring", current.scroll_align_integer_spring, |cfg, v| { cfg.scroll_align_integer_spring = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Align Position Tolerance", current.scroll_align_position_tolerance, |cfg, v| { cfg.scroll_align_position_tolerance = v; }));
-        lb.add(&edit_spinbutton_f64("Scroll Align Velocity Tolerance", current.scroll_align_velocity_tolerance, |cfg, v| { cfg.scroll_align_velocity_tolerance = v; }));
-
-        lb.add(&edit_spinbutton_f64("Padding", current.padding, |cfg, v| { cfg.padding = v; }));
-        lb.add(&edit_spinbutton_f64("Font Size", current.font_size, |cfg, v| { cfg.font_size = v; }));
-
-        lb.add(&edit_color("Background Color", current.background_color, |cfg, v| { cfg.background_color = v; }));
-        lb.add(&edit_color("Address Pane Color", current.addr_pane_color, |cfg, v| { cfg.addr_pane_color = v; }));
-        lb.add(&edit_color("Ridge Color", current.ridge_color, |cfg, v| { cfg.ridge_color = v; }));
-
-        lb.add(&edit_color("Address Color", current.addr_color, |cfg, v| { cfg.addr_color = v; }));
-        lb.add(&edit_color("Text Color", current.text_color, |cfg, v| { cfg.text_color = v; }));
-
-        lb.add(&edit_color("Cursor Background Color", current.cursor_bg_color, |cfg, v| { cfg.cursor_bg_color = v; }));
-        lb.add(&edit_color("Cursor Text Color", current.cursor_fg_color, |cfg, v| { cfg.cursor_fg_color = v; }));
-        
-        lb.show_all();
-        
-        return lb;
-    }
-}
 
 struct InternalRenderingExtents {
     line_height: f64,
@@ -253,10 +52,6 @@ pub struct ListingWidget {
 
 struct ListingPoller {
     lw: sync::Arc<sync::RwLock<ListingWidget>>
-}
-
-fn cairo_set_source_rgba(cr: &cairo::Context, rgba: gdk::RGBA) {
-    cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, rgba.alpha);
 }
 
 fn char_index_for_offset(o: addr::Size) -> usize {
@@ -341,7 +136,7 @@ impl ListingWidget {
         //da.set_size_request(1300, 400);
     }
 
-    fn setup_font(&self, cfg: &Config, cr: &cairo::Context, bold: bool) {
+    fn setup_font(&self, cfg: &config::Config, cr: &cairo::Context, bold: bool) {
         cr.select_font_face(
             "monospace",
             cairo::FontSlant::Normal,
@@ -351,7 +146,7 @@ impl ListingWidget {
     }
     
     pub fn draw(&mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
-        let cfg = CONFIG.lock().unwrap();
+        let cfg = config::get();
         
         self.setup_font(&cfg, cr, cfg.addr_pane_bold);
         let font_extents = cr.font_extents();
@@ -372,10 +167,10 @@ impl ListingWidget {
             padding: cfg.padding,
         };
 
-        cairo_set_source_rgba(cr, cfg.background_color);
+        cr.set_source_gdk_rgba(cfg.background_color);
         cr.paint();
                 
-        cairo_set_source_rgba(cr, cfg.addr_pane_color);
+        cr.set_source_gdk_rgba(cfg.addr_pane_color);
         cr.rectangle(0.0, 0.0, addr_pane_width, da.get_allocated_height() as f64);
         cr.fill();
 
@@ -425,14 +220,14 @@ impl ListingWidget {
         gtk::Inhibit(false)
     }
     
-    fn draw_hex_group(&self, hl: &listing::HexLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &Config, ire: &InternalRenderingExtents) {
+    fn draw_hex_group(&self, hl: &listing::HexLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, ire: &InternalRenderingExtents) {
         match phase {
             InternalRenderingPhase::Extents => {
             },
             InternalRenderingPhase::Background => {
                 // draw ridge
                 if hl.distance_from_break % 0x100 == 0 {
-                    cairo_set_source_rgba(cr, cfg.ridge_color);
+                    cr.set_source_gdk_rgba(cfg.ridge_color);
                     cr.move_to(ire.addr_pane_width, ire.font_extents.descent);
                     cr.line_to(ire.width, ire.font_extents.descent);
                     cr.stroke();
@@ -441,7 +236,7 @@ impl ListingWidget {
             InternalRenderingPhase::Foreground => {
                 // draw address in addr pane
                 self.setup_font(&cfg, cr, cfg.addr_pane_bold);
-                cairo_set_source_rgba(cr, cfg.addr_color);
+                cr.set_source_gdk_rgba(cfg.addr_color);
                 cr.move_to(cfg.padding, ire.line_height);
                 cr.show_text(&format!("{}", hl.extent.addr));
 
@@ -449,7 +244,7 @@ impl ListingWidget {
                                 
                 // draw hex string
                 self.setup_font(&cfg, cr, false);
-                cairo_set_source_rgba(cr, cfg.text_color);
+                cr.set_source_gdk_rgba(cfg.text_color);
                 cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height);
                 cr.show_text(&text);
 
@@ -459,7 +254,7 @@ impl ListingWidget {
                     let cx = ire.addr_pane_width + ire.padding + cidx as f64 * ire.font_extents.max_x_advance;
                     let bonk = (self.cursor_bonk_timer / 0.25) * 3.0 * ((0.25 - self.cursor_bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
                     
-                    cairo_set_source_rgba(cr, cfg.cursor_bg_color);
+                    cr.set_source_gdk_rgba(cfg.cursor_bg_color);
                     cr.rectangle(
                         cx.round() + bonk, // x extents look better if we round them
                         ire.line_height - ire.font_extents.ascent, // y extents tend to be integer already
@@ -467,7 +262,7 @@ impl ListingWidget {
                         ire.line_height);
                     cr.fill();
 
-                    cairo_set_source_rgba(cr, cfg.cursor_fg_color);
+                    cr.set_source_gdk_rgba(cfg.cursor_fg_color);
                     cr.move_to(cx, ire.line_height);
                     cr.show_text(&text.chars().nth(cidx).unwrap().to_string());
                 }
@@ -475,12 +270,12 @@ impl ListingWidget {
         }
     }
 
-    fn draw_break_group(&self, brk: &listing::Break, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &Config, ire: &InternalRenderingExtents) {
+    fn draw_break_group(&self, brk: &listing::Break, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, ire: &InternalRenderingExtents) {
         match phase {
             InternalRenderingPhase::Foreground => {
                 // draw label
                 self.setup_font(&cfg, cr, true);
-                cairo_set_source_rgba(cr, cfg.text_color);
+                cr.set_source_gdk_rgba(cfg.text_color);
                 cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height * 2.0);
                 cr.show_text(&brk.label);
             },
@@ -489,7 +284,7 @@ impl ListingWidget {
     }
 
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
-        let cfg = CONFIG.lock().unwrap();
+        let cfg = config::get();
         
         self.scroll_velocity+= es.get_delta().1 * cfg.scroll_wheel_impulse;
         self.scroll_bonked_top = false;
@@ -500,7 +295,7 @@ impl ListingWidget {
     }
 
     fn tick_callback(&mut self, da: &gtk::DrawingArea, fc: &gdk::FrameClock) -> Continue {
-        let cfg = CONFIG.lock().unwrap();
+        let cfg = config::get();
 
         if cfg.version > self.last_config_version {
             self.resize_window(&cfg, da.get_allocated_height() as f64);
@@ -596,7 +391,7 @@ impl ListingWidget {
         };
     }
 
-    fn resize_window(&mut self, cfg: &Config, height: f64) {
+    fn resize_window(&mut self, cfg: &config::Config, height: f64) {
         let lines = f64::max((height - 2.0 * cfg.padding) / self.line_height, 0.0) as usize;
         let window_size =
             lines
@@ -609,7 +404,7 @@ impl ListingWidget {
     }
     
     fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
-        self.resize_window(&CONFIG.lock().unwrap(), al.height as f64);
+        self.resize_window(&config::get(), al.height as f64);
     }
 
     fn key_press_event(&mut self, _da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
