@@ -39,6 +39,10 @@ pub struct Config {
 
     addr_pane_bold: bool,
     breaks_bold: bool,
+
+    cursor_bg_color: gdk::RGBA,
+    cursor_fg_color: gdk::RGBA,
+    cursor_blink_period: f64,
     
     version: usize, // incremented when this changes
 }
@@ -90,6 +94,10 @@ lazy_static! {
 
         addr_pane_bold: true,
         breaks_bold: true,
+
+        cursor_bg_color: make_gdk(hex!("8891efff")),
+        cursor_fg_color: make_gdk(hex!("090909ff")),
+        cursor_blink_period: 1.0,
         
         version: 0,
     });
@@ -197,6 +205,9 @@ pub mod config {
 
         lb.add(&edit_color("Address Color", current.addr_color, |cfg, v| { cfg.addr_color = v; }));
         lb.add(&edit_color("Text Color", current.text_color, |cfg, v| { cfg.text_color = v; }));
+
+        lb.add(&edit_color("Cursor Background Color", current.cursor_bg_color, |cfg, v| { cfg.cursor_bg_color = v; }));
+        lb.add(&edit_color("Cursor Text Color", current.cursor_fg_color, |cfg, v| { cfg.cursor_fg_color = v; }));
         
         lb.show_all();
         
@@ -206,9 +217,17 @@ pub mod config {
 
 struct InternalRenderingExtents {
     line_height: f64,
+    width: f64,
     font_extents: cairo::FontExtents,
     addr_pane_width: f64,
-    padding: f64
+    padding: f64,
+}
+
+#[derive(Debug)]
+enum InternalRenderingPhase {
+    Extents,
+    Background,
+    Foreground
 }
 
 pub struct ListingWidget {
@@ -228,6 +247,8 @@ pub struct ListingWidget {
     line_height: f64,
 
     cursor: addr::Address,
+    cursor_blink_timer: f64,
+    cursor_bonk_timer: f64,
 }
 
 struct ListingPoller {
@@ -236,6 +257,21 @@ struct ListingPoller {
 
 fn cairo_set_source_rgba(cr: &cairo::Context, rgba: gdk::RGBA) {
     cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, rgba.alpha);
+}
+
+fn char_index_for_offset(o: addr::Size) -> usize {
+    let mut i:usize = 0;
+
+    // add 3 for every byte
+    i+= o.bytes as usize * 3;
+
+    // add for nybbles (displayed little endian in octet, which is unfortunate)
+    i+= ((7 - o.bits) / 4) as usize;
+
+    // add 1 for every 8 bytes (double spacing in center column)
+    i+= o.bytes as usize / 8;
+
+    return i;
 }
 
 impl ListingWidget {
@@ -258,7 +294,9 @@ impl ListingWidget {
 
             line_height: 10.0,
 
-            cursor: addr::Address::default()
+            cursor: addr::Address::default(),
+            cursor_blink_timer: 0.0,
+            cursor_bonk_timer: 0.0,
         }
     }
     
@@ -272,28 +310,34 @@ impl ListingWidget {
         - connect_button_press_event
         - connect_button_release_event
         - connect_configure_event
-        - connect_draw
+        O connect_draw
         - connect_focus_in_event (animate cursor)
         - connect_focus_out_event (animate cursor)
-        - connect_key_press_event
+        O connect_key_press_event
         - connect_key_release_event
         - connect_popup_menu
         - connect_screen_changed (for hidpi)
-        - connect_scroll_event
+        O connect_scroll_event
         - connect_selection_clear_event
         - connect_selection_get
         - connect_selection_notify_event
         - connect_selection_received
         - connect_selection_request_event
-        - connect_size_allocate
+        O connect_size_allocate
          */
 
         { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.write().unwrap().draw(da, cr)); }
+        { let rc_clone = rc.clone(); da.connect_key_press_event(move |da, ek| rc_clone.write().unwrap().key_press_event(da, ek)); }
         { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.write().unwrap().scroll_event(da, es)); }
         { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.write().unwrap().size_allocate(da, al)); }
         { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.write().unwrap().tick_callback(da, fc)); }
 
-        da.add_events(gdk::EventMask::SCROLL_MASK | gdk::EventMask::SMOOTH_SCROLL_MASK);
+        da.add_events(
+            gdk::EventMask::SCROLL_MASK |
+            gdk::EventMask::SMOOTH_SCROLL_MASK |
+            gdk::EventMask::KEY_PRESS_MASK |
+            gdk::EventMask::KEY_RELEASE_MASK);
+        da.set_can_focus(true);
         //da.set_size_request(1300, 400);
     }
 
@@ -309,10 +353,6 @@ impl ListingWidget {
     pub fn draw(&mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
         let cfg = CONFIG.lock().unwrap();
         
-        /* our bounds are given by get_allocated_width and get_allocated_height */
-        cairo_set_source_rgba(cr, cfg.background_color);
-        cr.paint();
-
         self.setup_font(&cfg, cr, cfg.addr_pane_bold);
         let font_extents = cr.font_extents();
 
@@ -320,42 +360,51 @@ impl ListingWidget {
             self.resize_window(&cfg, da.get_allocated_height() as f64);
             self.line_height = font_extents.height;
         }
-        
+
         let addr_pane_extents = cr.text_extents("0x0000000000000000.0");
         let addr_pane_width = cfg.padding * 2.0 + addr_pane_extents.width;
-
+        
         let ire = InternalRenderingExtents {
             line_height: font_extents.height,
+            width: da.get_allocated_width() as f64,
             font_extents,
             addr_pane_width,
-            padding: cfg.padding
+            padding: cfg.padding,
         };
-        
+
+        cairo_set_source_rgba(cr, cfg.background_color);
+        cr.paint();
+                
         cairo_set_source_rgba(cr, cfg.addr_pane_color);
         cr.rectangle(0.0, 0.0, addr_pane_width, da.get_allocated_height() as f64);
         cr.fill();
-        
-        let mut lineno: usize = 0;
-        
-        for lg in self.engine.line_groups.iter() {
-            //lg.render();
 
-            cr.save();
-            cr.translate(0.0, cfg.padding + ire.line_height * ((lineno as isize - self.engine.top_margin as isize) as f64 - self.scroll_position));
+        cr.save();
+        cr.translate(0.0, cfg.padding + ire.line_height * -self.scroll_position);
+        for phase in &[
+            InternalRenderingPhase::Extents,
+            InternalRenderingPhase::Background,
+            InternalRenderingPhase::Foreground] {
 
-            match &lg.group_type {
-                listing::LineGroupType::Hex(hl) => {
-                    self.draw_hex_group(&hl, &cr, &cfg, &ire, da.get_allocated_width() as f64);
-                },
-                listing::LineGroupType::Break(bidx) => {
-                    self.draw_break_group(&self.engine.breaks[*bidx], &cr, &cfg, &ire, da.get_allocated_width() as f64);
-                },
+            let mut lineno: usize = 0;
+            for lg in self.engine.line_groups.iter() {
+                cr.save();
+                cr.translate(0.0, ire.line_height * ((lineno as isize - self.engine.top_margin as isize) as f64));
+
+                match &lg.group_type {
+                    listing::LineGroupType::Hex(hl) => {
+                        self.draw_hex_group(&hl, &cr, phase, &cfg, &ire);
+                    },
+                    listing::LineGroupType::Break(bidx) => {
+                        self.draw_break_group(&self.engine.breaks[*bidx], &cr, phase, &cfg, &ire);
+                    },
+                }
+
+                cr.restore();
+                lineno+= lg.num_lines(&self.engine.breaks);
             }
-
-            cr.restore();
-            
-            lineno+= lg.num_lines(&self.engine.breaks);
         }
+        cr.restore();
 
         /* DEBUG */
         /*
@@ -375,43 +424,68 @@ impl ListingWidget {
         
         gtk::Inhibit(false)
     }
+    
+    fn draw_hex_group(&self, hl: &listing::HexLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &Config, ire: &InternalRenderingExtents) {
+        match phase {
+            InternalRenderingPhase::Extents => {
+            },
+            InternalRenderingPhase::Background => {
+                // draw ridge
+                if hl.distance_from_break % 0x100 == 0 {
+                    cairo_set_source_rgba(cr, cfg.ridge_color);
+                    cr.move_to(ire.addr_pane_width, ire.font_extents.descent);
+                    cr.line_to(ire.width, ire.font_extents.descent);
+                    cr.stroke();
+                }
+            },
+            InternalRenderingPhase::Foreground => {
+                // draw address in addr pane
+                self.setup_font(&cfg, cr, cfg.addr_pane_bold);
+                cairo_set_source_rgba(cr, cfg.addr_color);
+                cr.move_to(cfg.padding, ire.line_height);
+                cr.show_text(&format!("{}", hl.extent.addr));
 
-    fn draw_hex_group(&self, hl: &listing::HexLine, cr: &cairo::Context, cfg: &Config, ire: &InternalRenderingExtents, width: f64) {
-        // draw ridge
-        if hl.distance_from_break % 0x100 == 0 {
-            cairo_set_source_rgba(cr, cfg.ridge_color);
-            cr.move_to(ire.addr_pane_width, ire.font_extents.descent);
-            cr.line_to(width, ire.font_extents.descent);
-            cr.stroke();
+                let text = hl.render();
+                                
+                // draw hex string
+                self.setup_font(&cfg, cr, false);
+                cairo_set_source_rgba(cr, cfg.text_color);
+                cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height);
+                cr.show_text(&text);
+
+                // draw cursor
+                if hl.extent.contains(self.cursor) && self.cursor_blink_timer < cfg.cursor_blink_period / 2.0 {
+                    let cidx = char_index_for_offset(self.cursor - hl.extent.addr);
+                    let cx = ire.addr_pane_width + ire.padding + cidx as f64 * ire.font_extents.max_x_advance;
+                    let bonk = (self.cursor_bonk_timer / 0.25) * 3.0 * ((0.25 - self.cursor_bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
+                    
+                    cairo_set_source_rgba(cr, cfg.cursor_bg_color);
+                    cr.rectangle(
+                        cx.round() + bonk, // x extents look better if we round them
+                        ire.line_height - ire.font_extents.ascent, // y extents tend to be integer already
+                        ire.font_extents.max_x_advance.round(),
+                        ire.line_height);
+                    cr.fill();
+
+                    cairo_set_source_rgba(cr, cfg.cursor_fg_color);
+                    cr.move_to(cx, ire.line_height);
+                    cr.show_text(&text.chars().nth(cidx).unwrap().to_string());
+                }
+            }
         }
-
-        // draw address in addr pane
-        self.setup_font(&cfg, cr, cfg.addr_pane_bold);
-        cairo_set_source_rgba(cr, cfg.addr_color);
-        cr.move_to(cfg.padding, ire.line_height);
-        cr.show_text(&format!("{}", hl.addr));
-
-        // draw hex string
-        self.setup_font(&cfg, cr, false);
-        cairo_set_source_rgba(cr, cfg.text_color);
-        cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height);
-        cr.show_text(&hl.render());                
     }
 
-    fn draw_break_group(&self, brk: &listing::Break, cr: &cairo::Context, cfg: &Config, ire: &InternalRenderingExtents, _width: f64) {
-        /*
-        // draw address in addr pane
-        self.setup_font(&cfg, cr, cfg.addr_pane_bold);
-        cairo_set_source_rgba(cr, cfg.addr_color);
-        cr.move_to(cfg.padding, extents.height);
-        cr.show_text(&format!("{}", hl.addr));
-         */
-
-        // draw label
-        self.setup_font(&cfg, cr, true);
-        cairo_set_source_rgba(cr, cfg.text_color);
-        cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height * 2.0);
-        cr.show_text(&brk.label);
+    fn draw_break_group(&self, brk: &listing::Break, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &Config, ire: &InternalRenderingExtents) {
+        match phase {
+            InternalRenderingPhase::Foreground => {
+                // draw label
+                self.setup_font(&cfg, cr, true);
+                cairo_set_source_rgba(cr, cfg.text_color);
+                cr.move_to(ire.addr_pane_width + ire.padding, ire.line_height * 2.0);
+                cr.show_text(&brk.label);
+            },
+            _ => ()
+        }
     }
 
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
@@ -442,67 +516,70 @@ impl ListingWidget {
 
         let ais:f64 = (fc.get_frame_time() - self.last_animation_time) as f64 / MICROSECONDS_PER_SECOND;
         
-        //while self.last_animation_time < fc.get_frame_time() {
-            /* integrate velocity */
-            self.scroll_position+= self.scroll_velocity * ais;
-            if self.scroll_velocity != 0.0 { da.queue_draw(); }
-            
-            /* try to scroll listing engine, setting bonk flags if necessary */
-            if self.scroll_position > (cfg.lookahead as f64) {
-                let amt_attempted = self.scroll_position as usize - cfg.lookahead;
-                let amt_actual = self.engine.scroll_down(amt_attempted);
-                self.update_futures();
-                self.scroll_position-= amt_actual as f64;
-                if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
-                    /* we are now bonked on the bottom... */
-                    self.scroll_bonked_bottom = true;
-                    todo!("bonk bottom");
-                }
+        /* integrate velocity */
+        self.scroll_position+= self.scroll_velocity * ais;
+        if self.scroll_velocity != 0.0 { da.queue_draw(); }
+        
+        /* try to scroll listing engine, setting bonk flags if necessary */
+        if self.scroll_position > (cfg.lookahead as f64) {
+            let amt_attempted = self.scroll_position as usize - cfg.lookahead;
+            let amt_actual = self.engine.scroll_down(amt_attempted);
+            self.update_futures();
+            self.scroll_position-= amt_actual as f64;
+            if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
+                /* we are now bonked on the bottom... */
+                self.scroll_bonked_bottom = true;
+                todo!("bonk bottom");
             }
-            
-            if self.scroll_position < (cfg.lookahead as f64) {
-                let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
-                let amt_actual = self.engine.scroll_up(amt_attempted);
-                self.update_futures();
-                self.scroll_position+= amt_actual as f64;
-                if amt_actual < amt_attempted && self.scroll_velocity < 0.0 {
-                    /* we are now bonked on the top... */
-                    self.scroll_bonked_top = true;
-                }
+        }
+        
+        if self.scroll_position < (cfg.lookahead as f64) {
+            let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
+            let amt_actual = self.engine.scroll_up(amt_attempted);
+            self.update_futures();
+            self.scroll_position+= amt_actual as f64;
+            if amt_actual < amt_attempted && self.scroll_velocity < 0.0 {
+                /* we are now bonked on the top... */
+                self.scroll_bonked_top = true;
             }
+        }
 
-            /* if we are bonked, apply spring */
-            if self.scroll_bonked_top {
-                self.scroll_velocity-= self.scroll_position * cfg.scroll_spring * ais;
-                self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
-            } else {
-                /* apply constant deceleration */
-                if self.scroll_velocity > 0.0 {
-                    self.scroll_velocity-= cfg.scroll_deceleration * ais;
-                    self.scroll_velocity = f64::max(0.0, self.scroll_velocity);
-                }
-                if self.scroll_velocity < 0.0 {
-                    self.scroll_velocity+= cfg.scroll_deceleration * ais;
-                    self.scroll_velocity = f64::min(0.0, self.scroll_velocity);
-                }
-                /* apply alignment spring */
-                if cfg.scroll_align_integer {
-                    let target = (self.scroll_position * self.line_height).round() / self.line_height;
-                    let delta = self.scroll_position - target;
-                    if delta.abs() < cfg.scroll_align_position_tolerance && self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
-                        // if we're close and we're moving slow, just snap
-                        self.scroll_position = target;
-                        self.scroll_velocity = 0.0;
-                    } else if self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
-                        // otherwise apply a spring force
-                        self.scroll_velocity+= (target - self.scroll_position) * cfg.scroll_align_integer_spring * ais;
-                        //self.scroll_velocity-= (self.scroll_velocity) * cfg.scroll_align_integer_spring_damping * ais;
-                    }
+        /* if we are bonked, apply spring */
+        if self.scroll_bonked_top {
+            self.scroll_velocity-= self.scroll_position * cfg.scroll_spring * ais;
+            self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
+        } else {
+            /* apply constant deceleration */
+            if self.scroll_velocity > 0.0 {
+                self.scroll_velocity-= cfg.scroll_deceleration * ais;
+                self.scroll_velocity = f64::max(0.0, self.scroll_velocity);
+            }
+            if self.scroll_velocity < 0.0 {
+                self.scroll_velocity+= cfg.scroll_deceleration * ais;
+                self.scroll_velocity = f64::min(0.0, self.scroll_velocity);
+            }
+            /* apply alignment spring */
+            if cfg.scroll_align_integer {
+                let target = (self.scroll_position * self.line_height).round() / self.line_height;
+                let delta = self.scroll_position - target;
+                if delta.abs() < cfg.scroll_align_position_tolerance && self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
+                    // if we're close and we're moving slow, just snap
+                    self.scroll_position = target;
+                    self.scroll_velocity = 0.0;
+                } else if self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
+                    // otherwise apply a spring force
+                    self.scroll_velocity+= (target - self.scroll_position) * cfg.scroll_align_integer_spring * ais;
+                    //self.scroll_velocity-= (self.scroll_velocity) * cfg.scroll_align_integer_spring_damping * ais;
                 }
             }
-            
-            self.last_animation_time = fc.get_frame_time();
-        //}
+        }
+
+        self.cursor_blink_timer+= ais;
+        self.cursor_blink_timer%= cfg.cursor_blink_period;
+        self.cursor_bonk_timer-= ais;
+        self.cursor_bonk_timer = f64::max(0.0, self.cursor_bonk_timer);
+
+        self.last_animation_time = fc.get_frame_time();
 
         da.queue_draw(); // TODO: lol
         
@@ -533,6 +610,75 @@ impl ListingWidget {
     
     fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
         self.resize_window(&CONFIG.lock().unwrap(), al.height as f64);
+    }
+
+    fn key_press_event(&mut self, _da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
+        match ek.get_keyval() {
+            gdk::enums::key::Left => { self.cursor_move_left(); gtk::Inhibit(true) },
+            gdk::enums::key::Right => { self.cursor_move_right(); gtk::Inhibit(true) },
+            gdk::enums::key::Up => { self.cursor_move_up(); gtk::Inhibit(true) },
+            gdk::enums::key::Down => { self.cursor_move_down(); gtk::Inhibit(true) },
+            _ => gtk::Inhibit(false)
+        }
+    }
+
+    fn cursor_bonk(&mut self) {
+        self.cursor_bonk_timer = 0.25;
+    }
+    
+    fn cursor_move_left(&mut self) {
+        let extents = self.engine.break_extents_near(self.cursor);
+        self.cursor_blink_timer = 0.0;
+        if (self.cursor - extents.at.addr).bits < 4 {
+            // if we're in a low nybble, move to the high nybble (this moves the
+            // cursor to the left because big endian)
+            self.cursor+= addr::unit::NYBBLE;
+        } else {
+            // move from high nybble to low nybble of previous byte
+            if self.cursor < extents.at.addr + addr::unit::BYTE_NYBBLE {
+                // if we're crossing an extent boundary, put the cursor eight bits from the end of the extent
+                match extents.before {
+                    Some(b) => {
+                        self.cursor = std::cmp::min(b.addr, b.end().expect("before extent should not be infinite") - addr::unit::BYTE);
+                    },
+                    None => self.cursor_bonk()
+                }
+            } else {
+                self.cursor-= addr::Size { bytes: 1, bits: 4 };
+            }
+        }
+    }
+
+    fn cursor_move_right(&mut self) {
+        let lexts = self.engine.line_extents_near(self.cursor);
+        self.cursor_blink_timer = 0.0;
+        if (self.cursor - lexts.at.addr).bits < 4 {
+            self.cursor+= addr::Size { bytes: 1, bits: 4 };
+        } else {
+            self.cursor-= addr::unit::NYBBLE;
+        }
+    }
+
+    fn cursor_move_up(&mut self) {
+        let lexts = self.engine.line_extents_near(self.cursor);
+        self.cursor_blink_timer = 0.0;
+        match lexts.before {
+            None => self.cursor_bonk(),
+            Some(b) => {
+                self.cursor = b.addr + std::cmp::min(std::cmp::max(b.size, addr::unit::BIT) - addr::unit::BIT, self.cursor - lexts.at.addr);
+            }
+        }
+    }
+
+    fn cursor_move_down(&mut self) {
+        let lexts = self.engine.line_extents_near(self.cursor);
+        self.cursor_blink_timer = 0.0;
+        match lexts.after {
+            None => self.cursor_bonk(),
+            Some(a) => {
+                self.cursor = a.addr + std::cmp::min(std::cmp::max(a.size, addr::unit::BIT) - addr::unit::BIT, self.cursor - lexts.at.addr);
+            }
+        }
     }
 }
 

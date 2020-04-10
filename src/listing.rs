@@ -74,11 +74,20 @@ impl HexLine {
         let mut str = std::string::String::new();
         
         for i in 0..(LINE_SIZE as usize) {
+            let offset = addr::Size { bytes: i as u64, bits: 0 };
+            
             if i == 8 {
                 str+= " ";
             }
+            
             if i < region.len() {
-                str+= &format!("{:02x} ", region[i]);
+                if offset + addr::unit::NYBBLE < self.extent.size {
+                    str+= &format!("{:02x} ", region[i]);
+                } else if offset < self.extent.size {
+                    str+= &format!("{:2x} ", region[i]);
+                } else {
+                    str+= "   ";
+                }
             } else {
                 str+= "   ";
             }
@@ -465,5 +474,84 @@ impl ListingEngine {
         self.line_groups.push_back(lg);
 
         false
+    }
+
+    pub fn line_extents_at(&self, target: addr::Address) -> addr::Extent {
+        let containing_break_index = match &self.breaks.binary_search_by(|b| b.address.cmp(&target)) {
+            Result::Ok(idx) => *idx,
+            Result::Err(idx) if *idx == 0 => panic!("somehow we're above the zero break"),
+            Result::Err(idx) => idx-1
+        };
+
+        let addr = self.breaks[containing_break_index].begin_line_including(target);
+        let size = match self.breaks.get(containing_break_index + 1) {
+            Some(next_break) if next_break.address >= addr + LINE_SIZE => addr::Size::from(LINE_SIZE),
+            Some(next_break) => next_break.address - addr,
+            None => addr::Size::from(LINE_SIZE)
+        };
+
+        addr::Extent::new(addr, size)
+    }
+    
+    pub fn line_extents_near(&self, target: addr::Address) -> addr::Triplet<addr::Extent> {
+        let at = self.line_extents_at(target);
+        let before = if at.addr == addr::unit::NULL {
+            None
+        } else {
+            Some(self.line_extents_at(at.addr - addr::unit::BIT))
+        };
+        
+        // TODO: handle end of address space for after
+
+        addr::Triplet::<addr::Extent> {
+            before,
+            at,
+            after: Some(self.line_extents_at(at.end()))
+        }
+    }
+
+    pub fn break_extents_at(&self, target: addr::Address) -> addr::InfiniteExtent {
+        let containing_break_index = match &self.breaks.binary_search_by(|b| b.address.cmp(&target)) {
+            Result::Ok(idx) => *idx,
+            Result::Err(idx) if *idx == 0 => panic!("somehow we're above the zero break"),
+            Result::Err(idx) => idx-1
+        };
+
+        let b = &self.breaks[containing_break_index];
+        match self.breaks.get(containing_break_index + 1) {
+            Some(next_break) => addr::InfiniteExtent::between(b.address, next_break.address),
+            None => addr::InfiniteExtent::infinite(b.address)
+        }
+    }
+    
+    pub fn break_extents_near(&self, target: addr::Address) -> addr::Triplet<addr::InfiniteExtent> {
+        let containing_break_index = match &self.breaks.binary_search_by(|b| b.address.cmp(&target)) {
+            Result::Ok(idx) => *idx,
+            Result::Err(idx) if *idx == 0 => panic!("somehow we're above the zero break"),
+            Result::Err(idx) => idx-1
+        };
+
+        let b = &self.breaks[containing_break_index];
+
+        let before = if containing_break_index == 0 { None } else {
+            let bb = &self.breaks[containing_break_index - 1];
+            Some(addr::InfiniteExtent::between(bb.address, b.address))
+        };
+        
+        match self.breaks.get(containing_break_index + 1) {
+            Some(after_break) => addr::Triplet::<addr::InfiniteExtent> {
+                before,
+                at: addr::InfiniteExtent::between(b.address, after_break.address),
+                after: match self.breaks.get(containing_break_index + 2) {
+                    Some(after_after_break) => Some(addr::InfiniteExtent::between(after_break.address, after_after_break.address)),
+                    None => Some(addr::InfiniteExtent::infinite(after_break.address))
+                }
+            },
+            None => addr::Triplet::<addr::InfiniteExtent> {
+                before,
+                at: addr::InfiniteExtent::infinite(b.address),
+                after: None
+            }
+        }
     }
 }
