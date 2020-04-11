@@ -2,6 +2,7 @@ use std::sync;
 use std::vec;
 use std::string;
 use std::task;
+use std::pin;
 
 use std::future::Future;
 
@@ -81,7 +82,8 @@ impl HexLine {
             }
             
             if i < region.len() {
-                if offset + addr::unit::NYBBLE < self.extent.size {
+                // no-parens here confuses emacs rust-mode indentation
+                if (offset + addr::unit::NYBBLE) < self.extent.size {
                     str+= &format!("{:02x} ", region[i]);
                 } else if offset < self.extent.size {
                     str+= &format!("{:2x} ", region[i]);
@@ -183,7 +185,7 @@ We don't ever fragment "line groups" with the same address.
 
 pub struct ListingEngine {
     space: sync::Arc<dyn space::AddressSpace + Send + Sync>,
-
+    
     pub breaks: vec::Vec<Break>,
     
     top_address: addr::Address,
@@ -192,14 +194,16 @@ pub struct ListingEngine {
     bottom_address: addr::Address,
     bottom_current_break_index: usize,
     bottom_next_break_index: usize,
-
+    
     pub line_groups: std::collections::VecDeque<LineGroup>,
     pub top_margin: usize,
     pub window_height: usize,
-
+    
     num_lines: usize, // number of lines contained in line_groups
+    
+    wakers: vec::Vec<task::Waker>,
 }
-
+    
 impl ListingEngine {
     pub fn new(space: sync::Arc<dyn space::AddressSpace + Send + Sync>, window_height: usize) -> ListingEngine {
         let mut le = ListingEngine {
@@ -212,13 +216,18 @@ impl ListingEngine {
 
             top_address: addr::Address::default(),
             top_break_index: None,
+            
             bottom_address: addr::Address::default(),
             bottom_current_break_index: 0,
             bottom_next_break_index: 0,
+            
             line_groups: std::collections::VecDeque::<LineGroup>::new(),
-            num_lines: 0,
             top_margin: 0,
-            window_height
+            window_height,
+            
+            num_lines: 0,
+
+            wakers: vec::Vec::new()
         };
         le.seek(addr::Address::default());
         le
@@ -280,8 +289,14 @@ impl ListingEngine {
         }
         ncurses::addstr(" end\n");
     }
+
+    fn wake(&mut self) {
+        for wk in self.wakers.drain(..) {
+            wk.wake();
+        }
+    }
     
-    fn seek(&mut self, target: addr::Address) {
+    pub fn seek(&mut self, target: addr::Address) {
         self.line_groups.clear();
         self.num_lines = 0;
         self.top_margin = 0;
@@ -321,6 +336,8 @@ impl ListingEngine {
         while self.num_lines < self.top_margin + self.window_height {
             self.produce_lines_bottom();
         }
+
+        self.wake();
     }
 
     // returns amount actually scrolled (less on bonk)
@@ -354,6 +371,8 @@ impl ListingEngine {
         self.top_margin+= actual;
         self.try_trim_top();
 
+        self.wake();
+        
         actual
     }
 
@@ -377,6 +396,8 @@ impl ListingEngine {
                 }
             };
         }
+
+        self.wake();
     }
 
     fn try_trim_bottom(&mut self) {
@@ -398,6 +419,8 @@ impl ListingEngine {
                 }
             };
         }
+
+        self.wake();
     }
 
     pub fn resize_window(&mut self, size: usize) {
@@ -406,6 +429,8 @@ impl ListingEngine {
         while self.num_lines < self.top_margin + self.window_height {
             self.produce_lines_bottom();
         }
+
+        self.wake();
     }
 
     fn produce_lines_top(&mut self) -> bool { // returns true on EOF
@@ -437,6 +462,8 @@ impl ListingEngine {
         self.num_lines+= nl;
         self.line_groups.push_front(lg);
 
+        self.wake();
+        
         false
     }
     
@@ -473,6 +500,8 @@ impl ListingEngine {
         self.num_lines+= lg.num_lines(&self.breaks);
         self.line_groups.push_back(lg);
 
+        self.wake();
+        
         false
     }
 
@@ -552,6 +581,35 @@ impl ListingEngine {
                 at: addr::InfiniteExtent::infinite(b.address),
                 after: None
             }
+        }
+    }
+}
+
+pub struct ListingFuture {
+    engine: sync::Weak<sync::RwLock<ListingEngine>>
+}
+
+impl ListingFuture {
+    pub fn new(ptr: sync::Weak<sync::RwLock<ListingEngine>>) -> ListingFuture {
+        ListingFuture { engine: ptr }
+    }
+}
+
+impl std::future::Future for ListingFuture {
+    type Output = ();
+
+    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
+        match self.engine.upgrade() {
+            Some(ptr) => {
+                let mut le = ptr.write().unwrap();
+                le.wakers.push(cx.waker().clone());
+
+                for lg in &le.line_groups {
+                    lg.progress(cx);
+                }
+                        
+                task::Poll::Pending
+            }, None => task::Poll::Ready(())
         }
     }
 }
