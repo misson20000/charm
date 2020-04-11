@@ -60,6 +60,20 @@ impl HexLine {
             HexLineAsyncState::Finished(_) => ()
         }
     }
+
+    pub fn byte_at(&self, offset: usize) -> Option<u8> {
+        let ih = self.internal.read().unwrap();
+        
+        let region = match *ih {
+            HexLineAsyncState::Finished(space::FetchResult::Ok(ref data)) => &data[..],
+            HexLineAsyncState::Finished(space::FetchResult::Partial(ref data, amt)) => &data[..amt],
+            HexLineAsyncState::Finished(space::FetchResult::Unreadable) => &[] as &[u8],
+            HexLineAsyncState::Finished(space::FetchResult::IoError(_)) => &[] as &[u8],
+            HexLineAsyncState::Pending(_) => &[] as &[u8]
+        };
+
+        region.get(offset).map(|v| *v)
+    }
     
     pub fn render(&self) -> string::String {
         let bytes = self.extent.size.round_up().bytes as usize;
@@ -82,11 +96,8 @@ impl HexLine {
             }
             
             if i < region.len() {
-                // no-parens here confuses emacs rust-mode indentation
-                if (offset + addr::unit::NYBBLE) < self.extent.size {
+                if offset < self.extent.size {
                     str+= &format!("{:02x} ", region[i]);
-                } else if offset < self.extent.size {
-                    str+= &format!("{:2x} ", region[i]);
                 } else {
                     str+= "   ";
                 }
@@ -140,6 +151,13 @@ impl LineGroup {
                     HexLineAsyncState::Pending(
                         Box::pin(space.fetch(extent, vec![0; (LINE_SIZE + 1) as usize])))),
             }),
+        }
+    }
+
+    pub fn get_addr(&self, breaks: &vec::Vec<Break>) -> addr::Address {
+        match self.group_type {
+            LineGroupType::Hex(ref hex) => hex.extent.addr,
+            LineGroupType::Break(i) => breaks[i].address,
         }
     }
     

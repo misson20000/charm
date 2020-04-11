@@ -34,7 +34,8 @@ pub mod unit {
 
     pub static NULL: Address = Address { byte: 0, bit: 0 };
     pub static END: Address = Address { byte: u64::MAX, bit: 7 };
-    
+
+    pub static ZERO: Size = Size { bytes: 0, bits: 1 };
     pub static BIT: Size = Size { bytes: 0, bits: 1 };
     pub static NYBBLE: Size = Size { bytes: 0, bits: 4 };
     pub static BYTE: Size = Size { bytes: 1, bits: 0 };
@@ -138,6 +139,10 @@ impl Address {
         }
         Address {byte: nbytes, bit: nbits}
     }
+
+    pub fn magnitude(&self) -> Size {
+        Size { bytes: self.byte, bits: self.bit }
+    }
 }
 
 impl std::fmt::Display for Size {
@@ -199,6 +204,10 @@ impl Size {
             Size { bytes: self.bytes + 1, bits: 0 }
         }
     }
+
+    pub fn floor(&self) -> Size {
+        Size { bytes: self.bytes, bits: 0 }
+    }
 }
 
 impl Extent {
@@ -210,18 +219,20 @@ impl Extent {
         Extent { addr: begin, size: end - begin }
     }
     
-    // be careful with this
     pub fn end(&self) -> Address {
         self.addr + self.size
     }
 
-    // be careful with this
     pub fn round(&self) -> (u64, u64) {
         (self.addr.byte, (self.size + Size {bytes: 0, bits: self.addr.bit}).round_up().bytes)
     }
     
     pub fn contains(&self, addr: Address) -> bool {
         addr >= self.addr && addr < self.end()
+    }
+
+    pub fn contains_size(&self, size: Size) -> bool {
+        size < self.size
     }
 }
 
@@ -247,6 +258,22 @@ impl InfiniteExtent {
         addr >= self.addr && match self.size {
             Some(sz) => addr < self.addr + sz,
             None => true
+        }
+    }
+
+    pub fn contains_size(&self, size: Size) -> bool {
+        match self.size {
+            Some(sz) => size < sz,
+            None => true
+        }
+    }
+    
+    pub fn clip_from_end(&self, size: Size) -> Option<Address> {
+        match self.size {
+            Some(s) if size > s => Some(self.addr),
+            Some(s) => Some(self.addr + (s - size)),
+            None if size > unit::ZERO => Some(unit::END - (size - unit::BIT)),
+            None => None
         }
     }
 }

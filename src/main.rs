@@ -11,8 +11,9 @@ extern crate tokio;
 #[cfg(feature = "test_listing")]
 extern crate ncurses;
 
-mod addr;
+mod util;
 mod ext;
+mod addr;
 mod listing;
 mod space;
 mod widget;
@@ -83,7 +84,7 @@ impl CharmWindow {
 
         {
             let editor = widget::config_editor::build_config_editor();
-            editor.set_size_request(800, -1);
+            editor.set_size_request(400, -1);
             
             let frame = gtk::Frame::new(None);
             frame.set_shadow_type(gtk::ShadowType::In);

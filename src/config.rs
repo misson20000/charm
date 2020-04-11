@@ -16,6 +16,7 @@ pub struct Config {
     pub scroll_align_integer_spring_damping: f64,
     pub scroll_align_position_tolerance: f64,
     pub scroll_align_velocity_tolerance: f64,
+    pub page_navigation_leadup: usize, // lines
     
     pub padding: f64, // pixels
     pub font_size: f64, // pixels
@@ -39,7 +40,7 @@ pub struct Config {
 
 lazy_static! {
     pub static ref INSTANCE: sync::Mutex<Config> = sync::Mutex::new(Config {
-        lookahead: 5,
+        lookahead: 25,
         scroll_wheel_impulse: 60.0,
         scroll_deceleration: 620.0,
         scroll_spring: 240.0,
@@ -50,6 +51,7 @@ lazy_static! {
         scroll_align_integer_spring_damping: 80.0,
         scroll_align_position_tolerance: 0.05,
         scroll_align_velocity_tolerance: 2.0,
+        page_navigation_leadup: 5,
 
         padding: 15.0,
         font_size: 14.0,

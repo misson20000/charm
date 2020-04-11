@@ -1,11 +1,10 @@
 use std::sync;
-use std::pin;
-use std::task;
 use std::option;
 
-use crate::listing;
-use crate::space;
+use crate::util;
 use crate::addr;
+use crate::space;
+use crate::listing;
 use crate::config;
 
 use crate::ext::CairoExt;
@@ -43,9 +42,11 @@ struct CursorRenderingContext<'a> {
     focus: bool,
 }
 
+#[derive(Default)]
 struct NybbleCursor {
     addr: addr::Address, // byte-aligned
     low_nybble: bool,
+    attempted_vertical_offset: Option<addr::Size>,
 }
 
 impl NybbleCursor {
@@ -64,11 +65,14 @@ impl NybbleCursor {
                     fe.max_x_advance,
                     fe.height);
                 irc.cr.fill();
-                /* TODO: redraw byte
-                cr.set_source_gdk_rgba(irc.cfg.cursor_fg_color);
-                cr.move_to(cx, irc.line_height);
-                cr.show_text(&text.chars().nth(cidx).unwrap().to_string());
-                 */
+                
+                irc.cr.set_source_gdk_rgba(irc.cfg.cursor_fg_color);
+                irc.cr.move_to(cx, irc.font_extents().height);
+
+                match crc.hl.byte_at((self.addr - crc.hl.extent.addr).bytes as usize) {
+                    Some(b) => irc.cr.show_text(unsafe { std::str::from_utf8_unchecked(&[util::nybble_to_hex((b >> if self.low_nybble { 0 } else { 4 }) & 0xf) as u8]) }),
+                    None => ()
+                };
             } 
         } else {
             irc.cr.set_line_width(1.0);
@@ -95,6 +99,84 @@ impl NybbleCursor {
 
         return i;
     }
+
+    fn move_left(&mut self, le: &listing::ListingEngine) -> bool {
+        self.attempted_vertical_offset = None;
+        
+        let extents = le.break_extents_near(self.addr);
+
+        if self.low_nybble {
+            self.low_nybble = false;
+            false
+        } else {                                              
+            self.addr = match extents.before {
+                // crossing extent boundaries, align with end of extent
+                Some(b) if extents.at.addr == self.addr && b.size.expect("a before extent should be finite") > addr::unit::BYTE => b.addr + (self.addr - addr::unit::BIT - b.addr).floor(),
+                Some(b) if extents.at.addr == self.addr => b.addr,
+                _ if self.addr.magnitude() < addr::unit::BYTE => return true, // bonk
+                _ => self.addr - addr::unit::BYTE
+            };
+
+            self.low_nybble = true; // bonk returns past this
+            
+            false
+        }
+    }
+
+    fn move_right(&mut self, le: &listing::ListingEngine) -> bool {
+        self.attempted_vertical_offset = None;
+        
+        let extents = le.break_extents_near(self.addr);
+
+        if self.low_nybble {
+            self.low_nybble = false;
+            
+            let target = self.addr + addr::unit::BYTE;
+            self.addr = match extents.after {
+                // crossing extent boundaries, align with beginning of extent
+                // TODO: handle end of address space
+                Some(a) if a.addr < target => a.addr,
+                _ => target
+            };
+
+            false
+        } else {
+            self.low_nybble = true;
+            false
+        }
+    }
+
+    fn move_up(&mut self, le: &listing::ListingEngine) -> bool {
+        let lexts = le.line_extents_near(self.addr);
+        let coff = self.addr - lexts.at.addr;
+        let toff = match self.attempted_vertical_offset {
+            Some(avo) if avo > coff => avo,
+            None => { self.attempted_vertical_offset = Some(coff); coff },
+            _ => coff
+        };
+
+        match lexts.before {
+            None => true,
+            Some(b) if b.contains_size(toff) => { self.addr = b.addr + toff; false },
+            Some(b) => { self.addr = b.addr + b.size.floor(); false },
+        }
+    }
+
+    fn move_down(&mut self, le: &listing::ListingEngine) -> bool {
+        let lexts = le.line_extents_near(self.addr);
+        let coff = self.addr - lexts.at.addr;
+        let toff = match self.attempted_vertical_offset {
+            Some(avo) if avo > coff => avo,
+            None => { self.attempted_vertical_offset = Some(coff); coff },
+            _ => coff
+        };
+        
+        match lexts.after {
+            None => true,
+            Some(a) if a.contains_size(toff) => { self.addr = a.addr + toff; false },
+            Some(a) => { self.addr = a.addr + a.size.floor(); false },
+        }
+    }
 }
 
 struct BitCursor {
@@ -106,11 +188,17 @@ enum CursorMode {
     Bit(BitCursor),
 }
 
+pub enum CursorLineLocation {
+    Before,
+    Found(usize),
+    After,
+}
+
 impl CursorMode {
     fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, crc: &'a CursorRenderingContext<'a>) {
         match self {
             CursorMode::Nybble(c) => c.draw(irc, crc),
-            CursorMode::Bit(c) => todo!("bit cursor drawing")
+            CursorMode::Bit(_c) => todo!("bit cursor drawing")
         }
     }
 
@@ -118,6 +206,34 @@ impl CursorMode {
         match self {
             CursorMode::Nybble(c) => c.addr,
             CursorMode::Bit(c) => c.addr,
+        }
+    }
+
+    fn move_left(&mut self, le: &listing::ListingEngine) -> bool {
+        match self {
+            CursorMode::Nybble(c) => c.move_left(le),
+            CursorMode::Bit(_c) => todo!("bit cursor movement")
+        }
+    }
+
+    fn move_right(&mut self, le: &listing::ListingEngine) -> bool {
+        match self {
+            CursorMode::Nybble(c) => c.move_right(le),
+            CursorMode::Bit(_c) => todo!("bit cursor movement")
+        }
+    }
+
+    fn move_up(&mut self, le: &listing::ListingEngine) -> bool {
+        match self {
+            CursorMode::Nybble(c) => c.move_up(le),
+            CursorMode::Bit(_c) => todo!("bit cursor movement")
+        }
+    }
+
+    fn move_down(&mut self, le: &listing::ListingEngine) -> bool {
+        match self {
+            CursorMode::Nybble(c) => c.move_down(le),
+            CursorMode::Bit(_c) => todo!("bit cursor movement")
         }
     }
 }
@@ -128,13 +244,35 @@ struct Cursor {
     bonk_timer: f64,
 }
 
+#[derive(Copy, Clone)]
+enum CursorEnsureInViewDirection {
+    Up,
+    Down,
+    Any
+}
+
+impl CursorEnsureInViewDirection {
+    fn maybe_upwards(&self) -> bool {
+        match self {
+            CursorEnsureInViewDirection::Up => true,
+            CursorEnsureInViewDirection::Down => false,
+            CursorEnsureInViewDirection::Any => true
+        }
+    }
+
+    fn maybe_downwards(&self) -> bool {
+        match self {
+            CursorEnsureInViewDirection::Up => false,
+            CursorEnsureInViewDirection::Down => true,
+            CursorEnsureInViewDirection::Any => true
+        }
+    }
+}
+
 impl Cursor {
     fn new() -> Cursor {
         Cursor {
-            mode: CursorMode::Nybble(NybbleCursor {
-                addr: addr::Address::default(),
-                low_nybble: false,
-            }),
+            mode: CursorMode::Nybble(NybbleCursor::default()),
             blink_timer: 0.0,
             bonk_timer: 0.0,
         }
@@ -161,13 +299,49 @@ impl Cursor {
     fn get_addr(&self) -> addr::Address {
         self.mode.get_addr()
     }
+
+    fn find_lineno(&self, le: &listing::ListingEngine) -> CursorLineLocation {
+        let addr = self.get_addr();
+        
+        let mut last_lineno: Option<usize> = None;
+        let mut lineno: usize = 0;
+        for lg in le.line_groups.iter() {
+            if lg.get_addr(&le.breaks) > addr {
+                return match last_lineno {
+                    None => CursorLineLocation::Before,
+                    Some(lln) => CursorLineLocation::Found(lln),
+                };
+            }
+            last_lineno = Some(lineno);
+            lineno+= lg.num_lines(&le.breaks);
+        }
+
+        CursorLineLocation::After
+    }
     
     fn blink(&mut self) {
         self.blink_timer = 0.0;
     }
 
     fn bonk(&mut self) {
-        self.bonk_timer = 0.5;
+        self.bonk_timer = 0.25;
+    }
+
+    fn move_left(&mut self, le: &listing::ListingEngine) {
+        self.blink();
+        if self.mode.move_left(le) { self.bonk(); }
+    }
+    fn move_right(&mut self, le: &listing::ListingEngine) {
+        self.blink();
+        if self.mode.move_right(le) { self.bonk(); }
+    }
+    fn move_up(&mut self, le: &listing::ListingEngine) {
+        self.blink();
+        if self.mode.move_up(le) { self.bonk(); }
+    }
+    fn move_down(&mut self, le: &listing::ListingEngine) {
+        self.blink();
+        if self.mode.move_down(le) { self.bonk(); }
     }
 }
 
@@ -222,6 +396,8 @@ pub struct ListingWidget {
     scroll_velocity: f64,
     scroll_bonked_top: bool,
     scroll_bonked_bottom: bool,
+    scroll_cursor_spring: bool,
+    scroll_cursor_direction: CursorEnsureInViewDirection,
 
     has_focus: bool,
 
@@ -248,8 +424,10 @@ impl ListingWidget {
             
             scroll_position: 0.0,
             scroll_velocity: 0.0,
-            scroll_bonked_bottom: false,
             scroll_bonked_top: false,
+            scroll_bonked_bottom: false,
+            scroll_cursor_spring: false,
+            scroll_cursor_direction: CursorEnsureInViewDirection::Any,
 
             has_focus: false,
 
@@ -322,7 +500,7 @@ impl ListingWidget {
         //da.set_size_request(1300, 400);
     }
 
-    pub fn draw<'a>(&'a mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+    pub fn draw<'a>(&'a mut self, _da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
         let cfg = config::get();
                 
         let irc = InternalRenderingContext {
@@ -377,21 +555,30 @@ impl ListingWidget {
         }
         cr.restore();
 
+        /* fill address pane */
+        cr.set_source_gdk_rgba(cfg.addr_pane_color);
+        cr.rectangle(0.0, 0.0, self.layout.width, self.fonts.extents.height);
+        cr.fill();
+
+        cr.set_source_gdk_rgba(cfg.background_color);
+        cr.set_scaled_font(&self.fonts.bold_scaled);
+        cr.move_to(0.0, self.fonts.extents.height);
+        cr.show_text(&format!("{}", self.cursor.get_addr()));
+        
         /* DEBUG */
-        /*
         let debug = vec![
-            format!("lookahead: {}", self.config.lookahead),
             format!("scroll position: {} lines", self.scroll_position),
             format!("scroll velocity: {}", self.scroll_velocity),
             format!("scroll bonked on top: {}", self.scroll_bonked_top),
             format!("scroll bonked on bottom: {}", self.scroll_bonked_bottom),
         ];
-        lineno = 0;
+        let mut lineno = 0;
         for line in debug {
-            cr.move_to(1000.0, 40.0 + (self.config.font_size * lineno as f64));
+            cr.set_source_rgba(1.0, 1.0, 0.0, 1.0);
+            cr.move_to(self.layout.width - 400.0, 40.0 + (irc.font_extents().height * lineno as f64));
             cr.show_text(&line);
             lineno+= 1;
-        }*/
+        }
         
         gtk::Inhibit(false)
     }
@@ -489,7 +676,7 @@ impl ListingWidget {
                 let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
                 let amt_actual = le.scroll_up(amt_attempted);
                 self.scroll_position+= amt_actual as f64;
-                if amt_actual < amt_attempted && self.scroll_velocity < 0.0 {
+                if amt_actual < amt_attempted && self.scroll_velocity < 0.0 && self.scroll_position < 1.0 {
                     /* we are now bonked on the top... */
                     self.scroll_bonked_top = true;
                 }
@@ -526,6 +713,10 @@ impl ListingWidget {
             }
         }
 
+        if self.scroll_cursor_spring {
+            self.ensure_cursor_is_in_view(&cfg, self.scroll_cursor_direction);
+        }
+        
         self.cursor.animate(&cfg, ais);
 
         self.last_animation_time = fc.get_frame_time();
@@ -548,6 +739,43 @@ impl ListingWidget {
         self.resize_window(&cfg);
         self.last_config_version = cfg.version;
     }
+
+    fn ensure_cursor_is_in_view(&mut self, cfg: &config::Config, dir: CursorEnsureInViewDirection) {
+        let le = self.engine.read().unwrap();
+
+        let top_super_threshold = le.top_margin + f64::max(0.0, self.scroll_position) as usize;
+        let top_threshold = top_super_threshold + cfg.page_navigation_leadup;
+        let bottom_super_threshold = le.top_margin + le.window_height + f64::max(0.0, self.scroll_position) as usize - 2 * cfg.lookahead;
+        let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup;
+        let cln = self.cursor.find_lineno(&le);
+        self.scroll_cursor_direction = dir;
+        
+        std::mem::drop(le);
+
+        match cln {
+            CursorLineLocation::Before => {
+                self.seek(cfg, self.cursor.get_addr());
+            },
+            CursorLineLocation::Found(ln) if ln < top_threshold && self.scroll_position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
+                self.scroll_bonked_top = false;
+                self.scroll_bonked_bottom = false;
+                self.scroll_cursor_spring = true;
+                self.scroll_velocity = -((top_threshold - ln) as f64) * 20.0;
+            },
+            CursorLineLocation::Found(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
+                self.scroll_bonked_top = false;
+                self.scroll_bonked_bottom = false;
+                self.scroll_cursor_spring = true;
+                self.scroll_velocity = (ln - bottom_threshold) as f64 * 20.0;
+            },
+            CursorLineLocation::After => {
+                self.seek(cfg, self.cursor.get_addr());
+            },
+            _ => {
+                self.scroll_cursor_spring = false;
+            }
+        }
+    }
     
     fn resize_window(&mut self, cfg: &config::Config) {
         let lines = f64::max((self.layout.height - 2.0 * cfg.padding) / self.fonts.extents.height, 0.0) as usize;
@@ -558,6 +786,17 @@ impl ListingWidget {
             + (2 * cfg.lookahead); // lookahead works in both directions
         
         self.engine.write().unwrap().resize_window(window_size);
+    }
+
+    fn seek(&mut self, cfg: &config::Config, addr: addr::Address) {
+        self.scroll_position = 0.0;
+        self.scroll_velocity = 0.0;
+        self.scroll_bonked_top = false;
+        self.scroll_bonked_bottom = false;
+        self.scroll_cursor_spring = false;
+        let mut le = self.engine.write().unwrap();
+        le.seek(addr);
+        le.scroll_up(cfg.lookahead + cfg.page_navigation_leadup);
     }
 
     fn button_event(self: sync::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
@@ -589,70 +828,25 @@ impl ListingWidget {
     }
 
     fn key_press_event(&mut self, _da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
+        let cfg = config::get();
         match ek.get_keyval() {
-            /*
-            gdk::enums::key::Left => { self.cursor_move_left(); gtk::Inhibit(true) },
-            gdk::enums::key::Right => { self.cursor_move_right(); gtk::Inhibit(true) },
-            gdk::enums::key::Up => { self.cursor_move_up(); gtk::Inhibit(true) },
-            gdk::enums::key::Down => { self.cursor_move_down(); gtk::Inhibit(true) },
-             */
+            gdk::enums::key::Left => {
+                self.cursor.move_left(&self.engine.read().unwrap());
+                self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Up);
+                gtk::Inhibit(true) },
+            gdk::enums::key::Right => {
+                self.cursor.move_right(&self.engine.read().unwrap());
+                self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Down);
+                gtk::Inhibit(true) },
+            gdk::enums::key::Up => {
+                self.cursor.move_up(&self.engine.read().unwrap());
+                self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Up);
+                gtk::Inhibit(true) },
+            gdk::enums::key::Down => {
+                self.cursor.move_down(&self.engine.read().unwrap());
+                self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Down);
+                gtk::Inhibit(true) },
             _ => gtk::Inhibit(false)
         }
     }
-
-    /*
-    fn cursor_move_left(&mut self) {
-        let extents = self.engine.break_extents_near(self.cursor);
-        self.cursor_blink_timer = 0.0;
-        if (self.cursor - extents.at.addr).bits < 4 {
-            // if we're in a low nybble, move to the high nybble (this moves the
-            // cursor to the left because big endian)
-            self.cursor+= addr::unit::NYBBLE;
-        } else {
-            // move from high nybble to low nybble of previous byte
-            if self.cursor < extents.at.addr + addr::unit::BYTE_NYBBLE {
-                // if we're crossing an extent boundary, put the cursor eight bits from the end of the extent
-                match extents.before {
-                    Some(b) => {
-                        self.cursor = std::cmp::min(b.addr, b.end().expect("before extent should not be infinite") - addr::unit::BYTE);
-                    },
-                    None => self.cursor_bonk()
-                }
-            } else {
-                self.cursor-= addr::Size { bytes: 1, bits: 4 };
-            }
-        }
-    }
-
-    fn cursor_move_right(&mut self) {
-        let lexts = self.engine.line_extents_near(self.cursor);
-        self.cursor_blink_timer = 0.0;
-        if (self.cursor - lexts.at.addr).bits < 4 {
-            self.cursor+= addr::Size { bytes: 1, bits: 4 };
-        } else {
-            self.cursor-= addr::unit::NYBBLE;
-        }
-    }
-
-    fn cursor_move_up(&mut self) {
-        let lexts = self.engine.line_extents_near(self.cursor);
-        self.cursor_blink_timer = 0.0;
-        match lexts.before {
-            None => self.cursor_bonk(),
-            Some(b) => {
-                self.cursor = b.addr + std::cmp::min(std::cmp::max(b.size, addr::unit::BIT) - addr::unit::BIT, self.cursor - lexts.at.addr);
-            }
-        }
-    }
-
-    fn cursor_move_down(&mut self) {
-        let lexts = self.engine.line_extents_near(self.cursor);
-        self.cursor_blink_timer = 0.0;
-        match lexts.after {
-            None => self.cursor_bonk(),
-            Some(a) => {
-                self.cursor = a.addr + std::cmp::min(std::cmp::max(a.size, addr::unit::BIT) - addr::unit::BIT, self.cursor - lexts.at.addr);
-            }
-        }
-    }*/
 }
