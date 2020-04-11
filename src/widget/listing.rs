@@ -36,27 +36,64 @@ impl<'a> InternalRenderingContext<'a> {
     }
 }
 
+struct CursorRenderingContext<'a> {
+    hl: &'a listing::HexLine,
+    bonk: f64,
+    blink: bool,
+    focus: bool,
+}
+
 struct NybbleCursor {
     addr: addr::Address, // byte-aligned
     low_nybble: bool,
 }
 
 impl NybbleCursor {
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a listing::HexLine, x: f64, bonk: f64) {
+    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, crc: &'a CursorRenderingContext<'a>) {
+        let cidx = Self::char_index_for_offset(self.addr - crc.hl.extent.addr) + if self.low_nybble { 1 } else { 0 };
+        let cx = irc.lw.layout.addr_pane_width + irc.pad + cidx as f64 * irc.font_extents().max_x_advance;
+
         let fe = irc.font_extents();
         irc.cr.set_source_gdk_rgba(irc.cfg.cursor_bg_color);
-        irc.cr.rectangle(
-            x + bonk,
-            fe.height - fe.ascent,
-            fe.max_x_advance.round(),
-            fe.height);
-        irc.cr.fill();
+                
+        if crc.focus {
+            if crc.blink {
+                irc.cr.rectangle(
+                    cx.round() + crc.bonk,
+                    fe.height - fe.ascent,
+                    fe.max_x_advance,
+                    fe.height);
+                irc.cr.fill();
+                /* TODO: redraw byte
+                cr.set_source_gdk_rgba(irc.cfg.cursor_fg_color);
+                cr.move_to(cx, irc.line_height);
+                cr.show_text(&text.chars().nth(cidx).unwrap().to_string());
+                 */
+            } 
+        } else {
+            irc.cr.set_line_width(1.0);
+            irc.cr.rectangle(
+                cx.round() + crc.bonk - 0.5,
+                fe.height - fe.ascent - 0.5,
+                fe.max_x_advance + 1.0,
+                fe.height + 1.0);
+            irc.cr.stroke();
+        }
+    }
 
-        /* TODO: redraw byte
-        cr.set_source_gdk_rgba(irc.cfg.cursor_fg_color);
-        cr.move_to(cx, irc.line_height);
-        cr.show_text(&text.chars().nth(cidx).unwrap().to_string());
-         */
+    fn char_index_for_offset(o: addr::Size) -> usize {
+        let mut i:usize = 0;
+
+        // add 3 for every byte
+        i+= o.bytes as usize * 3;
+
+        // add for nybbles (displayed little endian in octet, which is unfortunate)
+        //i+= ((7 - o.bits) / 4) as usize;
+
+        // add 1 for every 8 bytes (double spacing in center column)
+        i+= o.bytes as usize / 8;
+
+        return i;
     }
 }
 
@@ -70,9 +107,9 @@ enum CursorMode {
 }
 
 impl CursorMode {
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a listing::HexLine, x: f64, bonk: f64) {
+    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, crc: &'a CursorRenderingContext<'a>) {
         match self {
-            CursorMode::Nybble(c) => c.draw(irc, hl, x, bonk),
+            CursorMode::Nybble(c) => c.draw(irc, crc),
             CursorMode::Bit(c) => todo!("bit cursor drawing")
         }
     }
@@ -103,12 +140,15 @@ impl Cursor {
         }
     }
 
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a listing::HexLine, x: f64) {
-        if self.blink_timer < irc.cfg.cursor_blink_period / 2.0 {
-            let bonk = (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
-
-            self.mode.draw(irc, hl, x.round(), bonk);
-        }
+    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a listing::HexLine) {
+        let bonk = (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
+        let crc = CursorRenderingContext {
+            hl,
+            bonk,
+            blink: self.blink_timer < irc.cfg.cursor_blink_period / 2.0,
+            focus: irc.lw.has_focus
+        };
+        self.mode.draw(irc, &crc);
     }
 
     fn animate(&mut self, cfg: &config::Config, ais: f64) {
@@ -183,25 +223,12 @@ pub struct ListingWidget {
     scroll_bonked_top: bool,
     scroll_bonked_bottom: bool,
 
+    has_focus: bool,
+
     fonts: Fonts,
     layout: Layout,
 
     cursor: Cursor,
-}
-
-fn char_index_for_offset(o: addr::Size) -> usize {
-    let mut i:usize = 0;
-
-    // add 3 for every byte
-    i+= o.bytes as usize * 3;
-
-    // add for nybbles (displayed little endian in octet, which is unfortunate)
-    i+= ((7 - o.bits) / 4) as usize;
-
-    // add 1 for every 8 bytes (double spacing in center column)
-    i+= o.bytes as usize / 8;
-
-    return i;
 }
 
 impl ListingWidget {
@@ -224,6 +251,8 @@ impl ListingWidget {
             scroll_bonked_bottom: false,
             scroll_bonked_top: false,
 
+            has_focus: false,
+
             fonts: Fonts::new(&cfg),
             layout: Layout {
                 width: 0.0,
@@ -243,14 +272,16 @@ impl ListingWidget {
             (*sh).rt.spawn(
                 listing::ListingFuture::new(
                     sync::Arc::downgrade(&sh.engine))));
+
+        sh.has_focus = da.is_focus();
         
         /* Events I might be interested in
-        - connect_button_press_event
+        O connect_button_press_event
         - connect_button_release_event
         - connect_configure_event
         O connect_draw
-        - connect_focus_in_event (animate cursor)
-        - connect_focus_out_event (animate cursor)
+        O connect_focus_in_event (animate cursor)
+        O connect_focus_out_event (animate cursor)
         O connect_key_press_event
         - connect_key_release_event
         - connect_popup_menu
@@ -264,18 +295,27 @@ impl ListingWidget {
         O connect_size_allocate
          */
 
+        { let rc_clone = rc.clone(); da.connect_button_press_event(move |da, eb| rc_clone.write().unwrap().button_event(da, eb)); }
+        { let rc_clone = rc.clone(); da.connect_button_release_event(move |da, eb| rc_clone.write().unwrap().button_event(da, eb)); }
         { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.write().unwrap().draw(da, cr)); }
+        { let rc_clone = rc.clone(); da.connect_focus_in_event(move |da, ef| rc_clone.write().unwrap().focus_change_event(da, ef)); }
+        { let rc_clone = rc.clone(); da.connect_focus_out_event(move |da, ef| rc_clone.write().unwrap().focus_change_event(da, ef)); }
         { let rc_clone = rc.clone(); da.connect_key_press_event(move |da, ek| rc_clone.write().unwrap().key_press_event(da, ek)); }
         { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.write().unwrap().scroll_event(da, es)); }
         { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.write().unwrap().size_allocate(da, al)); }
         { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.write().unwrap().tick_callback(da, fc)); }
 
         da.add_events(
+            gdk::EventMask::FOCUS_CHANGE_MASK |
             gdk::EventMask::SCROLL_MASK |
             gdk::EventMask::SMOOTH_SCROLL_MASK |
             gdk::EventMask::KEY_PRESS_MASK |
-            gdk::EventMask::KEY_RELEASE_MASK);
+            gdk::EventMask::KEY_RELEASE_MASK |
+            gdk::EventMask::BUTTON_PRESS_MASK |
+            gdk::EventMask::BUTTON_RELEASE_MASK
+        );
         da.set_can_focus(true);
+        da.set_focus_on_click(true);
 
         sh.reconfigure(da, &config::get());
         
@@ -323,10 +363,7 @@ impl ListingWidget {
 
                         /* draw cursor */
                         if hl.extent.contains(self.cursor.get_addr()) {
-                            let cidx = char_index_for_offset(self.cursor.get_addr() - hl.extent.addr);
-                            let cx = self.layout.addr_pane_width + irc.pad + cidx as f64 * irc.font_extents().max_x_advance;
-                            
-                            self.cursor.draw(&irc, &hl, cx);
+                            self.cursor.draw(&irc, &hl);
                         }
                     },
                     listing::LineGroupType::Break(bidx) => {
@@ -521,6 +558,27 @@ impl ListingWidget {
             + (2 * cfg.lookahead); // lookahead works in both directions
         
         self.engine.write().unwrap().resize_window(window_size);
+    }
+
+    fn button_event(self: sync::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
+        std::mem::drop(self); // grab_focus triggers focus_change_event before we return
+        match eb.get_event_type() {
+            gdk::EventType::ButtonPress => {
+                da.grab_focus();
+            },
+            _ => ()
+        }
+        da.queue_draw();
+
+        gtk::Inhibit(false)
+    }
+
+    fn focus_change_event(&mut self, da: &gtk::DrawingArea, ef: &gdk::EventFocus) -> gtk::Inhibit {
+        self.cursor.blink();
+        self.has_focus = ef.get_in();
+        da.queue_draw();
+
+        gtk::Inhibit(false)
     }
     
     fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {

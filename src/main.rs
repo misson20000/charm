@@ -1,3 +1,4 @@
+#![feature(arbitrary_self_types)]
 #![allow(dead_code)]
 
 extern crate cairo;
@@ -154,25 +155,19 @@ impl CharmWindow {
     }
     
     fn append_page_for_space(&self, space: sync::Arc<dyn space::AddressSpace + Send + Sync>) {
-        let pane = gtk::Paned::new(gtk::Orientation::Horizontal);
-
         let label = space.get_label().to_string();
         
         let da = gtk::DrawingArea::new();
         widget::listing::ListingWidget::new(space, self.application.rt.handle().clone()).attach(&da);
         
-        pane.add(&da);
-
-        //let tree = gtk::TreeView::new();
-        //pane.add(&tree);
-    
-        let idx = self.notebook.append_page(&pane, Some(&gtk::Label::new(Some(&label))));
-        self.notebook.set_tab_detachable(&pane, true);
-        self.notebook.set_tab_reorderable(&pane, true);
+        let idx = self.notebook.append_page(&da, Some(&gtk::Label::new(Some(&label))));
+        self.notebook.set_tab_detachable(&da, true);
+        self.notebook.set_tab_reorderable(&da, true);
         self.notebook.show_all();
 
         // it is nice to focus newly opened files for the user
         self.notebook.set_current_page(Some(idx));
+        da.grab_focus();
     }
 }
 
