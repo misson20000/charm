@@ -37,7 +37,7 @@ pub mod unit {
     pub static NULL: Address = Address { byte: 0, bit: 0 };
     pub static END: Address = Address { byte: u64::MAX, bit: 7 };
 
-    pub static ZERO: Size = Size { bytes: 0, bits: 1 };
+    pub static ZERO: Size = Size { bytes: 0, bits: 0 };
     pub static BIT: Size = Size { bytes: 0, bits: 1 };
     pub static NYBBLE: Size = Size { bytes: 0, bits: 4 };
     pub static BYTE: Size = Size { bytes: 1, bits: 0 };
@@ -166,6 +166,24 @@ impl Address {
     pub fn magnitude(&self) -> Size {
         Size { bytes: self.byte, bits: self.bit }
     }
+
+    pub fn bounded_distance_to_end(&self, bound: Size) -> Size {
+        if bound == unit::ZERO {
+            unit::ZERO
+        } else if *self == unit::NULL {
+            bound
+        } else {
+            std::cmp::min(bound, (unit::END - *self) + unit::BIT)
+        }
+    }
+
+    pub fn is_close_to_end(&self, bound: Size) -> bool {
+        if bound == unit::ZERO {
+            false
+        } else {
+            *self >= (unit::END - (bound - unit::BIT))
+        }
+    }
 }
 
 impl std::fmt::Display for Size {
@@ -241,6 +259,10 @@ impl Extent {
     pub fn between(begin: Address, end: Address) -> Extent {
         Extent { addr: begin, size: end - begin }
     }
+
+    pub fn hits_end_of_space(&self) -> bool {
+        self.addr.is_close_to_end(self.size)
+    }
     
     pub fn end(&self) -> Address {
         self.addr + self.size
@@ -251,7 +273,7 @@ impl Extent {
     }
     
     pub fn contains(&self, addr: Address) -> bool {
-        addr >= self.addr && addr < self.end()
+        addr >= self.addr && addr - self.addr < self.size
     }
 
     pub fn contains_size(&self, size: Size) -> bool {

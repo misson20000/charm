@@ -129,17 +129,17 @@ impl NybbleCursor {
         
         let extents = le.break_extents_near(self.addr);
 
-        if self.low_nybble {
-            self.low_nybble = false;
-            
-            let target = self.addr + addr::unit::BYTE;
+        if self.low_nybble {            
             self.addr = match extents.after {
                 // crossing extent boundaries, align with beginning of extent
                 // TODO: handle end of address space
-                Some(a) if a.addr < target => a.addr,
-                _ => target
+                Some(a) if a.addr - self.addr < addr::unit::BYTE => a.addr,
+                _ if self.addr.is_close_to_end(addr::unit::BYTE) => return true,
+                _ => self.addr + addr::unit::BYTE
             };
 
+            self.low_nybble = false;
+            
             false
         } else {
             self.low_nybble = true;
@@ -319,20 +319,26 @@ impl Cursor {
     fn find_lineno(&self, le: &listing::ListingEngine) -> CursorLineLocation {
         let addr = self.get_addr();
         
-        let mut last_lineno: Option<usize> = None;
+        let mut last_line: Option<(usize, &listing::LineGroup)> = None;
         let mut lineno: usize = 0;
         for lg in le.line_groups.iter() {
             if lg.get_addr(&le.breaks) > addr {
-                return match last_lineno {
+                return match last_line {
                     None => CursorLineLocation::Before,
-                    Some(lln) => CursorLineLocation::Found(lln),
+                    Some((lln, _)) => CursorLineLocation::Found(lln),
                 };
             }
-            last_lineno = Some(lineno);
+            last_line = Some((lineno, lg));
             lineno+= lg.num_lines(&le.breaks);
         }
 
-        CursorLineLocation::After
+        match last_line {
+            Some((ln, lg)) => match &lg.group_type {
+                listing::LineGroupType::Hex(hl) if hl.extent.contains(addr) => CursorLineLocation::Found(ln),
+                _ => CursorLineLocation::After
+            },
+            _ => CursorLineLocation::After
+        }
     }
     
     fn blink(&mut self) {
@@ -749,7 +755,6 @@ impl ListingWidget {
                 if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
                     /* we are now bonked on the bottom... */
                     self.scroll_bonked_bottom = true;
-                    todo!("bonk bottom");
                 }
             }
             
@@ -767,6 +772,9 @@ impl ListingWidget {
         /* if we are bonked, apply spring */
         if self.scroll_bonked_top {
             self.scroll_velocity-= self.scroll_position * cfg.scroll_spring * ais;
+            self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
+        } else if self.scroll_bonked_bottom {
+            self.scroll_velocity-= (self.scroll_position - cfg.lookahead as f64 * 2.0 - cfg.page_navigation_leadup as f64) * cfg.scroll_spring * ais;
             self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
         } else {
             /* apply constant deceleration */
@@ -876,13 +884,18 @@ impl ListingWidget {
     }
     
     fn seek(&mut self, cfg: &config::Config, addr: addr::Address) {
-        self.scroll_position = 0.0;
-        self.scroll_velocity = 0.0;
-        self.scroll_bonked_top = false;
-        self.scroll_bonked_bottom = false;
-        self.scroll_cursor_spring = false;
         let mut le = self.engine.write().unwrap();
         le.seek(addr);
+        if le.bottom_hit_end {
+            self.scroll_position = cfg.lookahead as f64 * 2.0 + cfg.page_navigation_leadup as f64;
+            self.scroll_bonked_bottom = true;
+        }  else {
+            self.scroll_position = 0.0; // let lookahead logic in tick handler work this out
+            self.scroll_bonked_bottom = false;
+        }
+        self.scroll_velocity = 0.0;
+        self.scroll_bonked_top = false;
+        self.scroll_cursor_spring = false;
         le.scroll_up(cfg.page_navigation_leadup);
     }
 

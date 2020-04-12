@@ -44,6 +44,9 @@ impl FileAddressSpace {
             .and_then(|_| (*inner).file.read(&mut out[..(length as usize)]))
             .map(|r| {
                 addr::bitshift_span(&mut out[..], extent.addr.bit);
+                if r > extent.size.bytes as usize {
+                    out[extent.size.bytes as usize]&= (1 << extent.size.bits) - 1;
+                }
                 match r {
                     i if i == (length as usize) => space::FetchResult::Ok(out),
                     0 => space::FetchResult::Unreadable,

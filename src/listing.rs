@@ -11,7 +11,7 @@ use crate::space;
 
 //extern crate futures;
 
-const LINE_SIZE: u64 = 16;
+const LINE_SIZE: addr::Size = addr::Size { bytes: 16, bits: 0 };
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Break {
@@ -23,7 +23,7 @@ impl Break {
     fn begin_line_including(&self, addr: addr::Address) -> addr::Address {
         let mut offset = addr - self.address;
         offset.bits = 0;
-        offset.bytes-= offset.bytes % LINE_SIZE;
+        offset.bytes-= offset.bytes % LINE_SIZE.bytes;
         self.address + offset
     }
 
@@ -88,7 +88,7 @@ impl HexLine {
         };
         let mut str = std::string::String::new();
         
-        for i in 0..(LINE_SIZE as usize) {
+        for i in 0..(LINE_SIZE.bytes as usize) {
             let offset = addr::Size { bytes: i as u64, bits: 0 };
             
             if i == 8 {
@@ -106,7 +106,7 @@ impl HexLine {
             }
         }
         str+= "| ";
-        for i in 0..(LINE_SIZE as usize) {
+        for i in 0..(LINE_SIZE.bytes as usize) {
             if i == 8 {
                 str+= " ";
             }
@@ -149,7 +149,7 @@ impl LineGroup {
                 distance_from_break,
                 internal: sync::RwLock::new(
                     HexLineAsyncState::Pending(
-                        Box::pin(space.fetch(extent, vec![0; (LINE_SIZE + 1) as usize])))),
+                        Box::pin(space.fetch(extent, vec![0; (LINE_SIZE.bytes + 1) as usize])))),
             }),
         }
     }
@@ -212,6 +212,7 @@ pub struct ListingEngine {
     bottom_address: addr::Address,
     bottom_current_break_index: usize,
     bottom_next_break_index: usize,
+    pub bottom_hit_end: bool,
     
     pub line_groups: std::collections::VecDeque<LineGroup>,
     pub top_margin: usize,
@@ -228,8 +229,15 @@ impl ListingEngine {
             space,
             breaks: vec![
                 Break { address: addr::Address { byte: 0x00000000, bit: 0}, label: "zero break".to_string() },
-                Break { address: addr::Address { byte: 0x00000010, bit: 1}, label: "first break".to_string() },
-                Break { address: addr::Address { byte: 0x00000048, bit: 0}, label: "second break".to_string() }
+                Break { address: addr::Address { byte: 0x00000000, bit: 1}, label: "pathological 1".to_string() },
+                Break { address: addr::Address { byte: 0x00000000, bit: 2}, label: "pathological 2".to_string() },
+                Break { address: addr::Address { byte: 0x00000001, bit: 0}, label: "pathological 3".to_string() },
+                Break { address: addr::Address { byte: 0x00000030, bit: 2}, label: "pathological 4".to_string() },
+                Break { address: addr::Address { byte: 0x00000100, bit: 0}, label: "a bit of sanity".to_string() },
+                Break { address: addr::Address { byte: 0xfffffffffffffff0, bit: 0}, label: "near the end".to_string() },
+                Break { address: addr::Address { byte: 0xffffffffffffffff, bit: 0}, label: "pathological -3".to_string() },
+                Break { address: addr::Address { byte: 0xffffffffffffffff, bit: 6}, label: "pathological -2".to_string() },
+                Break { address: addr::Address { byte: 0xffffffffffffffff, bit: 7}, label: "pathological -1".to_string() },
             ],
 
             top_address: addr::Address::default(),
@@ -238,6 +246,7 @@ impl ListingEngine {
             bottom_address: addr::Address::default(),
             bottom_current_break_index: 0,
             bottom_next_break_index: 0,
+            bottom_hit_end: false,
             
             line_groups: std::collections::VecDeque::<LineGroup>::new(),
             top_margin: 0,
@@ -314,10 +323,11 @@ impl ListingEngine {
         }
     }
     
-    pub fn seek(&mut self, target: addr::Address) {
+    pub fn seek(&mut self, target: addr::Address) -> usize {
         self.line_groups.clear();
         self.num_lines = 0;
         self.top_margin = 0;
+        self.bottom_hit_end = false;
 
         let b = &self.breaks.binary_search_by(|b| b.address.cmp(&target));
 
@@ -350,12 +360,20 @@ impl ListingEngine {
                 self.bottom_address = self.top_address;
             }
         };
+
+        let mut offset = 0;
         
         while self.num_lines < self.top_margin + self.window_height {
-            self.produce_lines_bottom();
+            if self.bottom_hit_end {
+                offset+= self.scroll_up(1);
+            } else {
+                self.produce_lines_bottom();
+            }
         }
 
         self.wake();
+
+        offset
     }
 
     // returns amount actually scrolled (less on bonk)
@@ -429,6 +447,7 @@ impl ListingEngine {
 
             match lg.group_type {
                 LineGroupType::Hex(hex) => {
+                    self.bottom_hit_end = false;
                     self.bottom_address = hex.extent.addr;
                 },
                 LineGroupType::Break(i) => {
@@ -487,15 +506,29 @@ impl ListingEngine {
     
     fn produce_lines_bottom(&mut self) -> bool { // returns true on EOF
         let addr = self.bottom_address;
+
+        if self.bottom_hit_end {
+            return true;
+        }
         
-        let lg = if self.bottom_next_break_index >= self.breaks.len() || self.breaks[self.bottom_next_break_index].address >= addr + LINE_SIZE {
-            // produce a regular line
+        let lg = if self.bottom_next_break_index >= self.breaks.len() || self.breaks[self.bottom_next_break_index].address - addr >= LINE_SIZE {
             let cb = &self.breaks[self.bottom_current_break_index];
-            self.bottom_address+= LINE_SIZE;
-            LineGroup::make_line(
-                self.space.clone(),
-                addr::Extent::new(addr, addr::Size::from(LINE_SIZE)),
-                (addr - cb.address).bytes)
+            
+            if self.bottom_address.is_close_to_end(LINE_SIZE) {
+                // EOF
+                self.bottom_hit_end = true;
+                LineGroup::make_line(
+                    self.space.clone(),
+                    addr::Extent::new(addr, self.bottom_address.bounded_distance_to_end(LINE_SIZE)),
+                    (addr - cb.address).bytes)
+            } else {
+                // produce a regular line
+                self.bottom_address+= LINE_SIZE;
+                LineGroup::make_line(
+                    self.space.clone(),
+                    addr::Extent::new(addr, LINE_SIZE),
+                    (addr - cb.address).bytes)
+            }
         } else {
             let b = &self.breaks[self.bottom_next_break_index];
             if b.address <= addr {
@@ -532,9 +565,10 @@ impl ListingEngine {
 
         let addr = self.breaks[containing_break_index].begin_line_including(target);
         let size = match self.breaks.get(containing_break_index + 1) {
-            Some(next_break) if next_break.address >= addr + LINE_SIZE => addr::Size::from(LINE_SIZE),
+            Some(next_break) if next_break.address - addr >= LINE_SIZE => LINE_SIZE,
             Some(next_break) => next_break.address - addr,
-            None => addr::Size::from(LINE_SIZE)
+            None if addr.is_close_to_end(LINE_SIZE) => addr.bounded_distance_to_end(LINE_SIZE),
+            None => LINE_SIZE
         };
 
         addr::Extent::new(addr, size)
@@ -547,13 +581,11 @@ impl ListingEngine {
         } else {
             Some(self.line_extents_at(at.addr - addr::unit::BIT))
         };
-        
-        // TODO: handle end of address space for after
 
         addr::Triplet::<addr::Extent> {
             before,
             at,
-            after: Some(self.line_extents_at(at.end()))
+            after: if at.hits_end_of_space() { None } else { Some(self.line_extents_at(at.end())) }
         }
     }
 
