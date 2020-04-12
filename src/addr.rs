@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct Address {
     pub byte: u64,
@@ -119,6 +121,13 @@ impl std::ops::Sub<u64> for Address {
     }
 }
 
+pub enum AddressParseError {
+    MissingBytes,
+    MalformedBytes(std::num::ParseIntError),
+    MalformedBits(std::num::ParseIntError),
+    TooManyBits,
+}
+
 impl Address {
     fn normalize_signed(bytes: u64, bits: i8) -> Address {
         let mut nbytes = bytes;
@@ -140,6 +149,20 @@ impl Address {
         Address {byte: nbytes, bit: nbits}
     }
 
+    pub fn parse(string: &str) -> Result<Address, AddressParseError> {
+        let mut i = string.splitn(2, ".");
+
+        Ok(Address {
+            byte: i.next().ok_or(AddressParseError::MissingBytes)
+                .map(|s| s.trim_start_matches("0x"))
+                .and_then(|s| u64::from_str_radix(s, 16).map_err(|e| AddressParseError::MalformedBytes(e)))?,
+            bit: i.next().map(|s| u8::from_str(s)
+                              .map_err(|e| AddressParseError::MalformedBits(e))
+                              .and_then(|v| if v < 8 { Ok(v) } else { Err(AddressParseError::TooManyBits) }))
+                .unwrap_or(Ok(0))?
+        })
+    }
+    
     pub fn magnitude(&self) -> Size {
         Size { bytes: self.byte, bits: self.bit }
     }

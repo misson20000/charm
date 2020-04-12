@@ -10,6 +10,7 @@ use crate::config;
 use crate::ext::CairoExt;
 
 use gtk::prelude::*;
+use gio::prelude::*;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 
@@ -177,6 +178,14 @@ impl NybbleCursor {
             Some(a) => { self.addr = a.addr + a.size.floor(); false },
         }
     }
+
+    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
+        self.attempted_vertical_offset = None;
+        
+        let extents = le.break_extents_at(addr);
+        let offset = addr - extents.addr;
+        self.addr = extents.addr + offset.floor();
+    }
 }
 
 struct BitCursor {
@@ -234,6 +243,13 @@ impl CursorMode {
         match self {
             CursorMode::Nybble(c) => c.move_down(le),
             CursorMode::Bit(_c) => todo!("bit cursor movement")
+        }
+    }
+
+    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
+        match self {
+            CursorMode::Nybble(c) => c.goto(le, addr),
+            CursorMode::Bit(c) => c.addr = addr,
         }
     }
 }
@@ -342,6 +358,9 @@ impl Cursor {
     fn move_down(&mut self, le: &listing::ListingEngine) {
         self.blink();
         if self.mode.move_down(le) { self.bonk(); }
+    }
+    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
+        self.mode.goto(le, addr);
     }
 }
 
@@ -473,6 +492,7 @@ impl ListingWidget {
         O connect_size_allocate
          */
 
+        /* signals */
         { let rc_clone = rc.clone(); da.connect_button_press_event(move |da, eb| rc_clone.write().unwrap().button_event(da, eb)); }
         { let rc_clone = rc.clone(); da.connect_button_release_event(move |da, eb| rc_clone.write().unwrap().button_event(da, eb)); }
         { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.write().unwrap().draw(da, cr)); }
@@ -492,9 +512,70 @@ impl ListingWidget {
             gdk::EventMask::BUTTON_PRESS_MASK |
             gdk::EventMask::BUTTON_RELEASE_MASK
         );
+
+        /* misc flags */
         da.set_can_focus(true);
         da.set_focus_on_click(true);
 
+        /* actions */
+        let ag = gio::SimpleActionGroup::new();
+        {
+            let goto_action = gio::SimpleAction::new("goto", None);
+            let goto_dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
+                Some("Go to Location"),
+                None,
+                gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+                &[
+                    ("_Cancel", gtk::ResponseType::Cancel),
+                    ("_Go", gtk::ResponseType::Accept),
+                ]);
+            goto_dialog.set_default_response(gtk::ResponseType::Accept);
+
+            let ca = goto_dialog.get_content_area();
+            let goto_entry = gtk::Entry::new();
+            goto_entry.set_activates_default(true);
+            ca.pack_start(&goto_entry, true, true, 0);
+            ca.show_all();
+            
+            let rc_clone = rc.clone();
+            let da_clone = da.clone();
+            goto_action.set_enabled(true);
+            goto_action.connect_activate(move |_act, _par| {
+                goto_dialog.set_transient_for(da_clone.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
+
+                // do not hold a lock on ListingWidget here since run() blocking is a dirty lie
+                goto_entry.set_text(&format!("{}", rc_clone.read().unwrap().cursor.get_addr()));
+                goto_entry.grab_focus();
+                
+                while match goto_dialog.run() {
+                    gtk::ResponseType::Accept => {
+                        let text_gstring = goto_entry.get_text();
+                        let text = match text_gstring.as_ref() {
+                            Some(gs) => gs.as_ref(),
+                            None => ""
+                        };
+                        match addr::Address::parse(text) {
+                            Ok(addr) => { rc_clone.write().unwrap().goto(addr); false },
+                            Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just ignore
+                            Err(e) => {
+                                let message = match e {
+                                    addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
+                                    addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
+                                    addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
+                                    addr::AddressParseError::TooManyBits => "Invalid amount of bits."
+                                }; true
+                            }
+                        }
+                    }
+                    _ => false
+                } {}
+                goto_dialog.hide();
+                goto_dialog.set_transient_for::<gtk::Window>(None);
+            });
+            ag.add_action(&goto_action);
+        }
+        da.insert_action_group("listing", Some(&ag));
+        
         sh.reconfigure(da, &config::get());
         
         //da.set_size_request(1300, 400);
@@ -788,6 +869,12 @@ impl ListingWidget {
         self.engine.write().unwrap().resize_window(window_size);
     }
 
+    fn goto(&mut self, addr: addr::Address) {
+        let cfg = config::get();
+        self.cursor.goto(&self.engine.read().unwrap(), addr);
+        self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Any);
+    }
+    
     fn seek(&mut self, cfg: &config::Config, addr: addr::Address) {
         self.scroll_position = 0.0;
         self.scroll_velocity = 0.0;
@@ -796,7 +883,7 @@ impl ListingWidget {
         self.scroll_cursor_spring = false;
         let mut le = self.engine.write().unwrap();
         le.seek(addr);
-        le.scroll_up(cfg.lookahead + cfg.page_navigation_leadup);
+        le.scroll_up(cfg.page_navigation_leadup);
     }
 
     fn button_event(self: sync::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {

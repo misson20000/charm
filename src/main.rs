@@ -1,12 +1,14 @@
 #![feature(arbitrary_self_types)]
 #![allow(dead_code)]
 
+extern crate glib;
 extern crate cairo;
 extern crate gio;
 extern crate gtk;
 extern crate gdk;
 extern crate futures;
 extern crate tokio;
+extern crate send_wrapper;
 
 #[cfg(feature = "test_listing")]
 extern crate ncurses;
@@ -52,6 +54,12 @@ impl CharmWindow {
                 file_menu.append(Some("Open File..."), Some("win.open"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
+            }
+            {
+                let edit_menu = gio::Menu::new();
+                edit_menu.append(Some("Go to..."), Some("win-listing.goto"));
+                edit_menu.freeze();
+                menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
             {
                 let help_menu = gio::Menu::new();
@@ -133,6 +141,8 @@ impl CharmWindow {
             });
             w.window.add_action(&open_action);
         }
+
+        util::ActionForwarder::new(&w.window, "listing".to_string());
         
         w
     }
@@ -188,7 +198,10 @@ impl CharmApplication {
                 .enable_all()
                 .build().unwrap(),
         });
-        
+
+        /* application actions */
+
+        /* new_window */
         {
             let new_window_action = gio::SimpleAction::new("new_window", None);
             let app_clone_for_closure = app.clone();
@@ -200,6 +213,7 @@ impl CharmApplication {
             app.application.add_action(&new_window_action);
         }
 
+        /* about */
         {
             let about_action = gio::SimpleAction::new("about", None);
             let about_dialog = gtk::AboutDialog::new();
@@ -219,6 +233,11 @@ impl CharmApplication {
             });
             app.application.add_action(&about_action);
         }
+
+        /* accelerators */
+        app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
+        app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
+        app.application.set_accels_for_action("listing.goto", &["G"]);
 
         app
     }
@@ -298,6 +317,6 @@ fn main() {
           w.show();
       });
     }
-
+    
     application.run(&std::env::args().collect::<Vec<_>>());
 }

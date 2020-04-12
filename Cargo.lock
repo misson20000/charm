@@ -89,10 +89,12 @@ dependencies = [
  "futures",
  "gdk",
  "gio",
+ "glib",
  "gtk",
  "hex-literal",
  "lazy_static",
  "ncurses",
+ "send_wrapper",
  "tokio",
 ]
 
@@ -638,6 +640,12 @@ name = "redox_syscall"
 version = "0.1.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2439c63f3f6139d1b57529d16bc3b8bb855230c8efcc5d3a896c8bea7c3b1e84"
+
+[[package]]
+name = "send_wrapper"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
 
 [[package]]
 name = "signal-hook-registry"
