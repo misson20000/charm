@@ -59,6 +59,7 @@ impl CharmWindow {
             {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Go to..."), Some("win-listing.goto"));
+                edit_menu.append(Some("Insert or edit break..."), Some("win-listing.insert_break"));
                 edit_menu.freeze();
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
@@ -240,6 +241,7 @@ impl CharmApplication {
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("listing.goto", &["G"]);
+        app.application.set_accels_for_action("listing.insert_break", &["B"]);
 
         app
     }

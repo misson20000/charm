@@ -134,30 +134,34 @@ impl ListingEngine {
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted by.
     pub fn seek(&self, target: addr::Address) -> usize {
-        self.interior.lock().unwrap().seek(self, target)
+        let breaks = self.editor.get_breaks();
+        self.interior.lock().unwrap().seek(self, &breaks, target)
     }
 
     /// Scrolls the window upwards. Returns amount window was actually moved
     /// by. This can be less than what was requested if the beginning or end of
     /// the address space was hit.
     pub fn scroll_up(&self, count: usize) -> usize {
-        self.interior.lock().unwrap().scroll_up(self, count)
+        let breaks = self.editor.get_breaks();
+        self.interior.lock().unwrap().scroll_up(self, &breaks, count)
     }
 
     /// Scrolls the window downwards. Returns amount window was actually moved
     /// by. This can be less than what was requested if the beginning or end of
     /// the address space was hit.
     pub fn scroll_down(&self, count: usize) -> usize {
-        self.interior.lock().unwrap().scroll_down(self, count)
+        let breaks = self.editor.get_breaks();
+        self.interior.lock().unwrap().scroll_down(self, &breaks, count)
     }
 
     /// Changes the size of the window.
     pub fn resize_window(&self, size: usize) {
+        let breaks = self.editor.get_breaks();
         let mut interior = self.interior.lock().unwrap();
         interior.window_height = size;
-        
+
         while interior.num_lines < interior.top_margin + interior.window_height {
-            interior.produce_lines_bottom(self);
+            interior.produce_lines_bottom(self, &breaks);
         }
 
         interior.wake();
@@ -246,9 +250,7 @@ impl ListingInterior {
     /* useful functionality */
 
     /// See ListingEngine::seek.
-    fn seek(&mut self, engine: &ListingEngine, target: addr::Address) -> usize {
-        let breaks = engine.editor.get_breaks();
-        
+    fn seek(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>, target: addr::Address) -> usize {
         self.line_groups.clear();
         self.num_lines = 0;
         self.top_margin = 0;
@@ -290,9 +292,9 @@ impl ListingInterior {
         
         while self.num_lines < self.top_margin + self.window_height {
             if self.bottom_hit_end {
-                offset+= self.scroll_up(engine, 1);
+                offset+= self.scroll_up(engine, breaks, 1);
             } else {
-                self.produce_lines_bottom(engine);
+                self.produce_lines_bottom(engine, breaks);
             }
         }
 
@@ -302,10 +304,10 @@ impl ListingInterior {
     }
 
     /// See ListingEngine::scroll_up.
-    fn scroll_up(&mut self, engine: &ListingEngine, count: usize) -> usize {
+    fn scroll_up(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>, count: usize) -> usize {
         // produce lines in the top margin until we can just shrink it
         while self.top_margin < count {
-            if self.produce_lines_top(engine) {
+            if self.produce_lines_top(engine, breaks) {
                 break
             }
         }
@@ -319,10 +321,10 @@ impl ListingInterior {
     }
 
     /// See ListingEngine::scroll_down.
-    fn scroll_down(&mut self, engine: &ListingEngine, count: usize) -> usize {
+    fn scroll_down(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>, count: usize) -> usize {
         // grow bottom margin
         while self.num_lines < self.top_margin + self.window_height + count {
-            if self.produce_lines_bottom(engine) {
+            if self.produce_lines_bottom(engine, breaks) {
                 break
             }
         }
@@ -393,9 +395,7 @@ impl ListingInterior {
 
     /// Tries to add a line group to the top margin. Returns true if no lines
     /// could be produced because the top of the address space was reached.
-    fn produce_lines_top(&mut self, engine: &ListingEngine) -> bool {
-        let breaks = engine.editor.get_breaks();
-        
+    fn produce_lines_top(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>) -> bool {
         let lg = match self.top_break_index {
             None => return true,
             Some(tbi) => {
@@ -431,9 +431,7 @@ impl ListingInterior {
 
     /// Tries to add a line group to the bottom margin. Returns true if no lines
     /// could be produced because the bottom of the address space was reached.
-    fn produce_lines_bottom(&mut self, engine: &ListingEngine) -> bool {
-        let breaks = engine.editor.get_breaks();
-        
+    fn produce_lines_bottom(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>) -> bool {
         let addr = self.bottom_address;
 
         if self.bottom_hit_end {
@@ -497,8 +495,8 @@ impl ListingInterior {
 
     /// Notifies us that the break list was updated out from under us and we
     /// need to redraw our window from scratch.
-    fn break_list_changed(&mut self, engine: &ListingEngine) {
-        self.seek(engine, self.top_address);
+    fn break_list_changed(&mut self, engine: &ListingEngine, breaks: &vec::Vec<sync::Arc<edit::Break>>) {
+        self.seek(engine, breaks, self.top_address);
     }
 }
 
@@ -533,9 +531,9 @@ impl Drop for ListingEngineBreakObserver {
 }
 
 impl edit::BreakListObserver for ListingEngineBreakObserver {
-    fn break_list_changed(&self) {
+    fn break_list_changed(&self, breaks: &vec::Vec<sync::Arc<edit::Break>>) {
         match self.engine.upgrade() {
-            Some(engine) => engine.interior.lock().unwrap().break_list_changed(&engine),
+            Some(engine) => engine.interior.lock().unwrap().break_list_changed(&engine, breaks),
             None => ()
         }
     }
