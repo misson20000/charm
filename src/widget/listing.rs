@@ -4,7 +4,11 @@ use std::option;
 use crate::util;
 use crate::addr;
 use crate::space;
+use crate::space::edit;
 use crate::listing;
+use crate::listing::line_group;
+use crate::listing::hex_line;
+use crate::listing::break_line;
 use crate::config;
 
 use crate::ext::CairoExt;
@@ -37,7 +41,7 @@ impl<'a> InternalRenderingContext<'a> {
 }
 
 struct CursorRenderingContext<'a> {
-    hl: &'a listing::HexLine,
+    hl: &'a hex_line::HexLine,
     bonk: f64,
     blink: bool,
     focus: bool,
@@ -104,7 +108,7 @@ impl NybbleCursor {
     fn move_left(&mut self, le: &listing::ListingEngine) -> bool {
         self.attempted_vertical_offset = None;
         
-        let extents = le.break_extents_near(self.addr);
+        let extents = le.editor.break_extents_near(self.addr);
 
         if self.low_nybble {
             self.low_nybble = false;
@@ -127,7 +131,7 @@ impl NybbleCursor {
     fn move_right(&mut self, le: &listing::ListingEngine) -> bool {
         self.attempted_vertical_offset = None;
         
-        let extents = le.break_extents_near(self.addr);
+        let extents = le.editor.break_extents_near(self.addr);
 
         if self.low_nybble {            
             self.addr = match extents.after {
@@ -182,9 +186,9 @@ impl NybbleCursor {
     fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
         self.attempted_vertical_offset = None;
         
-        let extents = le.break_extents_at(addr);
+        let extents = le.editor.break_extents_at(addr);
         let offset = addr - extents.addr;
-        self.addr = extents.addr + offset.floor();
+        self.addr = extents.addr + (offset.floor());
     }
 }
 
@@ -195,12 +199,6 @@ struct BitCursor {
 enum CursorMode {
     Nybble(NybbleCursor),
     Bit(BitCursor),
-}
-
-pub enum CursorLineLocation {
-    Before,
-    Found(usize),
-    After,
 }
 
 impl CursorMode {
@@ -294,7 +292,7 @@ impl Cursor {
         }
     }
 
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a listing::HexLine) {
+    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a hex_line::HexLine) {
         let bonk = (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
         let crc = CursorRenderingContext {
             hl,
@@ -314,31 +312,6 @@ impl Cursor {
     
     fn get_addr(&self) -> addr::Address {
         self.mode.get_addr()
-    }
-
-    fn find_lineno(&self, le: &listing::ListingEngine) -> CursorLineLocation {
-        let addr = self.get_addr();
-        
-        let mut last_line: Option<(usize, &listing::LineGroup)> = None;
-        let mut lineno: usize = 0;
-        for lg in le.line_groups.iter() {
-            if lg.get_addr(&le.breaks) > addr {
-                return match last_line {
-                    None => CursorLineLocation::Before,
-                    Some((lln, _)) => CursorLineLocation::Found(lln),
-                };
-            }
-            last_line = Some((lineno, lg));
-            lineno+= lg.num_lines(&le.breaks);
-        }
-
-        match last_line {
-            Some((ln, lg)) => match &lg.group_type {
-                listing::LineGroupType::Hex(hl) if hl.extent.contains(addr) => CursorLineLocation::Found(ln),
-                _ => CursorLineLocation::After
-            },
-            _ => CursorLineLocation::After
-        }
     }
     
     fn blink(&mut self) {
@@ -410,7 +383,8 @@ struct Layout {
 }
 
 pub struct ListingWidget {
-    engine: sync::Arc<sync::RwLock<listing::ListingEngine>>,
+    engine: sync::Arc<listing::ListingEngine>,
+    editor: sync::Arc<edit::SpaceEditor>,
     rt: tokio::runtime::Handle,
     update_task: option::Option<tokio::task::JoinHandle<()>>,
 
@@ -434,13 +408,12 @@ pub struct ListingWidget {
 
 impl ListingWidget {
     pub fn new(
-        aspace: sync::Arc<dyn space::AddressSpace + Send + Sync>,
+        editor: sync::Arc<edit::SpaceEditor>,
         rt: tokio::runtime::Handle) -> ListingWidget {
         let cfg = config::get();
         ListingWidget {
-            engine: sync::Arc::new(
-                sync::RwLock::new(
-                    listing::ListingEngine::new(aspace, 12))),
+            engine: listing::ListingEngine::new(editor.clone(), 12),
+            editor,
             rt,
             update_task: None,
 
@@ -473,8 +446,7 @@ impl ListingWidget {
         let mut sh = rc.write().unwrap();
         (*sh).update_task = Some(
             (*sh).rt.spawn(
-                listing::ListingFuture::new(
-                    sync::Arc::downgrade(&sh.engine))));
+                sh.engine.create_future()));
 
         sh.has_focus = da.is_focus();
         
@@ -616,14 +588,12 @@ impl ListingWidget {
             InternalRenderingPhase::Background,
             InternalRenderingPhase::Foreground] {
 
-            let le = self.engine.read().unwrap();
-            let mut lineno: usize = 0;
-            for lg in le.line_groups.iter() {
+            for (lineno, lg) in self.engine.iter() {
                 cr.save();
-                cr.translate(0.0, irc.font_extents().height * ((lineno as isize - le.top_margin as isize) as f64));
+                cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
-                match &lg.group_type {
-                    listing::LineGroupType::Hex(hl) => {
+                match &lg {
+                    line_group::LineGroup::Hex(hl) => {
                         self.draw_hex_group(&hl, &cr, phase, &cfg, &irc);
 
                         /* draw cursor */
@@ -631,13 +601,12 @@ impl ListingWidget {
                             self.cursor.draw(&irc, &hl);
                         }
                     },
-                    listing::LineGroupType::Break(bidx) => {
-                        self.draw_break_group(&le.breaks[*bidx], &cr, phase, &cfg, &irc);
+                    line_group::LineGroup::Break(brk) => {
+                        self.draw_break_group(&brk, &cr, phase, &cfg, &irc);
                     },
                 }
 
                 cr.restore();
-                lineno+= lg.num_lines(&le.breaks);
             }
         }
         cr.restore();
@@ -670,7 +639,7 @@ impl ListingWidget {
         gtk::Inhibit(false)
     }
     
-    fn draw_hex_group<'a>(&self, hl: &listing::HexLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, irc: &'a InternalRenderingContext<'a>) {
+    fn draw_hex_group<'a>(&self, hl: &hex_line::HexLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, irc: &'a InternalRenderingContext<'a>) {
         match phase {
             InternalRenderingPhase::Extents => {
             },
@@ -701,14 +670,14 @@ impl ListingWidget {
         }
     }
 
-    fn draw_break_group<'a>(&self, brk: &listing::Break, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, irc: &'a InternalRenderingContext<'a>) {
+    fn draw_break_group<'a>(&self, break_line: &break_line::BreakLine, cr: &cairo::Context, phase: &InternalRenderingPhase, cfg: &config::Config, irc: &'a InternalRenderingContext<'a>) {
         match phase {
             InternalRenderingPhase::Foreground => {
                 // draw label
                 cr.set_scaled_font(&self.fonts.bold_scaled);
                 cr.set_source_gdk_rgba(cfg.text_color);
                 cr.move_to(self.layout.addr_pane_width + irc.pad, irc.font_extents().height * 2.0);
-                cr.show_text(&brk.label);
+                cr.show_text(&break_line.brk.label);
             },
             _ => ()
         }
@@ -747,10 +716,9 @@ impl ListingWidget {
         {
             /* try to scroll listing engine, setting bonk flags if necessary */
 
-            let mut le = self.engine.write().unwrap();
             if self.scroll_position > (cfg.lookahead as f64) {
                 let amt_attempted = self.scroll_position as usize - cfg.lookahead;
-                let amt_actual = le.scroll_down(amt_attempted);
+                let amt_actual = self.engine.scroll_down(amt_attempted);
                 self.scroll_position-= amt_actual as f64;
                 if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
                     /* we are now bonked on the bottom... */
@@ -760,7 +728,7 @@ impl ListingWidget {
             
             if self.scroll_position < (cfg.lookahead as f64) {
                 let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
-                let amt_actual = le.scroll_up(amt_attempted);
+                let amt_actual = self.engine.scroll_up(amt_attempted);
                 self.scroll_position+= amt_actual as f64;
                 if amt_actual < amt_attempted && self.scroll_velocity < 0.0 && self.scroll_position < 1.0 {
                     /* we are now bonked on the top... */
@@ -830,34 +798,31 @@ impl ListingWidget {
     }
 
     fn ensure_cursor_is_in_view(&mut self, cfg: &config::Config, dir: CursorEnsureInViewDirection) {
-        let le = self.engine.read().unwrap();
-
-        let top_super_threshold = le.top_margin + f64::max(0.0, self.scroll_position) as usize;
-        let top_threshold = top_super_threshold + cfg.page_navigation_leadup;
-        let bottom_super_threshold = le.top_margin + le.window_height + f64::max(0.0, self.scroll_position) as usize - 2 * cfg.lookahead;
-        let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup;
-        let cln = self.cursor.find_lineno(&le);
+        let top_super_threshold = f64::max(0.0, self.scroll_position) as isize;
+        let top_threshold = top_super_threshold + cfg.page_navigation_leadup as isize;
+        let bottom_super_threshold = self.engine.get_window_height() as isize + f64::max(0.0, self.scroll_position) as isize - 2 * cfg.lookahead as isize;
+        let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup as isize;
+        let cln = self.engine.find_lineno(self.cursor.get_addr());
+        
         self.scroll_cursor_direction = dir;
         
-        std::mem::drop(le);
-
         match cln {
-            CursorLineLocation::Before => {
+            listing::LineFindResult::Before => {
                 self.seek(cfg, self.cursor.get_addr());
             },
-            CursorLineLocation::Found(ln) if ln < top_threshold && self.scroll_position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
+            listing::LineFindResult::Found(ln) if ln < top_threshold && self.scroll_position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
                 self.scroll_bonked_top = false;
                 self.scroll_bonked_bottom = false;
                 self.scroll_cursor_spring = true;
                 self.scroll_velocity = -((top_threshold - ln) as f64) * 20.0;
             },
-            CursorLineLocation::Found(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
+            listing::LineFindResult::Found(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
                 self.scroll_bonked_top = false;
                 self.scroll_bonked_bottom = false;
                 self.scroll_cursor_spring = true;
                 self.scroll_velocity = (ln - bottom_threshold) as f64 * 20.0;
             },
-            CursorLineLocation::After => {
+            listing::LineFindResult::After => {
                 self.seek(cfg, self.cursor.get_addr());
             },
             _ => {
@@ -874,19 +839,18 @@ impl ListingWidget {
             + 1 // to accomodate scrolling
             + (2 * cfg.lookahead); // lookahead works in both directions
         
-        self.engine.write().unwrap().resize_window(window_size);
+        self.engine.resize_window(window_size);
     }
 
     fn goto(&mut self, addr: addr::Address) {
         let cfg = config::get();
-        self.cursor.goto(&self.engine.read().unwrap(), addr);
+        self.cursor.goto(&self.engine, addr);
         self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Any);
     }
     
     fn seek(&mut self, cfg: &config::Config, addr: addr::Address) {
-        let mut le = self.engine.write().unwrap();
-        le.seek(addr);
-        if le.bottom_hit_end {
+        self.engine.seek(addr);
+        if self.engine.get_bottom_hit_end() {
             self.scroll_position = cfg.lookahead as f64 * 2.0 + cfg.page_navigation_leadup as f64;
             self.scroll_bonked_bottom = true;
         }  else {
@@ -896,7 +860,7 @@ impl ListingWidget {
         self.scroll_velocity = 0.0;
         self.scroll_bonked_top = false;
         self.scroll_cursor_spring = false;
-        le.scroll_up(cfg.page_navigation_leadup);
+        self.engine.scroll_up(cfg.page_navigation_leadup);
     }
 
     fn button_event(self: sync::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
@@ -931,19 +895,19 @@ impl ListingWidget {
         let cfg = config::get();
         match ek.get_keyval() {
             gdk::enums::key::Left => {
-                self.cursor.move_left(&self.engine.read().unwrap());
+                self.cursor.move_left(&self.engine);
                 self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Up);
                 gtk::Inhibit(true) },
             gdk::enums::key::Right => {
-                self.cursor.move_right(&self.engine.read().unwrap());
+                self.cursor.move_right(&self.engine);
                 self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Down);
                 gtk::Inhibit(true) },
             gdk::enums::key::Up => {
-                self.cursor.move_up(&self.engine.read().unwrap());
+                self.cursor.move_up(&self.engine);
                 self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Up);
                 gtk::Inhibit(true) },
             gdk::enums::key::Down => {
-                self.cursor.move_down(&self.engine.read().unwrap());
+                self.cursor.move_down(&self.engine);
                 self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Down);
                 gtk::Inhibit(true) },
             _ => gtk::Inhibit(false)
