@@ -6,8 +6,9 @@ use std::string;
 use std::io::Read;
 use std::io::Seek;
 
-use crate::space;
 use crate::addr;
+use crate::space;
+use crate::config;
 
 struct Inner {
     file: std::fs::File,
@@ -77,7 +78,7 @@ impl space::AddressSpace for FileAddressSpace {
     fn fetch(self: sync::Arc<Self>, extent: addr::Extent, out: vec::Vec<u8>) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
         self.tokio_handle.enter(|| {
             Box::pin(FetchFuture {
-                delay: Box::pin(tokio::time::delay_for(tokio::time::Duration::new(1, 0))),
+                delay: Box::pin(tokio::time::delay_for(tokio::time::Duration::from_millis(config::get().file_access_delay))),
                 fas: self.clone(),
                 extent,
                 out,

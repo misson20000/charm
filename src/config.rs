@@ -5,6 +5,8 @@ use hex_literal::hex;
 use crate::ext::RGBAExt;
 
 pub struct Config {
+    pub file_access_delay: u64, // milliseconds
+    
     pub lookahead: usize, // lines
     pub scroll_wheel_impulse: f64, // lines/second
     pub scroll_deceleration: f64, // lines/second^2
@@ -39,7 +41,9 @@ pub struct Config {
 }
 
 lazy_static! {
-    pub static ref INSTANCE: sync::Mutex<Config> = sync::Mutex::new(Config {
+    static ref INSTANCE: sync::RwLock<Config> = sync::RwLock::new(Config {
+        file_access_delay: 0,
+        
         lookahead: 25,
         scroll_wheel_impulse: 60.0,
         scroll_deceleration: 620.0,
@@ -74,6 +78,10 @@ lazy_static! {
     });
 }
 
-pub fn get() -> sync::MutexGuard<'static, Config> {
-    INSTANCE.lock().unwrap()
+pub fn get() -> sync::RwLockReadGuard<'static, Config> {
+    INSTANCE.read().unwrap()
+}
+
+pub fn set() -> sync::RwLockWriteGuard<'static, Config> {
+    INSTANCE.write().unwrap()
 }
