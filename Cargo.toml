@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 glib = "0.9.3"
-gtk = { version = "0.8.1", features = ["v3_20"] }
+gtk = { version = "0.8.1", features = ["v3_20"], git = "https://github.com/misson20000/gtk/", branch = "0.8-workaround-985" }
 gdk = "0.12.1"
 gio = "0.8.1"
 cairo-rs = "0.8.1"

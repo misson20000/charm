@@ -61,6 +61,7 @@ impl ActionForwarder {
 
         {
             let af_clone = af.clone();
+            /*
             // TODO: make sure this works once focus-widget comes out
             // why does this require Send?!?!?
             window.connect_notify(Some("focus-widget"), move |window, _| {
@@ -68,7 +69,12 @@ impl ActionForwarder {
                 if let Some(wid) = window.get_focus() {
                     window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.get_action_group(&af_clone.group).as_ref()).as_ref());
                 }
-            });
+            });*/
+            window.connect_set_focus(move |window,focus| {
+                if let Some(wid) = focus {
+                    window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.get_action_group(&af_clone.group).as_ref()).as_ref());
+                }
+            });                                            
         }
 
         af

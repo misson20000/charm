@@ -349,8 +349,7 @@ dependencies = [
 [[package]]
 name = "gtk"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87e1e8d70290239c668594002d1b174fcc7d7ef5d26670ee141490ede8facf8f"
+source = "git+https://github.com/misson20000/gtk/?branch=0.8-workaround-985#c73dd12848a2254e8d2d9ebdb58b8209750cba1a"
 dependencies = [
  "atk",
  "bitflags",
