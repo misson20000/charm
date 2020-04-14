@@ -34,16 +34,16 @@ impl HexLine {
         1
     }
 
-    pub fn progress(&self, cx: &mut task::Context) {
+    pub fn progress(&self, cx: &mut task::Context) -> bool {
         let mut ih = self.internal.write().unwrap();
         match &mut *ih {
             AsyncState::Pending(future) => {
                 match future.as_mut().poll(cx) {
-                    task::Poll::Ready(result) => { std::mem::replace(&mut *ih, AsyncState::Finished(result)); },
-                    task::Poll::Pending => ()
+                    task::Poll::Ready(result) => { std::mem::replace(&mut *ih, AsyncState::Finished(result)); true },
+                    task::Poll::Pending => false
                 }
             },
-            AsyncState::Finished(_) => ()
+            AsyncState::Finished(_) => false
         }
     }
 

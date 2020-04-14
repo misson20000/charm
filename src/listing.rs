@@ -83,7 +83,8 @@ struct ListingInterior {
 
 pub struct ListingEngine {
     pub editor: sync::Arc<edit::SpaceEditor>,
-    interior: sync::Mutex<ListingInterior>
+    interior: sync::Mutex<ListingInterior>,
+    has_loaded: sync::atomic::AtomicBool,
 }
 
 impl ListingEngine {
@@ -108,8 +109,10 @@ impl ListingEngine {
             
                 num_lines: 0,
 
-                wakers: vec::Vec::new()
+                wakers: vec::Vec::new(),
             }),
+
+            has_loaded: sync::atomic::AtomicBool::new(false),
         };
         
         le.seek(addr::Address::default());
@@ -131,6 +134,11 @@ impl ListingEngine {
         ListingFuture { engine: sync::Arc::downgrade(&self) }
     }
 
+    /// Gets whether or not more data has been loaded since this function was last called.
+    pub fn has_loaded(self: &sync::Arc<Self>) -> bool {
+        self.has_loaded.swap(false, sync::atomic::Ordering::Relaxed)
+    }
+    
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted by.
     pub fn seek(&self, target: addr::Address) -> usize {
@@ -552,8 +560,9 @@ impl std::future::Future for ListingFuture {
                 let mut interior = ptr.interior.lock().unwrap();
                 interior.wakers.push(cx.waker().clone());
 
-                for lg in &interior.line_groups {
-                    lg.progress(cx);
+                let has_loaded = interior.line_groups.iter().fold(false, |acc, lg| lg.progress(cx) || acc);
+                if has_loaded {
+                    ptr.has_loaded.store(has_loaded, sync::atomic::Ordering::Relaxed); // ordering doesn't really matter near mutex
                 }
                         
                 task::Poll::Pending

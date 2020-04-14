@@ -1,15 +1,13 @@
 use std::sync;
 use std::option;
 
-use crate::util;
 use crate::addr;
-use crate::space;
+use crate::config;
 use crate::space::edit;
 use crate::listing;
 use crate::listing::line_group;
 use crate::listing::hex_line;
 use crate::listing::break_line;
-use crate::config;
 
 use crate::ext::CairoExt;
 
@@ -17,8 +15,10 @@ use gtk::prelude::*;
 use gio::prelude::*;
 
 mod action;
+mod component;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
+const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
 
 #[derive(Debug)]
 enum InternalRenderingPhase {
@@ -27,7 +27,8 @@ enum InternalRenderingPhase {
     Foreground
 }
 
-struct InternalRenderingContext<'a> {
+// TODO: can I make this non-pub
+pub struct InternalRenderingContext<'a> {
     lw: &'a ListingWidget,
     cr: &'a cairo::Context,
     phase: InternalRenderingPhase,
@@ -39,420 +40,6 @@ struct InternalRenderingContext<'a> {
 impl<'a> InternalRenderingContext<'a> {
     fn font_extents(&self) -> &'a cairo::FontExtents {
         &self.lw.fonts.extents
-    }
-}
-
-struct CursorRenderingContext<'a> {
-    hl: &'a hex_line::HexLine,
-    bonk: f64,
-    blink: bool,
-    focus: bool,
-}
-
-#[derive(Default)]
-struct NybbleCursor {
-    addr: addr::Address, // byte-aligned
-    low_nybble: bool,
-    attempted_vertical_offset: Option<addr::Size>,
-}
-
-impl NybbleCursor {
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, crc: &'a CursorRenderingContext<'a>) {
-        let cidx = Self::char_index_for_offset(self.addr - crc.hl.extent.addr) + if self.low_nybble { 1 } else { 0 };
-        let cx = irc.lw.layout.addr_pane_width + irc.pad + cidx as f64 * irc.font_extents().max_x_advance;
-
-        let fe = irc.font_extents();
-        irc.cr.set_source_gdk_rgba(irc.cfg.cursor_bg_color);
-                
-        if crc.focus {
-            if crc.blink {
-                irc.cr.rectangle(
-                    cx.round() + crc.bonk,
-                    fe.height - fe.ascent,
-                    fe.max_x_advance,
-                    fe.height);
-                irc.cr.fill();
-                
-                irc.cr.set_source_gdk_rgba(irc.cfg.cursor_fg_color);
-                irc.cr.move_to(cx, irc.font_extents().height);
-
-                match crc.hl.byte_at((self.addr - crc.hl.extent.addr).bytes as usize) {
-                    Some(b) => irc.cr.show_text(unsafe { std::str::from_utf8_unchecked(&[util::nybble_to_hex((b >> if self.low_nybble { 0 } else { 4 }) & 0xf) as u8]) }),
-                    None => ()
-                };
-            } 
-        } else {
-            irc.cr.set_line_width(1.0);
-            irc.cr.rectangle(
-                cx.round() + crc.bonk - 0.5,
-                fe.height - fe.ascent - 0.5,
-                fe.max_x_advance + 1.0,
-                fe.height + 1.0);
-            irc.cr.stroke();
-        }
-    }
-
-    fn char_index_for_offset(o: addr::Size) -> usize {
-        let mut i:usize = 0;
-
-        // add 3 for every byte
-        i+= o.bytes as usize * 3;
-
-        // add for nybbles (displayed little endian in octet, which is unfortunate)
-        //i+= ((7 - o.bits) / 4) as usize;
-
-        // add 1 for every 8 bytes (double spacing in center column)
-        i+= o.bytes as usize / 8;
-
-        return i;
-    }
-
-    fn move_left(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        
-        let extents = le.editor.break_extents_near(self.addr);
-
-        if self.low_nybble {
-            self.low_nybble = false;
-            false
-        } else {                                              
-            self.addr = match extents.before {
-                // crossing extent boundaries, align with end of extent
-                Some(b) if extents.at.addr == self.addr && b.size.expect("a before extent should be finite") > addr::unit::BYTE => b.addr + (self.addr - addr::unit::BIT - b.addr).floor(),
-                Some(b) if extents.at.addr == self.addr => b.addr,
-                _ if self.addr.magnitude() < addr::unit::BYTE => return true, // bonk
-                _ => self.addr - addr::unit::BYTE
-            };
-
-            self.low_nybble = true; // bonk returns past this
-            
-            false
-        }
-    }
-
-    fn move_right(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        
-        let extents = le.editor.break_extents_near(self.addr);
-
-        if self.low_nybble {            
-            self.addr = match extents.after {
-                // crossing extent boundaries, align with beginning of extent
-                // TODO: handle end of address space
-                Some(a) if a.addr - self.addr < addr::unit::BYTE => a.addr,
-                _ if self.addr.is_close_to_end(addr::unit::BYTE) => return true,
-                _ => self.addr + addr::unit::BYTE
-            };
-
-            self.low_nybble = false;
-            
-            false
-        } else {
-            self.low_nybble = true;
-            false
-        }
-    }
-
-    fn move_up(&mut self, le: &listing::ListingEngine) -> bool {
-        let lexts = le.line_extents_near(self.addr);
-        let coff = self.addr - lexts.at.addr;
-        let toff = match self.attempted_vertical_offset {
-            Some(avo) if avo > coff => avo,
-            None => { self.attempted_vertical_offset = Some(coff); coff },
-            _ => coff
-        };
-
-        match lexts.before {
-            None => true,
-            Some(b) if b.contains_size(toff) => { self.addr = b.addr + toff; false },
-            Some(b) => { self.addr = b.addr + (b.size - addr::unit::BIT).floor(); false },
-        }
-    }
-
-    fn move_down(&mut self, le: &listing::ListingEngine) -> bool {
-        let lexts = le.line_extents_near(self.addr);
-        let coff = self.addr - lexts.at.addr;
-        let toff = match self.attempted_vertical_offset {
-            Some(avo) if avo > coff => avo,
-            None => { self.attempted_vertical_offset = Some(coff); coff },
-            _ => coff
-        };
-        
-        match lexts.after {
-            None => true,
-            Some(a) if a.contains_size(toff) => { self.addr = a.addr + toff; false },
-            Some(a) => { self.addr = a.addr + (a.size - addr::unit::BIT).floor(); false },
-        }
-    }
-
-    fn move_left_by_qword(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        let bexts = le.editor.break_extents_near(self.addr);
-
-        let offset = self.addr - bexts.at.addr;
-        if offset == addr::unit::ZERO && !self.low_nybble {
-            if let Some(prev) = bexts.before {
-                let pz = prev.size.expect("a before break should be finite");
-                if pz > addr::unit::QWORD {
-                    self.low_nybble = false;
-                    self.addr = prev.addr + addr::Size::from((pz - addr::unit::BIT).bytes & !7); // floor to QWORD multiple
-                    false
-                } else {
-                    self.low_nybble = false;
-                    self.addr = prev.addr;
-                    false
-                }
-            } else {
-                if self.low_nybble {
-                    self.low_nybble = false;
-                    false
-                } else {
-                    true
-                }
-            }
-        } else if self.low_nybble {
-            self.addr = bexts.at.addr + addr::Size::from(offset.bytes & !7); // floor to QWORD multiple
-            self.low_nybble = false;
-            false
-        } else {
-            self.addr = bexts.at.addr + addr::Size::from((offset - addr::unit::BIT).bytes & !7); // floor to QWORD multiple
-            false
-        }
-    }
-
-    fn move_right_by_qword(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        let bexts = le.editor.break_extents_near(self.addr);
-
-        let offset = addr::Size::from((self.addr - bexts.at.addr).bytes & !7); // floor to QWORD multiple
-        if !bexts.at.contains_size(addr::unit::QWORD) || offset >= bexts.at.clip_size_from_end(addr::unit::QWORD).unwrap() {
-            if let Some(after) = bexts.after {
-                self.low_nybble = false;
-                self.addr = after.addr;
-                false
-            } else {
-                true
-            }
-        } else {
-            self.low_nybble = false;
-            self.addr = bexts.at.addr + offset + addr::unit::QWORD;
-            false
-        }
-    }
-
-    fn move_up_to_break(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        let bexts = le.editor.break_extents_near(self.addr);
-
-        if bexts.at.addr < self.addr || self.low_nybble {
-            self.low_nybble = false;
-            self.addr = bexts.at.addr;
-            false
-        } else {
-            match bexts.before {
-                Some(b) => {
-                    self.addr = b.addr;
-                    self.low_nybble = false;
-                    false
-                },
-                None if self.low_nybble => {
-                    self.low_nybble = false;
-                    false
-                }
-                None => { true }
-            }
-        }
-    }
-
-    fn move_down_to_break(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        let bexts = le.editor.break_extents_near(self.addr);
-
-        match bexts.after {
-            Some(b) => {
-                self.addr = b.addr;
-                self.low_nybble = false;
-                false
-            },
-            None if self.addr.is_close_to_end(addr::unit::BYTE) => { true },
-            None => {
-                self.addr = bexts.at.addr + (addr::unit::END - bexts.at.addr).floor();
-                self.low_nybble = false;
-                false
-            }
-        }
-    }
-
-    fn move_to_start_of_line(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        
-        let lexts = le.line_extents_at(self.addr);
-
-        if self.addr == lexts.addr && !self.low_nybble {
-            true
-        } else {
-            self.low_nybble = false;
-            self.addr = lexts.addr;
-            false
-        }
-    }
-
-    fn move_to_end_of_line(&mut self, le: &listing::ListingEngine) -> bool {
-        self.attempted_vertical_offset = None;
-        
-        let lexts = le.line_extents_at(self.addr);
-
-        let target = lexts.addr + (lexts.size - addr::unit::BIT).floor();
-        if self.addr == target && self.low_nybble {
-            true
-        } else {
-            self.low_nybble = true;
-            self.addr = target;
-            false
-        }
-    }
-
-    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
-        self.attempted_vertical_offset = None;
-        
-        let extents = le.editor.break_extents_at(addr);
-        let offset = addr - extents.addr;
-        self.addr = extents.addr + (offset.floor());
-    }
-}
-
-struct BitCursor {
-    addr: addr::Address, // no alignment
-}
-
-enum CursorMode {
-    Nybble(NybbleCursor),
-    Bit(BitCursor),
-}
-
-impl CursorMode {
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, crc: &'a CursorRenderingContext<'a>) {
-        match self {
-            CursorMode::Nybble(c) => c.draw(irc, crc),
-            CursorMode::Bit(_c) => todo!("bit cursor drawing")
-        }
-    }
-
-    fn get_addr(&self) -> addr::Address {
-        match self {
-            CursorMode::Nybble(c) => c.addr,
-            CursorMode::Bit(c) => c.addr,
-        }
-    }
-
-    fn move_left(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_left(le), CursorMode::Bit(_c) => todo!("bit cursor movement") } }
-    fn move_right(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_right(le), CursorMode::Bit(_c) => todo!("bit cursor movement") } }
-    fn move_up(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_up(le), CursorMode::Bit(_c) => todo!("bit cursor movement") } }
-    fn move_down(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_down(le), CursorMode::Bit(_c) => todo!("bit cursor movement") } }
-    fn move_left_by_qword(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_left_by_qword(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move left by qword */ } }
-    fn move_right_by_qword(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_right_by_qword(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move right by qword */ } }
-    fn move_up_to_break(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_up_to_break(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move up to break */ } }
-    fn move_down_to_break(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_down_to_break(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move down to break */ } }
-    fn move_to_start_of_line(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_to_start_of_line(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move to start of line */ } }
-    fn move_to_end_of_line(&mut self, le: &listing::ListingEngine) -> bool {
-        match self { CursorMode::Nybble(c) => c.move_to_end_of_line(le), CursorMode::Bit(_c) => true, /* TODO: bit cursor move to end of line */ } }
-    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
-        match self { CursorMode::Nybble(c) => c.goto(le, addr), CursorMode::Bit(c) => c.addr = addr, } }
-}
-
-struct Cursor {
-    mode: CursorMode,
-    blink_timer: f64,
-    bonk_timer: f64,
-}
-
-#[derive(Copy, Clone)]
-enum CursorEnsureInViewDirection {
-    Up,
-    Down,
-    Any
-}
-
-impl CursorEnsureInViewDirection {
-    fn maybe_upwards(&self) -> bool {
-        match self {
-            CursorEnsureInViewDirection::Up => true,
-            CursorEnsureInViewDirection::Down => false,
-            CursorEnsureInViewDirection::Any => true
-        }
-    }
-
-    fn maybe_downwards(&self) -> bool {
-        match self {
-            CursorEnsureInViewDirection::Up => false,
-            CursorEnsureInViewDirection::Down => true,
-            CursorEnsureInViewDirection::Any => true
-        }
-    }
-}
-
-impl Cursor {
-    fn new() -> Cursor {
-        Cursor {
-            mode: CursorMode::Nybble(NybbleCursor::default()),
-            blink_timer: 0.0,
-            bonk_timer: 0.0,
-        }
-    }
-
-    fn draw<'a>(&self, irc: &'a InternalRenderingContext<'a>, hl: &'a hex_line::HexLine) {
-        let bonk = (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos();
-        let crc = CursorRenderingContext {
-            hl,
-            bonk,
-            blink: self.blink_timer < irc.cfg.cursor_blink_period / 2.0,
-            focus: irc.lw.has_focus
-        };
-        self.mode.draw(irc, &crc);
-    }
-
-    fn animate(&mut self, cfg: &config::Config, ais: f64) {
-        self.blink_timer+= ais;
-        self.blink_timer%= cfg.cursor_blink_period;
-        self.bonk_timer-= ais;
-        self.bonk_timer = f64::max(0.0, self.bonk_timer);
-    }
-    
-    fn get_addr(&self) -> addr::Address {
-        self.mode.get_addr()
-    }
-    
-    fn blink(&mut self) {
-        self.blink_timer = 0.0;
-    }
-
-    fn bonk(&mut self) {
-        self.bonk_timer = 0.25;
-    }
-
-    // TODO: macro this
-    fn move_left(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_left(le) { self.bonk(); } }
-    fn move_right(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_right(le) { self.bonk(); } }
-    fn move_up(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_up(le) { self.bonk(); } }
-    fn move_down(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_down(le) { self.bonk(); } }
-    fn move_left_by_qword(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_left_by_qword(le) { self.bonk(); } }
-    fn move_right_by_qword(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_right_by_qword(le) { self.bonk(); } }
-    fn move_up_to_break(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_up_to_break(le) { self.bonk(); } }
-    fn move_down_to_break(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_down_to_break(le) { self.bonk(); } }
-    fn move_to_start_of_line(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_to_start_of_line(le) { self.bonk(); } }
-    fn move_to_end_of_line(&mut self, le: &listing::ListingEngine) { self.blink(); if self.mode.move_to_end_of_line(le) { self.bonk(); } }
-    
-    fn goto(&mut self, le: &listing::ListingEngine, addr: addr::Address) {
-        self.mode.goto(le, addr);
     }
 }
 
@@ -504,19 +91,12 @@ pub struct ListingWidget {
     last_config_version: usize,
     last_animation_time: i64,
     
-    scroll_position: f64,
-    scroll_velocity: f64,
-    scroll_bonked_top: bool,
-    scroll_bonked_bottom: bool,
-    scroll_cursor_spring: bool,
-    scroll_cursor_direction: CursorEnsureInViewDirection,
-
     has_focus: bool,
 
     fonts: Fonts,
     layout: Layout,
-
-    cursor: Cursor,
+    cursor: component::cursor::Cursor,
+    scroll: component::scroll::Scroller
 }
 
 impl ListingWidget {
@@ -532,13 +112,6 @@ impl ListingWidget {
 
             last_config_version: 0,
             last_animation_time: 0,
-            
-            scroll_position: 0.0,
-            scroll_velocity: 0.0,
-            scroll_bonked_top: false,
-            scroll_bonked_bottom: false,
-            scroll_cursor_spring: false,
-            scroll_cursor_direction: CursorEnsureInViewDirection::Any,
 
             has_focus: false,
 
@@ -548,8 +121,8 @@ impl ListingWidget {
                 height: 0.0,
                 addr_pane_width: 0.0,
             },
-
-            cursor: Cursor::new(),
+            cursor: component::cursor::Cursor::new(),
+            scroll: component::scroll::Scroller::new(),
         }
     }
     
@@ -646,7 +219,7 @@ impl ListingWidget {
 
         /* render lines in each pass */
         cr.save();
-        cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll_position);
+        cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
         for phase in &[
             InternalRenderingPhase::Extents,
             InternalRenderingPhase::Background,
@@ -687,17 +260,17 @@ impl ListingWidget {
         
         /* DEBUG */
         let debug = vec![
-            format!("scroll position: {} lines", self.scroll_position),
-            format!("scroll velocity: {}", self.scroll_velocity),
-            format!("scroll bonked on top: {}", self.scroll_bonked_top),
-            format!("scroll bonked on bottom: {}", self.scroll_bonked_bottom),
+            format!("{:#?}", self.cursor),
+            format!("{:#?}", self.scroll),
         ];
         let mut lineno = 0;
-        for line in debug {
-            cr.set_source_rgba(1.0, 1.0, 0.0, 1.0);
-            cr.move_to(self.layout.width - 400.0, 40.0 + (irc.font_extents().height * lineno as f64));
-            cr.show_text(&line);
-            lineno+= 1;
+        for group in debug {
+            for line in group.split("\n") {
+                cr.set_source_rgba(1.0, 1.0, 0.0, 1.0);
+                cr.move_to(self.layout.width - 400.0, 40.0 + (irc.font_extents().height * lineno as f64));
+                cr.show_text(&line);
+                lineno+= 1;
+            }
         }
         
         gtk::Inhibit(false)
@@ -748,13 +321,18 @@ impl ListingWidget {
         }
     }
 
+    fn collect_draw_events(&self, da: &gtk::DrawingArea) {
+        self.cursor.events.collect_draw(da);
+        self.scroll.events.collect_draw(da);
+
+        if self.engine.has_loaded() {
+            da.queue_draw();
+        }
+    }
+    
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
-        let cfg = config::get();
-        
-        self.scroll_velocity+= es.get_delta().1 * cfg.scroll_wheel_impulse;
-        self.scroll_bonked_top = false;
-        self.scroll_bonked_bottom = false;
-        da.queue_draw();
+        self.scroll.scroll_wheel_impulse(es.get_delta().1);
+        self.collect_draw_events(da);
         
         gtk::Inhibit(true)
     }
@@ -764,7 +342,6 @@ impl ListingWidget {
 
         if cfg.version > self.last_config_version {
             self.reconfigure(da, &cfg);
-            da.queue_draw();
         }
         
         if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
@@ -772,86 +349,17 @@ impl ListingWidget {
             self.last_animation_time = fc.get_frame_time();
         }
 
-        let ais:f64 = (fc.get_frame_time() - self.last_animation_time) as f64 / MICROSECONDS_PER_SECOND;
-        
-        /* integrate velocity */
-        self.scroll_position+= self.scroll_velocity * ais;
-        if self.scroll_velocity != 0.0 { da.queue_draw(); }
+        while self.last_animation_time < fc.get_frame_time() {
+            let ais_micros = std::cmp::min(fc.get_frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); // don't go below 20 TPS or the integration error gets bad
+            let ais:f64 = ais_micros as f64 / MICROSECONDS_PER_SECOND;
 
-        {
-            /* try to scroll listing engine, setting bonk flags if necessary */
+            self.scroll.animate(self, ais);            
+            self.cursor.animate(&cfg, ais);
 
-            if self.scroll_position > (cfg.lookahead as f64) {
-                let amt_attempted = self.scroll_position as usize - cfg.lookahead;
-                let amt_actual = self.engine.scroll_down(amt_attempted);
-                self.scroll_position-= amt_actual as f64;
-                if amt_actual < amt_attempted && self.scroll_velocity > 0.0 {
-                    /* we are now bonked on the bottom... */
-                    self.scroll_bonked_bottom = true;
-                }
-            }
-            
-            if self.scroll_position < (cfg.lookahead as f64) {
-                let amt_attempted = ((cfg.lookahead as f64) - self.scroll_position) as usize;
-                let amt_actual = self.engine.scroll_up(amt_attempted);
-                self.scroll_position+= amt_actual as f64;
-                if amt_actual < amt_attempted && self.scroll_velocity < 0.0 && self.scroll_position < 1.0 {
-                    /* we are now bonked on the top... */
-                    self.scroll_bonked_top = true;
-                }
-            }
+            self.last_animation_time+= ais_micros;
         }
 
-        /* if we are bonked, apply spring */
-        if self.scroll_bonked_top {
-            self.scroll_velocity-= self.scroll_position * cfg.scroll_spring * ais;
-            self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
-        } else if self.scroll_bonked_bottom {
-            self.scroll_velocity-= (self.scroll_position - cfg.lookahead as f64 * 2.0 - cfg.page_navigation_leadup as f64) * cfg.scroll_spring * ais;
-            self.scroll_velocity-= self.scroll_velocity * cfg.scroll_spring_damping * ais;
-        } else {
-            /* apply constant deceleration */
-            if self.scroll_velocity > 0.0 {
-                if self.scroll_velocity > cfg.scroll_deceleration * 1.0 { // never take more than 1 second to decelerate
-                    self.scroll_velocity = cfg.scroll_deceleration * 1.0;
-                } else {
-                    self.scroll_velocity-= cfg.scroll_deceleration * ais;
-                    self.scroll_velocity = f64::max(0.0, self.scroll_velocity);
-                }
-            }
-            if self.scroll_velocity < 0.0 {
-                if self.scroll_velocity < -cfg.scroll_deceleration * 1.0 { // never take more than 1 second to decelerate
-                    self.scroll_velocity = -cfg.scroll_deceleration * 1.0;
-                } else {
-                    self.scroll_velocity+= cfg.scroll_deceleration * ais;
-                    self.scroll_velocity = f64::min(0.0, self.scroll_velocity);
-                }
-            }
-            /* apply alignment spring */
-            if cfg.scroll_align_integer {
-                let target = (self.scroll_position * self.fonts.extents.height).round() / self.fonts.extents.height;
-                let delta = self.scroll_position - target;
-                if delta.abs() < cfg.scroll_align_position_tolerance && self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
-                    // if we're close and we're moving slow, just snap
-                    self.scroll_position = target;
-                    self.scroll_velocity = 0.0;
-                } else if self.scroll_velocity.abs() < cfg.scroll_align_velocity_tolerance {
-                    // otherwise apply a spring force
-                    self.scroll_velocity+= (target - self.scroll_position) * cfg.scroll_align_integer_spring * ais;
-                    //self.scroll_velocity-= (self.scroll_velocity) * cfg.scroll_align_integer_spring_damping * ais;
-                }
-            }
-        }
-
-        if self.scroll_cursor_spring {
-            self.ensure_cursor_is_in_view(&cfg, self.scroll_cursor_direction);
-        }
-        
-        self.cursor.animate(&cfg, ais);
-
-        self.last_animation_time = fc.get_frame_time();
-
-        da.queue_draw(); // TODO: lol
+        self.collect_draw_events(da);
         
         Continue(true)
     }
@@ -868,47 +376,15 @@ impl ListingWidget {
         
         self.resize_window(&cfg);
         self.last_config_version = cfg.version;
-    }
-
-    fn ensure_cursor_is_in_view(&mut self, cfg: &config::Config, dir: CursorEnsureInViewDirection) {
-        let top_super_threshold = f64::max(0.0, self.scroll_position) as isize;
-        let top_threshold = top_super_threshold + cfg.page_navigation_leadup as isize;
-        let bottom_super_threshold = self.engine.get_window_height() as isize + f64::max(0.0, self.scroll_position) as isize - 2 * cfg.lookahead as isize;
-        let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup as isize;
-        let cln = self.engine.find_lineno(self.cursor.get_addr());
         
-        self.scroll_cursor_direction = dir;
-        
-        match cln {
-            listing::LineFindResult::Before => {
-                self.seek(cfg, self.cursor.get_addr());
-            },
-            listing::LineFindResult::Found(ln) if ln < top_threshold && self.scroll_position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
-                self.scroll_bonked_top = false;
-                self.scroll_bonked_bottom = false;
-                self.scroll_cursor_spring = true;
-                self.scroll_velocity = -((top_threshold - ln) as f64) * 20.0;
-            },
-            listing::LineFindResult::Found(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
-                self.scroll_bonked_top = false;
-                self.scroll_bonked_bottom = false;
-                self.scroll_cursor_spring = true;
-                self.scroll_velocity = (ln - bottom_threshold) as f64 * 20.0;
-            },
-            listing::LineFindResult::After => {
-                self.seek(cfg, self.cursor.get_addr());
-            },
-            _ => {
-                self.scroll_cursor_spring = false;
-            }
-        }
+        da.queue_draw();
     }
     
     fn resize_window(&mut self, cfg: &config::Config) {
         let lines = f64::max((self.layout.height - 2.0 * cfg.padding) / self.fonts.extents.height, 0.0) as usize;
         let window_size =
             lines
-            + 1 // round-up
+            + 1 // round-up (TODO: what??)
             + 1 // to accomodate scrolling
             + (2 * cfg.lookahead); // lookahead works in both directions
         
@@ -916,35 +392,21 @@ impl ListingWidget {
     }
 
     fn goto(&mut self, addr: addr::Address) {
-        let cfg = config::get();
         self.cursor.goto(&self.engine, addr);
-        self.ensure_cursor_is_in_view(&cfg, CursorEnsureInViewDirection::Any);
+        self.scroll.ensure_cursor_is_in_view(self, component::cursor::EnsureInViewDirection::Any);
     }
     
-    fn seek(&mut self, cfg: &config::Config, addr: addr::Address) {
-        self.engine.seek(addr);
-        if self.engine.get_bottom_hit_end() {
-            self.scroll_position = cfg.lookahead as f64 * 2.0 + cfg.page_navigation_leadup as f64;
-            self.scroll_bonked_bottom = true;
-        }  else {
-            self.scroll_position = 0.0; // let lookahead logic in tick handler work this out
-            self.scroll_bonked_bottom = false;
-        }
-        self.scroll_velocity = 0.0;
-        self.scroll_bonked_top = false;
-        self.scroll_cursor_spring = false;
-        self.engine.scroll_up(cfg.page_navigation_leadup);
-    }
-
     fn button_event(self: sync::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
-        std::mem::drop(self); // grab_focus triggers focus_change_event before we return
         match eb.get_event_type() {
             gdk::EventType::ButtonPress => {
+                std::mem::drop(self); // grab_focus triggers focus_change_event before we return
                 da.grab_focus();
+                return gtk::Inhibit(false);
             },
             _ => ()
         }
-        da.queue_draw();
+        
+        self.collect_draw_events(da);
 
         gtk::Inhibit(false)
     }
@@ -952,55 +414,51 @@ impl ListingWidget {
     fn focus_change_event(&mut self, da: &gtk::DrawingArea, ef: &gdk::EventFocus) -> gtk::Inhibit {
         self.cursor.blink();
         self.has_focus = ef.get_in();
-        da.queue_draw();
+        
+        self.collect_draw_events(da);
 
         gtk::Inhibit(false)
     }
     
-    fn size_allocate(&mut self, _da: &gtk::DrawingArea, al: &gtk::Rectangle) {
+    fn size_allocate(&mut self, da: &gtk::DrawingArea, al: &gtk::Rectangle) {
         self.layout.width = al.width as f64;
         self.layout.height = al.height as f64;
         
         self.resize_window(&config::get());
+
+        self.collect_draw_events(da);
     }
 
-    fn cursor_transaction<F>(&mut self, cb: F, dir: CursorEnsureInViewDirection) -> gtk::Inhibit
-    where F: FnOnce(&mut Cursor, &listing::ListingEngine) {
+    fn cursor_transaction<F>(&mut self, cb: F, dir: component::cursor::EnsureInViewDirection) -> gtk::Inhibit
+    where F: FnOnce(&mut component::cursor::Cursor, &listing::ListingEngine) {
         cb(&mut self.cursor, &self.engine);
-        self.ensure_cursor_is_in_view(&config::get(), dir);
+        self.scroll.ensure_cursor_is_in_view(self, dir);
         gtk::Inhibit(true)
     }
     
-    fn key_press_event(&mut self, _da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
-        let cfg = config::get();
-        match (ek.get_keyval(), ek.get_state().intersects(gdk::ModifierType::SHIFT_MASK), ek.get_state().intersects(gdk::ModifierType::CONTROL_MASK)) {
+    fn key_press_event(&mut self, da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
+        let r = match (ek.get_keyval(), ek.get_state().intersects(gdk::ModifierType::SHIFT_MASK), ek.get_state().intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
-            (gdk::enums::key::Left,  false, false) => self.cursor_transaction(|c,l| c.move_left(l),  CursorEnsureInViewDirection::Up),
-            (gdk::enums::key::Right, false, false) => self.cursor_transaction(|c,l| c.move_right(l), CursorEnsureInViewDirection::Down),
-            (gdk::enums::key::Up,    false, false) => self.cursor_transaction(|c,l| c.move_up(l),    CursorEnsureInViewDirection::Up),
-            (gdk::enums::key::Down,  false, false) => self.cursor_transaction(|c,l| c.move_down(l),  CursorEnsureInViewDirection::Down),
+            (gdk::enums::key::Left,  false, false) => self.cursor_transaction(|c,l| c.move_left(l),  component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Right, false, false) => self.cursor_transaction(|c,l| c.move_right(l), component::cursor::EnsureInViewDirection::Down),
+            (gdk::enums::key::Up,    false, false) => self.cursor_transaction(|c,l| c.move_up(l),    component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Down,  false, false) => self.cursor_transaction(|c,l| c.move_down(l),  component::cursor::EnsureInViewDirection::Down),
 
             /* fast cursor    key    shift  ctrl  */
-            (gdk::enums::key::Left,  false, true ) => self.cursor_transaction(|c,l| c.move_left_by_qword(l),  CursorEnsureInViewDirection::Up),
-            (gdk::enums::key::Right, false, true ) => self.cursor_transaction(|c,l| c.move_right_by_qword(l), CursorEnsureInViewDirection::Down),
-            (gdk::enums::key::Up,    false, true ) => self.cursor_transaction(|c,l| c.move_up_to_break(l),    CursorEnsureInViewDirection::Up),
-            (gdk::enums::key::Down,  false, true ) => self.cursor_transaction(|c,l| c.move_down_to_break(l),  CursorEnsureInViewDirection::Down),
+            (gdk::enums::key::Left,  false, true ) => self.cursor_transaction(|c,l| c.move_left_by_qword(l),  component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Right, false, true ) => self.cursor_transaction(|c,l| c.move_right_by_qword(l), component::cursor::EnsureInViewDirection::Down),
+            (gdk::enums::key::Up,    false, true ) => self.cursor_transaction(|c,l| c.move_up_to_break(l),    component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Down,  false, true ) => self.cursor_transaction(|c,l| c.move_down_to_break(l),  component::cursor::EnsureInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
-            (gdk::enums::key::Page_Up,   false, false) => {
-                self.scroll_bonked_bottom = false;
-                // kinematics 101
-                self.scroll_velocity = -f64::sqrt(self.scroll_velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (self.engine.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
-                gtk::Inhibit(true)
-            },
-            (gdk::enums::key::Page_Down, false, false) => {
-                self.scroll_bonked_top = false;
-                // kinematics 101
-                self.scroll_velocity = f64::sqrt(self.scroll_velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (self.engine.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
-                gtk::Inhibit(true)
-            },
+            (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(self); gtk::Inhibit(true) },
+            (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(self); gtk::Inhibit(true) },
 
             _ => gtk::Inhibit(false)
-        }
+        };
+
+        self.collect_draw_events(da);
+
+        r
     }
 }

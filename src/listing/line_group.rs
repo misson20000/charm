@@ -37,10 +37,10 @@ impl LineGroup {
         }
     }
 
-    pub fn progress(&self, cx: &mut task::Context) {
+    pub fn progress(&self, cx: &mut task::Context) -> bool {
         match self {
             LineGroup::Hex(hex) => hex.progress(cx),
-            LineGroup::Break(_) => (),
+            LineGroup::Break(_) => false,
         }
     }    
 }
