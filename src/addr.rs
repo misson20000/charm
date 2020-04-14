@@ -42,6 +42,8 @@ pub mod unit {
     pub static NYBBLE: Size = Size { bytes: 0, bits: 4 };
     pub static BYTE: Size = Size { bytes: 1, bits: 0 };
     pub static BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
+    pub static QWORD: Size = Size { bytes: 8, bits: 0 };
+    pub static MAX: Size = Size { bytes: u64::MAX, bits: 7 };
 }
 
 pub fn bitshift_span(span: &mut [u8], shift: u8) {
@@ -291,7 +293,11 @@ impl InfiniteExtent {
     }
 
     pub fn infinite(addr: Address) -> InfiniteExtent {
-        InfiniteExtent { addr, size: None }
+        if addr == unit::NULL {
+            InfiniteExtent { addr: unit::NULL, size: None }
+        } else {
+            InfiniteExtent { addr, size: Some((unit::END - addr) + unit::BIT) }
+        }
     }
 
     // be careful with this
@@ -318,6 +324,15 @@ impl InfiniteExtent {
             Some(s) if size > s => Some(self.addr),
             Some(s) => Some(self.addr + (s - size)),
             None if size > unit::ZERO => Some(unit::END - (size - unit::BIT)),
+            None => None
+        }
+    }
+
+    pub fn clip_size_from_end(&self, size: Size) -> Option<Size> {
+        match self.size {
+            Some(s) if size > s => Some(unit::ZERO),
+            Some(s) => Some(s - size),
+            None if size > unit::ZERO => Some(unit::END - (size - unit::BIT) - self.addr),
             None => None
         }
     }

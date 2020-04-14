@@ -241,6 +241,8 @@ impl CharmApplication {
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("listing.goto", &["G"]);
+        app.application.set_accels_for_action("listing.goto_start_of_line", &["<Ctrl>A"]);
+        app.application.set_accels_for_action("listing.goto_end_of_line", &["<Ctrl>E"]);
         app.application.set_accels_for_action("listing.insert_break", &["B"]);
 
         app
