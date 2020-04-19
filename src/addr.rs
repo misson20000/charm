@@ -209,26 +209,6 @@ mod tests {
         assert_eq!(addr::Size { bytes: 256, bits: 1 } / addr::Size { bytes: 0, bits: 3 }, 683);
         assert_eq!(addr::Size { bytes: 939, bits: 1 } / addr::Size { bytes: 1, bits: 3 }, 683);
     }
-    
-    #[test]
-    fn bitspans() {
-        {
-            let a = addr::Address { byte:  0x40008001, bit:  2 };
-            let s = addr::Size    { bytes: 2,          bits: 7 };
-
-            assert_eq!(addr::round_span(a, s), (0x40008001, 4));
-        }
-        {
-            let a = addr::Address { byte:  0x40008001, bit: 0};
-            let s = addr::Size::from(2);
-
-            assert_eq!(addr::round_span(a, s), (0x40008001, 2));
-        }
-
-        let mut a: [u8;6] = [1, 1, 1, 1, 1, 1];
-        addr::bitshift_span(&mut a, 1);
-        assert_eq!(a, [0x80, 0x80, 0x80, 0x80, 0x80, 0]);
-    }
 }
 
 /* address traits */
@@ -360,13 +340,16 @@ impl std::ops::Div<Size> for Size {
     fn div(self, divisor: Size) -> u64 {
         let mut dividend = self;
         let mut acc_quotient = 0;
-        while dividend.bytes > divisor.bytes {
-            let quotient = dividend.bytes / divisor.bytes;
-            dividend-= divisor * quotient;
-            acc_quotient+= quotient;
+
+        if divisor.bytes > 0 {
+            while dividend.bytes >= (divisor.bytes + 1) {
+                let quotient = dividend.bytes / (divisor.bytes + 1);
+                dividend-= divisor * quotient;
+                acc_quotient+= quotient;
+            }
         }
 
-        while dividend > divisor {
+        while dividend >= divisor {
             let quotient = (dividend.bytes * 8 + dividend.bits as u64) / (divisor.bytes * 8 + divisor.bits as u64);
             dividend-= divisor * quotient;
             acc_quotient+= quotient;
@@ -381,12 +364,15 @@ impl std::ops::Rem<Size> for Size {
 
     fn rem(self, divisor: Size) -> Size {
         let mut dividend = self;
-        while dividend.bytes > divisor.bytes {
-            let quotient = dividend.bytes / divisor.bytes;
-            dividend-= divisor * quotient;
+
+        if divisor.bytes > 0 {
+            while dividend.bytes >= (divisor.bytes + 1) {
+                let quotient = dividend.bytes / (divisor.bytes + 1);
+                dividend-= divisor * quotient;
+            }
         }
 
-        while dividend > divisor {
+        while dividend >= divisor {
             let quotient = (dividend.bytes * 8 + dividend.bits as u64) / (divisor.bytes * 8 + divisor.bits as u64);
             dividend-= divisor * quotient;
         }
