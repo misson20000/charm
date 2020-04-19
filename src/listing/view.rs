@@ -7,7 +7,7 @@ use crate::addr;
 use crate::listing;
 use crate::listing::BreakMapExt;
 use crate::listing::brk;
-use crate::listing::line_group::LineGroup;
+pub use crate::listing::line_group::LineGroup;
 
 use enum_dispatch::enum_dispatch;
 

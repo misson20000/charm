@@ -3,6 +3,7 @@ use std::task;
 use std::option;
 use std::vec;
 use std::time;
+use std::collections::HashMap;
 
 use crate::addr;
 use crate::config;
@@ -21,20 +22,11 @@ mod component;
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
 
-#[derive(Debug, Copy, Clone)]
-enum InternalRenderingPhase {
-    Extents,
-    Background,
-    Foreground
-}
-
-// TODO: can I make this non-pub
-pub struct InternalRenderingContext<'a> {
-    lw: &'a ListingWidget,
+struct InternalRenderingContext<'a> {
     cr: &'a cairo::Context,
-    phase: InternalRenderingPhase,
     cfg: &'a config::Config,
     fonts: &'a Fonts,
+    layout: &'a Layout,
 
     perf: time::Instant,
     
@@ -88,6 +80,12 @@ struct Layout {
     addr_pane_width: f64,
 }
 
+struct LineCacheEntry {
+    surface: cairo::Surface,
+    pattern: cairo::SurfacePattern,
+    touched: bool,
+}
+
 pub struct ListingWidget {
     view: listing::view::ListingView,
     rt: tokio::runtime::Handle,
@@ -103,6 +101,7 @@ pub struct ListingWidget {
     //cursor: component::cursor::Cursor,
     scroll: component::scroll::Scroller,
 
+    line_cache: HashMap<listing::line_group::CacheId, send_wrapper::SendWrapper<LineCacheEntry>>,
     last_frame_duration: Option<time::Duration>,
 }
 
@@ -129,7 +128,8 @@ impl ListingWidget {
             },
             //cursor: component::cursor::Cursor::new(),
             scroll: component::scroll::Scroller::new(),
-            
+
+            line_cache: HashMap::new(),
             last_frame_duration: None,
         }
     }
@@ -202,17 +202,16 @@ impl ListingWidget {
         lw.reconfigure(da, &config::get());
     }
 
-    pub fn draw<'a>(&'a mut self, _da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+    pub fn draw<'a>(&'a mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
         let frame_begin = time::Instant::now();
         
         let cfg = config::get();
                 
         let mut irc = InternalRenderingContext {
-            lw: &self,
             cr,
-            phase: InternalRenderingPhase::Extents,
             cfg: &cfg,
             fonts: &self.fonts,
+            layout: &self.layout,
 
             perf: frame_begin,
             byte_cache: vec::Vec::new(),
@@ -229,32 +228,62 @@ impl ListingWidget {
         cr.rectangle(0.0, 0.0, self.layout.addr_pane_width, self.layout.height);
         cr.fill();
 
-        /* render lines in each pass */
+        /* render lines */
         cr.save();
         cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
-        for phase in &[
-            InternalRenderingPhase::Extents,
-            InternalRenderingPhase::Background,
-            InternalRenderingPhase::Foreground] {
-            irc.phase = *phase;
             
-            for (lineno, lg) in self.view.iter() {
-                cr.save();
-                cr.translate(0.0, irc.font_extents().height * (lineno as f64));
+        for (lineno, lg) in self.view.iter() {
+            cr.save();
+            cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
-                match &lg {
-                    line_group::LineGroup::Hex(hlg) => {
-                        hlg.draw(&mut irc);
-                    },
-                    line_group::LineGroup::BreakHeader(bhlg) => {
-                        bhlg.draw(&mut irc);
-                    },
+            let lc = &mut self.line_cache;
+            match lg.get_cache_id().and_then(|cache_id| {
+                match lc.entry(cache_id) {
+                    std::collections::hash_map::Entry::Occupied(occu) => Some(occu.into_mut()),
+                    std::collections::hash_map::Entry::Vacant(vac) => {
+                        
+                        /* This line is not in our cache, so try to render
+                         * it. If we fail, no big deal- just draw the line
+                         * straight to the screen. */
+                        
+                        da.get_parent_window().and_then(|window| {
+                            // super important for performance! avoid uploading to GPU every frame!
+                            window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.descent) as i32)
+                        }).and_then(|surface| {
+                            let cache_cr = cairo::Context::new(&surface);
+                            
+                            lg.draw(&mut irc, &cache_cr);
+
+                            surface.flush();
+                            
+                            Some(vac.insert(send_wrapper::SendWrapper::new(LineCacheEntry {
+                                pattern: cairo::SurfacePattern::create(&surface),
+                                surface,
+                                touched: true
+                            })))
+                        })
+                    }
                 }
-
-                cr.restore();
+            }) {
+                // We either found it in the cache, or just rendered it to the cache and are ready to use the cached image.
+                Some(entry) => {
+                    entry.touched = true;
+                    cr.set_source(&entry.pattern);
+                    cr.paint();
+                    
+                },
+                // Line was not cacheable or errored trying to allocate surface to put it in cache. Render it directly.
+                None => {
+                    lg.draw(&mut irc, &cr);
+                }
             }
+
+            cr.restore();
         }
         cr.restore();
+
+        // evict stale entries
+        self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
 
         /* fill address pane */
         cr.set_source_gdk_rgba(cfg.addr_pane_color);
@@ -306,6 +335,7 @@ impl ListingWidget {
         }
 
         if self.view.update() {
+            self.line_cache = HashMap::new();
             da.queue_draw();
         }
         
@@ -341,6 +371,7 @@ impl ListingWidget {
         
         self.resize_window(&cfg);
         self.last_config_version = cfg.version;
+        self.line_cache = HashMap::new();
         
         da.queue_draw();
     }
@@ -457,92 +488,95 @@ impl std::future::Future for ListingWidgetFuture {
 }
 
 trait DrawableLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>);
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context);
 }
 
-impl DrawableLineGroup for brk::hex::HexLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>) {
-        match c.phase {
-            InternalRenderingPhase::Extents => {
+impl DrawableLineGroup for listing::line_group::LineGroup {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+        match self {
+            line_group::LineGroup::Hex(hlg) => {
+                hlg.draw(c, cr);
             },
-            InternalRenderingPhase::Background => {
-                // draw ridge
-                if ((self.extent.begin - self.get_break().addr) / self.hbrk.line_size) % 16 == 0 {
-                    c.cr.set_source_gdk_rgba(c.cfg.ridge_color);
-                    c.cr.move_to(c.lw.layout.addr_pane_width, c.font_extents().descent);
-                    c.cr.line_to(c.lw.layout.width, c.font_extents().descent);
-                    c.cr.stroke();
-                }
+            line_group::LineGroup::BreakHeader(bhlg) => {
+                bhlg.draw(c, cr);
             },
-            InternalRenderingPhase::Foreground => {
-                // draw address in addr pane
-                c.cr.set_scaled_font(&c.fonts.bold_scaled);
-                c.cr.set_source_gdk_rgba(c.cfg.addr_color);
-                c.cr.move_to(c.pad, c.font_extents().height);
-                c.cr.show_text(&format!("{}", self.extent.begin));
-
-                self.get_bytes(&mut c.byte_cache);
-
-                // hexdump
-                c.cr.move_to(c.lw.layout.addr_pane_width + c.pad, c.font_extents().height);
-                c.cr.set_scaled_font(&c.fonts.mono_scaled);
-                for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
-                    if i == 8 {
-                        c.cr.show_text(" ");
-                    }
-
-                    if i < c.byte_cache.len() {
-                        c.cr.set_source_gdk_rgba(c.cfg.text_color);
-                        c.cr.show_text(&format!("{:02x} ", c.byte_cache[i]));
-                    } else {
-                        c.cr.show_text("   ");
-                    }
-                }
-
-                c.cr.set_scaled_font(&c.fonts.mono_scaled);
-                c.cr.show_text("| ");
-
-                // asciidump
-                for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
-                    if i == 8 {
-                        c.cr.show_text(" ");
-                    }
-                    
-                    if i < c.byte_cache.len() {
-                        let b = c.byte_cache[i];
-                        c.cr.set_source_gdk_rgba(c.cfg.text_color);
-                        if (b as char).is_ascii_graphic() {
-                            c.cr.show_text(unsafe { std::str::from_utf8_unchecked(std::slice::from_ref(&b))});
-                        } else {
-                            c.cr.show_text(".");
-                        }
-                    } else {
-                        c.cr.show_text(" ");
-                    }
-                }
-                
-                c.cr.show_text(" | ");
-                c.cr.show_text(self.describe_state());
-            }
         }
     }
 }
 
-impl DrawableLineGroup for brk::BreakHeaderLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>) {
-        match c.phase {
-            InternalRenderingPhase::Foreground => {
-                // draw label
-                c.cr.set_scaled_font(&c.fonts.bold_scaled);
-                c.cr.set_source_gdk_rgba(c.cfg.text_color);
-                c.cr.move_to(c.lw.layout.addr_pane_width + c.pad, c.font_extents().height * 2.0);
-                c.cr.show_text(match &self.brk.label {
-                    Some(l) => l.as_str(),
-                    None => "unlabeled"
-                });
-                c.cr.show_text(":");
-            },
-            _ => ()
+impl DrawableLineGroup for brk::hex::HexLineGroup {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+        // draw ridge
+        if ((self.extent.begin - self.get_break().addr) / self.hbrk.line_size) % 16 == 0 {
+            cr.set_source_gdk_rgba(c.cfg.ridge_color);
+            cr.move_to(c.layout.addr_pane_width, c.font_extents().descent);
+            cr.line_to(c.layout.width, c.font_extents().descent);
+            cr.stroke();
         }
+        
+        // draw address in addr pane
+        cr.set_scaled_font(&c.fonts.bold_scaled);
+        cr.set_source_gdk_rgba(c.cfg.addr_color);
+        cr.move_to(c.pad, c.font_extents().height);
+        cr.show_text(&format!("{}", self.extent.begin));
+
+        self.get_bytes(&mut c.byte_cache);
+
+        // hexdump
+        cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height);
+        cr.set_scaled_font(&c.fonts.mono_scaled);
+        cr.set_source_gdk_rgba(c.cfg.text_color);
+        for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
+            if i == 8 {
+                cr.show_text(" ");
+            }
+
+            if i < c.byte_cache.len() {
+                cr.show_text(&format!("{:02x} ", c.byte_cache[i]));
+            } else {
+                cr.show_text("   ");
+            }
+        }
+
+        cr.set_source_gdk_rgba(c.cfg.text_color);
+        cr.set_scaled_font(&c.fonts.mono_scaled);
+        cr.show_text("| ");
+
+        // asciidump
+        for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
+            if i == 8 {
+                cr.show_text(" ");
+            }
+            
+            if i < c.byte_cache.len() {
+                let b = c.byte_cache[i];
+                cr.set_source_gdk_rgba(c.cfg.text_color);
+                if (b as char).is_ascii_graphic() {
+                    cr.show_text(unsafe { std::str::from_utf8_unchecked(std::slice::from_ref(&b))});
+                } else {
+                    cr.show_text(".");
+                }
+            } else {
+                cr.show_text(" ");
+            }
+        }
+
+        cr.set_source_gdk_rgba(c.cfg.text_color);
+        cr.show_text(" | ");
+        cr.show_text(self.describe_state());
+    }
+}
+
+impl DrawableLineGroup for brk::BreakHeaderLineGroup {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+        // draw label
+        cr.set_scaled_font(&c.fonts.bold_scaled);
+        cr.set_source_gdk_rgba(c.cfg.text_color);
+        cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height * 2.0);
+        cr.show_text(match &self.brk.label {
+            Some(l) => l.as_str(),
+            None => "unlabeled"
+        });
+        cr.show_text(":");
     }
 }

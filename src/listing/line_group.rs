@@ -7,6 +7,11 @@ pub enum LineGroup {
     BreakHeader(listing::brk::BreakHeaderLineGroup)
 }
 
+#[derive(Hash, PartialEq, Eq)]
+pub enum CacheId {
+    Hex(u64),
+}
+
 impl LineGroup {
     pub fn num_lines(&self) -> usize {
         match self {
@@ -20,5 +25,12 @@ impl LineGroup {
             LineGroup::Hex(hex) => hex.progress(cx),
             LineGroup::BreakHeader(_) => false,
         }
-    }    
+    }
+
+    pub fn get_cache_id(&self) -> Option<CacheId> {
+        match self {
+            LineGroup::Hex(hex) => hex.get_cache_id().map(|cid| CacheId::Hex(cid)),
+            LineGroup::BreakHeader(_) => None,
+        }
+    }
 }

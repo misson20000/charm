@@ -36,11 +36,14 @@ enum AsyncState {
     Finished(AsyncResult)
 }
 
+static NEXT_CACHE_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(0);
+
 pub struct HexLineGroup {
     pub hbrk: owning_ref::ArcRef<brk::Break, HexBreak>,
     pub extent: addr::Extent,
     async_state: AsyncState,
     raw_bytes: vec::Vec<u8>,
+    cache_id: u64,
 }
 
 impl<T: view::BreakViewDir> HexBreakView<T> {
@@ -214,7 +217,8 @@ impl HexLineGroup {
             async_state: AsyncState::Pending(
                 Box::pin(listing.space.clone().fetch(extent.round_out()))),
             extent,
-            raw_bytes: vec::Vec::new()
+            raw_bytes: vec::Vec::new(),
+            cache_id: NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
         }
     }
     
@@ -235,6 +239,7 @@ impl HexLineGroup {
                         };
                         self.raw_bytes = data;
                         self.async_state = AsyncState::Finished(async_result);
+                        self.invalidate_cache();
                         true
                     },
                     task::Poll::Pending => false
@@ -297,6 +302,14 @@ impl HexLineGroup {
                 AsyncResult::IoError => "IO Error",
             },
         }
+    }
+
+    pub fn get_cache_id(&self) -> Option<u64> {
+        Some(self.cache_id)
+    }
+
+    fn invalidate_cache(&mut self) {
+        self.cache_id = NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst);
     }
 }
 
