@@ -248,8 +248,55 @@ impl HexLineGroup {
         HexLineIterator::new(self.raw_bytes.iter(), self.extent.begin.bit)
     }
 
+    pub fn get_bytes(&self, cache: &mut vec::Vec<u8>) {
+        let shift = self.extent.begin.bit;
+        let bytelen = self.extent.length().bytes as usize;
+        
+        if shift == 0 {
+            // fast path
+            cache.resize(self.raw_bytes.len(), 0);
+            cache.copy_from_slice(&self.raw_bytes);
+
+            if cache.len() > bytelen {
+                // need to mask off high bits that are outside our extent
+                cache[bytelen]&= (1 << self.extent.length().bits) - 1;
+            }
+        } else {
+            let mut acc:u16 = 0;
+        
+            let ru = self.extent.length().round_up().bytes as usize;
+            cache.resize(std::cmp::min(self.raw_bytes.len(), ru), 0);
+        
+            for (i, b) in self.raw_bytes.iter().enumerate().rev() {
+                acc<<= 8;
+                acc|= (*b as u16) << 8 >> shift;
+                
+                if i < cache.len() {
+                    if i >= self.extent.length().bytes as usize {
+                        // need to mask out high bits of last byte that are technically outside our extent
+                        cache[i] = (acc >> 8) as u8 & ((1 << self.extent.length().bits) - 1);
+                    } else {
+                        cache[i] = (acc >> 8) as u8;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn get_break(&self) -> &sync::Arc<brk::Break> {
         self.hbrk.as_owner()
+    }
+
+    pub fn describe_state(&self) -> &'static str {
+        match &self.async_state {
+            AsyncState::Pending(_) => "Pending",
+            AsyncState::Finished(ar) => match ar {
+                AsyncResult::Ok => "Ok",
+                AsyncResult::Partial => "Partial",
+                AsyncResult::Unreadable => "Unreadable",
+                AsyncResult::IoError => "IO Error",
+            },
+        }
     }
 }
 

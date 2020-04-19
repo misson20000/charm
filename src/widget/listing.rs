@@ -1,6 +1,7 @@
 use std::sync;
 use std::task;
 use std::option;
+use std::vec;
 
 use crate::addr;
 use crate::config;
@@ -33,6 +34,8 @@ pub struct InternalRenderingContext<'a> {
     phase: InternalRenderingPhase,
     cfg: &'a config::Config,
     fonts: &'a Fonts,
+    
+    byte_cache: vec::Vec<u8>,
     
     pad: f64,
 }
@@ -202,6 +205,8 @@ impl ListingWidget {
             cfg: &cfg,
             fonts: &self.fonts,
 
+            byte_cache: vec::Vec::new(),
+
             pad: cfg.padding, // it is helpful to have a shorthand for this one
         };
 
@@ -229,10 +234,10 @@ impl ListingWidget {
 
                 match &lg {
                     line_group::LineGroup::Hex(hlg) => {
-                        hlg.draw(&irc);
+                        hlg.draw(&mut irc);
                     },
                     line_group::LineGroup::BreakHeader(bhlg) => {
-                        bhlg.draw(&irc);
+                        bhlg.draw(&mut irc);
                     },
                 }
 
@@ -439,11 +444,11 @@ impl std::future::Future for ListingWidgetFuture {
 }
 
 trait DrawableLineGroup {
-    fn draw<'a>(&self, c: &'a InternalRenderingContext<'a>);
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>);
 }
 
 impl DrawableLineGroup for brk::hex::HexLineGroup {
-    fn draw<'a>(&self, c: &'a InternalRenderingContext<'a>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>) {
         match c.phase {
             InternalRenderingPhase::Extents => {
             },
@@ -463,20 +468,55 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 c.cr.move_to(c.pad, c.font_extents().height);
                 c.cr.show_text(&format!("{}", self.extent.begin));
 
-                // let text = hl.render(); TODO
-                                
-                // draw hex string
-                c.cr.set_scaled_font(&c.fonts.mono_scaled);
-                c.cr.set_source_gdk_rgba(c.cfg.text_color);
+                self.get_bytes(&mut c.byte_cache);
+
+                // hexdump
                 c.cr.move_to(c.lw.layout.addr_pane_width + c.pad, c.font_extents().height);
-                c.cr.show_text("TODO");
+                c.cr.set_scaled_font(&c.fonts.mono_scaled);
+                for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
+                    if i == 8 {
+                        c.cr.show_text(" ");
+                    }
+
+                    if i < c.byte_cache.len() {
+                        c.cr.set_source_gdk_rgba(c.cfg.text_color);
+                        c.cr.show_text(&format!("{:02x} ", c.byte_cache[i]));
+                    } else {
+                        c.cr.show_text("   ");
+                    }
+                }
+
+                c.cr.set_scaled_font(&c.fonts.mono_scaled);
+                c.cr.show_text("| ");
+
+                // asciidump
+                for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
+                    if i == 8 {
+                        c.cr.show_text(" ");
+                    }
+                    
+                    if i < c.byte_cache.len() {
+                        let b = c.byte_cache[i];
+                        c.cr.set_source_gdk_rgba(c.cfg.text_color);
+                        if (b as char).is_ascii_graphic() {
+                            c.cr.show_text(unsafe { std::str::from_utf8_unchecked(std::slice::from_ref(&b))});
+                        } else {
+                            c.cr.show_text(".");
+                        }
+                    } else {
+                        c.cr.show_text(" ");
+                    }
+                }
+                
+                c.cr.show_text(" | ");
+                c.cr.show_text(self.describe_state());
             }
         }
     }
 }
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
-    fn draw<'a>(&self, c: &'a InternalRenderingContext<'a>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>) {
         match c.phase {
             InternalRenderingPhase::Foreground => {
                 // draw label
