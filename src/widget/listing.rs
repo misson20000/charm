@@ -2,6 +2,7 @@ use std::sync;
 use std::task;
 use std::option;
 use std::vec;
+use std::time;
 
 use crate::addr;
 use crate::config;
@@ -34,6 +35,8 @@ pub struct InternalRenderingContext<'a> {
     phase: InternalRenderingPhase,
     cfg: &'a config::Config,
     fonts: &'a Fonts,
+
+    perf: time::Instant,
     
     byte_cache: vec::Vec<u8>,
     
@@ -98,7 +101,9 @@ pub struct ListingWidget {
     fonts: send_wrapper::SendWrapper<Fonts>,
     layout: Layout,
     //cursor: component::cursor::Cursor,
-    scroll: component::scroll::Scroller
+    scroll: component::scroll::Scroller,
+
+    last_frame_duration: Option<time::Duration>,
 }
 
 impl ListingWidget {
@@ -124,6 +129,8 @@ impl ListingWidget {
             },
             //cursor: component::cursor::Cursor::new(),
             scroll: component::scroll::Scroller::new(),
+            
+            last_frame_duration: None,
         }
     }
     
@@ -196,6 +203,8 @@ impl ListingWidget {
     }
 
     pub fn draw<'a>(&'a mut self, _da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+        let frame_begin = time::Instant::now();
+        
         let cfg = config::get();
                 
         let mut irc = InternalRenderingContext {
@@ -205,6 +214,7 @@ impl ListingWidget {
             cfg: &cfg,
             fonts: &self.fonts,
 
+            perf: frame_begin,
             byte_cache: vec::Vec::new(),
 
             pad: cfg.padding, // it is helpful to have a shorthand for this one
@@ -253,7 +263,8 @@ impl ListingWidget {
         
         /* DEBUG */
         let debug = vec![
-//            format!("{:#?}", self.cursor),
+            //            format!("{:#?}", self.cursor),
+            format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
             format!("{:#?}", self.scroll),
         ];
         let mut lineno = 0;
@@ -265,6 +276,8 @@ impl ListingWidget {
                 lineno+= 1;
             }
         }
+
+        self.last_frame_duration = Some(time::Instant::now() - frame_begin);
         
         gtk::Inhibit(false)
     }
