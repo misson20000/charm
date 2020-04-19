@@ -76,7 +76,7 @@ enum BreakViewDownward {
 }
 
 /// It is up to the user to make sure that this gets properly notified with break list invalidation events.
-pub struct ListingView {
+pub struct ListingWindow {
     pub listing: sync::Arc<listing::Listing>,
     //observer: sync::Arc<BreakListObserver>,
 
@@ -94,12 +94,12 @@ pub struct ListingView {
     has_loaded: bool,
 }
 
-impl ListingView {
-    pub fn new(listing: sync::Arc<listing::Listing>) -> ListingView {
+impl ListingWindow {
+    pub fn new(listing: sync::Arc<listing::Listing>) -> ListingWindow {
         let breaks = listing.get_break_map();
         let brk = breaks.break_at(addr::unit::NULL);
         
-        ListingView {
+        ListingWindow {
             listing: listing.clone(),
             //observer: BreakListObserver::new(listing.clone()),
 
@@ -381,7 +381,7 @@ impl ListingView {
     }
 }
 
-impl std::future::Future for ListingView {
+impl std::future::Future for ListingWindow {
     type Output = ();
 
     fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
@@ -447,10 +447,10 @@ pub struct ListingIterator<'a> {
 }
 
 impl<'a> ListingIterator<'a> {
-    fn new(view: &ListingView) -> ListingIterator {
+    fn new(window: &ListingWindow) -> ListingIterator {
         ListingIterator {
-            iter: view.line_groups.iter(),
-            line_no: -(view.top_margin as isize),
+            iter: window.line_groups.iter(),
+            line_no: -(window.top_margin as isize),
         }
     }
 }

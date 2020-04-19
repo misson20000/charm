@@ -1,6 +1,6 @@
-pub mod view;
 pub mod brk;
 pub mod line_group;
+pub mod window;
 
 use std::sync;
 use std::vec;

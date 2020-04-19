@@ -42,7 +42,7 @@ impl Scroller {
         self.events.want();
     }
 
-    pub fn animate(&mut self, window: &mut listing::view::ListingView, ais: f64) {
+    pub fn animate(&mut self, window: &mut listing::window::ListingWindow, ais: f64) {
         let cfg = config::get();
         
         {
@@ -180,7 +180,7 @@ impl Scroller {
     }
 */
 
-    pub fn seek(&mut self, window: &mut listing::view::ListingView, addr: addr::Address) {
+    pub fn seek(&mut self, window: &mut listing::window::ListingWindow, addr: addr::Address) {
         let cfg = config::get();
         
         window.seek(addr);
@@ -197,7 +197,7 @@ impl Scroller {
         window.scroll_up(cfg.page_navigation_leadup);
     }
     
-    pub fn page_up(&mut self, window: &listing::view::ListingView) {
+    pub fn page_up(&mut self, window: &listing::window::ListingWindow) {
         let cfg = config::get();
         
         // kinematics 101
@@ -205,7 +205,7 @@ impl Scroller {
         self.velocity = -f64::sqrt(self.velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (window.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
     }
 
-    pub fn page_down(&mut self, window: &listing::view::ListingView) {
+    pub fn page_down(&mut self, window: &listing::window::ListingWindow) {
         let cfg = config::get();
         
         // kinematics 101

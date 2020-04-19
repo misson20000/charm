@@ -9,14 +9,14 @@ use crate::space;
 use crate::listing;
 use crate::listing::BreakMapExt;
 use crate::listing::line_group::LineGroup;
-use crate::listing::view;
+use crate::listing::window;
 use crate::listing::brk;
 
 pub struct HexBreak {
     pub line_size: addr::Size,
 }
 
-pub struct HexBreakView<T: view::BreakViewDir> {
+pub struct HexBreakView<T: window::BreakViewDir> {
     header: bool,
     current_addr: addr::Address,
     extent: addr::Extent,
@@ -46,7 +46,7 @@ pub struct HexLineGroup {
     cache_id: u64,
 }
 
-impl<T: view::BreakViewDir> HexBreakView<T> {
+impl<T: window::BreakViewDir> HexBreakView<T> {
     pub fn new_from_top(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>) -> HexBreakView<T> {
         HexBreakView {
             header: false,
@@ -100,7 +100,7 @@ impl<T: view::BreakViewDir> HexBreakView<T> {
     }
 }
 
-impl view::BreakView for HexBreakView<view::UpDir> {
+impl window::BreakView for HexBreakView<window::UpDir> {
     // current_addr is the address of the line we just generated
     
     fn produce(&mut self, listing: &listing::Listing) -> Option<LineGroup> {
@@ -156,7 +156,7 @@ impl view::BreakView for HexBreakView<view::UpDir> {
     }
 }
 
-impl view::BreakView for HexBreakView<view::DownDir> {
+impl window::BreakView for HexBreakView<window::DownDir> {
     // current_addr is the address of the line we're about to generate
     
     fn produce(&mut self, listing: &listing::Listing) -> Option<LineGroup> {

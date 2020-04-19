@@ -87,7 +87,7 @@ struct LineCacheEntry {
 }
 
 pub struct ListingWidget {
-    view: listing::view::ListingView,
+    window: listing::window::ListingWindow,
     rt: tokio::runtime::Handle,
     update_task: option::Option<tokio::task::JoinHandle<()>>,
 
@@ -111,7 +111,7 @@ impl ListingWidget {
         rt: tokio::runtime::Handle) -> ListingWidget {
         let cfg = config::get();
         ListingWidget {
-            view: listing::view::ListingView::new(listing.clone()),
+            window: listing::window::ListingWindow::new(listing.clone()),
             rt,
             update_task: None,
 
@@ -192,7 +192,7 @@ impl ListingWidget {
         /* actions */
         let ag = gio::SimpleActionGroup::new();
         //ag.add_action(&action::goto::create(&rc, da));
-        ag.add_action(&action::insert_break::create(lw.view.listing.clone(), da));
+        ag.add_action(&action::insert_break::create(lw.window.listing.clone(), da));
 
         //ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
         //ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
@@ -232,7 +232,7 @@ impl ListingWidget {
         cr.save();
         cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
             
-        for (lineno, lg) in self.view.iter() {
+        for (lineno, lg) in self.window.iter() {
             cr.save();
             cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
@@ -315,7 +315,7 @@ impl ListingWidget {
         //self.cursor.events.collect_draw(da);
         self.scroll.events.collect_draw(da);
 
-        if self.view.clear_has_loaded() {
+        if self.window.clear_has_loaded() {
             da.queue_draw();
         }
     }
@@ -334,7 +334,7 @@ impl ListingWidget {
             self.reconfigure(da, &cfg);
         }
 
-        if self.view.update() {
+        if self.window.update() {
             self.line_cache = HashMap::new();
             da.queue_draw();
         }
@@ -348,7 +348,7 @@ impl ListingWidget {
             let ais_micros = std::cmp::min(fc.get_frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); // don't go below 20 TPS or the integration error gets bad
             let ais:f64 = ais_micros as f64 / MICROSECONDS_PER_SECOND;
 
-            self.scroll.animate(&mut self.view, ais);            
+            self.scroll.animate(&mut self.window, ais);            
             //self.cursor.animate(&cfg, ais);
 
             self.last_animation_time+= ais_micros;
@@ -384,7 +384,7 @@ impl ListingWidget {
             + 1 // to accomodate scrolling
             + (2 * cfg.lookahead); // lookahead works in both directions
         
-        self.view.resize_window(window_size);
+        self.window.resize_window(window_size);
     }
 
     fn goto(&mut self, _addr: addr::Address) {
@@ -481,7 +481,7 @@ impl std::future::Future for ListingWidgetFuture {
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
         match self.lw.upgrade() {
-            Some(lw) => std::pin::Pin::new(&mut lw.write().view).poll(cx),
+            Some(lw) => std::pin::Pin::new(&mut lw.write().window).poll(cx),
             None => task::Poll::Ready(())
         }
     }
