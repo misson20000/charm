@@ -20,6 +20,9 @@ hex-literal = "0.2.1"
 send_wrapper = "0.4.0"
 owning_ref = "0.4.1"
 conv = "0.3.3"
+parking_lot = "0.10.2"
+im = "14.3.0"
+enum_dispatch = "0.3.0"
 
 [features]
 default = []

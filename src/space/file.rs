@@ -6,7 +6,6 @@ use std::string;
 use std::io::Read;
 use std::io::Seek;
 
-use crate::addr;
 use crate::space;
 use crate::config;
 
@@ -23,8 +22,7 @@ pub struct FileAddressSpace {
 struct FetchFuture {
     delay: pin::Pin<Box<tokio::time::Delay>>, // pin projection is obnoxious and prevents us from mutating the other fields here
     fas: sync::Arc<FileAddressSpace>,
-    extent: addr::Extent,
-    out: vec::Vec<u8>,
+    extent: (u64, u64),
 }
 
 impl FileAddressSpace {
@@ -38,20 +36,18 @@ impl FileAddressSpace {
         })
     }
 
-    fn read_sync(&self, extent: addr::Extent, mut out: vec::Vec<u8>) -> space::FetchResult {
-        let (offset, length) = extent.round();
+    fn read_sync(&self, offset: u64, mut out: vec::Vec<u8>) -> space::FetchResult {
         let mut inner = self.inner.write().unwrap();
         (*inner).file.seek(std::io::SeekFrom::Start(offset))
-            .and_then(|_| (*inner).file.read(&mut out[..(length as usize)]))
+            .and_then(|_| (*inner).file.read(&mut out[..]))
             .map(|r| {
-                addr::bitshift_span(&mut out[..], extent.addr.bit);
-                if r > extent.size.bytes as usize {
-                    out[extent.size.bytes as usize]&= (1 << extent.size.bits) - 1;
-                }
                 match r {
-                    i if i == (length as usize) => space::FetchResult::Ok(out),
+                    i if i == out.len() => space::FetchResult::Ok(out),
                     0 => space::FetchResult::Unreadable,
-                    i => space::FetchResult::Partial(out, i)
+                    i => {
+                        out.truncate(i);
+                        space::FetchResult::Partial(out)
+                    }
                 }}).unwrap_or_else(|e| space::FetchResult::IoError(e))
    }
 }
@@ -63,7 +59,7 @@ impl futures::Future for FetchFuture {
         match self.delay.as_mut().poll(cx) {
             task::Poll::Ready(_) => {
                 let workaround = &mut *self;
-                task::Poll::Ready(workaround.fas.read_sync(workaround.extent, std::mem::replace(&mut workaround.out, vec::Vec::new())))
+                task::Poll::Ready(workaround.fas.read_sync(workaround.extent.0, vec![0; workaround.extent.1 as usize]))
             },
             task::Poll::Pending => task::Poll::Pending
         }
@@ -75,13 +71,12 @@ impl space::AddressSpace for FileAddressSpace {
         return &self.label;
     }
     
-    fn fetch(self: sync::Arc<Self>, extent: addr::Extent, out: vec::Vec<u8>) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
+    fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
         self.tokio_handle.enter(|| {
             Box::pin(FetchFuture {
                 delay: Box::pin(tokio::time::delay_for(tokio::time::Duration::from_millis(config::get().file_access_delay))),
                 fas: self.clone(),
                 extent,
-                out,
             })
         })
     }

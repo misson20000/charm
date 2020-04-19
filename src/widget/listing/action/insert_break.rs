@@ -1,14 +1,14 @@
 use std::sync;
-use std::rc;
-use std::cell;
 
 use gtk::prelude::*;
 
 use crate::addr;
-use crate::space::edit;
+use crate::listing;
+use crate::listing::BreakMapExt;
+use crate::listing::brk;
 use crate::widget::listing::ListingWidget;
 
-pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+pub fn create(listing: sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("insert_break", None);
     let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Insert Break"),
@@ -37,11 +37,9 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
     grid.attach(&gtk::Label::new(Some("Address")), 0, 1, 1, 1);
     grid.attach(&addr_entry, 1, 1, 1, 1);
 
-    let editing_break_rc: rc::Rc<cell::RefCell<sync::Weak<edit::Break>>> = rc::Rc::new(cell::RefCell::new(sync::Weak::new()));
-    
     {
+        let listing_clone = listing.clone();
         let dialog_clone = dialog.clone();
-        let editing_break_clone = editing_break_rc.clone();
         addr_entry.connect_changed(move |entry| {
             let addr_text_gstring = entry.get_text();
             let addr_text = match addr_text_gstring.as_ref() {
@@ -49,18 +47,28 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
                 None => ""
             };
 
-            match (editing_break_clone.borrow().upgrade(), addr::Address::parse(addr_text)) {
-                (Some(brk), Ok(addr)) if addr == brk.address => {
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(brk.address != addr::unit::NULL)); // delete
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); // edit
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
-                    dialog_clone.set_default_response(gtk::ResponseType::Other(2)); // edit
+            match addr::Address::parse(addr_text) {
+                Ok(addr) => {
+                    match listing_clone.get_break_map().break_at(addr) {
+                        brk if brk.addr == addr => {
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); // delete
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); // edit
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
+                            dialog_clone.set_default_response(gtk::ResponseType::Other(2)); // edit
+                        },
+                        _ => {
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
+                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); // insert
+                            dialog_clone.set_default_response(gtk::ResponseType::Other(3)); // insert
+                        }
+                    }
                 },
                 _ => {
                     dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
                     dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); // insert
-                    dialog_clone.set_default_response(gtk::ResponseType::Other(3)); // insert
+                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
+                    dialog_clone.set_default_response(gtk::ResponseType::Cancel);
                 }
             }
         });
@@ -68,99 +76,68 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
     
     ca.pack_start(&grid, true, true, 0);
     ca.show_all();
-    
-    let rc_clone = rc.clone();
+
     let da_clone = da.clone();
-    action.set_enabled(true);
     action.connect_activate(move |_act, _par| {
         dialog.set_transient_for(da_clone.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
-        // do not hold a lock on ListingWidget here since run() blocking is a dirty lie
-        let editing_break = {
-            let lw = rc_clone.read().unwrap();
-            let cursor_addr = lw.cursor.get_addr();
-
-            match lw.editor.break_at(cursor_addr) {
-                Ok(brk) => { // we're on a break
-                    addr_entry.set_text(&format!("{}", brk.address));
-                    label_entry.set_text(&brk.label);
-
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| { // delete
-                        w.show();
-                        w.set_sensitive(brk.address != addr::unit::NULL);
-                    });
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| { w.show(); w.set_sensitive(true); }); // edit
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| { w.show(); w.set_sensitive(false); }); // insert
-                    dialog.set_default_response(gtk::ResponseType::Other(2)); // edit
-                    
-                    Some(brk)
-                },
-                Err(_) => {
-                    addr_entry.set_text(&format!("{}", cursor_addr));
-                    label_entry.set_text("");
-
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.hide()); // delete
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.hide()); // edit
-                    dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| { w.show(); w.set_sensitive(true); }); // insert
-                    dialog.set_default_response(gtk::ResponseType::Other(3)); // insert
-                    
-                    None
-                },
-            }
-        };
-        
-        std::mem::replace(&mut *editing_break_rc.borrow_mut(), editing_break.as_ref().map(|b| sync::Arc::downgrade(b)).unwrap_or(sync::Weak::new()));
-
         label_entry.grab_focus();
         error_label.set_text("");
+
+        // TODO: populate address entry from cursor
         
         let mut message = None;
-        while match dialog.run() {
-            gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => { // Edit or Insert
-                let rc = rc_clone.read().unwrap();
-                
-                let addr_text_gstring = addr_entry.get_text();
-                let addr_text = match addr_text_gstring.as_ref() {
-                    Some(gs) => gs.as_ref(),
-                    None => ""
-                };
+        while {
+            let response = dialog.run();
+            let addr_text_gstring = addr_entry.get_text();
+            let addr_text = match addr_text_gstring.as_ref() {
+                Some(gs) => gs.as_ref(),
+                None => ""
+            };
 
-                match (addr::Address::parse(addr_text), label_entry.get_text()) {
-                    (Ok(addr), Some(label)) => match &editing_break {
-                        Some(brk) if brk.address == addr => {
-                            let _ = rc.engine.editor.edit_break(&brk, &label);
-                            false
+            match response {
+                gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => { // Edit or Insert
+                    match addr::Address::parse(addr_text) {
+                        Ok(addr) => {
+                            listing.insert_break(brk::Break {
+                                addr,
+                                label: label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
+                                class: brk::BreakClass::Hex(brk::hex::HexBreak {
+                                    line_size: addr::Size::from(16),
+                                }),
+                            }); false
                         },
-                        _ => match rc.engine.editor.insert_break(addr, &label) {
-                            Ok(()) => false,
-                            Err(edit::BreakInsertionError::ExistingBreak(_)) => { message = Some("A break already exists at that address."); true },
-                        },
-                    },
-                    (Ok(_), None) => { message = Some("Missing label."); true },
-                    (Err(addr::AddressParseError::MissingBytes), _) => false, // user entered a blank address, just ignore
-                    (Err(e), _) => {
-                        message = Some(match e {
-                            addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
-                            addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
-                            addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
-                            addr::AddressParseError::TooManyBits => "Invalid amount of bits."
-                        }); true
+                        Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just exit out
+                        Err(e) => {
+                            message = Some(match e {
+                                addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
+                                addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
+                                addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
+                                addr::AddressParseError::TooManyBits => "Invalid amount of bits."
+                            }); true
+                        }
                     }
                 }
-            },
-            gtk::ResponseType::Other(1) => { // Delete
-                let rc = rc_clone.read().unwrap();
-                
-                match &editing_break {
-                    Some(ed) => match rc.engine.editor.delete_break(&ed) {
-                        Ok(_) => false,
-                        Err(edit::BreakDeletionError::IsZeroBreak) => { message = Some("Can't delete the zero break."); true },
-                        Err(edit::BreakDeletionError::NotFound) => { message = Some("Not found."); true },
-                    },
-                    None => { message = Some("Not editing an existing break."); true }
+                gtk::ResponseType::Other(1) => { // Delete
+                    match addr::Address::parse(addr_text) {
+                        Ok(addr) => match listing.delete_break(&addr) {
+                            Ok(_) => false,
+                            Err(listing::BreakDeletionError::IsZeroBreak) => { message = Some("Can't delete the zero break."); true },
+                            Err(listing::BreakDeletionError::NotFound) => { message = Some("Not found."); true },
+                        }
+                        Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just exit out
+                        Err(e) => {
+                            message = Some(match e {
+                                addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
+                                addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
+                                addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
+                                addr::AddressParseError::TooManyBits => "Invalid amount of bits."
+                            }); true
+                        }
+                    }
                 }
+                _ => false
             }
-            _ => false
         } {
             error_label.set_text(message.take().unwrap_or(""))
         }
@@ -168,5 +145,7 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
         dialog.set_transient_for::<gtk::Window>(None);
     });
 
+    action.set_enabled(true);
+        
     action
 }

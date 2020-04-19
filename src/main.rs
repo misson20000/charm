@@ -10,6 +10,7 @@ extern crate futures;
 extern crate tokio;
 extern crate send_wrapper;
 extern crate owning_ref;
+extern crate enum_dispatch;
 
 #[cfg(feature = "test_listing")]
 extern crate ncurses;
@@ -169,10 +170,10 @@ impl CharmWindow {
     
     fn append_page_for_space(&self, space: sync::Arc<dyn space::AddressSpace + Send + Sync>) {
         let label = space.get_label().to_string();
-        let editor = space::edit::SpaceEditor::new(space);
+        let listing = sync::Arc::new(listing::Listing::new(space));
         
         let da = gtk::DrawingArea::new();
-        widget::listing::ListingWidget::new(editor, self.application.rt.handle().clone()).attach(&da);
+        widget::listing::ListingWidget::new(listing, self.application.rt.handle().clone()).attach(&da);
         
         let idx = self.notebook.append_page(&da, Some(&gtk::Label::new(Some(&label))));
         self.notebook.set_tab_detachable(&da, true);
