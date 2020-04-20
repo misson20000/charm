@@ -1,7 +1,6 @@
 use std::sync;
 use std::vec;
 use std::task;
-use std::pin;
 
 use crate::addr;
 use crate::space;
@@ -307,25 +306,26 @@ impl ListingWindow {
     /// Notifies us that the upstream break list may have been updated and we
     /// may need to redraw our window from scratch based on it.
     pub fn update(&mut self) -> bool {
+        let mut updated = false;
+        
         if self.micro.is_outdated() {
             self.seek(self.micro.top_view.get_addr());
-            true
-        } else {
-            false
+            updated = true;
         }
+
+        let patches = self.get_listing().get_patches().clone();
+        for lg in self.line_groups.iter_mut() {
+            updated = lg.patch(&patches) || updated;
+        }
+
+        updated
     }
-}
 
-impl std::future::Future for ListingWindow {
-    type Output = ();
-
-    fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
+    pub fn progress(&mut self, cx: &mut task::Context) {
         let has_loaded = self.has_loaded;
         let line_groups = &mut self.line_groups;
         self.has_loaded = line_groups.iter_mut().fold(has_loaded, |acc, lg| lg.progress(cx) || acc);
         self.wakers.push(cx.waker().clone());
-        
-        task::Poll::Pending
     }
 }
 

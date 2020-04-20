@@ -39,11 +39,20 @@ enum AsyncState {
 
 static NEXT_CACHE_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(0);
 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct PatchByteRecord {
+    pub value: u8,
+    pub loaded: bool,
+    pub patched: bool,
+}
+
 pub struct HexLineGroup {
     pub hbrk: owning_ref::ArcRef<brk::Break, HexBreak>,
     pub extent: addr::Extent,
     async_state: AsyncState,
     raw_bytes: vec::Vec<u8>,
+    patched_bytes: vec::Vec<PatchByteRecord>,
+    patches: Option<listing::PatchMap>,
     cache_id: u64,
 }
 
@@ -222,12 +231,85 @@ impl HexLineGroup {
                 Box::pin(space.clone().fetch(extent.round_out()))),
             extent,
             raw_bytes: vec::Vec::new(),
+            patched_bytes: vec![PatchByteRecord::default(); extent.round_out().1 as usize],
+            patches: None,
             cache_id: NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
         }
     }
     
     pub fn num_lines(&self) -> usize {
         1
+    }
+
+    pub fn patch(&mut self, patches: &listing::PatchMap) -> bool {
+        if self.patches.as_ref().map(|p| !p.ptr_eq(patches)).unwrap_or(true) {
+            self.patches = Some(patches.clone());
+            self.try_patch()
+        } else {
+            false
+        }
+    }
+
+    fn try_patch(&mut self) -> bool {
+        let (begin, length) = self.extent.round_out();
+
+        if if let Some(patches) = &self.patches {
+            if match patches.get_prev(&(begin + length)) {
+                Some((&l, _)) => {
+                    let mut patched = false;
+                    let mut i = patches.range(l..).peekable();
+
+                    loop {
+                        if let Some((l, p)) = i.next() {
+                            if l < &(begin + length) {
+                                patched = true;
+                                for i in 0..(length as usize) {
+                                    let mut pbr = PatchByteRecord::default();
+                                    if i < self.raw_bytes.len() {
+                                        pbr.value = self.raw_bytes[i];
+                                        pbr.loaded = true;
+                                    }
+                                    if &(begin + i as u64) >= l && ((begin + i as u64 - l) as usize) < p.bytes.len() {
+                                        pbr.value = p.bytes[(begin + i as u64 - l) as usize];
+                                        pbr.patched = true;
+                                    }
+                                    self.patched_bytes[i] = pbr;
+                                }
+                            } else { break }
+                        } else { break }
+                    }
+
+                    patched
+                },
+                None => {
+                    false
+                }
+            } {
+                self.invalidate_cache();
+                true
+            } else {
+                false
+            }
+        } else { false } {
+            true
+        } else {
+            for i in 0..(length as usize) {
+                self.patched_bytes[i] = if i < self.raw_bytes.len() {
+                    PatchByteRecord {
+                        value: self.raw_bytes[i],
+                        loaded: true,
+                        patched: false,
+                    }
+                } else {
+                    PatchByteRecord {
+                        value: 0,
+                        loaded: false,
+                        patched: false,
+                    }
+                }
+            }
+            false
+        }
     }
     
     pub fn progress(&mut self, cx: &mut task::Context) -> bool {
@@ -241,8 +323,9 @@ impl HexLineGroup {
                             space::FetchResult::Unreadable => (vec![], AsyncResult::Unreadable),
                             space::FetchResult::IoError(_) => (vec![], AsyncResult::IoError),
                         };
-                        self.raw_bytes = data;
                         self.async_state = AsyncState::Finished(async_result);
+                        self.raw_bytes = data;
+                        self.try_patch();
                         self.invalidate_cache();
                         true
                     },
@@ -257,37 +340,42 @@ impl HexLineGroup {
         HexLineIterator::new(self.raw_bytes.iter(), self.extent.begin.bit)
     }
 
-    pub fn get_bytes(&self, cache: &mut vec::Vec<u8>) {
+    pub fn get_patched_bytes(&self, cache: &mut vec::Vec<PatchByteRecord>) {
         let shift = self.extent.begin.bit;
         let bytelen = self.extent.length().bytes as usize;
+
+        cache.resize(self.patched_bytes.len(), PatchByteRecord::default());
         
         if shift == 0 {
             /* fast path */
-            cache.resize(self.raw_bytes.len(), 0);
-            cache.copy_from_slice(&self.raw_bytes);
+            cache.copy_from_slice(&self.patched_bytes);
 
             if cache.len() > bytelen {
                 /* need to mask off high bits that are outside our extent */
-                cache[bytelen]&= (1 << self.extent.length().bits) - 1;
+                cache[bytelen].value&= (1 << self.extent.length().bits) - 1;
             }
         } else {
+            let mut last_loaded:bool = true;
+            let mut last_patched:bool = false;
             let mut acc:u16 = 0;
         
-            let ru = self.extent.length().round_up().bytes as usize;
-            cache.resize(std::cmp::min(self.raw_bytes.len(), ru), 0);
-        
-            for (i, b) in self.raw_bytes.iter().enumerate().rev() {
+            for (i, b) in self.patched_bytes.iter().enumerate().rev() {
                 acc<<= 8;
-                acc|= (*b as u16) << 8 >> shift;
+                acc|= (b.value as u16) << 8 >> shift;
                 
                 if i < cache.len() {
                     if i >= self.extent.length().bytes as usize {
                         /* need to mask out high bits of last byte that are technically outside our extent */
-                        cache[i] = (acc >> 8) as u8 & ((1 << self.extent.length().bits) - 1);
+                        cache[i].value = (acc >> 8) as u8 & ((1 << self.extent.length().bits) - 1);
                     } else {
-                        cache[i] = (acc >> 8) as u8;
+                        cache[i].value = (acc >> 8) as u8;
                     }
+                    cache[i].loaded = b.loaded && last_loaded;
+                    cache[i].patched = b.patched || last_patched;
                 }
+
+                last_loaded = b.loaded;
+                last_patched = b.patched;
             }
         }
     }
@@ -379,6 +467,7 @@ impl std::fmt::Debug for HexLineGroup {
         f.debug_struct("HexLineGroup")
             .field("extent", &self.extent)
             .field("raw_bytes", &self.raw_bytes)
+            .field("patched_bytes", &self.patched_bytes)
             .field("cache_id", &self.cache_id)
             .finish()
     }

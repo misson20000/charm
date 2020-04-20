@@ -32,7 +32,7 @@ struct InternalRenderingContext<'a> {
     
     perf: time::Instant,
     
-    byte_cache: vec::Vec<u8>,
+    byte_cache: vec::Vec<brk::hex::PatchByteRecord>,
     
     pad: f64,
 }
@@ -295,8 +295,9 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("{:#?}", self.scroll),
-            format!("{:#?}", self.cursor_view.cursor),
+            format!("cursor LG: {:#?}", self.cursor_view.cursor.get_line_group()),
+            format!("line_groups[0..5] {:#?}", &self.window.line_groups.as_slices().0[0..5]),
+            
         ];
         let mut lineno = 0;
         cr.set_scaled_font(&irc.fonts.mono_scaled);
@@ -342,7 +343,7 @@ impl ListingWidget {
             da.queue_draw();
         }
 
-        if self.cursor_view.cursor.update() {
+        if self.cursor_view.cursor.update(&self.window.get_listing().get_patches()) {
             da.queue_draw();
         }
         
@@ -485,7 +486,12 @@ impl std::future::Future for ListingWidgetFuture {
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut task::Context) -> task::Poll<()> {
         match self.lw.upgrade() {
-            Some(lw) => std::pin::Pin::new(&mut lw.write().window).poll(cx),
+            Some(lw) => {
+                let mut lw = lw.write();
+                lw.window.progress(cx);
+                lw.cursor_view.cursor.progress(cx);
+                task::Poll::Pending
+            }
             None => task::Poll::Ready(())
         }
     }
@@ -524,7 +530,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         cr.move_to(c.pad, c.font_extents().height);
         cr.show_text(&format!("{}", self.extent.begin));
 
-        self.get_bytes(&mut c.byte_cache);
+        self.get_patched_bytes(&mut c.byte_cache);
 
         #[allow(unreachable_patterns)] // TODO
         let cursor = cursor_view.and_then(|cv| match &cv.cursor.class {
@@ -545,13 +551,24 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             }
 
             for low_nybble in &[false, true] {
-                let chr = if i < c.byte_cache.len() {
-                    util::nybble_to_hex((c.byte_cache[i] >> if *low_nybble { 4 } else { 0 }) & 0xf)
+                let pbr = if i < c.byte_cache.len() {
+                    c.byte_cache[i]
+                } else {
+                    brk::hex::PatchByteRecord::default()
+                };
+                
+                let chr = if pbr.loaded || pbr.patched {
+                    util::nybble_to_hex((pbr.value >> if *low_nybble { 0 } else { 4 }) & 0xf)
                 } else {
                     ' '
                 };
 
-                cr.set_source_gdk_rgba(c.cfg.text_color);
+                if pbr.patched {
+                    cr.set_source_rgba(0.0, 1.0, 0.0, 1.0);
+                } else {
+                    cr.set_source_gdk_rgba(c.cfg.text_color);
+                }
+                
                 if let Some((hc, cv)) = cursor {
                     if hc.offset.bytes == i as u64 && hc.low_nybble == *low_nybble {
                         let (x, y) = cr.get_current_point();
@@ -594,10 +611,10 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             }
             
             if i < c.byte_cache.len() {
-                let b = c.byte_cache[i];
+                let b = c.byte_cache[i].value;
                 cr.set_source_gdk_rgba(c.cfg.text_color);
                 if (b as char).is_ascii_graphic() {
-                    cr.show_text(unsafe { std::str::from_utf8_unchecked(std::slice::from_ref(&b))});
+                    cr.show_text((b as char).encode_utf8(&mut utf8_buffer));
                 } else {
                     cr.show_text(".");
                 }

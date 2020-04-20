@@ -13,11 +13,18 @@ extern crate im;
 use im::ordmap;
 
 type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
+type PatchMap = ordmap::OrdMap<u64, Patch>;
 
 pub struct Listing {
     pub space: sync::Arc<dyn AddressSpace>,
     break_map: parking_lot::RwLock<BreakMap>,
     break_list_observers: sync::Mutex<vec::Vec<sync::Weak<dyn BreakListObserver>>>,
+    patch_map: parking_lot::RwLock<PatchMap>,
+}
+
+#[derive(Clone)]
+pub struct Patch {
+    bytes: vec::Vec<u8>,
 }
 
 impl Listing {
@@ -32,6 +39,11 @@ impl Listing {
                     })))
             }),
             break_list_observers: sync::Mutex::new(vec::Vec::new()),
+            patch_map: parking_lot::RwLock::new(ordmap!{
+                0x3 => Patch {
+                    bytes: vec![0x44, 0x55, 0x66, 0x77]
+                }
+            }),
             space,
         }
     }
@@ -64,6 +76,38 @@ impl Listing {
                 Ok(())
             },
             None => Err(BreakDeletionError::NotFound)
+        }
+    }
+
+    pub fn get_patches(&self) -> parking_lot::RwLockReadGuard<PatchMap> {
+        self.patch_map.read_recursive()
+    }
+    
+    pub fn patch_byte(&self, location: u64, patch: u8) {
+        let mut patches = self.patch_map.write();
+
+        match patches.get_prev_mut(&location) {
+            Some((k, v)) if k <= &location && location - k < v.bytes.len() as u64 => {
+                v.bytes[(location - k) as usize] = patch;
+            },
+            Some((&k, v)) if k + v.bytes.len() as u64 == location => {
+                v.bytes.push(patch);
+                match patches.get_next_mut(&location) {
+                    Some((&nk, _)) if k - 1 == location => {
+                        let mut old_patch = patches.remove(&nk).unwrap();
+                        patches[&k].bytes.append(&mut old_patch.bytes);
+                    },
+                    _ => ()
+                }
+            },
+            Some((&k, _)) if k == (location + 1) => {
+                let mut old_patch = patches.remove(&k).unwrap();
+                old_patch.bytes.insert(0, patch);
+                patches.insert(location, old_patch);
+            },
+            _ => {
+                patches.insert(location, Patch { bytes: vec![patch] });
+            }
         }
     }
 

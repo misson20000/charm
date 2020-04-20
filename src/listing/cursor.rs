@@ -1,4 +1,5 @@
 use std::sync;
+use std::task;
 use std::vec;
 
 use crate::addr;
@@ -29,6 +30,7 @@ pub enum PlacementFailure {
 #[enum_dispatch]
 pub trait CursorClassExt {
     fn get_line_group(&self) -> &line_group::LineGroup;
+    fn get_line_group_mut(&mut self) -> &mut line_group::LineGroup;
     fn take_line_group(self) -> line_group::LineGroup;
     fn get_addr(&self) -> addr::Address;
     fn get_intended_offset(&self) -> Option<addr::Size>; /// only return null here if there is nothing meaningful to return
@@ -55,6 +57,7 @@ pub enum CursorClass {
 pub struct Cursor {
     window: window::MicroWindow,
     pub class: CursorClass,
+    wakers: vec::Vec<task::Waker>,
 }
 
 impl Cursor {
@@ -73,22 +76,35 @@ impl Cursor {
                 }
             },
             window,
+            wakers: vec::Vec::new(),
         })
     }
 
-    pub fn update(&mut self) -> bool {
+    pub fn update(&mut self, patches: &listing::PatchMap) -> bool {
+        let mut updated = false;
+        
         if self.window.is_outdated() {
-            Self::place(&self.window.listing, PlacementHint {
+            updated = Self::place(&self.window.listing, PlacementHint {
                 addr: self.class.get_addr(),
                 intended_offset: self.class.get_intended_offset(),
                 class: self.class.get_placement_hint()
-            }).map(|new| { *self = new; }).is_ok() // TODO: better failure condition
-        } else {
-            false
+            }).map(|new| { *self = new; }).is_ok() || updated; // TODO: better failure condition
+
+            for wk in self.wakers.drain(..) { wk.wake(); }
         }
+
+        updated = self.class.get_line_group_mut().patch(patches) || updated;
+
+        updated
+    }
+
+    pub fn progress(&mut self, cx: &mut task::Context) {
+        self.class.get_line_group_mut().progress(cx);
+        self.wakers.push(cx.waker().clone());
     }
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
+        for wk in self.wakers.drain(..) { wk.wake(); }
         Self::place(&self.window.listing, PlacementHint {
             addr: addr,
             intended_offset: None,
@@ -105,6 +121,7 @@ impl Cursor {
     }
 
     fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
+        for wk in self.wakers.drain(..) { wk.wake(); }
         match mov(&mut self.class) {
             MovementResult::HitStart => if self.class.prev(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitStart }
             MovementResult::HitEnd   => if self.class.next(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitEnd }

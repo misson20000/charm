@@ -90,6 +90,10 @@ impl cursor::CursorClassExt for HexCursor {
         &self.lg
     }
 
+    fn get_line_group_mut(&mut self) -> &mut line_group::LineGroup {
+        &mut self.lg
+    }
+    
     fn take_line_group(self) -> line_group::LineGroup {
         self.lg
     }

@@ -28,6 +28,13 @@ impl LineGroup {
         }
     }
 
+    pub fn patch(&mut self, patches: &listing::PatchMap) -> bool {
+        match self {
+            LineGroup::Hex(hex) => hex.patch(patches),
+            LineGroup::BreakHeader(_) => false,
+        }
+    }
+
     pub fn get_cache_id(&self) -> Option<CacheId> {
         match self {
             LineGroup::Hex(hex) => hex.get_cache_id().map(|cid| CacheId::Hex(cid)),
