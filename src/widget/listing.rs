@@ -527,6 +527,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
         self.get_bytes(&mut c.byte_cache);
 
+        #[allow(unreachable_patterns)] // TODO
         let cursor = cursor_view.and_then(|cv| match &cv.cursor.class {
             cursor::CursorClass::Hex(hc) => Some((hc, cv)),
             _ => None
