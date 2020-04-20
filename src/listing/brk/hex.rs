@@ -202,7 +202,7 @@ impl window::BreakView for HexBreakView<window::DownDir> {
     }
     
     fn hit_boundary(&self) -> bool {
-        self.current_addr >= self.extent.begin
+        self.current_addr >= self.extent.end
     }
     
     fn get_break(&self) -> &sync::Arc<brk::Break> {

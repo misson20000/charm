@@ -208,7 +208,7 @@ impl ListingWindow {
     }
 
     pub fn get_bottom_hit_end(&self) -> bool {
-        self.micro.bottom_view.hit_boundary()
+        self.micro.get_bottom_hit_end()
     }
 
     /// Iterates over lines in the window. Outputs are tuples of (line_no,
@@ -218,6 +218,10 @@ impl ListingWindow {
         ListingIterator::new(self)
     }
 
+    pub fn find_group(&self, slg: &LineGroup) -> Option<isize> {
+        self.iter().find(|(_, lg)| lg == &slg).map(|t| t.0)
+    }
+    
     /* internal actions */
 
     /// Tries to trim as many lines as possible off the top margin, since they
@@ -413,6 +417,10 @@ impl MicroWindow {
                 }
             }
         })
+    }
+
+    pub fn get_bottom_hit_end(&self) -> bool {
+        self.bottom_view.hit_boundary() && self.breaks.break_after(self.bottom_view.get_break()).is_none()
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::addr;
 use crate::config;
 use crate::listing;
+use crate::listing::window;
 use crate::widget::listing::component;
 
 #[derive(Debug)]
@@ -11,8 +12,8 @@ pub struct Scroller {
     velocity: f64,
     bonked_top: bool,
     bonked_bottom: bool,
-    //cursor_spring: bool,
-    //cursor_direction: component::cursor::EnsureInViewDirection,
+    cursor_spring: bool,
+    cursor_direction: EnsureCursorInViewDirection,
 }
 
 impl Scroller {
@@ -23,8 +24,8 @@ impl Scroller {
             velocity: 0.0,
             bonked_top: false,
             bonked_bottom: false,
-            //cursor_spring: false,
-            //cursor_direction: component::cursor::EnsureInViewDirection::Any,
+            cursor_spring: false,
+            cursor_direction: EnsureCursorInViewDirection::Any,
         }
     }
 
@@ -42,7 +43,7 @@ impl Scroller {
         self.events.want();
     }
 
-    pub fn animate(&mut self, window: &mut listing::window::ListingWindow, ais: f64) {
+    pub fn animate(&mut self, window: &mut window::ListingWindow, cursor_view: &component::cursor::CursorView, ais: f64) {
         let cfg = config::get();
         
         {
@@ -113,12 +114,9 @@ impl Scroller {
              */
         }
 
-        /* TODO
         if self.cursor_spring {
-            let direction = self.cursor_direction; // evaluation order... ugh
-            self.ensure_cursor_is_in_view_internal(&mut i, lw, direction);
+            self.ensure_cursor_is_in_view(window, cursor_view, self.cursor_direction);
         }
-         */
 
         /* integrate velocity - done last for 1 frame tighter feedback loop */
         self.position+= self.velocity * ais;
@@ -130,12 +128,11 @@ impl Scroller {
         }
     }
 
-    /* TODO
-    pub fn ensure_cursor_is_in_view(&self, lw: &widget::listing::ListingWidget, dir: component::cursor::EnsureInViewDirection) {
-        self.ensure_cursor_is_in_view_internal(&mut self.self.borrow_mut(), lw, dir);
-    }
-
-    fn ensure_cursor_is_in_view_internal(&self, i: &mut Interior, lw: &widget::listing::ListingWidget, dir: component::cursor::EnsureInViewDirection) {
+    pub fn ensure_cursor_is_in_view(
+        &mut self,
+        window: &mut window::ListingWindow,
+        cursor_view: &component::cursor::CursorView,
+        dir: EnsureCursorInViewDirection) {
         let cfg = config::get();
         
         /*
@@ -144,17 +141,14 @@ impl Scroller {
          */
         let top_super_threshold = f64::max(0.0, self.position) as isize;
         let top_threshold = top_super_threshold + cfg.page_navigation_leadup as isize;
-        let bottom_super_threshold = lw.engine.get_window_height() as isize + f64::max(0.0, self.position) as isize - 2 * cfg.lookahead as isize;
+        let bottom_super_threshold = window.get_window_height() as isize + f64::max(0.0, self.position) as isize - 2 * cfg.lookahead as isize;
         let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup as isize;
-        let cln = lw.engine.find_lineno(lw.cursor.get_addr());
+        let cln = window.find_group(cursor_view.cursor.get_line_group());
         
         self.cursor_direction = dir;
         
         match cln {
-            listing::LineFindResult::Before => {
-                self.seek_internal(i, lw, lw.cursor.get_addr());
-            },
-            listing::LineFindResult::Found(ln) if ln < top_threshold && self.position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
+            Some(ln) if ln < top_threshold && self.position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
                 self.bonked_top = false;
                 self.bonked_bottom = false;
                 self.cursor_spring = true;
@@ -162,7 +156,7 @@ impl Scroller {
 
                 self.events.want_animate();
             },
-            listing::LineFindResult::Found(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
+            Some(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
                 self.bonked_top = false;
                 self.bonked_bottom = false;
                 self.cursor_spring = true;
@@ -170,15 +164,14 @@ impl Scroller {
 
                 self.events.want_animate();
             },
-            listing::LineFindResult::After => {
-                self.seek_internal(i, lw, lw.cursor.get_addr());
+            None => {
+                self.seek(window, cursor_view.cursor.get_addr());
             },
             _ => {
                 self.cursor_spring = false;
             }
         }
     }
-*/
 
     pub fn seek(&mut self, window: &mut listing::window::ListingWindow, addr: addr::Address) {
         let cfg = config::get();
@@ -193,7 +186,6 @@ impl Scroller {
         }
         self.velocity = 0.0;
         self.bonked_top = false;
-        //self.cursor_spring = false; TODO
         window.scroll_up(cfg.page_navigation_leadup);
     }
     
@@ -211,5 +203,31 @@ impl Scroller {
         /* kinematics 101 */
         self.bonked_top = false;
         self.velocity = f64::sqrt(self.velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (window.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
+    }
+}
+
+
+#[derive(Debug, Copy, Clone)]
+pub enum EnsureCursorInViewDirection {
+    Up,
+    Down,
+    Any
+}
+
+impl EnsureCursorInViewDirection {
+    pub fn maybe_upwards(&self) -> bool {
+        match self {
+            EnsureCursorInViewDirection::Up => true,
+            EnsureCursorInViewDirection::Down => false,
+            EnsureCursorInViewDirection::Any => true
+        }
+    }
+
+    pub fn maybe_downwards(&self) -> bool {
+        match self {
+            EnsureCursorInViewDirection::Up => false,
+            EnsureCursorInViewDirection::Down => true,
+            EnsureCursorInViewDirection::Any => true
+        }
     }
 }

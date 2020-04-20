@@ -14,31 +14,6 @@ pub struct CursorView {
     bonk_timer: f64,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum EnsureInViewDirection {
-    Up,
-    Down,
-    Any
-}
-
-impl EnsureInViewDirection {
-    pub fn maybe_upwards(&self) -> bool {
-        match self {
-            EnsureInViewDirection::Up => true,
-            EnsureInViewDirection::Down => false,
-            EnsureInViewDirection::Any => true
-        }
-    }
-
-    pub fn maybe_downwards(&self) -> bool {
-        match self {
-            EnsureInViewDirection::Up => false,
-            EnsureInViewDirection::Down => true,
-            EnsureInViewDirection::Any => true
-        }
-    }
-}
-
 impl CursorView {
     pub fn new(listing: &sync::Arc<listing::Listing>) -> CursorView {
         CursorView {

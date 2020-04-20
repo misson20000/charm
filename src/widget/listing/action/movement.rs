@@ -10,9 +10,11 @@ pub fn create_goto_start_of_line(rc: &sync::Arc<parking_lot::RwLock<widget::list
     action.set_enabled(true);
     action.connect_activate(move |_act, _par| {
         let mut lw = rc_clone.write();
-        lw.cursor_view.move_to_start_of_line();
-        //TODO: lw.scroll.ensure_cursor_is_in_view(&lw, widget::listing::component::cursor::EnsureInViewDirection::Up);
-        lw.collect_draw_events(&da_clone);
+        let lww = &mut *lw; /* compiler has a hard time seeing splitting borrow through RwLockWriteGuard */
+        
+        lww.cursor_view.move_to_start_of_line();
+        lww.scroll.ensure_cursor_is_in_view(&mut lww.window, &lww.cursor_view, widget::listing::component::scroll::EnsureCursorInViewDirection::Up);
+        lww.collect_draw_events(&da_clone);
     });
 
     action
@@ -26,9 +28,11 @@ pub fn create_goto_end_of_line(rc: &sync::Arc<parking_lot::RwLock<widget::listin
     action.set_enabled(true);
     action.connect_activate(move |_act, _par| {
         let mut lw = rc_clone.write();
-        lw.cursor_view.move_to_end_of_line();
-        //TODO: lw.scroll.ensure_cursor_is_in_view(&lw, widget::listing::component::cursor::EnsureInViewDirection::Down);
-        lw.collect_draw_events(&da_clone);
+        let lww = &mut *lw; /* compiler has a hard time seeing splitting borrow through RwLockWriteGuard */
+        
+        lww.cursor_view.move_to_end_of_line();
+        lww.scroll.ensure_cursor_is_in_view(&mut lww.window, &lww.cursor_view, widget::listing::component::scroll::EnsureCursorInViewDirection::Down);
+        lww.collect_draw_events(&da_clone);
     });
 
     action
