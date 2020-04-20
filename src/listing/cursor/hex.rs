@@ -39,22 +39,24 @@ impl HexCursor {
             offset: match hint.intended_offset {
                 Some(io) if io > max => max,
                 Some(io) => io,
-                None => match (hint.direction, hint.op) {
-                    (_, cursor::TransitionOp::MoveLeftLarge) => addr::Size::from(max.bytes & !7),
-                    (cursor::TransitionDirection::Up, _) => max,
-                    (cursor::TransitionDirection::Down, _) => addr::unit::ZERO,
+                None => match hint.op {
+                    cursor::TransitionOp::MoveLeftLarge => addr::Size::from(max.bytes & !7),
+                    op if op.is_left() => max,
+                    op if op.is_right() => addr::unit::ZERO,
+                    _ => addr::unit::ZERO,
                 },
             },
-            low_nybble: match (hint.intended_offset, intended_nybble, hint.direction, hint.op) {
+            low_nybble: match (hint.intended_offset, intended_nybble, hint.op) {
                 /* if we have an intended offset and had to truncate it, we should place at the end of the line */
-                (Some(io), _, _, _) if io > max => true,
+                (Some(io), _, _) if io > max => true,
                 /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
-                (Some(_), Some(inb), _, _) => inb,
-                /* special ops */
-                (_, _, _, cursor::TransitionOp::MoveLeftLarge) => false,
-                /* otherwise, this is probably a "horizontal" movement and we are either at the beginning or the end of the line */
-                (_, _, cursor::TransitionDirection::Up, _) => true,
-                (_, _, cursor::TransitionDirection::Down, _) => false,
+                (Some(_), Some(inb), _) => inb,
+                /* decide from op */
+                (_, _, cursor::TransitionOp::MoveLeftLarge) => false,
+                (_, _, op) if op.is_left() => true,
+                (_, _, op) if op.is_right() => false,
+                /* last resort, if the op is seriously misbehaving and is neither left nor right */
+                _ => false,
             },
             intended_offset: hint.intended_offset,
             intended_nybble: intended_nybble,

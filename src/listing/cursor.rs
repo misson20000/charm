@@ -112,14 +112,14 @@ impl Cursor {
         }
     }
     
-    pub fn move_left(&mut self) -> MovementResult { self.movement(|c| c.move_left(), TransitionOp::Unspecified) }
-    pub fn move_right(&mut self) -> MovementResult { self.movement(|c| c.move_right(), TransitionOp::Unspecified) }
-    pub fn move_up(&mut self) -> MovementResult { self.movement(|c| c.move_up(), TransitionOp::Unspecified) }
-    pub fn move_down(&mut self) -> MovementResult { self.movement(|c| c.move_down(), TransitionOp::Unspecified) }
-    pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line(), TransitionOp::Unspecified) }
-    pub fn move_to_end_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_end_of_line(), TransitionOp::Unspecified) }
-    pub fn move_left_large(&mut self) -> MovementResult { self.movement(|c| c.move_left_large(), TransitionOp::MoveLeftLarge) }
-    pub fn move_right_large(&mut self) -> MovementResult { self.movement(|c| c.move_right_large(), TransitionOp::Unspecified) }
+    pub fn move_left(&mut self)             -> MovementResult { self.movement(|c| c.move_left(),             TransitionOp::UnspecifiedLeft) }
+    pub fn move_right(&mut self)            -> MovementResult { self.movement(|c| c.move_right(),            TransitionOp::UnspecifiedRight) }
+    pub fn move_up(&mut self)               -> MovementResult { self.movement(|c| c.move_up(),               TransitionOp::UnspecifiedLeft) }
+    pub fn move_down(&mut self)             -> MovementResult { self.movement(|c| c.move_down(),             TransitionOp::UnspecifiedRight) }
+    pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line(), TransitionOp::UnspecifiedLeft) }
+    pub fn move_to_end_of_line(&mut self)   -> MovementResult { self.movement(|c| c.move_to_end_of_line(),   TransitionOp::UnspecifiedRight) }
+    pub fn move_left_large(&mut self)       -> MovementResult { self.movement(|c| c.move_left_large(),       TransitionOp::MoveLeftLarge) }
+    pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionOp::UnspecifiedRight) }
 
     pub fn move_up_to_break(&mut self) -> MovementResult {
         match self.goto(match self.window.breaks.break_before_addr(self.class.get_addr()) {
@@ -167,7 +167,6 @@ impl CursorClass {
     fn prev(&mut self, window: &mut window::MicroWindow, op: TransitionOp) -> bool {
         let hint = TransitionHint {
             intended_offset: self.get_intended_offset(),
-            direction: TransitionDirection::Up,
             op,
             class: self.get_transition_hint(),
         };
@@ -205,7 +204,6 @@ impl CursorClass {
     fn next(&mut self, window: &mut window::MicroWindow, op: TransitionOp) -> bool {
         let hint = TransitionHint {
             intended_offset: self.get_intended_offset(),
-            direction: TransitionDirection::Down,
             op,
             class: self.get_transition_hint(),
         };
@@ -262,23 +260,34 @@ impl std::default::Default for PlacementHintClass {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum TransitionDirection {
-    // TODO: replace this with TransitionOp.is_left() and TransitionOp.is_right()
-    Up,
-    Down,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum TransitionOp {
     MoveLeftLarge,
-    Unspecified
+    UnspecifiedLeft,
+    UnspecifiedRight,
+}
+
+impl TransitionOp {
+    pub fn is_left(&self) -> bool {
+        match self {
+            TransitionOp::MoveLeftLarge => true,
+            TransitionOp::UnspecifiedLeft => true,
+            TransitionOp::UnspecifiedRight => false,
+        }
+    }
+
+    pub fn is_right(&self) -> bool {
+        match self {
+            TransitionOp::MoveLeftLarge => false,
+            TransitionOp::UnspecifiedLeft => false,
+            TransitionOp::UnspecifiedRight => true,
+        }
+    }
 }
 
 /// Used to hint at how to transition a cursor from one break to another.
 #[derive(Debug)]
 pub struct TransitionHint {
     pub intended_offset: Option<addr::Size>,
-    pub direction: TransitionDirection,
     pub op: TransitionOp,
     pub class: TransitionHintClass,
 }
