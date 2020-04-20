@@ -228,7 +228,11 @@ impl std::ops::Add<u64> for Address {
     type Output = Address;
 
     fn add(self, rhs: u64) -> Address {
-        Address {byte: self.byte + rhs, bit: self.bit}
+        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
+            unit::REAL_END
+        } else {
+            Address {byte: self.byte + rhs, bit: self.bit}
+        }
     }
 }
 
@@ -236,19 +240,31 @@ impl std::ops::Add<Size> for Address {
     type Output = Address;
 
     fn add(self, rhs: Size) -> Address {
-        Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64)
+        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
+            unit::REAL_END
+        } else {
+            Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64)
+        }
     }
 }
 
 impl std::ops::AddAssign<u64> for Address {
     fn add_assign(&mut self, rhs: u64) {
-        self.byte+= rhs;
+        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
+            *self = unit::REAL_END
+        } else {
+            self.byte+= rhs;
+        }
     }
 }
 
 impl std::ops::AddAssign<Size> for Address {
     fn add_assign(&mut self, rhs: Size) {
-        *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64);
+        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
+            *self = unit::REAL_END
+        } else {
+            *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64);
+        }
     }
 }
 
@@ -256,7 +272,11 @@ impl std::ops::Sub<u64> for Address {
     type Output = Address;
 
     fn sub(self, rhs: u64) -> Address {
-        Address {byte: self.byte - rhs, bit: self.bit}
+        if self == unit::REAL_END {
+            Address::normalize_unsigned(self.byte - rhs, self.bit as u64)
+        } else {
+            Address {byte: self.byte - rhs, bit: self.bit}
+        }
     }
 }
 
