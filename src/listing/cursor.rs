@@ -3,6 +3,7 @@ use std::vec;
 
 use crate::addr;
 use crate::listing;
+use crate::listing::BreakMapExt;
 use crate::listing::window;
 use crate::listing::line_group;
 
@@ -17,6 +18,12 @@ pub enum MovementResult {
     HitEnd,
     NotApplicableForPosition, /// e.g. move_to_start_of_line when we're already there
     NotApplicableForType,
+    PlacementFailed(PlacementFailure),
+}
+
+#[derive(Debug)]
+pub enum PlacementFailure {
+    HitBottomOfAddressSpace,
 }
 
 #[enum_dispatch]
@@ -34,6 +41,8 @@ pub trait CursorClassExt {
     fn move_down(&mut self) -> MovementResult;
     fn move_to_start_of_line(&mut self) -> MovementResult;
     fn move_to_end_of_line(&mut self) -> MovementResult;
+    fn move_left_large(&mut self) -> MovementResult;
+    fn move_right_large(&mut self) -> MovementResult;
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -49,18 +58,18 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn place(listing: &sync::Arc<listing::Listing>, hint: PlacementHint) -> Option<Cursor> {
+    pub fn place(listing: &sync::Arc<listing::Listing>, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
         let mut window = window::MicroWindow::new(&listing, hint.addr);
         window.seek(hint.addr);
         
-        Some(Cursor {
+        Ok(Cursor {
             class: loop {
                 match window.produce_down() {
                     Some(nlg) => match CursorClass::new_placement(nlg, &hint) {
                         Ok(cursor) => break cursor,
                         Err(rlg) => window.trim_down(&rlg)
                     },
-                    None => return None
+                    None => return Err(PlacementFailure::HitBottomOfAddressSpace)
                 }
             },
             window,
@@ -69,27 +78,22 @@ impl Cursor {
 
     pub fn update(&mut self) -> bool {
         if self.window.is_outdated() {
-            *self = Self::place(&self.window.listing, PlacementHint {
+            Self::place(&self.window.listing, PlacementHint {
                 addr: self.class.get_addr(),
                 intended_offset: self.class.get_intended_offset(),
                 class: self.class.get_placement_hint()
-            }).expect("failed to replace cursor");
-
-            true
+            }).map(|new| { *self = new; }).is_ok() // TODO: better failure condition
         } else {
             false
         }
     }
 
-    pub fn goto(&mut self, addr: addr::Address) {
-        if let Some(new) = Self::place(&self.window.listing, PlacementHint {
+    pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
+        Self::place(&self.window.listing, PlacementHint {
             addr: addr,
             intended_offset: None,
             class: PlacementHintClass::Unused
-        }) {
-            *self = new;
-            // TODO: fail?
-        }
+        }).map(|new| { *self = new; })
     }
     
     pub fn get_line_group(&self) -> &line_group::LineGroup {
@@ -100,20 +104,42 @@ impl Cursor {
         self.class.get_addr()
     }
 
-    fn movement<F>(&mut self, mov: F) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
+    fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
         match mov(&mut self.class) {
-            MovementResult::HitStart => if self.class.prev(&mut self.window) { MovementResult::Ok } else { MovementResult::HitStart }
-            MovementResult::HitEnd   => if self.class.next(&mut self.window) { MovementResult::Ok } else { MovementResult::HitEnd }
+            MovementResult::HitStart => if self.class.prev(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitStart }
+            MovementResult::HitEnd   => if self.class.next(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitEnd }
             x => x,
         }
     }
     
-    pub fn move_left(&mut self) -> MovementResult { self.movement(|c| c.move_left()) }
-    pub fn move_right(&mut self) -> MovementResult { self.movement(|c| c.move_right()) }
-    pub fn move_up(&mut self) -> MovementResult { self.movement(|c| c.move_up()) }
-    pub fn move_down(&mut self) -> MovementResult { self.movement(|c| c.move_down()) }
-    pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line()) }
-    pub fn move_to_end_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_end_of_line()) }
+    pub fn move_left(&mut self) -> MovementResult { self.movement(|c| c.move_left(), TransitionOp::Unspecified) }
+    pub fn move_right(&mut self) -> MovementResult { self.movement(|c| c.move_right(), TransitionOp::Unspecified) }
+    pub fn move_up(&mut self) -> MovementResult { self.movement(|c| c.move_up(), TransitionOp::Unspecified) }
+    pub fn move_down(&mut self) -> MovementResult { self.movement(|c| c.move_down(), TransitionOp::Unspecified) }
+    pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line(), TransitionOp::Unspecified) }
+    pub fn move_to_end_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_end_of_line(), TransitionOp::Unspecified) }
+    pub fn move_left_large(&mut self) -> MovementResult { self.movement(|c| c.move_left_large(), TransitionOp::MoveLeftLarge) }
+    pub fn move_right_large(&mut self) -> MovementResult { self.movement(|c| c.move_right_large(), TransitionOp::Unspecified) }
+
+    pub fn move_up_to_break(&mut self) -> MovementResult {
+        match self.goto(match self.window.breaks.break_before_addr(self.class.get_addr()) {
+            Some(brk) => brk.addr,
+            None => return MovementResult::HitStart,
+        }) {
+            Ok(_) => MovementResult::Ok,
+            Err(e) => MovementResult::PlacementFailed(e),
+        }
+    }
+    
+    pub fn move_down_to_break(&mut self) -> MovementResult {
+        match self.goto(match self.window.breaks.break_after_addr(self.class.get_addr()) {
+            Some(brk) => brk.addr,
+            None => return MovementResult::HitEnd,
+        }) {
+            Ok(_) => MovementResult::Ok,
+            Err(e) => MovementResult::PlacementFailed(e),
+        }
+    }
 }
 
 impl CursorClass {
@@ -130,17 +156,19 @@ impl CursorClass {
     }
 
     /// Attempts to transition a cursor onto the line.
-    fn new_transition(lg: line_group::LineGroup, hint: &TransitionHint, dir: TransitionDirection) -> Result<CursorClass, line_group::LineGroup> {
+    fn new_transition(lg: line_group::LineGroup, hint: &TransitionHint) -> Result<CursorClass, line_group::LineGroup> {
         match lg {
-            line_group::LineGroup::Hex(_) => hex::HexCursor::new_transition(lg, &hint, dir).map(|cc| CursorClass::Hex(cc)),
+            line_group::LineGroup::Hex(_) => hex::HexCursor::new_transition(lg, &hint).map(|cc| CursorClass::Hex(cc)),
             line_group::LineGroup::BreakHeader(_) => Err(lg), //TODO: implement break header cursor
         }
     }
 
     /// true on success
-    fn prev(&mut self, window: &mut window::MicroWindow) -> bool {
+    fn prev(&mut self, window: &mut window::MicroWindow, op: TransitionOp) -> bool {
         let hint = TransitionHint {
             intended_offset: self.get_intended_offset(),
+            direction: TransitionDirection::Up,
+            op,
             class: self.get_transition_hint(),
         };
 
@@ -154,7 +182,7 @@ impl CursorClass {
                     }
                     return false
                 },
-                Some(lg) => match Self::new_transition(lg, &hint, TransitionDirection::Up) {
+                Some(lg) => match Self::new_transition(lg, &hint) {
                     Ok(cc) => {
                         /* we were successful, so trim up the original line and any intermediate lines we skipped over */
                         window.trim_up(self.get_line_group());
@@ -174,9 +202,11 @@ impl CursorClass {
     }
 
     /// true on success
-    fn next(&mut self, window: &mut window::MicroWindow) -> bool {
+    fn next(&mut self, window: &mut window::MicroWindow, op: TransitionOp) -> bool {
         let hint = TransitionHint {
             intended_offset: self.get_intended_offset(),
+            direction: TransitionDirection::Down,
+            op,
             class: self.get_transition_hint(),
         };
 
@@ -190,7 +220,7 @@ impl CursorClass {
                     }
                     return false
                 },
-                Some(lg) => match Self::new_transition(lg, &hint, TransitionDirection::Down) {
+                Some(lg) => match Self::new_transition(lg, &hint) {
                     Ok(cc) => {
                         /* we were successful, so trim down the original line and any intermediate lines we skipped over */
                         window.trim_down(self.get_line_group());
@@ -233,14 +263,23 @@ impl std::default::Default for PlacementHintClass {
 
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionDirection {
+    // TODO: replace this with TransitionOp.is_left() and TransitionOp.is_right()
     Up,
     Down,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TransitionOp {
+    MoveLeftLarge,
+    Unspecified
 }
 
 /// Used to hint at how to transition a cursor from one break to another.
 #[derive(Debug)]
 pub struct TransitionHint {
     pub intended_offset: Option<addr::Size>,
+    pub direction: TransitionDirection,
+    pub op: TransitionOp,
     pub class: TransitionHintClass,
 }
 

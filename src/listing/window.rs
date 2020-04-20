@@ -95,7 +95,7 @@ pub struct ListingWindow {
 
 pub struct MicroWindow {
     pub listing: sync::Arc<listing::Listing>,
-    breaks: listing::BreakMap,
+    pub breaks: listing::BreakMap,
     top_view: BreakViewUpward,
     bottom_view: BreakViewDownward,
 }

@@ -394,9 +394,10 @@ impl ListingWidget {
         self.window.resize_window(window_size);
     }
 
-    fn goto(&mut self, addr: addr::Address) {
-        self.cursor_view.goto(addr);
+    fn goto(&mut self, addr: addr::Address) -> Result<(), cursor::PlacementFailure> {
+        self.cursor_view.goto(addr)?;
         self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, component::scroll::EnsureCursorInViewDirection::Any);
+        Ok(())
     }
     
     fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
@@ -448,17 +449,15 @@ impl ListingWidget {
             (gdk::enums::key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    component::scroll::EnsureCursorInViewDirection::Up),
             (gdk::enums::key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  component::scroll::EnsureCursorInViewDirection::Down),
 
-            /*
             /* fast cursor    key    shift  ctrl  */
-            (gdk::enums::key::Left,  false, true ) => self.cursor_transaction(|c,l| c.move_left_by_qword(l),  component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::enums::key::Right, false, true ) => self.cursor_transaction(|c,l| c.move_right_by_qword(l), component::scroll::EnsureCursorInViewDirection::Down),
-            (gdk::enums::key::Up,    false, true ) => self.cursor_transaction(|c,l| c.move_up_to_break(l),    component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::enums::key::Down,  false, true ) => self.cursor_transaction(|c,l| c.move_down_to_break(l),  component::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::enums::key::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    component::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::enums::key::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   component::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::enums::key::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   component::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::enums::key::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), component::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
-            (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(self); gtk::Inhibit(true) },
-            (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(self); gtk::Inhibit(true) },
-             */
+            (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
+            (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
             _ => gtk::Inhibit(false)
         };

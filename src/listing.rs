@@ -96,6 +96,8 @@ pub trait BreakMapExt {
     fn break_at(&self, addr: addr::Address) -> &sync::Arc<brk::Break>;
     fn break_before<'a, 'b>(&'a self, brk: &'b sync::Arc<brk::Break>) -> Option<&'a sync::Arc<brk::Break>>;
     fn break_after<'a, 'b>(&'a self, brk: &'b sync::Arc<brk::Break>) -> Option<&'a sync::Arc<brk::Break>>;
+    fn break_before_addr(&self, addr: addr::Address) -> Option<&sync::Arc<brk::Break>>;
+    fn break_after_addr(&self, addr: addr::Address) -> Option<&sync::Arc<brk::Break>>;
     fn extents_at(&self, target: addr::Address) -> addr::Extent;
     fn extents_near(&self, target: addr::Address) -> addr::ExtentTriplet;
 }
@@ -107,21 +109,29 @@ impl BreakMapExt for BreakMap {
     }
 
     fn break_before<'a, 'b>(&'a self, brk: &'b sync::Arc<brk::Break>) -> Option<&'a sync::Arc<brk::Break>> {
-        if brk.addr == addr::unit::NULL {
-            None
-        } else {
-            Some(self.get_prev(&(brk.addr - addr::unit::BIT)).expect("zero break should always exist").1)
-        }
+        self.break_before_addr(brk.addr)
     }
 
     fn break_after<'a, 'b>(&'a self, brk: &'b sync::Arc<brk::Break>) -> Option<&'a sync::Arc<brk::Break>> {
-        if brk.addr == addr::unit::REAL_END {
+        self.break_after_addr(brk.addr)
+    }
+
+    fn break_before_addr(&self, addr: addr::Address) -> Option<&sync::Arc<brk::Break>> {
+        if addr == addr::unit::NULL {
             None
         } else {
-            self.get_next(&(brk.addr + addr::unit::BIT)).map(|tuple| tuple.1)
+            Some(self.get_prev(&(addr - addr::unit::BIT)).expect("zero break should always exist").1)
         }
     }
 
+    fn break_after_addr(&self, addr: addr::Address) -> Option<&sync::Arc<brk::Break>> {
+        if addr == addr::unit::REAL_END {
+            None
+        } else {
+            self.get_next(&(addr + addr::unit::BIT)).map(|tuple| tuple.1)
+        }
+    }
+    
     /// Gets the extents of the break containing the target address.
     fn extents_at(&self, target: addr::Address) -> addr::Extent {
         let at = self.get_prev(&target).expect("zero break should always exist").0;

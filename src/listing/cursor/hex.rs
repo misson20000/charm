@@ -26,7 +26,7 @@ impl LineGroupExt for line_group::LineGroup {
 }
 
 impl HexCursor {
-    pub fn new_transition(lg: line_group::LineGroup, hint: &cursor::TransitionHint, dir: cursor::TransitionDirection) -> Result<HexCursor, line_group::LineGroup> {
+    pub fn new_transition(lg: line_group::LineGroup, hint: &cursor::TransitionHint) -> Result<HexCursor, line_group::LineGroup> {
         let hlg = lg.as_hex_line();
         let max = (hlg.extent.length() - addr::unit::BIT).floor();
 
@@ -39,19 +39,22 @@ impl HexCursor {
             offset: match hint.intended_offset {
                 Some(io) if io > max => max,
                 Some(io) => io,
-                None => match dir {
-                    cursor::TransitionDirection::Up => max,
-                    cursor::TransitionDirection::Down => addr::unit::ZERO,
+                None => match (hint.direction, hint.op) {
+                    (_, cursor::TransitionOp::MoveLeftLarge) => addr::Size::from(max.bytes & !7),
+                    (cursor::TransitionDirection::Up, _) => max,
+                    (cursor::TransitionDirection::Down, _) => addr::unit::ZERO,
                 },
             },
-            low_nybble: match (hint.intended_offset, intended_nybble, dir) {
+            low_nybble: match (hint.intended_offset, intended_nybble, hint.direction, hint.op) {
                 /* if we have an intended offset and had to truncate it, we should place at the end of the line */
-                (Some(io), _, _) if io > max => true,
+                (Some(io), _, _, _) if io > max => true,
                 /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
-                (Some(_), Some(inb), _) => inb,
+                (Some(_), Some(inb), _, _) => inb,
+                /* special ops */
+                (_, _, _, cursor::TransitionOp::MoveLeftLarge) => false,
                 /* otherwise, this is probably a "horizontal" movement and we are either at the beginning or the end of the line */
-                (_, _, cursor::TransitionDirection::Up) => true,
-                (_, _, cursor::TransitionDirection::Down) => false,
+                (_, _, cursor::TransitionDirection::Up, _) => true,
+                (_, _, cursor::TransitionDirection::Down, _) => false,
             },
             intended_offset: hint.intended_offset,
             intended_nybble: intended_nybble,
@@ -182,6 +185,39 @@ impl cursor::CursorClassExt for HexCursor {
         } else {
             self.offset = max;
             self.low_nybble = true;
+            cursor::MovementResult::Ok
+        }
+    }
+
+    fn move_left_large(&mut self) -> cursor::MovementResult {
+        self.intended_offset = None;
+        self.intended_nybble = None;
+
+        if self.offset == addr::unit::ZERO && !self.low_nybble {
+            cursor::MovementResult::HitStart
+        } else if self.low_nybble {
+            self.offset = addr::Size::from(self.offset.bytes & !7);
+            self.low_nybble = false;
+            cursor::MovementResult::Ok
+        } else {
+            self.offset-= addr::unit::BIT;
+            self.offset = addr::Size::from(self.offset.bytes & !7);
+            cursor::MovementResult::Ok
+        }
+    }
+
+    fn move_right_large(&mut self) -> cursor::MovementResult {
+        self.intended_offset = None;
+        self.intended_nybble = None;
+
+        let offset = addr::Size::from(self.offset.bytes & !7);
+        let length = self.lg.as_hex_line().extent.length();
+
+        if offset + addr::unit::QWORD >= length {
+            cursor::MovementResult::HitEnd
+        } else {
+            self.low_nybble = false;
+            self.offset = offset + addr::unit::QWORD;
             cursor::MovementResult::Ok
         }
     }

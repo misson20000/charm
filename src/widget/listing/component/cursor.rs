@@ -82,18 +82,13 @@ impl CursorView {
     pub fn move_down(&mut self) { self.movement(|c| c.move_down()); }
     pub fn move_to_start_of_line(&mut self) { self.movement(|c| c.move_to_start_of_line()); }
     pub fn move_to_end_of_line(&mut self) { self.movement(|c| c.move_to_end_of_line()); }
+    pub fn move_left_large(&mut self) { self.movement(|c| c.move_left_large()); }
+    pub fn move_right_large(&mut self) { self.movement(|c| c.move_right_large()); }
+    pub fn move_up_to_break(&mut self) { self.movement(|c| c.move_up_to_break()); }
+    pub fn move_down_to_break(&mut self) { self.movement(|c| c.move_down_to_break()); }
 
-    /*
-    pub fn move_left_by_qword(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_left_by_qword(le) { self.bonk(); } }
-    pub fn move_right_by_qword(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_right_by_qword(le) { self.bonk(); } }
-    pub fn move_up_to_break(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_up_to_break(le) { self.bonk(); } }
-    pub fn move_down_to_break(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_down_to_break(le) { self.bonk(); } }
-    pub fn move_to_start_of_line(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_to_start_of_line(le) { self.bonk(); } }
-    pub fn move_to_end_of_line(&mut self, le: &listing::ListingEngine) { self.blink(); if self.i.borrow_mut().mode.move_to_end_of_line(le) { self.bonk(); } }
-    */
-
-    pub fn goto(&mut self, addr: addr::Address) {
+    pub fn goto(&mut self, addr: addr::Address) -> Result<(), cursor::PlacementFailure>{
         self.blink();
-        self.cursor.goto(addr);
+        self.cursor.goto(addr)
     }
 }
