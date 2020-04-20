@@ -74,7 +74,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
                                                   
         HexBreakView {
             header: true,
-            current_addr: extent.begin + hb.line_size * (offset / hb.line_size), // round
+            current_addr: extent.begin + hb.line_size * (offset / hb.line_size), /* round */
             extent,
             hbrk: hb,
             _marker: std::marker::PhantomData
@@ -105,7 +105,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
 }
 
 impl window::BreakView for HexBreakView<window::UpDir> {
-    // current_addr is the address of the line we just generated
+    /* current_addr is the address of the line we just generated */
     
     fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup> {
         if self.current_addr <= self.extent.begin {
@@ -161,7 +161,7 @@ impl window::BreakView for HexBreakView<window::UpDir> {
 }
 
 impl window::BreakView for HexBreakView<window::DownDir> {
-    // current_addr is the address of the line we're about to generate
+    /* current_addr is the address of the line we're about to generate */
     
     fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup> {
         if self.current_addr <= self.extent.begin && !self.header {
@@ -262,12 +262,12 @@ impl HexLineGroup {
         let bytelen = self.extent.length().bytes as usize;
         
         if shift == 0 {
-            // fast path
+            /* fast path */
             cache.resize(self.raw_bytes.len(), 0);
             cache.copy_from_slice(&self.raw_bytes);
 
             if cache.len() > bytelen {
-                // need to mask off high bits that are outside our extent
+                /* need to mask off high bits that are outside our extent */
                 cache[bytelen]&= (1 << self.extent.length().bits) - 1;
             }
         } else {
@@ -282,7 +282,7 @@ impl HexLineGroup {
                 
                 if i < cache.len() {
                     if i >= self.extent.length().bytes as usize {
-                        // need to mask out high bits of last byte that are technically outside our extent
+                        /* need to mask out high bits of last byte that are technically outside our extent */
                         cache[i] = (acc >> 8) as u8 & ((1 << self.extent.length().bits) - 1);
                     } else {
                         cache[i] = (acc >> 8) as u8;
@@ -345,7 +345,7 @@ impl<'a> std::iter::Iterator for HexLineIterator<'a> {
     
     fn next(&mut self) -> Option<u8> {
         if self.shift == 0 {
-            // fast path
+            /* fast path */
             std::mem::replace(&mut self.slip, self.iter.next().map(|b| *b))
         } else {
             let next = self.iter.next().map(|b| *b);

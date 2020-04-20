@@ -79,7 +79,7 @@ impl Scroller {
         } else {
             /* apply constant deceleration */
             if self.velocity > 0.0 {
-                if self.velocity > cfg.scroll_deceleration * 1.0 { // never take more than 1 second to decelerate
+                if self.velocity > cfg.scroll_deceleration * 1.0 { /* never take more than 1 second to decelerate */
                     self.velocity = cfg.scroll_deceleration * 1.0;
                 } else {
                     self.velocity-= cfg.scroll_deceleration * ais;
@@ -87,7 +87,7 @@ impl Scroller {
                 }
             }
             if self.velocity < 0.0 {
-                if self.velocity < -cfg.scroll_deceleration * 1.0 { // never take more than 1 second to decelerate
+                if self.velocity < -cfg.scroll_deceleration * 1.0 { /* never take more than 1 second to decelerate */
                     self.velocity = -cfg.scroll_deceleration * 1.0;
                 } else {
                     self.velocity+= cfg.scroll_deceleration * ais;
@@ -188,7 +188,7 @@ impl Scroller {
             self.position = cfg.lookahead as f64 * 2.0 + cfg.page_navigation_leadup as f64;
             self.bonked_bottom = true;
         }  else {
-            self.position = 0.0; // let lookahead logic in tick handler work this out
+            self.position = 0.0; /* let lookahead logic in tick handler work this out */
             self.bonked_bottom = false;
         }
         self.velocity = 0.0;
@@ -200,7 +200,7 @@ impl Scroller {
     pub fn page_up(&mut self, window: &listing::window::ListingWindow) {
         let cfg = config::get();
         
-        // kinematics 101
+        /* kinematics 101 */
         self.bonked_bottom = false;
         self.velocity = -f64::sqrt(self.velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (window.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
     }
@@ -208,7 +208,7 @@ impl Scroller {
     pub fn page_down(&mut self, window: &listing::window::ListingWindow) {
         let cfg = config::get();
         
-        // kinematics 101
+        /* kinematics 101 */
         self.bonked_top = false;
         self.velocity = f64::sqrt(self.velocity.powi(2) + 2.0 * cfg.scroll_deceleration * (window.get_window_height() - 2 * cfg.lookahead - 2 * cfg.page_navigation_leadup) as f64);
     }

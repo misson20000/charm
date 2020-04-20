@@ -17,7 +17,7 @@ pub fn nybble_to_hex(nyb: u8) -> char {
 }
 
 struct ActionForwarderSignals {
-    // we should only ever be updating this from GTK thread...
+    /* we should only ever be updating this from GTK thread */
     ag: Option<send_wrapper::SendWrapper<gio::ActionGroup>>,
     added_signal: Option<glib::signal::SignalHandlerId>,
     enabled_changed_signal: Option<glib::signal::SignalHandlerId>,
@@ -61,15 +61,6 @@ impl ActionForwarder {
 
         {
             let af_clone = af.clone();
-            /*
-            // TODO: make sure this works once focus-widget comes out
-            // why does this require Send?!?!?
-            window.connect_notify(Some("focus-widget"), move |window, _| {
-                println!("notified focus-widget: {:?}", window.get_focus());
-                if let Some(wid) = window.get_focus() {
-                    window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.get_action_group(&af_clone.group).as_ref()).as_ref());
-                }
-            });*/
             window.connect_set_focus(move |window,focus| {
                 if let Some(wid) = focus {
                     window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.get_action_group(&af_clone.group).as_ref()).as_ref());
@@ -147,7 +138,7 @@ impl ActionForwarder {
                       }) }),
             };
 
-            // the important part here is dropping and disconnecting the old signals
+            /* the important part here is dropping and disconnecting the old signals */
             std::mem::replace(&mut *self.signals.lock().unwrap(), Some(signals));
             
             action_map

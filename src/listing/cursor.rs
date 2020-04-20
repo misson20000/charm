@@ -124,7 +124,7 @@ impl CursorClass {
     /// otherwise it will prefer to place the cursor on a content line.
     fn new_placement(lg: line_group::LineGroup, hint: &PlacementHint) -> Result<CursorClass, line_group::LineGroup> {
         match lg {
-            line_group::LineGroup::Hex(_) => hex::HexCursor::new_placement(lg, &hint).map(|cc| CursorClass::Hex(cc)), // hex cursors don't fail placement
+            line_group::LineGroup::Hex(_) => hex::HexCursor::new_placement(lg, &hint).map(|cc| CursorClass::Hex(cc)),
             line_group::LineGroup::BreakHeader(_) => Err(lg), //TODO: implement break header cursor
         }
     }
@@ -148,7 +148,7 @@ impl CursorClass {
         
         loop {
             match window.produce_up() {
-                None => { // well, we reached the top of the listing. trim down all the lines we produced and return ourselves back.
+                None => { /* well, we reached the top of the listing. trim down all the lines we produced and return ourselves back. */
                     for l in skip_lines.iter().rev() {
                         window.trim_down(l);
                     }
@@ -156,7 +156,7 @@ impl CursorClass {
                 },
                 Some(lg) => match Self::new_transition(lg, &hint, TransitionDirection::Up) {
                     Ok(cc) => {
-                        // we were successful, so trim up the original line and any intermediate lines we skipped over
+                        /* we were successful, so trim up the original line and any intermediate lines we skipped over */
                         window.trim_up(self.get_line_group());
                         for l in skip_lines.iter() {
                             window.trim_up(l);
@@ -165,7 +165,7 @@ impl CursorClass {
                         return true
                     },
                     Err(lg) => {
-                        // skip this line and try the next
+                        /* skip this line and try the next */
                         skip_lines.push(lg);
                     }
                 },
@@ -184,7 +184,7 @@ impl CursorClass {
         
         loop {
             match window.produce_down() {
-                None => { // well, we reached the bottom of the listing. trim up all the lines we produced and return ourselves back.
+                None => { /* well, we reached the bottom of the listing. trim up all the lines we produced and return ourselves back. */
                     for l in skip_lines.iter().rev() {
                         window.trim_up(l);
                     }
@@ -192,7 +192,7 @@ impl CursorClass {
                 },
                 Some(lg) => match Self::new_transition(lg, &hint, TransitionDirection::Down) {
                     Ok(cc) => {
-                        // we were successful, so trim down the original line and any intermediate lines we skipped over
+                        /* we were successful, so trim down the original line and any intermediate lines we skipped over */
                         window.trim_down(self.get_line_group());
                         for l in skip_lines.iter() {
                             window.trim_down(l);
@@ -201,7 +201,7 @@ impl CursorClass {
                         return true
                     },
                     Err(lg) => {
-                        // skip this line and try the next
+                        /* skip this line and try the next */
                         skip_lines.push(lg);
                     }
                 },

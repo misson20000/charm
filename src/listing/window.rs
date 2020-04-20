@@ -87,7 +87,7 @@ pub struct ListingWindow {
     pub top_margin: usize,
     pub window_height: usize,
     
-    num_lines: usize, // number of lines contained in line_groups
+    num_lines: usize, /* number of lines contained in line_groups */
     
     wakers: vec::Vec<task::Waker>,
     has_loaded: bool,
@@ -154,14 +154,14 @@ impl ListingWindow {
     /// by. This can be less than what was requested if the beginning or end of
     /// the address space was hit.
     pub fn scroll_up(&mut self, count: usize) -> usize {
-        // produce lines in the top margin until we can just shrink it
+        /* produce lines in the top margin until we can just shrink it */
         while self.top_margin < count {
             if self.produce_lines_top() {
                 break
             }
         }
 
-        // shrink the top margin then try to trim the bottom
+        /* shrink the top margin then try to trim the bottom */
         let actual = std::cmp::min(self.top_margin, count);
         self.top_margin-= actual;
         self.try_trim_bottom();
@@ -175,14 +175,14 @@ impl ListingWindow {
     /// by. This can be less than what was requested if the beginning or end of
     /// the address space was hit.
     pub fn scroll_down(&mut self, count: usize) -> usize {
-        // grow bottom margin
+        /* grow bottom margin */
         while self.num_lines < self.top_margin + self.window_height + count {
             if self.produce_lines_bottom() {
                 break
             }
         }
 
-        // expand top margin (shifting window) then try to trim it
+        /* expand top margin (shifting window) then try to trim it */
         let actual = std::cmp::min(count, self.num_lines - (self.top_margin + self.window_height));
         self.top_margin+= actual;
         self.try_trim_top();
@@ -224,8 +224,8 @@ impl ListingWindow {
     /// are outside the window. Will not fragment line groups.
     fn try_trim_top(&mut self) {
         while match self.line_groups.front() {
-            std::option::Option::Some(lg) => lg.num_lines() <= self.top_margin, // don't trim too large line groups, or don't trim if top_margin is 0
-            std::option::Option::None => false // don't trim if line_groups is empty
+            std::option::Option::Some(lg) => lg.num_lines() <= self.top_margin, /* don't trim too large line groups, or don't trim if top_margin is 0 */
+            std::option::Option::None => false /* don't trim if line_groups is empty */
         } {
             let lg = self.line_groups.pop_front().unwrap();
 

@@ -138,7 +138,7 @@ impl CharmWindow {
                             win_clone_for_closure.open_file(&file);
                         }
                     },
-                    _ => {} // we were cancelled, ignore
+                    _ => {} /* we were cancelled, ignore */
                 }
                 dialog.destroy();
             });
@@ -180,7 +180,7 @@ impl CharmWindow {
         self.notebook.set_tab_reorderable(&da, true);
         self.notebook.show_all();
 
-        // it is nice to focus newly opened files for the user
+        /* it is nice to focus newly opened files for the user */
         self.notebook.set_current_page(Some(idx));
         da.grab_focus();
     }
@@ -262,7 +262,7 @@ impl CharmApplication {
 }
 
 fn main() {
-    // we defer initializing CharmApplication until the startup signal
+    /* we defer initializing CharmApplication until the startup signal */
     let app_model_for_closures: rc::Rc<cell::RefCell<option::Option<
             rc::Rc<CharmApplication>>>> =
         rc::Rc::new(

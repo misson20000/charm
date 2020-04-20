@@ -218,7 +218,7 @@ impl ListingWidget {
             perf: frame_begin,
             byte_cache: vec::Vec::new(),
 
-            pad: cfg.padding, // it is helpful to have a shorthand for this one
+            pad: cfg.padding, /* it is helpful to have a shorthand for this one */
         };
 
         /* fill background */
@@ -249,7 +249,7 @@ impl ListingWidget {
                          * straight to the screen. */
                         
                         da.get_parent_window().and_then(|window| {
-                            // super important for performance! avoid uploading to GPU every frame!
+                            /* super important for performance! avoid uploading to GPU every frame! */
                             window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.descent) as i32)
                         }).and_then(|surface| {
                             let cache_cr = cairo::Context::new(&surface);
@@ -267,20 +267,15 @@ impl ListingWidget {
                     }
                 }
             }), if lg == self.cursor_view.cursor.get_line_group() { Some(&self.cursor_view) } else { None }) {
-                // We either found it in the cache, or just rendered it to the cache and are ready to use the cached image.
-                (Some(entry), None) => { // don't use cached lines if the cursor is on them
+                /* We either found it in the cache, or just rendered it to the cache and are ready to use the cached image. */
+                (Some(entry), None) => { /* don't use cached lines if the cursor is on them */
                     entry.touched = true;
                     cr.set_source(&entry.pattern);
                     cr.paint();
                     
                 },
-                // Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly.
+                /* Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly. */
                 (_, has_cursor) => {
-                    // make direct mode visible
-                    cr.set_source_rgba(1.0, 0.0, 0.0, 1.0);
-                    cr.rectangle(0.0, 0.0, 10.0, 10.0);
-                    cr.fill();
-                    
                     lg.draw(&mut irc, &cr, has_cursor);
                 }
             }
@@ -289,7 +284,7 @@ impl ListingWidget {
         }
         cr.restore();
 
-        // evict stale entries
+        /* evict stale entries */
         self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
 
         /* fill address pane */
@@ -351,12 +346,12 @@ impl ListingWidget {
         }
         
         if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
-            // if we fall too far behind, just drop frames
+            /* if we fall too far behind, just drop frames */
             self.last_animation_time = fc.get_frame_time();
         }
 
         while self.last_animation_time < fc.get_frame_time() {
-            let ais_micros = std::cmp::min(fc.get_frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); // don't go below 20 TPS or the integration error gets bad
+            let ais_micros = std::cmp::min(fc.get_frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); /* don't go below 20 TPS or the integration error gets bad */
             let ais:f64 = ais_micros as f64 / MICROSECONDS_PER_SECOND;
 
             self.scroll.animate(&mut self.window, ais);            
@@ -392,8 +387,8 @@ impl ListingWidget {
         let window_size =
             lines
             + 1 // round-up (TODO: what??)
-            + 1 // to accomodate scrolling
-            + (2 * cfg.lookahead); // lookahead works in both directions
+            + 1 /* to accomodate scrolling */
+            + (2 * cfg.lookahead); /* lookahead works in both directions */
         
         self.window.resize_window(window_size);
     }
@@ -406,7 +401,7 @@ impl ListingWidget {
     fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
         match eb.get_event_type() {
             gdk::EventType::ButtonPress => {
-                std::mem::drop(self); // grab_focus triggers focus_change_event before we return
+                std::mem::drop(self); /* grab_focus triggers focus_change_event before we return */
                 da.grab_focus();
                 return gtk::Inhibit(false);
             },
@@ -515,7 +510,7 @@ impl DrawableLineGroup for listing::line_group::LineGroup {
 
 impl DrawableLineGroup for brk::hex::HexLineGroup {
     fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>) {
-        // draw ridge
+        /* draw ridge */
         if ((self.extent.begin - self.get_break().addr) / self.hbrk.line_size) % 16 == 0 {
             cr.set_source_gdk_rgba(c.cfg.ridge_color);
             cr.move_to(c.layout.addr_pane_width, c.font_extents().descent);
@@ -523,7 +518,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             cr.stroke();
         }
         
-        // draw address in addr pane
+        /* draw address in addr pane */
         cr.set_scaled_font(&c.fonts.bold_scaled);
         cr.set_source_gdk_rgba(c.cfg.addr_color);
         cr.move_to(c.pad, c.font_extents().height);
@@ -536,7 +531,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             _ => None
         });
         
-        // hexdump
+        /* hexdump */
         cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height);
         cr.set_scaled_font(&c.fonts.mono_scaled);
         cr.set_source_gdk_rgba(c.cfg.text_color);
@@ -591,7 +586,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         cr.set_scaled_font(&c.fonts.mono_scaled);
         cr.show_text("| ");
 
-        // asciidump
+        /* asciidump */
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i == 8 {
                 cr.show_text(" ");
@@ -618,7 +613,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
     fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, _cursor: Option<&component::cursor::CursorView>) {
-        // draw label
+        /* draw label */
         cr.set_scaled_font(&c.fonts.bold_scaled);
         cr.set_source_gdk_rgba(c.cfg.text_color);
         cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height * 2.0);

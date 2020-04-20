@@ -34,8 +34,7 @@ pub mod unit {
     use crate::addr::{Address, Size};
 
     pub static NULL: Address = Address { byte: 0, bit: 0 };
-    pub static REAL_END: Address = Address { byte: u64::MAX, bit: 8 };
-    //pub static END: Address = Address { byte: u64::MAX, bit: 7 };
+    pub static REAL_END: Address = Address { byte: u64::MAX, bit: 8 }; // TODO: change this back to END
 
     pub static ZERO: Size = Size { bytes: 0, bits: 0 };
     pub static BIT: Size = Size { bytes: 0, bits: 1 };
@@ -43,18 +42,7 @@ pub mod unit {
     pub static BYTE: Size = Size { bytes: 1, bits: 0 };
     pub static BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
     pub static QWORD: Size = Size { bytes: 8, bits: 0 };
-    pub static REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 };
-    //pub static MAX: Size = Size { bytes: u64::MAX, bits: 7 };
-}
-
-pub fn bitshift_span(span: &mut [u8], shift: u8) {
-    let mut acc:u16 = 0; 
-    // right-shift the entire output
-    for b in span.iter_mut().rev() {
-        acc<<= 8;
-        acc|= (*b as u16) << 8 >> shift;
-        *b = (acc >> 8) as u8;
-    }
+    pub static REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
 }
 
 pub enum AddressParseError {
@@ -171,7 +159,7 @@ impl Extent {
         self.end - self.begin
     }
     
-    pub fn round_out(&self) -> (u64, u64) { // (addr, size)
+    pub fn round_out(&self) -> (u64, u64) { /* (addr, size) */
         let rd = self.begin.round_down();
 
         (rd.byte, (self.end.round_up() - rd).bytes)

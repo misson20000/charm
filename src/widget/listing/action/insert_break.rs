@@ -89,23 +89,23 @@ impl InsertBreakAction {
             Ok(addr) => {
                 match self.listing.get_break_map().break_at(addr) {
                     brk if brk.addr == addr => {
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); // delete
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); // edit
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
-                        self.dialog.set_default_response(gtk::ResponseType::Other(2)); // edit
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); /* delete */
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); /* edit */
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
+                        self.dialog.set_default_response(gtk::ResponseType::Other(2)); /* edit */
                     },
                     _ => {
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); // insert
-                        self.dialog.set_default_response(gtk::ResponseType::Other(3)); // insert
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); /* insert */
+                        self.dialog.set_default_response(gtk::ResponseType::Other(3)); /* insert */
                     }
                 }
             },
             _ => {
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
                 self.dialog.set_default_response(gtk::ResponseType::Cancel);
             }
         }
@@ -128,7 +128,7 @@ impl InsertBreakAction {
             };
 
             let message = match response {
-                gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { // edit or insert
+                gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { /* edit or insert */
                     Ok(addr) => {
                         self.listing.insert_break(brk::Break {
                             addr,
@@ -138,18 +138,18 @@ impl InsertBreakAction {
                             }),
                         }); break
                     },
-                    Err(addr::AddressParseError::MissingBytes) => break, // user entered a blank address, just exit out
+                    Err(addr::AddressParseError::MissingBytes) => break, /* user entered a blank address, just exit out */
                     Err(addr::AddressParseError::MalformedBytes(_)) => "Failed to parse bytes.",
                     Err(addr::AddressParseError::MalformedBits(_)) => "Failed to parse bits.",
                     Err(addr::AddressParseError::TooManyBits) => "Invalid amount of bits.",
                 }
-                gtk::ResponseType::Other(1) => match addr::Address::parse(addr_text) { // delete
+                gtk::ResponseType::Other(1) => match addr::Address::parse(addr_text) { /* delete */
                     Ok(addr) => match self.listing.delete_break(&addr) {
                         Ok(_) => break,
                         Err(listing::BreakDeletionError::IsZeroBreak) => "Can't delete the zero break.",
                         Err(listing::BreakDeletionError::NotFound) => "Not found.",
                     }
-                    Err(addr::AddressParseError::MissingBytes) => break, // user entered a blank address, just exit out
+                    Err(addr::AddressParseError::MissingBytes) => break, /* user entered a blank address, just exit out */
                     Err(addr::AddressParseError::MalformedBytes(_)) => "Failed to parse bytes.",
                     Err(addr::AddressParseError::MalformedBits(_)) => "Failed to parse bits.",
                     Err(addr::AddressParseError::TooManyBits) => "Invalid amount of bits.",

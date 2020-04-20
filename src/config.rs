@@ -5,23 +5,23 @@ use hex_literal::hex;
 use crate::ext::RGBAExt;
 
 pub struct Config {
-    pub file_access_delay: u64, // milliseconds
+    pub file_access_delay: u64, /* milliseconds */
     
-    pub lookahead: usize, // lines
-    pub scroll_wheel_impulse: f64, // lines/second
-    pub scroll_deceleration: f64, // lines/second^2
-    pub scroll_spring: f64, // 1/second^2
-    pub scroll_spring_damping: f64, // viscous damping coefficient
+    pub lookahead: usize, /* lines */
+    pub scroll_wheel_impulse: f64, /* lines/second */
+    pub scroll_deceleration: f64, /* lines/second^2 */
+    pub scroll_spring: f64, /* 1/second^2 */
+    pub scroll_spring_damping: f64, /* viscous damping coefficient */
     
     pub scroll_align_integer: bool,
     pub scroll_align_integer_spring: f64,
     pub scroll_align_integer_spring_damping: f64,
     pub scroll_align_position_tolerance: f64,
     pub scroll_align_velocity_tolerance: f64,
-    pub page_navigation_leadup: usize, // lines
+    pub page_navigation_leadup: usize, /* lines */
     
-    pub padding: f64, // pixels
-    pub font_size: f64, // pixels
+    pub padding: f64, /* pixels */
+    pub font_size: f64, /* pixels */
 
     pub background_color: gdk::RGBA,
     pub addr_pane_color: gdk::RGBA,
@@ -37,7 +37,7 @@ pub struct Config {
     pub cursor_fg_color: gdk::RGBA,
     pub cursor_blink_period: f64,
     
-    pub version: usize, // incremented when this changes
+    pub version: usize, /* incremented when config changes */
 }
 
 lazy_static! {

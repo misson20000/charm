@@ -20,7 +20,7 @@ pub struct FileAddressSpace {
 }
 
 struct FetchFuture {
-    delay: pin::Pin<Box<tokio::time::Delay>>, // pin projection is obnoxious and prevents us from mutating the other fields here
+    delay: pin::Pin<Box<tokio::time::Delay>>, /* pin projection is obnoxious and prevents us from mutating the other fields here */
     fas: sync::Arc<FileAddressSpace>,
     extent: (u64, u64),
 }

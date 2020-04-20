@@ -45,11 +45,11 @@ impl HexCursor {
                 },
             },
             low_nybble: match (hint.intended_offset, intended_nybble, dir) {
-                // if we have an intended offset and had to truncate it, we should place at the end of the line
+                /* if we have an intended offset and had to truncate it, we should place at the end of the line */
                 (Some(io), _, _) if io > max => true,
-                // if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor
+                /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
                 (Some(_), Some(inb), _) => inb,
-                // otherwise, this is probably a "horizontal" movement and we are either at the beginning or the end of the line
+                /* otherwise, this is probably a "horizontal" movement and we are either at the beginning or the end of the line */
                 (_, _, cursor::TransitionDirection::Up) => true,
                 (_, _, cursor::TransitionDirection::Down) => false,
             },

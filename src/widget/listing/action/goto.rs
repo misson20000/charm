@@ -29,7 +29,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, da: &gtk::Draw
     goto_action.connect_activate(move |_act, _par| {
         goto_dialog.set_transient_for(da_clone.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
-        // do not hold a lock on ListingWidget here since run() blocking is a dirty lie
+        /* do not hold a lock on ListingWidget here since run() blocking is a dirty lie */
         goto_entry.set_text(&format!("{}", rc_clone.read().cursor_view.cursor.get_addr()));
         goto_entry.grab_focus();
         
@@ -42,7 +42,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, da: &gtk::Draw
                 };
                 match addr::Address::parse(text) {
                     Ok(addr) => { rc_clone.write().goto(addr); false },
-                    Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just ignore
+                    Err(addr::AddressParseError::MissingBytes) => false, /* user entered a blank address, just ignore */
                     Err(e) => {
                         let message = match e {
                             addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
