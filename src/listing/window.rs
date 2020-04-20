@@ -4,6 +4,7 @@ use std::task;
 use std::pin;
 
 use crate::addr;
+use crate::space;
 use crate::listing;
 use crate::listing::BreakMapExt;
 use crate::listing::brk;
@@ -38,7 +39,7 @@ We don't ever fragment "line groups".
 
 #[enum_dispatch]
 pub trait BreakView {
-    fn produce(&mut self, listing: &listing::Listing) -> Option<LineGroup>;
+    fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup>;
 
     /// We've scrolled in the opposite direction you want, and this line fell
     /// off the end of the window. Regress your state so you can generate it
@@ -46,9 +47,11 @@ pub trait BreakView {
     /// produced this line; the downward view may have produced it and it slid
     /// all the way across the window. However, you can expect to be the same
     /// type and have the same break as whatever view produced the line you're
-    /// trimming.  If you need to pass to the next BreakView, pass the line
-    /// group back out. Otherwise return None.
-    fn trim(&mut self, lg: LineGroup) -> Option<LineGroup>;
+    /// trimming.
+
+    /// Return true on success.
+    /// If you need to pass to the next BreakView, return false.
+    fn trim(&mut self, lg: &LineGroup) -> bool;
     
     fn hit_boundary(&self) -> bool;
     
@@ -64,25 +67,21 @@ pub struct DownDir;
 impl BreakViewDir for UpDir {}
 impl BreakViewDir for DownDir {}
 
-
 #[enum_dispatch(BreakView)]
-enum BreakViewUpward {
+#[derive(Debug)]
+pub enum BreakViewUpward {
     Hex(brk::hex::HexBreakView<UpDir>),
 }
 
 #[enum_dispatch(BreakView)]
-enum BreakViewDownward {
+#[derive(Debug)]
+pub enum BreakViewDownward {
     Hex(brk::hex::HexBreakView<DownDir>),
 }
 
 /// It is up to the user to make sure that this gets properly notified with break list invalidation events.
 pub struct ListingWindow {
-    pub listing: sync::Arc<listing::Listing>,
-    //observer: sync::Arc<BreakListObserver>,
-
-    breaks: listing::BreakMap,
-    top_view: BreakViewUpward,
-    bottom_view: BreakViewDownward,
+    micro: MicroWindow,
     
     pub line_groups: std::collections::VecDeque<LineGroup>,
     pub top_margin: usize,
@@ -94,18 +93,17 @@ pub struct ListingWindow {
     has_loaded: bool,
 }
 
-impl ListingWindow {
-    pub fn new(listing: sync::Arc<listing::Listing>) -> ListingWindow {
-        let breaks = listing.get_break_map();
-        let brk = breaks.break_at(addr::unit::NULL);
-        
-        ListingWindow {
-            listing: listing.clone(),
-            //observer: BreakListObserver::new(listing.clone()),
+pub struct MicroWindow {
+    pub listing: sync::Arc<listing::Listing>,
+    breaks: listing::BreakMap,
+    top_view: BreakViewUpward,
+    bottom_view: BreakViewDownward,
+}
 
-            breaks: breaks.clone(),
-            top_view: BreakViewUpward::new_from_top(&breaks, brk.clone()),
-            bottom_view: BreakViewDownward::new_from_top(&breaks, brk.clone()),
+impl ListingWindow {
+    pub fn new(listing: &sync::Arc<listing::Listing>) -> ListingWindow {
+        ListingWindow {
+            micro: MicroWindow::new(&listing, addr::Address::default()),
             
             line_groups: std::collections::VecDeque::<LineGroup>::new(),
             top_margin: 0,
@@ -122,6 +120,10 @@ impl ListingWindow {
     pub fn clear_has_loaded(&mut self) -> bool {
         std::mem::replace(&mut self.has_loaded, false)
     }
+
+    pub fn get_listing(&self) -> &sync::Arc<listing::Listing> {
+        &self.micro.listing
+    }
     
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
@@ -130,16 +132,7 @@ impl ListingWindow {
         self.num_lines = 0;
         self.top_margin = 0;
 
-        match self.breaks.break_at(target) {
-            brk if brk.addr == target => {
-                self.top_view = BreakViewUpward::new_from_top(&self.breaks, brk.clone());
-                self.bottom_view = BreakViewDownward::new_from_top(&self.breaks, brk.clone());
-            },
-            brk => {
-                self.top_view = BreakViewUpward::new_from_middle(&self.breaks, brk.clone(), target);
-                self.bottom_view = BreakViewDownward::new_from_middle(&self.breaks, brk.clone(), target);
-            }
-        };
+        self.micro.seek(target);
 
         let mut offset = 0;
         let mut hit_bottom = false;
@@ -215,7 +208,7 @@ impl ListingWindow {
     }
 
     pub fn get_bottom_hit_end(&self) -> bool {
-        self.bottom_view.hit_boundary()
+        self.micro.bottom_view.hit_boundary()
     }
 
     /// Iterates over lines in the window. Outputs are tuples of (line_no,
@@ -224,33 +217,6 @@ impl ListingWindow {
     pub fn iter<'a>(&'a self) -> ListingIterator<'a> {
         ListingIterator::new(self)
     }
-
-    /*
-    /// Finds the line number for a given address
-    #[deprecated]
-    pub fn find_lineno(&self, addr: addr::Address) -> LineFindResult {
-        todo!();
-        let mut last_line: Option<(isize, &LineGroup)> = None;
-        
-        for (no, lg) in self.iter() {
-            if lg.get_addr() > addr {
-                return match last_line {
-                    None => LineFindResult::Before,
-                    Some((lln, _)) => LineFindResult::Found(lln),
-                };
-            }
-            last_line = Some((no, lg));
-        }
-
-        match last_line {
-            Some((ln, lg)) => match &lg {
-                line_group::LineGroup::Hex(hl) if hl.extent.contains(addr) => LineFindResult::Found(ln),
-                _ => LineFindResult::After
-            },
-            _ => LineFindResult::After
-        }
-    }
-     */
 
     /* internal actions */
 
@@ -261,24 +227,13 @@ impl ListingWindow {
             std::option::Option::Some(lg) => lg.num_lines() <= self.top_margin, // don't trim too large line groups, or don't trim if top_margin is 0
             std::option::Option::None => false // don't trim if line_groups is empty
         } {
-            let mut lg = self.line_groups.pop_front().unwrap();
+            let lg = self.line_groups.pop_front().unwrap();
 
             let num_trimmed = lg.num_lines();
             self.num_lines-= num_trimmed;
             self.top_margin-= num_trimmed;
 
-            while let Some(nlg) = self.top_view.trim(lg) {
-                lg = nlg;
-                
-                if self.top_view.get_break().addr == addr::unit::REAL_END {
-                    panic!("tried to trim down to bottom of address space");
-                } else {
-                    match self.breaks.get_next(&(self.top_view.get_break().addr + addr::unit::BIT)) {
-                        Some(n) => self.top_view = BreakViewUpward::new_from_top(&self.breaks, n.1.clone()),
-                        None => panic!("tried to trim down to bottom of address space"),
-                    }
-                }
-            }
+            self.micro.trim_down(&lg);
         }
 
         self.wake();
@@ -291,18 +246,11 @@ impl ListingWindow {
             Some(lg) => self.top_margin + self.window_height <= self.num_lines - lg.num_lines(),
             None => false
         } {
-            let mut lg = self.line_groups.pop_back().unwrap();
+            let lg = self.line_groups.pop_back().unwrap();
             
             self.num_lines-= lg.num_lines();
 
-            while let Some(nlg) = self.bottom_view.trim(lg) {
-                lg = nlg;
-                
-                match self.breaks.break_before(self.bottom_view.get_break()) {
-                    Some(p) => self.bottom_view = BreakViewDownward::new_from_bottom(&self.breaks, p.clone()),
-                    None => panic!("tried to trim up to top of address space"),
-                }
-            }
+            self.micro.trim_up(&lg);
         }
 
         self.wake();
@@ -311,16 +259,9 @@ impl ListingWindow {
     /// Tries to add a line group to the top margin. Returns true if no lines
     /// could be produced because the top of the address space was reached.
     fn produce_lines_top(&mut self) -> bool {
-        let lg = loop {
-            let lg = self.top_view.produce(&self.listing);
-
-            match lg {
-                Some(lg) => break lg,
-                None => match self.breaks.break_before(self.top_view.get_break()) {
-                    Some(p) => self.top_view = BreakViewUpward::new_from_bottom(&self.breaks, p.clone()),
-                    None => return true,
-                }
-            }
+        let lg = match self.micro.produce_up() {
+            Some(lg) => lg,
+            None => return true
         };
         
         let nl = lg.num_lines();
@@ -336,16 +277,9 @@ impl ListingWindow {
     /// Tries to add a line group to the bottom margin. Returns true if no lines
     /// could be produced because the bottom of the address space was reached.
     fn produce_lines_bottom(&mut self) -> bool {
-        let lg = loop {
-            let lg = self.bottom_view.produce(&self.listing);
-
-            match lg {
-                Some(lg) => break lg,
-                None => match self.breaks.break_after(self.bottom_view.get_break()) {
-                    Some(n) => self.bottom_view = BreakViewDownward::new_from_top(&self.breaks, n.clone()),
-                    None => return true,
-                }
-            }
+        let lg = match self.micro.produce_down() {
+            Some(lg) => lg,
+            None => return true
         };
         
         self.num_lines+= lg.num_lines();
@@ -369,11 +303,8 @@ impl ListingWindow {
     /// Notifies us that the upstream break list may have been updated and we
     /// may need to redraw our window from scratch based on it.
     pub fn update(&mut self) -> bool {
-        let upstream = self.listing.get_break_map();
-        if !self.breaks.ptr_eq(&upstream) {
-            self.breaks = upstream.clone();
-            std::mem::drop(upstream);
-            self.seek(self.top_view.get_addr());
+        if self.micro.is_outdated() {
+            self.seek(self.micro.top_view.get_addr());
             true
         } else {
             false
@@ -394,11 +325,95 @@ impl std::future::Future for ListingWindow {
     }
 }
 
-#[deprecated]
-pub enum LineFindResult {
-    BeforeWindow,
-    Found(isize),
-    AfterWindow,
+impl MicroWindow {
+    pub fn new(listing: &sync::Arc<listing::Listing>, addr: addr::Address) -> MicroWindow {
+        let breaks = listing.get_break_map().clone();
+        let brk = breaks.break_at(addr);
+
+        let top_view = BreakViewUpward::new_from_top(&breaks, brk.clone());
+        let bottom_view = BreakViewDownward::new_from_top(&breaks, brk.clone());
+
+        MicroWindow {
+            listing: listing.clone(),
+            breaks,
+            top_view,
+            bottom_view
+        }
+    }
+
+    pub fn is_outdated(&self) -> bool {
+        !self.breaks.ptr_eq(&self.listing.get_break_map())
+    }
+    
+    /// NOTE: zero-sizes the window and updates breaks from upstream
+    pub fn seek(&mut self, target: addr::Address) {
+        self.breaks = self.listing.get_break_map().clone();
+        
+        match self.breaks.break_at(target) {
+            brk if brk.addr == target => {
+                self.top_view = BreakViewUpward::new_from_top(&self.breaks, brk.clone());
+                self.bottom_view = BreakViewDownward::new_from_top(&self.breaks, brk.clone());
+            },
+            brk => {
+                self.top_view = BreakViewUpward::new_from_middle(&self.breaks, brk.clone(), target);
+                self.bottom_view = BreakViewDownward::new_from_middle(&self.breaks, brk.clone(), target);
+            }
+        };
+    }
+
+    /// Shrinks the window by one line group on the bottom.
+    pub fn trim_up(&mut self, lg: &LineGroup) {
+        while !self.bottom_view.trim(lg) {
+            match self.breaks.break_before(self.bottom_view.get_break()) {
+                Some(p) => self.bottom_view = BreakViewDownward::new_from_bottom(&self.breaks, p.clone()),
+                None => panic!("tried to trim up to top of address space"),
+            }
+        }
+    }
+
+    /// Shrinks the window by one line group on the top.
+    pub fn trim_down(&mut self, lg: &LineGroup) {
+        while !self.top_view.trim(lg) {
+            if self.top_view.get_break().addr == addr::unit::REAL_END {
+                panic!("tried to trim down to bottom of address space");
+            } else {
+                match self.breaks.get_next(&(self.top_view.get_break().addr + addr::unit::BIT)) {
+                    Some(n) => self.top_view = BreakViewUpward::new_from_top(&self.breaks, n.1.clone()),
+                    None => panic!("tried to trim down to bottom of address space"),
+                }
+            }
+        }
+    }
+
+    /// Tries to grow the window by one line group on the top.
+    pub fn produce_up(&mut self) -> Option<LineGroup> {
+        Some(loop {
+            let lg = self.top_view.produce(&self.listing.space);
+
+            match lg {
+                Some(lg) => break lg,
+                None => match self.breaks.break_before(self.top_view.get_break()) {
+                    Some(p) => self.top_view = BreakViewUpward::new_from_bottom(&self.breaks, p.clone()),
+                    None => return None,
+                }
+            }
+        })
+    }
+
+    /// Tries to grow the window by one line group on the bottom.
+    pub fn produce_down(&mut self) -> Option<LineGroup> {
+        Some(loop {
+            let lg = self.bottom_view.produce(&self.listing.space);
+
+            match lg {
+                Some(lg) => break lg,
+                None => match self.breaks.break_after(self.bottom_view.get_break()) {
+                    Some(n) => self.bottom_view = BreakViewDownward::new_from_top(&self.breaks, n.clone()),
+                    None => return None,
+                }
+            }
+        })
+    }
 }
 
 impl BreakViewUpward {
@@ -464,5 +479,14 @@ impl<'a> std::iter::Iterator for ListingIterator<'a> {
             self.line_no+= lg.num_lines() as isize;
             r
         })
+    }
+}
+
+impl std::fmt::Debug for MicroWindow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MicroWindow")
+            .field("top_view", &self.top_view)
+            .field("bottom_view", &self.bottom_view)
+            .finish()
     }
 }

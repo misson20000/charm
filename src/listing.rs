@@ -1,4 +1,5 @@
 pub mod brk;
+pub mod cursor;
 pub mod line_group;
 pub mod window;
 
@@ -14,7 +15,7 @@ use im::ordmap;
 type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
 
 pub struct Listing {
-    pub space: sync::Arc<dyn AddressSpace + Send + Sync>,
+    pub space: sync::Arc<dyn AddressSpace>,
     break_map: parking_lot::RwLock<BreakMap>,
     break_list_observers: sync::Mutex<vec::Vec<sync::Weak<dyn BreakListObserver>>>,
 }

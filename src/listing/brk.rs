@@ -5,12 +5,14 @@ use crate::addr;
 
 pub mod hex;
 
+#[derive(Debug)]
 pub struct Break {
     pub addr: addr::Address,
     pub label: Option<string::String>,
     pub class: BreakClass
 }
 
+#[derive(Debug)]
 pub enum BreakClass {
     Hex(hex::HexBreak),
     //Binary,
@@ -62,4 +64,21 @@ impl PartialEq for Break {
     }
 }
 
-impl Eq for Break {}
+impl Eq for Break {
+}
+
+impl PartialEq for BreakHeaderLineGroup {
+    fn eq(&self, other: &Self) -> bool {
+        sync::Arc::ptr_eq(&self.brk, &other.brk)
+    }
+}
+
+impl Eq for BreakHeaderLineGroup {
+}
+
+impl std::fmt::Debug for BreakHeaderLineGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BreakHeaderLineGroup")
+            .finish()
+    }
+}

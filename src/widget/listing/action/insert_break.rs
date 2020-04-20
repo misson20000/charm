@@ -1,3 +1,4 @@
+use std::rc;
 use std::sync;
 
 use gtk::prelude::*;
@@ -8,7 +9,17 @@ use crate::listing::BreakMapExt;
 use crate::listing::brk;
 use crate::widget::listing::ListingWidget;
 
-pub fn create(listing: sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+struct InsertBreakAction {
+    dialog: gtk::Dialog,
+    lw: sync::Arc<parking_lot::RwLock<ListingWidget>>,
+    listing: sync::Arc<listing::Listing>,
+    da: gtk::DrawingArea, // TODO: weak-ref
+    error_label: gtk::Label,
+    label_entry: gtk::Entry,
+    addr_entry: gtk::Entry
+}
+
+pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("insert_break", None);
     let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Insert Break"),
@@ -37,115 +48,117 @@ pub fn create(listing: sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gi
     grid.attach(&gtk::Label::new(Some("Address")), 0, 1, 1, 1);
     grid.attach(&addr_entry, 1, 1, 1, 1);
 
+    let iba = rc::Rc::new(InsertBreakAction {
+        dialog,
+        lw: rc.clone(),
+        listing: listing.clone(),
+        da: da.clone(),
+        error_label,
+        label_entry,
+        addr_entry
+    });
+    
     {
-        let listing_clone = listing.clone();
-        let dialog_clone = dialog.clone();
-        addr_entry.connect_changed(move |entry| {
-            let addr_text_gstring = entry.get_text();
-            let addr_text = match addr_text_gstring.as_ref() {
-                Some(gs) => gs.as_ref(),
-                None => ""
-            };
-
-            match addr::Address::parse(addr_text) {
-                Ok(addr) => {
-                    match listing_clone.get_break_map().break_at(addr) {
-                        brk if brk.addr == addr => {
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); // delete
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); // edit
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
-                            dialog_clone.set_default_response(gtk::ResponseType::Other(2)); // edit
-                        },
-                        _ => {
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
-                            dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); // insert
-                            dialog_clone.set_default_response(gtk::ResponseType::Other(3)); // insert
-                        }
-                    }
-                },
-                _ => {
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
-                    dialog_clone.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
-                    dialog_clone.set_default_response(gtk::ResponseType::Cancel);
-                }
-            }
+        let iba_clone = iba.clone();
+        iba.addr_entry.connect_changed(move |_entry| {
+            iba_clone.update_dialog_buttons();
         });
     }
     
     ca.pack_start(&grid, true, true, 0);
     ca.show_all();
 
-    let da_clone = da.clone();
     action.connect_activate(move |_act, _par| {
-        dialog.set_transient_for(da_clone.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
-
-        label_entry.grab_focus();
-        error_label.set_text("");
-
-        // TODO: populate address entry from cursor
-        
-        let mut message = None;
-        while {
-            let response = dialog.run();
-            let addr_text_gstring = addr_entry.get_text();
-            let addr_text = match addr_text_gstring.as_ref() {
-                Some(gs) => gs.as_ref(),
-                None => ""
-            };
-
-            match response {
-                gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => { // Edit or Insert
-                    match addr::Address::parse(addr_text) {
-                        Ok(addr) => {
-                            listing.insert_break(brk::Break {
-                                addr,
-                                label: label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
-                                class: brk::BreakClass::Hex(brk::hex::HexBreak {
-                                    line_size: addr::Size::from(16),
-                                }),
-                            }); false
-                        },
-                        Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just exit out
-                        Err(e) => {
-                            message = Some(match e {
-                                addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
-                                addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
-                                addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
-                                addr::AddressParseError::TooManyBits => "Invalid amount of bits."
-                            }); true
-                        }
-                    }
-                }
-                gtk::ResponseType::Other(1) => { // Delete
-                    match addr::Address::parse(addr_text) {
-                        Ok(addr) => match listing.delete_break(&addr) {
-                            Ok(_) => false,
-                            Err(listing::BreakDeletionError::IsZeroBreak) => { message = Some("Can't delete the zero break."); true },
-                            Err(listing::BreakDeletionError::NotFound) => { message = Some("Not found."); true },
-                        }
-                        Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just exit out
-                        Err(e) => {
-                            message = Some(match e {
-                                addr::AddressParseError::MissingBytes => "Missing bytes field.", // this one shouldn't happen here... but rustc can't figure that out
-                                addr::AddressParseError::MalformedBytes(_) => "Failed to parse bytes.",
-                                addr::AddressParseError::MalformedBits(_) => "Failed to parse bits.",
-                                addr::AddressParseError::TooManyBits => "Invalid amount of bits."
-                            }); true
-                        }
-                    }
-                }
-                _ => false
-            }
-        } {
-            error_label.set_text(message.take().unwrap_or(""))
-        }
-        dialog.hide();
-        dialog.set_transient_for::<gtk::Window>(None);
+        iba.activate();
     });
 
     action.set_enabled(true);
         
     action
+}
+
+impl InsertBreakAction {
+    fn update_dialog_buttons(&self) {
+        let addr_text_gstring = self.addr_entry.get_text();
+        let addr_text = match addr_text_gstring.as_ref() {
+            Some(gs) => gs.as_ref(),
+            None => ""
+        };
+
+        match addr::Address::parse(addr_text) {
+            Ok(addr) => {
+                match self.listing.get_break_map().break_at(addr) {
+                    brk if brk.addr == addr => {
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); // delete
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); // edit
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
+                        self.dialog.set_default_response(gtk::ResponseType::Other(2)); // edit
+                    },
+                    _ => {
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
+                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); // insert
+                        self.dialog.set_default_response(gtk::ResponseType::Other(3)); // insert
+                    }
+                }
+            },
+            _ => {
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); // delete
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); // edit
+                self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); // insert
+                self.dialog.set_default_response(gtk::ResponseType::Cancel);
+            }
+        }
+    }
+
+    fn activate(&self) {
+        self.dialog.set_transient_for(self.da.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
+
+        self.label_entry.grab_focus();
+        self.error_label.set_text("");
+
+        self.addr_entry.set_text(&format!("{}", self.lw.read().cursor_view.cursor.get_addr()));
+        
+        loop {
+            let response = self.dialog.run();
+            let addr_text_gstring = self.addr_entry.get_text();
+            let addr_text = match addr_text_gstring.as_ref() {
+                Some(gs) => gs.as_ref(),
+                None => ""
+            };
+
+            let message = match response {
+                gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { // edit or insert
+                    Ok(addr) => {
+                        self.listing.insert_break(brk::Break {
+                            addr,
+                            label: self.label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
+                            class: brk::BreakClass::Hex(brk::hex::HexBreak {
+                                line_size: addr::Size::from(16),
+                            }),
+                        }); break
+                    },
+                    Err(addr::AddressParseError::MissingBytes) => break, // user entered a blank address, just exit out
+                    Err(addr::AddressParseError::MalformedBytes(_)) => "Failed to parse bytes.",
+                    Err(addr::AddressParseError::MalformedBits(_)) => "Failed to parse bits.",
+                    Err(addr::AddressParseError::TooManyBits) => "Invalid amount of bits.",
+                }
+                gtk::ResponseType::Other(1) => match addr::Address::parse(addr_text) { // delete
+                    Ok(addr) => match self.listing.delete_break(&addr) {
+                        Ok(_) => break,
+                        Err(listing::BreakDeletionError::IsZeroBreak) => "Can't delete the zero break.",
+                        Err(listing::BreakDeletionError::NotFound) => "Not found.",
+                    }
+                    Err(addr::AddressParseError::MissingBytes) => break, // user entered a blank address, just exit out
+                    Err(addr::AddressParseError::MalformedBytes(_)) => "Failed to parse bytes.",
+                    Err(addr::AddressParseError::MalformedBits(_)) => "Failed to parse bits.",
+                    Err(addr::AddressParseError::TooManyBits) => "Invalid amount of bits.",
+                }
+                _ => break // what?
+            };
+            self.error_label.set_text(message);
+        }
+        self.dialog.hide();
+        self.dialog.set_transient_for::<gtk::Window>(None);
+    }
 }

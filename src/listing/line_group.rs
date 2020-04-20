@@ -2,12 +2,13 @@ use std::task;
 
 use crate::listing;
 
+#[derive(PartialEq, Eq, Debug)]
 pub enum LineGroup {
     Hex(listing::brk::hex::HexLineGroup),
     BreakHeader(listing::brk::BreakHeaderLineGroup)
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Debug)]
 pub enum CacheId {
     Hex(u64),
 }

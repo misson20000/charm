@@ -5,7 +5,7 @@ use gtk::prelude::*;
 use crate::addr;
 use crate::widget::listing::ListingWidget;
 
-pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
     let goto_action = gio::SimpleAction::new("goto", None);
     let goto_dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Go to Location"),
@@ -30,7 +30,7 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
         goto_dialog.set_transient_for(da_clone.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
         // do not hold a lock on ListingWidget here since run() blocking is a dirty lie
-        goto_entry.set_text(&format!("{}", rc_clone.read().unwrap().cursor.get_addr()));
+        goto_entry.set_text(&format!("{}", rc_clone.read().cursor_view.cursor.get_addr()));
         goto_entry.grab_focus();
         
         while match goto_dialog.run() {
@@ -41,7 +41,7 @@ pub fn create(rc: &sync::Arc<sync::RwLock<ListingWidget>>, da: &gtk::DrawingArea
                     None => ""
                 };
                 match addr::Address::parse(text) {
-                    Ok(addr) => { rc_clone.write().unwrap().goto(addr); false },
+                    Ok(addr) => { rc_clone.write().goto(addr); false },
                     Err(addr::AddressParseError::MissingBytes) => false, // user entered a blank address, just ignore
                     Err(e) => {
                         let message = match e {

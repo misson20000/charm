@@ -1,4 +1,5 @@
 pub mod scroll;
+pub mod cursor;
 
 use gtk::WidgetExt;
 

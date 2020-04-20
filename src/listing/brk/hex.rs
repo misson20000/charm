@@ -12,6 +12,7 @@ use crate::listing::line_group::LineGroup;
 use crate::listing::window;
 use crate::listing::brk;
 
+#[derive(Debug)]
 pub struct HexBreak {
     pub line_size: addr::Size,
 }
@@ -47,6 +48,7 @@ pub struct HexLineGroup {
 }
 
 impl<T: window::BreakViewDir> HexBreakView<T> {
+    #[allow(unreachable_patterns)] // TODO: remove when we get more break types
     pub fn new_from_top(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>) -> HexBreakView<T> {
         HexBreakView {
             header: false,
@@ -60,6 +62,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
         }
     }
 
+    #[allow(unreachable_patterns)] // TODO: remove when we get more break types
     pub fn new_from_middle(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>, current_addr: addr::Address) -> HexBreakView<T> {
         let extent = breaks.extents_at(brk.addr);
         let offset = current_addr - brk.addr;
@@ -78,6 +81,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
         }
     }
 
+    #[allow(unreachable_patterns)] // TODO: remove when we get more break types
     pub fn new_from_bottom(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>) -> HexBreakView<T> {
         let extent = breaks.extents_at(brk.addr);
         
@@ -103,7 +107,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
 impl window::BreakView for HexBreakView<window::UpDir> {
     // current_addr is the address of the line we just generated
     
-    fn produce(&mut self, listing: &listing::Listing) -> Option<LineGroup> {
+    fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup> {
         if self.current_addr <= self.extent.begin {
             if !self.header {
                 None
@@ -116,13 +120,13 @@ impl window::BreakView for HexBreakView<window::UpDir> {
             let extent = addr::Extent::between(self.extent.begin + line_start_offset, self.current_addr);
             self.current_addr = self.extent.begin + line_start_offset;
 
-            Some(LineGroup::Hex(HexLineGroup::new(&self.hbrk, listing, extent)))
+            Some(LineGroup::Hex(HexLineGroup::new(&self.hbrk, space, extent)))
         }
     }
     
-    fn trim(&mut self, lg: LineGroup) -> Option<LineGroup> {
+    fn trim(&mut self, lg: &LineGroup) -> bool {
         if self.current_addr >= self.extent.end {
-            Some(lg)
+            false
         } else {
             match lg {
                 LineGroup::BreakHeader(bhdr) if !self.header => {
@@ -139,7 +143,7 @@ impl window::BreakView for HexBreakView<window::UpDir> {
                     panic!("tried to trim invalid line group");
                 }
             };
-            None
+            true
         }
     }
     
@@ -159,7 +163,7 @@ impl window::BreakView for HexBreakView<window::UpDir> {
 impl window::BreakView for HexBreakView<window::DownDir> {
     // current_addr is the address of the line we're about to generate
     
-    fn produce(&mut self, listing: &listing::Listing) -> Option<LineGroup> {
+    fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup> {
         if self.current_addr <= self.extent.begin && !self.header {
             self.header = true;
             Some(LineGroup::BreakHeader(brk::BreakHeaderLineGroup::new(self.get_break())))
@@ -168,15 +172,15 @@ impl window::BreakView for HexBreakView<window::DownDir> {
             let extent = addr::Extent::between(self.current_addr, self.current_addr + line_size);
             self.current_addr+= line_size;
 
-            Some(LineGroup::Hex(HexLineGroup::new(&self.hbrk, listing, extent)))
+            Some(LineGroup::Hex(HexLineGroup::new(&self.hbrk, space, extent)))
         } else {
             None
         }
     }
     
-    fn trim(&mut self, lg: LineGroup) -> Option<LineGroup> {
+    fn trim(&mut self, lg: &LineGroup) -> bool {
         if self.current_addr <= self.extent.begin && !self.header {
-            Some(lg)
+            false
         } else {
             match lg {
                 LineGroup::BreakHeader(bhdr) if self.header => {
@@ -193,7 +197,7 @@ impl window::BreakView for HexBreakView<window::DownDir> {
                     panic!("tried to trim unexpected line group");
                 }
             };
-            None
+            true
         }
     }
     
@@ -211,11 +215,11 @@ impl window::BreakView for HexBreakView<window::DownDir> {
 }
 
 impl HexLineGroup {
-    fn new(hbrk: &owning_ref::ArcRef<brk::Break, HexBreak>, listing: &listing::Listing, extent: addr::Extent) -> HexLineGroup {
+    fn new(hbrk: &owning_ref::ArcRef<brk::Break, HexBreak>, space: &sync::Arc<dyn space::AddressSpace>, extent: addr::Extent) -> HexLineGroup {
         HexLineGroup {
             hbrk: hbrk.clone(),
             async_state: AsyncState::Pending(
-                Box::pin(listing.space.clone().fetch(extent.round_out()))),
+                Box::pin(space.clone().fetch(extent.round_out()))),
             extent,
             raw_bytes: vec::Vec::new(),
             cache_id: NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
@@ -358,5 +362,34 @@ impl<'a> std::iter::Iterator for HexLineIterator<'a> {
                 _ => panic!("invalid iterator state"),
             }
         }
+    }
+}
+
+impl PartialEq for HexLineGroup {
+    fn eq(&self, rhs: &Self) -> bool {
+        std::ptr::eq(self.hbrk.as_ref(), rhs.hbrk.as_ref()) && self.extent == rhs.extent
+    }
+}
+
+impl Eq for HexLineGroup {
+}
+
+impl std::fmt::Debug for HexLineGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HexLineGroup")
+            .field("extent", &self.extent)
+            .field("raw_bytes", &self.raw_bytes)
+            .field("cache_id", &self.cache_id)
+            .finish()
+    }
+}
+
+impl<T: window::BreakViewDir> std::fmt::Debug for HexBreakView<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HexBreakView")
+            .field("header", &self.header)
+            .field("current_addr", &self.current_addr)
+            .field("extent", &self.extent)
+            .finish()
     }
 }

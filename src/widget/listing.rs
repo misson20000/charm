@@ -7,8 +7,10 @@ use std::collections::HashMap;
 
 use crate::addr;
 use crate::config;
+use crate::util;
 use crate::listing;
 use crate::listing::brk;
+use crate::listing::cursor;
 use crate::listing::line_group;
 
 use crate::ext::CairoExt;
@@ -27,7 +29,7 @@ struct InternalRenderingContext<'a> {
     cfg: &'a config::Config,
     fonts: &'a Fonts,
     layout: &'a Layout,
-
+    
     perf: time::Instant,
     
     byte_cache: vec::Vec<u8>,
@@ -98,7 +100,7 @@ pub struct ListingWidget {
 
     fonts: send_wrapper::SendWrapper<Fonts>,
     layout: Layout,
-    //cursor: component::cursor::Cursor,
+    cursor_view: component::cursor::CursorView,
     scroll: component::scroll::Scroller,
 
     line_cache: HashMap<listing::line_group::CacheId, send_wrapper::SendWrapper<LineCacheEntry>>,
@@ -111,7 +113,7 @@ impl ListingWidget {
         rt: tokio::runtime::Handle) -> ListingWidget {
         let cfg = config::get();
         ListingWidget {
-            window: listing::window::ListingWindow::new(listing.clone()),
+            window: listing::window::ListingWindow::new(&listing),
             rt,
             update_task: None,
 
@@ -126,7 +128,7 @@ impl ListingWidget {
                 height: 0.0,
                 addr_pane_width: 0.0,
             },
-            //cursor: component::cursor::Cursor::new(),
+            cursor_view: component::cursor::CursorView::new(&listing),
             scroll: component::scroll::Scroller::new(),
 
             line_cache: HashMap::new(),
@@ -191,11 +193,11 @@ impl ListingWidget {
 
         /* actions */
         let ag = gio::SimpleActionGroup::new();
-        //ag.add_action(&action::goto::create(&rc, da));
-        ag.add_action(&action::insert_break::create(lw.window.listing.clone(), da));
+        ag.add_action(&action::goto::create(&rc, da));
+        ag.add_action(&action::insert_break::create(&rc, lw.window.get_listing(), da));
 
-        //ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
-        //ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
+        ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
+        ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
         
         da.insert_action_group("listing", Some(&ag));
         
@@ -206,7 +208,7 @@ impl ListingWidget {
         let frame_begin = time::Instant::now();
         
         let cfg = config::get();
-                
+        
         let mut irc = InternalRenderingContext {
             cr,
             cfg: &cfg,
@@ -237,7 +239,7 @@ impl ListingWidget {
             cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
             let lc = &mut self.line_cache;
-            match lg.get_cache_id().and_then(|cache_id| {
+            match (lg.get_cache_id().and_then(|cache_id| {
                 match lc.entry(cache_id) {
                     std::collections::hash_map::Entry::Occupied(occu) => Some(occu.into_mut()),
                     std::collections::hash_map::Entry::Vacant(vac) => {
@@ -252,7 +254,7 @@ impl ListingWidget {
                         }).and_then(|surface| {
                             let cache_cr = cairo::Context::new(&surface);
                             
-                            lg.draw(&mut irc, &cache_cr);
+                            lg.draw(&mut irc, &cache_cr, None);
 
                             surface.flush();
                             
@@ -264,17 +266,22 @@ impl ListingWidget {
                         })
                     }
                 }
-            }) {
+            }), if lg == self.cursor_view.cursor.get_line_group() { Some(&self.cursor_view) } else { None }) {
                 // We either found it in the cache, or just rendered it to the cache and are ready to use the cached image.
-                Some(entry) => {
+                (Some(entry), None) => { // don't use cached lines if the cursor is on them
                     entry.touched = true;
                     cr.set_source(&entry.pattern);
                     cr.paint();
                     
                 },
-                // Line was not cacheable or errored trying to allocate surface to put it in cache. Render it directly.
-                None => {
-                    lg.draw(&mut irc, &cr);
+                // Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly.
+                (_, has_cursor) => {
+                    // make direct mode visible
+                    cr.set_source_rgba(1.0, 0.0, 0.0, 1.0);
+                    cr.rectangle(0.0, 0.0, 10.0, 10.0);
+                    cr.fill();
+                    
+                    lg.draw(&mut irc, &cr, has_cursor);
                 }
             }
 
@@ -292,15 +299,15 @@ impl ListingWidget {
         
         /* DEBUG */
         let debug = vec![
-            //            format!("{:#?}", self.cursor),
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("{:#?}", self.scroll),
+            format!("{:#?}", self.cursor_view.cursor),
         ];
         let mut lineno = 0;
+        cr.set_scaled_font(&irc.fonts.mono_scaled);
         for group in debug {
             for line in group.split("\n") {
                 cr.set_source_rgba(1.0, 1.0, 0.0, 1.0);
-                cr.move_to(self.layout.width - 400.0, 40.0 + (irc.font_extents().height * lineno as f64));
+                cr.move_to(850.0, 40.0 + (irc.font_extents().height * lineno as f64));
                 cr.show_text(&line);
                 lineno+= 1;
             }
@@ -312,7 +319,7 @@ impl ListingWidget {
     }
     
     fn collect_draw_events(&mut self, da: &gtk::DrawingArea) {
-        //self.cursor.events.collect_draw(da);
+        self.cursor_view.events.collect_draw(da);
         self.scroll.events.collect_draw(da);
 
         if self.window.clear_has_loaded() {
@@ -338,6 +345,10 @@ impl ListingWidget {
             self.line_cache = HashMap::new();
             da.queue_draw();
         }
+
+        if self.cursor_view.cursor.update() {
+            da.queue_draw();
+        }
         
         if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
             // if we fall too far behind, just drop frames
@@ -349,7 +360,7 @@ impl ListingWidget {
             let ais:f64 = ais_micros as f64 / MICROSECONDS_PER_SECOND;
 
             self.scroll.animate(&mut self.window, ais);            
-            //self.cursor.animate(&cfg, ais);
+            self.cursor_view.animate(&cfg, ais);
 
             self.last_animation_time+= ais_micros;
         }
@@ -387,9 +398,8 @@ impl ListingWidget {
         self.window.resize_window(window_size);
     }
 
-    fn goto(&mut self, _addr: addr::Address) {
-        todo!();
-        //self.cursor.goto(&self.engine, addr);
+    fn goto(&mut self, addr: addr::Address) {
+        self.cursor_view.goto(addr);
         //self.scroll.ensure_cursor_is_in_view(self, component::cursor::EnsureInViewDirection::Any);
     }
     
@@ -409,8 +419,8 @@ impl ListingWidget {
     }
 
     fn focus_change_event(&mut self, da: &gtk::DrawingArea, ef: &gdk::EventFocus) -> gtk::Inhibit {
-        //self.cursor.blink();
-        self.has_focus = ef.get_in();
+        self.cursor_view.blink();
+        self.cursor_view.has_focus = ef.get_in();
         
         self.collect_draw_events(da);
 
@@ -426,24 +436,23 @@ impl ListingWidget {
         self.collect_draw_events(da);
     }
 
-    /*
-    fn cursor_transaction<F>(&mut self, cb: F, dir: component::cursor::EnsureInViewDirection) -> gtk::Inhibit
-    where F: FnOnce(&mut component::cursor::Cursor, &listing::ListingEngine) {
-        cb(&mut self.cursor, &self.engine);
-        self.scroll.ensure_cursor_is_in_view(self, dir);
+    fn cursor_transaction<F>(&mut self, cb: F, _dir: component::cursor::EnsureInViewDirection) -> gtk::Inhibit
+    where F: FnOnce(&mut component::cursor::CursorView) {
+        cb(&mut self.cursor_view);
+        //TODO: self.scroll.ensure_cursor_is_in_view(self, dir);
         gtk::Inhibit(true)
     }
-*/
+
     
     fn key_press_event(&mut self, da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
         let r = match (ek.get_keyval(), ek.get_state().intersects(gdk::ModifierType::SHIFT_MASK), ek.get_state().intersects(gdk::ModifierType::CONTROL_MASK)) {
-            /*
             /* basic cursor   key    shift  ctrl  */
-            (gdk::enums::key::Left,  false, false) => self.cursor_transaction(|c,l| c.move_left(l),  component::cursor::EnsureInViewDirection::Up),
-            (gdk::enums::key::Right, false, false) => self.cursor_transaction(|c,l| c.move_right(l), component::cursor::EnsureInViewDirection::Down),
-            (gdk::enums::key::Up,    false, false) => self.cursor_transaction(|c,l| c.move_up(l),    component::cursor::EnsureInViewDirection::Up),
-            (gdk::enums::key::Down,  false, false) => self.cursor_transaction(|c,l| c.move_down(l),  component::cursor::EnsureInViewDirection::Down),
+            (gdk::enums::key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), component::cursor::EnsureInViewDirection::Down),
+            (gdk::enums::key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    component::cursor::EnsureInViewDirection::Up),
+            (gdk::enums::key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  component::cursor::EnsureInViewDirection::Down),
 
+            /*
             /* fast cursor    key    shift  ctrl  */
             (gdk::enums::key::Left,  false, true ) => self.cursor_transaction(|c,l| c.move_left_by_qword(l),  component::cursor::EnsureInViewDirection::Up),
             (gdk::enums::key::Right, false, true ) => self.cursor_transaction(|c,l| c.move_right_by_qword(l), component::cursor::EnsureInViewDirection::Down),
@@ -488,24 +497,24 @@ impl std::future::Future for ListingWidgetFuture {
 }
 
 trait DrawableLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context);
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>);
 }
 
 impl DrawableLineGroup for listing::line_group::LineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>) {
         match self {
             line_group::LineGroup::Hex(hlg) => {
-                hlg.draw(c, cr);
+                hlg.draw(c, cr, cursor_view);
             },
             line_group::LineGroup::BreakHeader(bhlg) => {
-                bhlg.draw(c, cr);
+                bhlg.draw(c, cr, cursor_view);
             },
         }
     }
 }
 
 impl DrawableLineGroup for brk::hex::HexLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>) {
         // draw ridge
         if ((self.extent.begin - self.get_break().addr) / self.hbrk.line_size) % 16 == 0 {
             cr.set_source_gdk_rgba(c.cfg.ridge_color);
@@ -522,20 +531,60 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
         self.get_bytes(&mut c.byte_cache);
 
+        let cursor = cursor_view.and_then(|cv| match &cv.cursor.class {
+            cursor::CursorClass::Hex(hc) => Some((hc, cv)),
+            _ => None
+        });
+        
         // hexdump
         cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height);
         cr.set_scaled_font(&c.fonts.mono_scaled);
         cr.set_source_gdk_rgba(c.cfg.text_color);
+
+        let mut utf8_buffer: [u8; 4] = [0; 4];
+        
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i == 8 {
                 cr.show_text(" ");
             }
 
-            if i < c.byte_cache.len() {
-                cr.show_text(&format!("{:02x} ", c.byte_cache[i]));
-            } else {
-                cr.show_text("   ");
+            for low_nybble in &[false, true] {
+                let chr = if i < c.byte_cache.len() {
+                    util::nybble_to_hex((c.byte_cache[i] >> if *low_nybble { 4 } else { 0 }) & 0xf)
+                } else {
+                    ' '
+                };
+
+                cr.set_source_gdk_rgba(c.cfg.text_color);
+                if let Some((hc, cv)) = cursor {
+                    if hc.offset.bytes == i as u64 && hc.low_nybble == *low_nybble {
+                        let (x, y) = cr.get_current_point();
+
+                        let fe = &c.fonts.extents;
+                        
+                        if cv.has_focus {
+                            if cv.get_blink() {
+                                cr.set_source_gdk_rgba(c.cfg.addr_color);
+                                cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, fe.max_x_advance, fe.height);
+                                cr.fill();
+                                
+                                cr.set_source_gdk_rgba(c.cfg.background_color);
+                            }
+                        } else {
+                            cr.set_source_gdk_rgba(c.cfg.addr_color);
+                            cr.set_line_width(1.0);
+                            cr.rectangle(x.round() + 0.5 + cv.get_bonk(), fe.height - fe.ascent + 0.5, fe.max_x_advance - 1.0, fe.height - 1.0);
+                            cr.stroke();
+                            cr.set_source_gdk_rgba(c.cfg.text_color);
+                        }
+
+                        cr.move_to(x, y);
+                    }
+                }
+                
+                cr.show_text(chr.encode_utf8(&mut utf8_buffer));
             }
+            cr.show_text(" ");
         }
 
         cr.set_source_gdk_rgba(c.cfg.text_color);
@@ -568,7 +617,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 }
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, _cursor: Option<&component::cursor::CursorView>) {
         // draw label
         cr.set_scaled_font(&c.fonts.bold_scaled);
         cr.set_source_gdk_rgba(c.cfg.text_color);
