@@ -16,7 +16,11 @@ struct InsertBreakAction {
     da: gtk::DrawingArea, // TODO: weak-ref
     error_label: gtk::Label,
     label_entry: gtk::Entry,
-    addr_entry: gtk::Entry
+    addr_entry: gtk::Entry,
+    type_box: gtk::ComboBoxText,
+
+    hex_break_grid: gtk::Grid,
+    hex_break_line_width_entry: gtk::SpinButton,
 }
 
 pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gio::SimpleAction {
@@ -33,21 +37,48 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync
         ]);
 
     let ca = dialog.get_content_area();
+    ca.set_spacing(12);
+    
     let grid = gtk::Grid::new();
-
+    grid.set_row_spacing(12);
+    
     let error_label = gtk::Label::new(None);
     ca.pack_start(&error_label, false, false, 0);
 
-    let label_entry = gtk::Entry::new();
-    label_entry.set_activates_default(true);
-    grid.attach(&gtk::Label::new(Some("Label")), 0, 0, 1, 1);
-    grid.attach(&label_entry, 1, 0, 1, 1);
+    let label_entry = gtk::Entry::new(); {
+        let label = gtk::Label::new(Some("Label"));
+        label.set_hexpand(true);
+        label.set_halign(gtk::Align::Start);
+        label_entry.set_activates_default(true);
+        grid.attach(&label, 0, 0, 1, 1);
+        grid.attach(&label_entry, 1, 0, 1, 1);
+    };
     
-    let addr_entry = gtk::Entry::new();
-    addr_entry.set_activates_default(true);
-    grid.attach(&gtk::Label::new(Some("Address")), 0, 1, 1, 1);
-    grid.attach(&addr_entry, 1, 1, 1, 1);
+    let addr_entry = gtk::Entry::new(); {
+        let label = gtk::Label::new(Some("Address"));
+        label.set_hexpand(true);
+        label.set_halign(gtk::Align::Start);
+        addr_entry.set_activates_default(true);
+        grid.attach(&label, 0, 1, 1, 1);
+        grid.attach(&addr_entry, 1, 1, 1, 1);
+        ca.pack_start(&grid, false, false, 0);
+    };
+    
+    let type_box = gtk::ComboBoxText::new();
+    type_box.append(Some("hex"), "Hex");
+    ca.pack_start(&type_box, false, false, 0);
 
+    let hex_break_grid = gtk::Grid::new();
+    hex_break_grid.set_row_spacing(12);
+    let hex_break_line_width_entry = gtk::SpinButton::new_with_range(1.0, 32.0, 1.0); {
+        let label = gtk::Label::new(Some("Line Width"));
+        label.set_hexpand(true);
+        label.set_halign(gtk::Align::Start);
+        hex_break_grid.attach(&label, 0, 0, 1, 1);
+        hex_break_grid.attach(&hex_break_line_width_entry, 1, 0, 1, 1);
+    };
+    ca.pack_start(&hex_break_grid, false, false, 0);
+    
     let iba = rc::Rc::new(InsertBreakAction {
         dialog,
         lw: rc.clone(),
@@ -55,7 +86,11 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync
         da: da.clone(),
         error_label,
         label_entry,
-        addr_entry
+        addr_entry,
+        type_box,
+
+        hex_break_grid,
+        hex_break_line_width_entry,
     });
     
     {
@@ -64,8 +99,14 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync
             iba_clone.update_dialog_buttons();
         });
     }
+
+    {
+        let iba_clone = iba.clone();
+        iba.type_box.connect_changed(move |_entry| {
+            iba_clone.update_available_details();
+        });
+    }
     
-    ca.pack_start(&grid, true, true, 0);
     ca.show_all();
 
     action.connect_activate(move |_act, _par| {
@@ -111,13 +152,46 @@ impl InsertBreakAction {
         }
     }
 
+    fn update_details(&self, brk: &sync::Arc<brk::Break>) {
+        self.type_box.set_active_id(match &brk.class {
+            brk::BreakClass::Hex(hex) => {
+                self.hex_break_line_width_entry.set_value(hex.line_size.bytes as f64);
+                
+                Some("hex")
+            },
+        });
+
+        self.update_available_details();
+    }
+
+    fn update_available_details(&self) {
+        self.hex_break_grid.hide();
+
+        match self.type_box.get_active_id() {
+            Some(gs) => match gs.as_ref() {
+                "hex" => self.hex_break_grid.show(),
+                _ => {},
+            },
+            None => {},
+        }
+        
+    }
+
     fn activate(&self) {
         self.dialog.set_transient_for(self.da.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
+        let lw = self.lw.read();
+        let addr = lw.cursor_view.cursor.get_addr();
+        
+        self.label_entry.set_text(self.listing.get_break_map().get(&addr).and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
         self.label_entry.grab_focus();
+        
         self.error_label.set_text("");
+        self.addr_entry.set_text(&format!("{}", lw.cursor_view.cursor.get_addr()));
 
-        self.addr_entry.set_text(&format!("{}", self.lw.read().cursor_view.cursor.get_addr()));
+        self.update_details(self.listing.get_break_map().break_at(addr));
+        
+        std::mem::drop(lw);
         
         loop {
             let response = self.dialog.run();
@@ -134,7 +208,7 @@ impl InsertBreakAction {
                             addr,
                             label: self.label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
                             class: brk::BreakClass::Hex(brk::hex::HexBreak {
-                                line_size: addr::Size::from(16),
+                                line_size: addr::Size::from(self.hex_break_line_width_entry.get_value_as_int() as u64),
                             }),
                         }); break
                     },
