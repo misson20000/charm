@@ -14,7 +14,7 @@ pub fn create_goto_start_of_line(rc: &sync::Arc<parking_lot::RwLock<widget::list
         
         lww.cursor_view.move_to_start_of_line();
         lww.scroll.ensure_cursor_is_in_view(&mut lww.window, &lww.cursor_view, widget::listing::component::scroll::EnsureCursorInViewDirection::Up);
-        lww.collect_draw_events(&da_clone);
+        lww.collect_events(&da_clone);
     });
 
     action
@@ -32,7 +32,7 @@ pub fn create_goto_end_of_line(rc: &sync::Arc<parking_lot::RwLock<widget::listin
         
         lww.cursor_view.move_to_end_of_line();
         lww.scroll.ensure_cursor_is_in_view(&mut lww.window, &lww.cursor_view, widget::listing::component::scroll::EnsureCursorInViewDirection::Down);
-        lww.collect_draw_events(&da_clone);
+        lww.collect_events(&da_clone);
     });
 
     action

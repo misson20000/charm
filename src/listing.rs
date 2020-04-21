@@ -3,6 +3,7 @@ pub mod cursor;
 pub mod line_group;
 pub mod window;
 
+use std::string;
 use std::sync;
 use std::vec;
 
@@ -15,11 +16,22 @@ use im::ordmap;
 type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
 type PatchMap = ordmap::OrdMap<u64, Patch>;
 
+#[derive(Clone, Copy)]
+enum UndoOp {
+    ModifyBreak,
+    DeleteBreak,
+    Patch(u64, u64),
+}
+
+#[derive(Clone)]
 pub struct Listing {
-    pub space: sync::Arc<dyn AddressSpace>,
-    break_map: parking_lot::RwLock<BreakMap>,
-    break_list_observers: sync::Mutex<vec::Vec<sync::Weak<dyn BreakListObserver>>>,
-    patch_map: parking_lot::RwLock<PatchMap>,
+    space: sync::Arc<dyn AddressSpace>,
+    breaks: BreakMap,
+    patches: PatchMap,
+    
+    redo: Option<sync::Arc<Listing>>,
+    undo: Option<(UndoOp, sync::Arc<Listing>)>,
+    // TODO: undo depth limit
 }
 
 #[derive(Clone, Debug)]
@@ -30,109 +42,102 @@ pub struct Patch {
 impl Listing {
     pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Listing {
         Listing {
-            break_map: parking_lot::RwLock::new(ordmap!{
+            breaks: ordmap!{
                 addr::unit::NULL => sync::Arc::new(brk::Break::new(
                     addr::unit::NULL,
                     Some(space.get_label()),
                     brk::BreakClass::Hex(brk::hex::HexBreak {
                         line_size: addr::Size::from(16)
                     })))
-            }),
-            break_list_observers: sync::Mutex::new(vec::Vec::new()),
-            patch_map: parking_lot::RwLock::new(ordmap!{
+            },
+            patches: ordmap!{
                 0x3 => Patch {
                     bytes: vec![0x44, 0x55, 0x66, 0x77]
                 }
-            }),
+            },
             space,
+            redo: None,
+            undo: None,
         }
     }
+    
+    fn clone_for_undo(&self, op: UndoOp) -> Option<(UndoOp, sync::Arc<Listing>)> {
+        match &self.undo {
+            Some((old_op, old_undo)) => match old_op.stack_with(op) {
+                Some(new_op) => return Some((new_op, old_undo.clone())),
+                None => (),
+            },
+            None => ()
+        }
 
-    /* I would just make break_map pub, but I want to control write access
-     * to enforce invariants like "break list must be sorted" and "break
-     * list must notify observers on change" */
-    pub fn get_break_map(&self) -> parking_lot::RwLockReadGuard<BreakMap> {
-        self.break_map.read_recursive()
+        let mut undo = (*self).clone();
+        undo.redo = None;
+        Some((op, sync::Arc::new(undo)))
+    }
+    
+    // read only, please
+    pub fn get_space(&self) -> &sync::Arc<dyn AddressSpace> {
+        &self.space
+    }
+    
+    // read only, please
+    pub fn get_breaks(&self) -> &BreakMap {
+        &self.breaks
+    }
+
+    // read only, please
+    pub fn get_patches(&self) -> &PatchMap {
+        &self.patches
     }
 
     /// Inserts a break or replaces an existing one.
-    pub fn insert_break(&self, brk: brk::Break) {
-        let mut breaks = self.break_map.write();
-        breaks.insert(brk.addr, sync::Arc::new(brk));
-        self.invalidate_break_list(breaks);
+    pub fn insert_break(&mut self, brk: brk::Break) {
+        self.undo = self.clone_for_undo(UndoOp::ModifyBreak);
+        self.breaks.insert(brk.addr, sync::Arc::new(brk));
     }
     
     /// Removes a break.
-    pub fn delete_break(&self, addr: &addr::Address) -> Result<(), BreakDeletionError> {
-        let mut breaks = self.break_map.write();
-
+    pub fn delete_break(&mut self, addr: &addr::Address) -> Result<(), BreakDeletionError> {
         if *addr == addr::unit::NULL {
             return Err(BreakDeletionError::IsZeroBreak);
         }
-        
-        match breaks.remove(addr) {
+
+        let undo = self.clone_for_undo(UndoOp::DeleteBreak);
+        match self.breaks.remove(addr) {
             Some(_) => {
-                self.invalidate_break_list(breaks);
+                self.undo = undo;
                 Ok(())
             },
             None => Err(BreakDeletionError::NotFound)
         }
     }
 
-    pub fn get_patches(&self) -> parking_lot::RwLockReadGuard<PatchMap> {
-        self.patch_map.read_recursive()
-    }
-    
-    pub fn patch_byte(&self, location: u64, patch: u8) {
-        let mut patches = self.patch_map.write();
-
-        match patches.get_prev_mut(&location) {
+    pub fn patch_byte(&mut self, location: u64, patch: u8) {
+        self.undo = self.clone_for_undo(UndoOp::Patch(location, 1));
+        
+        match self.patches.get_prev_mut(&location) {
             Some((k, v)) if k <= &location && location - k < v.bytes.len() as u64 => {
                 v.bytes[(location - k) as usize] = patch;
             },
             Some((&k, v)) if k + v.bytes.len() as u64 == location => {
                 v.bytes.push(patch);
-                match patches.get_next_mut(&location) {
-                    Some((&nk, _)) if k - 1 == location => {
-                        let mut old_patch = patches.remove(&nk).unwrap();
-                        patches[&k].bytes.append(&mut old_patch.bytes);
+                match self.patches.get_next_mut(&location) {
+                    Some((&nk, _)) if k == location + 1 => {
+                        let mut old_patch = self.patches.remove(&nk).unwrap();
+                        self.patches[&k].bytes.append(&mut old_patch.bytes);
                     },
                     _ => ()
                 }
             },
             Some((&k, _)) if k == (location + 1) => {
-                let mut old_patch = patches.remove(&k).unwrap();
+                let mut old_patch = self.patches.remove(&k).unwrap();
                 old_patch.bytes.insert(0, patch);
-                patches.insert(location, old_patch);
+                self.patches.insert(location, old_patch);
             },
             _ => {
-                patches.insert(location, Patch { bytes: vec![patch] });
+                self.patches.insert(location, Patch { bytes: vec![patch] });
             }
         }
-    }
-
-    /// Subscribes an object to be notified every time the break list changes.
-    pub fn add_break_list_observer(&self, observer: &sync::Arc<dyn BreakListObserver>) {
-        self.break_list_observers.lock().unwrap().push(sync::Arc::downgrade(observer));
-    }
-
-    /// Removes a break list observer.
-    pub fn remove_break_list_observer(&self, observer: &sync::Weak<dyn BreakListObserver>) {
-        // TODO: the pointer comparison here is bogus: https://github.com/rust-lang/rust/issues/46139
-        // but it doesn't really matter because we run after Drop for ListingEngineBreakObsever
-        self.break_list_observers.lock().unwrap().retain(|e| !e.ptr_eq(observer) && e.upgrade().is_some());
-    }
-
-    /// Signals all of the break list observers that the list has been invalidated.
-    fn invalidate_break_list(&self, guard: parking_lot::RwLockWriteGuard<BreakMap>) {
-        std::mem::drop(guard);
-        
-        self.break_list_observers.lock().unwrap().retain(|observer| {
-            match observer.upgrade() {
-                Some(observer) => { observer.break_list_changed(); true },
-                None => false
-            }
-        });
     }
 }
 
@@ -211,11 +216,24 @@ impl BreakMapExt for BreakMap {
     }
 }
 
-pub trait BreakListObserver : Send + Sync {
-    fn break_list_changed(&self);
-}
-
 pub enum BreakDeletionError {
     IsZeroBreak,
     NotFound,
+}
+
+impl UndoOp {
+    fn stack_with(&self, op: UndoOp) -> Option<UndoOp> {
+        match (*self, op) {
+            (UndoOp::Patch(old_loc, old_n), UndoOp::Patch(new_loc, new_n)) if new_loc == old_loc || new_loc == old_loc + 1 => Some(UndoOp::Patch(new_loc, old_n + new_n)),
+            _ => None,
+        }
+    }
+
+    fn describe(&self) -> string::String {
+        match self {
+            UndoOp::ModifyBreak => "modify break".to_string(),
+            UndoOp::DeleteBreak => "delete break".to_string(),
+            UndoOp::Patch(_loc, num) => format!("patch {} bytes", num),
+        }
+    }
 }

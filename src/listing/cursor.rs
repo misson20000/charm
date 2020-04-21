@@ -3,6 +3,7 @@ use std::task;
 use std::vec;
 
 use crate::addr;
+use crate::space;
 use crate::listing;
 use crate::listing::BreakMapExt;
 use crate::listing::window;
@@ -53,8 +54,8 @@ pub trait CursorClassExt {
     fn move_left_large(&mut self) -> MovementResult;
     fn move_right_large(&mut self) -> MovementResult;
 
-    fn enter_standard(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
-    fn enter_utf8    (&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_standard(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_utf8    (&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -70,8 +71,8 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn place(listing: &sync::Arc<listing::Listing>, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
-        let mut window = window::MicroWindow::new(&listing, hint.addr);
+    pub fn place(breaks: &listing::BreakMap, space: &sync::Arc<dyn space::AddressSpace>, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
+        let mut window = window::MicroWindow::new(breaks.clone(), space.clone(), hint.addr);
         window.seek(hint.addr);
         
         Ok(Cursor {
@@ -91,8 +92,8 @@ impl Cursor {
     pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
         let mut updated = false;
         
-        updated = if self.window.is_outdated() {
-            Self::place(&self.window.listing, PlacementHint {
+        updated = if self.window.is_outdated(listing) {
+            Self::place(listing.get_breaks(), listing.get_space(), PlacementHint {
                 addr: self.class.get_addr(),
                 intended_offset: self.class.get_intended_offset(),
                 class: self.class.get_placement_hint()
@@ -105,7 +106,7 @@ impl Cursor {
     }
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
-        Self::place(&self.window.listing, PlacementHint {
+        Self::place(self.window.get_breaks(), self.window.get_space(), PlacementHint {
             addr: addr,
             intended_offset: None,
             class: PlacementHintClass::Unused
@@ -138,7 +139,7 @@ impl Cursor {
     pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionOp::UnspecifiedRight) }
 
     pub fn move_up_to_break(&mut self) -> MovementResult {
-        match self.goto(match self.window.breaks.break_before_addr(self.class.get_addr()) {
+        match self.goto(match self.window.get_breaks().break_before_addr(self.class.get_addr()) {
             Some(brk) => brk.addr,
             None => return MovementResult::HitStart,
         }) {
@@ -148,7 +149,7 @@ impl Cursor {
     }
     
     pub fn move_down_to_break(&mut self) -> MovementResult {
-        match self.goto(match self.window.breaks.break_after_addr(self.class.get_addr()) {
+        match self.goto(match self.window.get_breaks().break_after_addr(self.class.get_addr()) {
             Some(brk) => brk.addr,
             None => return MovementResult::HitEnd,
         }) {
@@ -157,11 +158,11 @@ impl Cursor {
         }
     }
 
-    pub fn enter_standard(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+    pub fn enter_standard(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
         self.class.enter_standard(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
     }
 
-    pub fn enter_utf8(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+    pub fn enter_utf8(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
         self.class.enter_utf8(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
     }
 }

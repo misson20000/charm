@@ -40,7 +40,8 @@ impl Scroller {
         self.bonked_top = false;
         self.bonked_bottom = false;
 
-        self.events.want();
+        self.events.want_draw();
+        self.events.want_animate();
     }
 
     pub fn animate(&mut self, window: &mut window::ListingWindow, cursor_view: &component::cursor::CursorView, ais: f64) {
@@ -122,7 +123,8 @@ impl Scroller {
         self.position+= self.velocity * ais;
         
         if f64::abs(self.velocity) > 0.01 {
-            self.events.want();
+            self.events.want_draw();
+            self.events.want_animate();
         } else {
             self.velocity = 0.0;
         }

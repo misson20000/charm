@@ -52,6 +52,8 @@ pub struct HexLineGroup {
     async_state: AsyncState,
     raw_bytes: vec::Vec<u8>,
     pub patched_bytes: vec::Vec<PatchByteRecord>,
+
+    space: sync::Weak<dyn space::AddressSpace>,
     patches: listing::PatchMap,
     cache_id: u64,
 }
@@ -232,6 +234,8 @@ impl HexLineGroup {
             extent,
             raw_bytes: vec::Vec::new(),
             patched_bytes: vec![PatchByteRecord::default(); extent.round_out().1 as usize],
+
+            space: sync::Arc::downgrade(space),
             patches: listing::PatchMap::new(),
             cache_id: NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
         }
@@ -287,6 +291,13 @@ impl HexLineGroup {
     pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
         let mut updated: bool = false;
 
+        if !self.space.ptr_eq(&sync::Arc::downgrade(listing.get_space())) { // refetch, TODO: do we have to downgrade again?
+            self.space = sync::Arc::downgrade(listing.get_space());
+            self.async_state = AsyncState::Pending(
+                Box::pin(listing.space.clone().fetch(self.extent.round_out())));
+            updated = true;
+        }
+        
         /* poll future if we haven't loaded data yet */
         updated = match &mut self.async_state {
             AsyncState::Pending(future) => {

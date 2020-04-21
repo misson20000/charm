@@ -12,7 +12,7 @@ use crate::widget::listing::ListingWidget;
 struct InsertBreakAction {
     dialog: gtk::Dialog,
     lw: sync::Arc<parking_lot::RwLock<ListingWidget>>,
-    listing: sync::Arc<listing::Listing>,
+    upstream_listing: sync::Arc<parking_lot::RwLock<listing::Listing>>,
     da: gtk::DrawingArea, // TODO: weak-ref
     error_label: gtk::Label,
     label_entry: gtk::Entry,
@@ -23,7 +23,7 @@ struct InsertBreakAction {
     hex_break_line_width_entry: gtk::SpinButton,
 }
 
-pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync::Arc<listing::Listing>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("insert_break", None);
     let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Insert Break"),
@@ -82,7 +82,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, listing: &sync
     let iba = rc::Rc::new(InsertBreakAction {
         dialog,
         lw: rc.clone(),
-        listing: listing.clone(),
+        upstream_listing: upstream_listing.clone(),
         da: da.clone(),
         error_label,
         label_entry,
@@ -128,7 +128,7 @@ impl InsertBreakAction {
 
         match addr::Address::parse(addr_text) {
             Ok(addr) => {
-                match self.listing.get_break_map().break_at(addr) {
+                match self.upstream_listing.read_recursive().get_breaks().break_at(addr) {
                     brk if brk.addr == addr => {
                         self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); /* delete */
                         self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); /* edit */
@@ -182,15 +182,19 @@ impl InsertBreakAction {
 
         let lw = self.lw.read();
         let addr = lw.cursor_view.cursor.get_addr();
+
+        let upstream = self.upstream_listing.read_recursive();
+        let breaks = upstream.get_breaks();
         
-        self.label_entry.set_text(self.listing.get_break_map().get(&addr).and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
+        self.label_entry.set_text(breaks.get(&addr).and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
         self.label_entry.grab_focus();
         
         self.error_label.set_text("");
         self.addr_entry.set_text(&format!("{}", lw.cursor_view.cursor.get_addr()));
 
-        self.update_details(self.listing.get_break_map().break_at(addr));
-        
+        self.update_details(breaks.break_at(addr));
+
+        std::mem::drop(upstream);
         std::mem::drop(lw);
         
         loop {
@@ -204,7 +208,7 @@ impl InsertBreakAction {
             let message = match response {
                 gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { /* edit or insert */
                     Ok(addr) => {
-                        self.listing.insert_break(brk::Break {
+                        self.upstream_listing.write().insert_break(brk::Break {
                             addr,
                             label: self.label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
                             class: brk::BreakClass::Hex(brk::hex::HexBreak {
@@ -218,7 +222,7 @@ impl InsertBreakAction {
                     Err(addr::AddressParseError::TooManyBits) => "Invalid amount of bits.",
                 }
                 gtk::ResponseType::Other(1) => match addr::Address::parse(addr_text) { /* delete */
-                    Ok(addr) => match self.listing.delete_break(&addr) {
+                    Ok(addr) => match self.upstream_listing.write().delete_break(&addr) {
                         Ok(_) => break,
                         Err(listing::BreakDeletionError::IsZeroBreak) => "Can't delete the zero break.",
                         Err(listing::BreakDeletionError::NotFound) => "Not found.",

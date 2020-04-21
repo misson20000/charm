@@ -89,10 +89,14 @@ struct LineCacheEntry {
 }
 
 pub struct ListingWidget {
+    upstream_listing: sync::Arc<parking_lot::RwLock<listing::Listing>>,
+    
     window: listing::window::ListingWindow,
     rt: tokio::runtime::Handle,
     update_task: option::Option<tokio::task::JoinHandle<()>>,
-
+    update_task_waker: sync::Mutex<Option<task::Waker>>,
+    has_updated: bool, // signal from update thread back to gui thread
+    
     last_config_version: usize,
     last_animation_time: i64,
     
@@ -109,13 +113,17 @@ pub struct ListingWidget {
 
 impl ListingWidget {
     pub fn new(
-        listing: sync::Arc<listing::Listing>,
+        upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>,
         rt: tokio::runtime::Handle) -> ListingWidget {
         let cfg = config::get();
+        let listing = (*upstream_listing).read_recursive();
         ListingWidget {
+            upstream_listing: upstream_listing.clone(),
             window: listing::window::ListingWindow::new(&listing),
             rt,
             update_task: None,
+            update_task_waker: sync::Mutex::new(None),
+            has_updated: false,
 
             last_config_version: 0,
             last_animation_time: 0,
@@ -128,7 +136,7 @@ impl ListingWidget {
                 height: 0.0,
                 addr_pane_width: 0.0,
             },
-            cursor_view: component::cursor::CursorView::new(&listing),
+            cursor_view: component::cursor::CursorView::new(&*listing),
             scroll: component::scroll::Scroller::new(),
 
             line_cache: HashMap::new(),
@@ -194,7 +202,7 @@ impl ListingWidget {
         /* actions */
         let ag = gio::SimpleActionGroup::new();
         ag.add_action(&action::goto::create(&rc, da));
-        ag.add_action(&action::insert_break::create(&rc, lw.window.get_listing(), da));
+        ag.add_action(&action::insert_break::create(&rc, &lw.upstream_listing, da));
 
         ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
         ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
@@ -296,7 +304,7 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("patches: {:#?}", &*self.window.get_listing().get_patches()),
+            format!("patches: {:#?}", &*self.upstream_listing.read().get_patches()),
             
         ];
         let mut lineno = 0;
@@ -315,18 +323,23 @@ impl ListingWidget {
         gtk::Inhibit(false)
     }
     
-    fn collect_draw_events(&mut self, da: &gtk::DrawingArea) {
+    fn collect_events(&mut self, da: &gtk::DrawingArea) {
         self.cursor_view.events.collect_draw(da);
         self.scroll.events.collect_draw(da);
 
-        if self.window.clear_has_loaded() {
-            da.queue_draw();
+        let mut wants_update = false;
+        wants_update = self.cursor_view.events.collect_update() || wants_update;
+        wants_update = self.scroll.events.collect_update() || wants_update;
+        wants_update = std::mem::replace(&mut self.window.wants_update, false) || wants_update;
+
+        if wants_update {
+            self.wake_update_task();
         }
     }
     
     fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
         self.scroll.scroll_wheel_impulse(es.get_delta().1);
-        self.collect_draw_events(da);
+        self.collect_events(da);
         
         gtk::Inhibit(true)
     }
@@ -338,15 +351,11 @@ impl ListingWidget {
             self.reconfigure(da, &cfg);
         }
 
-        if self.window.update() {
-            self.line_cache = HashMap::new();
+        if self.has_updated {
             da.queue_draw();
+            self.has_updated = false;
         }
 
-        if self.cursor_view.cursor.update(&self.window.get_listing().get_patches()) {
-            da.queue_draw();
-        }
-        
         if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
             /* if we fall too far behind, just drop frames */
             self.last_animation_time = fc.get_frame_time();
@@ -362,7 +371,7 @@ impl ListingWidget {
             self.last_animation_time+= ais_micros;
         }
 
-        self.collect_draw_events(da);
+        self.collect_events(da);
         
         Continue(true)
     }
@@ -380,8 +389,8 @@ impl ListingWidget {
         self.resize_window(&cfg);
         self.last_config_version = cfg.version;
         self.line_cache = HashMap::new();
-        
-        da.queue_draw();
+
+        self.collect_events(da);
     }
     
     fn resize_window(&mut self, cfg: &config::Config) {
@@ -411,7 +420,7 @@ impl ListingWidget {
             _ => ()
         }
         
-        self.collect_draw_events(da);
+        self.collect_events(da);
 
         gtk::Inhibit(false)
     }
@@ -420,7 +429,7 @@ impl ListingWidget {
         self.cursor_view.blink();
         self.cursor_view.has_focus = ef.get_in();
         
-        self.collect_draw_events(da);
+        self.collect_events(da);
 
         gtk::Inhibit(false)
     }
@@ -431,7 +440,7 @@ impl ListingWidget {
         
         self.resize_window(&config::get());
 
-        self.collect_draw_events(da);
+        self.collect_events(da);
     }
 
     fn cursor_transaction<F>(&mut self, cb: F, dir: component::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
@@ -460,12 +469,29 @@ impl ListingWidget {
             (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
             (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
-            _ => self.cursor_view.entry(self.window.get_listing(), ek)
+            _ => self.cursor_view.entry(&mut *self.upstream_listing.write(), ek)
         };
 
-        self.collect_draw_events(da);
+        self.collect_events(da);
 
         r
+    }
+
+    fn update(&mut self, cx: &mut task::Context) {
+        let mut updated = false;
+        let listing = self.upstream_listing.read_recursive();
+        
+        updated = self.window.update(&listing, cx) || updated;
+        updated = self.cursor_view.cursor.update(&listing, cx) || updated;
+
+        *self.update_task_waker.lock().unwrap() = Some(cx.waker().clone());
+        self.has_updated = self.has_updated || updated;
+    }
+
+    fn wake_update_task(&self) {
+        if let Some(wk) = std::mem::replace(&mut *self.update_task_waker.lock().unwrap(), None) {
+            wk.wake();
+        }
     }
 }
 
@@ -488,8 +514,7 @@ impl std::future::Future for ListingWidgetFuture {
         match self.lw.upgrade() {
             Some(lw) => {
                 let mut lw = lw.write();
-                lw.window.progress(cx);
-                lw.cursor_view.cursor.progress(cx);
+                lw.update(cx);
                 task::Poll::Pending
             }
             None => task::Poll::Ready(())

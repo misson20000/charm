@@ -1,5 +1,3 @@
-use std::sync;
-
 use crate::addr;
 use crate::config;
 use crate::listing;
@@ -23,10 +21,10 @@ pub struct CursorView {
 }
 
 impl CursorView {
-    pub fn new(listing: &sync::Arc<listing::Listing>) -> CursorView {
+    pub fn new(listing: &listing::Listing) -> CursorView {
         CursorView {
             events: component::Events::new(),
-            cursor: cursor::Cursor::place(listing, cursor::PlacementHint::default()).expect("should be able to default-place cursor"),
+            cursor: cursor::Cursor::place(listing.get_breaks(), listing.get_space(), cursor::PlacementHint::default()).expect("should be able to default-place cursor"),
             blink_timer: 0.0,
             bonk_timer: 0.0,
             has_focus: true,
@@ -107,7 +105,7 @@ impl CursorView {
         self.cursor.goto(addr)
     }
 
-    pub fn entry(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> gtk::Inhibit {
+    pub fn entry(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> gtk::Inhibit {
         match match self.mode {
             Mode::Command => return gtk::Inhibit(false),
             Mode::Entry => self.cursor.enter_standard(listing, key),

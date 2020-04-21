@@ -1,5 +1,4 @@
 use std::sync;
-use std::vec;
 use std::task;
 
 use crate::addr;
@@ -87,52 +86,44 @@ pub struct ListingWindow {
     pub window_height: usize,
     
     num_lines: usize, /* number of lines contained in line_groups */
-    
-    wakers: vec::Vec<task::Waker>,
-    has_loaded: bool,
+
+    pub wants_update: bool,
 }
 
 pub struct MicroWindow {
-    pub listing: sync::Arc<listing::Listing>,
-    pub breaks: listing::BreakMap,
+    breaks: listing::BreakMap,
+    space: sync::Arc<dyn space::AddressSpace>,
     top_view: BreakViewUpward,
     bottom_view: BreakViewDownward,
 }
 
 impl ListingWindow {
-    pub fn new(listing: &sync::Arc<listing::Listing>) -> ListingWindow {
+    pub fn new(listing: &listing::Listing) -> ListingWindow {
         ListingWindow {
-            micro: MicroWindow::new(&listing, addr::Address::default()),
+            micro: MicroWindow::new(listing.get_breaks().clone(), listing.get_space().clone(), addr::Address::default()),
             
             line_groups: std::collections::VecDeque::<LineGroup>::new(),
             top_margin: 0,
             window_height: 0,
             
             num_lines: 0,
-            
-            wakers: vec::Vec::new(),
-            has_loaded: false,
+
+            wants_update: false,
         }
     }
 
-    /// Returns and clear the flag for whether any lines asynchronously loaded data and need to be re-rendered.
-    pub fn clear_has_loaded(&mut self) -> bool {
-        std::mem::replace(&mut self.has_loaded, false)
-    }
-
-    pub fn get_listing(&self) -> &sync::Arc<listing::Listing> {
-        &self.micro.listing
-    }
-    
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
     pub fn seek(&mut self, target: addr::Address) -> usize {
+        self.micro.seek(target);
+        self.repopulate_window()
+    }
+
+    fn repopulate_window(&mut self) -> usize {
         self.line_groups.clear();
         self.num_lines = 0;
         self.top_margin = 0;
-
-        self.micro.seek(target);
-
+        
         let mut offset = 0;
         let mut hit_bottom = false;
         
@@ -144,7 +135,7 @@ impl ListingWindow {
             }
         }
 
-        self.wake();
+        self.wants_update = true;
 
         offset
     }
@@ -165,7 +156,7 @@ impl ListingWindow {
         self.top_margin-= actual;
         self.try_trim_bottom();
 
-        self.wake();
+        self.wants_update = true; 
         
         actual
     }
@@ -186,7 +177,7 @@ impl ListingWindow {
         self.top_margin+= actual;
         self.try_trim_top();
 
-        self.wake();
+        self.wants_update = true;
         
         actual
     }
@@ -199,7 +190,7 @@ impl ListingWindow {
             self.produce_lines_bottom();
         }
 
-        self.wake();
+        self.wants_update = true;
     }
 
     pub fn get_window_height(&self) -> usize {
@@ -239,7 +230,7 @@ impl ListingWindow {
             self.micro.trim_down(&lg);
         }
 
-        self.wake();
+        self.wants_update = true;
     }
 
     /// Tries to trim as many lines as possible off the bottom margin, since
@@ -256,7 +247,7 @@ impl ListingWindow {
             self.micro.trim_up(&lg);
         }
 
-        self.wake();
+        self.wants_update = true;
     }
 
     /// Tries to add a line group to the top margin. Returns true if no lines
@@ -272,7 +263,7 @@ impl ListingWindow {
         self.num_lines+= nl;
         self.line_groups.push_front(lg);
 
-        self.wake();
+        self.wants_update = true;
         
         false
     }
@@ -288,81 +279,68 @@ impl ListingWindow {
         self.num_lines+= lg.num_lines();
         self.line_groups.push_back(lg);
 
-        self.wake();
+        self.wants_update = true;
         
         false
     }
     
     /* state bookkeeping */
 
-    /// Wakes any tasks that were waiting on us to update our line list. Call
-    /// whenever the line list is updated so we can start polling new lines.
-    fn wake(&mut self) {
-        for wk in self.wakers.drain(..) {
-            wk.wake();
-        }
-    }
-
-    /// Notifies us that the upstream break list may have been updated and we
-    /// may need to redraw our window from scratch based on it.
-    pub fn update(&mut self) -> bool {
+    pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
         let mut updated = false;
         
-        if self.micro.is_outdated() {
-            self.seek(self.micro.top_view.get_addr());
+        if self.micro.is_outdated(listing) {
+            self.micro = MicroWindow::new(listing.get_breaks().clone(), listing.get_space().clone(), self.micro.top_view.get_addr());
+            self.repopulate_window();
             updated = true;
         }
 
-        let patches = self.get_listing().get_patches().clone();
         for lg in self.line_groups.iter_mut() {
-            updated = lg.patch(&patches) || updated;
+            updated = lg.update(listing, cx) || updated;
         }
 
         updated
     }
-
-    pub fn progress(&mut self, cx: &mut task::Context) {
-        let has_loaded = self.has_loaded;
-        let line_groups = &mut self.line_groups;
-        self.has_loaded = line_groups.iter_mut().fold(has_loaded, |acc, lg| lg.progress(cx) || acc);
-        self.wakers.push(cx.waker().clone());
-    }
 }
 
 impl MicroWindow {
-    pub fn new(listing: &sync::Arc<listing::Listing>, addr: addr::Address) -> MicroWindow {
-        let breaks = listing.get_break_map().clone();
-        let brk = breaks.break_at(addr);
-
-        let top_view = BreakViewUpward::new_from_top(&breaks, brk.clone());
-        let bottom_view = BreakViewDownward::new_from_top(&breaks, brk.clone());
+    pub fn new(breaks: listing::BreakMap, space: sync::Arc<dyn space::AddressSpace>, addr: addr::Address) -> MicroWindow {
+        let (top_view, bottom_view) = match breaks.break_at(addr) {
+            brk if brk.addr == addr => {
+                (BreakViewUpward::new_from_top(&breaks, brk.clone()),
+                 BreakViewDownward::new_from_top(&breaks, brk.clone()))
+            },
+            brk => {
+                (BreakViewUpward::new_from_middle(&breaks, brk.clone(), addr),
+                 BreakViewDownward::new_from_middle(&breaks, brk.clone(), addr))
+            }
+        };
 
         MicroWindow {
-            listing: listing.clone(),
             breaks,
+            space,
             top_view,
             bottom_view
         }
     }
 
-    pub fn is_outdated(&self) -> bool {
-        !self.breaks.ptr_eq(&self.listing.get_break_map())
+    /// Useful for if you need to re-create the window at a new address
+    pub fn get_breaks(&self) -> &listing::BreakMap {
+        &self.breaks
+    }
+
+    /// Useful for if you need to re-create the window at a new address
+    pub fn get_space(&self) -> &sync::Arc<dyn space::AddressSpace> {
+        &self.space
+    }
+
+    pub fn is_outdated(&self, listing: &listing::Listing) -> bool {
+        !self.breaks.ptr_eq(&listing.get_breaks()) || !sync::Arc::ptr_eq(&self.space, &listing.get_space())
     }
     
-    /// NOTE: zero-sizes the window and updates breaks from upstream
+    /// NOTE: zero-sizes the window
     pub fn seek(&mut self, target: addr::Address) {
-        self.breaks = self.listing.get_break_map().clone();
-        
-        match self.breaks.break_at(target) {
-            brk if brk.addr == target => {
-                self.top_view = BreakViewUpward::new_from_top(&self.breaks, brk.clone());
-                self.bottom_view = BreakViewDownward::new_from_top(&self.breaks, brk.clone());
-            },
-            brk => {
-                self.top_view = BreakViewUpward::new_from_middle(&self.breaks, brk.clone(), target);
-                self.bottom_view = BreakViewDownward::new_from_middle(&self.breaks, brk.clone(), target);
-            }
-        };
+        *self = Self::new(self.breaks.clone(), self.space.clone(), target); // a shame to have to clone these only for the originals to be dropped
     }
 
     /// Shrinks the window by one line group on the bottom.
@@ -392,7 +370,7 @@ impl MicroWindow {
     /// Tries to grow the window by one line group on the top.
     pub fn produce_up(&mut self) -> Option<LineGroup> {
         Some(loop {
-            let lg = self.top_view.produce(&self.listing.space);
+            let lg = self.top_view.produce(&self.space);
 
             match lg {
                 Some(lg) => break lg,
@@ -407,7 +385,7 @@ impl MicroWindow {
     /// Tries to grow the window by one line group on the bottom.
     pub fn produce_down(&mut self) -> Option<LineGroup> {
         Some(loop {
-            let lg = self.bottom_view.produce(&self.listing.space);
+            let lg = self.bottom_view.produce(&self.space);
 
             match lg {
                 Some(lg) => break lg,
