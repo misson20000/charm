@@ -1,4 +1,5 @@
 use crate::addr;
+use crate::listing;
 use crate::listing::brk;
 use crate::listing::cursor;
 use crate::listing::line_group;
@@ -111,7 +112,7 @@ impl cursor::CursorClassExt for HexCursor {
             low_nybble: self.intended_nybble.unwrap_or(self.low_nybble)
         })
     }
-
+    
     fn get_transition_hint(&self) -> cursor::TransitionHintClass {
         cursor::TransitionHintClass::Hex(HexTransitionHint {
             low_nybble: self.intended_nybble.unwrap_or(self.low_nybble)
@@ -226,6 +227,58 @@ impl cursor::CursorClassExt for HexCursor {
             self.offset = offset + addr::unit::QWORD;
             cursor::MovementResult::Ok
         }
+    }
+
+    fn enter_standard(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+        let nybble = match gdk::keyval_to_unicode(key.get_keyval()) {
+            Some('0') => 0,
+            Some('1') => 1,
+            Some('2') => 2,
+            Some('3') => 3,
+            Some('4') => 4,
+            Some('5') => 5,
+            Some('6') => 6,
+            Some('7') => 7,
+            Some('8') => 8,
+            Some('9') => 9,
+            Some('a') => 0xa,
+            Some('b') => 0xb,
+            Some('c') => 0xc,
+            Some('d') => 0xd,
+            Some('e') => 0xe,
+            Some('f') => 0xf,
+            _ => return Err(cursor::EntryError::KeyNotRecognized)
+        };
+
+        let i = self.offset.bytes as usize;
+        let extent = self.lg.as_hex_line().extent;
+        let loc = extent.begin.byte + self.offset.bytes;
+        let shift = extent.begin.bit;
+
+        /*
+         * +-----------------+-----------------+
+         * | 0 1 2 3 4 5 6 7 | 0 1 2 3 4 5 6 7 |
+         * +-----------------+-----------------+
+         * 
+         */
+
+        if self.low_nybble && shift <= 4 {
+            let raw = self.lg.as_hex_line().patched_bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
+            let mask = 0xF << shift;
+            listing.patch_byte(loc, (raw & !mask) | (nybble << shift));
+        } else if !self.low_nybble && shift == 0 {
+            let raw = self.lg.as_hex_line().patched_bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
+            let mask = 0xF << 4;
+            listing.patch_byte(loc, (raw & !mask) | (nybble << 4));
+        } else {
+            todo!();
+        }
+
+        Ok(self.move_right())
+    }
+
+    fn enter_utf8(&mut self, _listing: &listing::Listing, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+        Err(cursor::EntryError::InvalidForType) // TODO
     }
 }
 

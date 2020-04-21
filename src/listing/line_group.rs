@@ -21,16 +21,9 @@ impl LineGroup {
         }
     }
 
-    pub fn progress(&mut self, cx: &mut task::Context) -> bool {
+    pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
         match self {
-            LineGroup::Hex(hex) => hex.progress(cx),
-            LineGroup::BreakHeader(_) => false,
-        }
-    }
-
-    pub fn patch(&mut self, patches: &listing::PatchMap) -> bool {
-        match self {
-            LineGroup::Hex(hex) => hex.patch(patches),
+            LineGroup::Hex(hex) => hex.update(listing, cx),
             LineGroup::BreakHeader(_) => false,
         }
     }

@@ -6,12 +6,20 @@ use crate::listing;
 use crate::listing::cursor;
 use crate::widget::listing::component;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Command,
+    Entry,
+    TextEntry,
+}
+
 pub struct CursorView {
     pub events: component::Events,
     pub cursor: cursor::Cursor,
     pub has_focus: bool,
     blink_timer: f64,
     bonk_timer: f64,
+    mode: Mode,
 }
 
 impl CursorView {
@@ -22,6 +30,7 @@ impl CursorView {
             blink_timer: 0.0,
             bonk_timer: 0.0,
             has_focus: true,
+            mode: Mode::Command,
         }
     }
 
@@ -30,7 +39,7 @@ impl CursorView {
     }
 
     pub fn get_blink(&self) -> bool {
-        self.blink_timer < config::get().cursor_blink_period / 2.0
+        self.mode == Mode::Command || self.blink_timer < config::get().cursor_blink_period / 2.0
     }
 
     pub fn animate(&mut self, cfg: &config::Config, ais: f64) {
@@ -65,6 +74,12 @@ impl CursorView {
         self.bonk_timer = 0.25;
     }
 
+    pub fn change_mode(&mut self, mode: Mode) {
+        self.blink();
+        self.mode = mode;
+        self.events.want_draw();
+    }
+    
     // TODO: macro this
     fn movement<F>(&mut self, mov: F) where F: FnOnce(&mut cursor::Cursor) -> cursor::MovementResult {
         self.events.want_draw();
@@ -90,5 +105,17 @@ impl CursorView {
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), cursor::PlacementFailure>{
         self.blink();
         self.cursor.goto(addr)
+    }
+
+    pub fn entry(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> gtk::Inhibit {
+        match match self.mode {
+            Mode::Command => return gtk::Inhibit(false),
+            Mode::Entry => self.cursor.enter_standard(listing, key),
+            Mode::TextEntry => self.cursor.enter_utf8(listing, key)
+        } {
+            Ok(cursor::MovementResult::Ok) => { self.blink(); gtk::Inhibit(true) },
+            Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); gtk::Inhibit(false) },
+            _ => { self.bonk(); gtk::Inhibit(true) }
+        }
     }
 }

@@ -27,6 +27,13 @@ pub enum PlacementFailure {
     HitBottomOfAddressSpace,
 }
 
+pub enum EntryError {
+    DataNotLoaded,
+    InvalidForPosition,
+    InvalidForType,
+    KeyNotRecognized,
+}
+
 #[enum_dispatch]
 pub trait CursorClassExt {
     fn get_line_group(&self) -> &line_group::LineGroup;
@@ -45,6 +52,9 @@ pub trait CursorClassExt {
     fn move_to_end_of_line(&mut self) -> MovementResult;
     fn move_left_large(&mut self) -> MovementResult;
     fn move_right_large(&mut self) -> MovementResult;
+
+    fn enter_standard(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_utf8    (&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -57,7 +67,6 @@ pub enum CursorClass {
 pub struct Cursor {
     window: window::MicroWindow,
     pub class: CursorClass,
-    wakers: vec::Vec<task::Waker>,
 }
 
 impl Cursor {
@@ -76,35 +85,26 @@ impl Cursor {
                 }
             },
             window,
-            wakers: vec::Vec::new(),
         })
     }
 
-    pub fn update(&mut self, patches: &listing::PatchMap) -> bool {
+    pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
         let mut updated = false;
         
-        if self.window.is_outdated() {
-            updated = Self::place(&self.window.listing, PlacementHint {
+        updated = if self.window.is_outdated() {
+            Self::place(&self.window.listing, PlacementHint {
                 addr: self.class.get_addr(),
                 intended_offset: self.class.get_intended_offset(),
                 class: self.class.get_placement_hint()
-            }).map(|new| { *self = new; }).is_ok() || updated; // TODO: better failure condition
+            }).map(|new| { *self = new; }).is_ok() // TODO: better failure condition
+        } else { updated };
 
-            for wk in self.wakers.drain(..) { wk.wake(); }
-        }
-
-        updated = self.class.get_line_group_mut().patch(patches) || updated;
+        updated = self.class.get_line_group_mut().update(listing, cx) || updated;
 
         updated
     }
 
-    pub fn progress(&mut self, cx: &mut task::Context) {
-        self.class.get_line_group_mut().progress(cx);
-        self.wakers.push(cx.waker().clone());
-    }
-
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
-        for wk in self.wakers.drain(..) { wk.wake(); }
         Self::place(&self.window.listing, PlacementHint {
             addr: addr,
             intended_offset: None,
@@ -121,7 +121,6 @@ impl Cursor {
     }
 
     fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
-        for wk in self.wakers.drain(..) { wk.wake(); }
         match mov(&mut self.class) {
             MovementResult::HitStart => if self.class.prev(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitStart }
             MovementResult::HitEnd   => if self.class.next(&mut self.window, op) { MovementResult::Ok } else { MovementResult::HitEnd }
@@ -156,6 +155,14 @@ impl Cursor {
             Ok(_) => MovementResult::Ok,
             Err(e) => MovementResult::PlacementFailed(e),
         }
+    }
+
+    pub fn enter_standard(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+        self.class.enter_standard(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
+    }
+
+    pub fn enter_utf8(&mut self, listing: &listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+        self.class.enter_utf8(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
     }
 }
 
@@ -279,6 +286,8 @@ impl std::default::Default for PlacementHintClass {
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionOp {
     MoveLeftLarge,
+    EntryStandard,
+    EntryUTF8,
     UnspecifiedLeft,
     UnspecifiedRight,
 }
@@ -287,6 +296,8 @@ impl TransitionOp {
     pub fn is_left(&self) -> bool {
         match self {
             TransitionOp::MoveLeftLarge => true,
+            TransitionOp::EntryStandard => false,
+            TransitionOp::EntryUTF8 => false,
             TransitionOp::UnspecifiedLeft => true,
             TransitionOp::UnspecifiedRight => false,
         }
@@ -295,6 +306,8 @@ impl TransitionOp {
     pub fn is_right(&self) -> bool {
         match self {
             TransitionOp::MoveLeftLarge => false,
+            TransitionOp::EntryStandard => true,
+            TransitionOp::EntryUTF8 => true,
             TransitionOp::UnspecifiedLeft => false,
             TransitionOp::UnspecifiedRight => true,
         }

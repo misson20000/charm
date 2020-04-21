@@ -51,8 +51,8 @@ pub struct HexLineGroup {
     pub extent: addr::Extent,
     async_state: AsyncState,
     raw_bytes: vec::Vec<u8>,
-    patched_bytes: vec::Vec<PatchByteRecord>,
-    patches: Option<listing::PatchMap>,
+    pub patched_bytes: vec::Vec<PatchByteRecord>,
+    patches: listing::PatchMap,
     cache_id: u64,
 }
 
@@ -232,7 +232,7 @@ impl HexLineGroup {
             extent,
             raw_bytes: vec::Vec::new(),
             patched_bytes: vec![PatchByteRecord::default(); extent.round_out().1 as usize],
-            patches: None,
+            patches: listing::PatchMap::new(),
             cache_id: NEXT_CACHE_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
         }
     }
@@ -241,79 +241,54 @@ impl HexLineGroup {
         1
     }
 
-    pub fn patch(&mut self, patches: &listing::PatchMap) -> bool {
-        if self.patches.as_ref().map(|p| !p.ptr_eq(patches)).unwrap_or(true) {
-            self.patches = Some(patches.clone());
-            self.try_patch()
-        } else {
-            false
-        }
-    }
-
-    fn try_patch(&mut self) -> bool {
+    fn apply_patches(&mut self, patches: &listing::PatchMap) {
         let (begin, length) = self.extent.round_out();
 
-        if if let Some(patches) = &self.patches {
-            if match patches.get_prev(&(begin + length)) {
-                Some((&l, _)) => {
-                    let mut patched = false;
-                    let mut i = patches.range(l..).peekable();
-
-                    loop {
-                        if let Some((l, p)) = i.next() {
-                            if l < &(begin + length) {
-                                patched = true;
-                                for i in 0..(length as usize) {
-                                    let mut pbr = PatchByteRecord::default();
-                                    if i < self.raw_bytes.len() {
-                                        pbr.value = self.raw_bytes[i];
-                                        pbr.loaded = true;
-                                    }
-                                    if &(begin + i as u64) >= l && ((begin + i as u64 - l) as usize) < p.bytes.len() {
-                                        pbr.value = p.bytes[(begin + i as u64 - l) as usize];
-                                        pbr.patched = true;
-                                    }
-                                    self.patched_bytes[i] = pbr;
-                                }
-                            } else { break }
-                        } else { break }
-                    }
-
-                    patched
-                },
-                None => {
-                    false
+        for i in 0..(length as usize) {
+            self.patched_bytes[i] = if i < self.raw_bytes.len() {
+                PatchByteRecord {
+                    value: self.raw_bytes[i],
+                    loaded: true,
+                    patched: false,
                 }
-            } {
-                self.invalidate_cache();
-                true
             } else {
-                false
-            }
-        } else { false } {
-            true
-        } else {
-            for i in 0..(length as usize) {
-                self.patched_bytes[i] = if i < self.raw_bytes.len() {
-                    PatchByteRecord {
-                        value: self.raw_bytes[i],
-                        loaded: true,
-                        patched: false,
-                    }
-                } else {
-                    PatchByteRecord {
-                        value: 0,
-                        loaded: false,
-                        patched: false,
-                    }
+                PatchByteRecord {
+                    value: 0,
+                    loaded: false,
+                    patched: false,
                 }
             }
-            false
         }
+        
+        let patch_iter_start = match patches.get_prev(&begin) {
+            Some((&l, _)) => {
+                l
+            }, None => 0
+        };
+
+        let mut i = patches.range(patch_iter_start..);
+
+        while let Some((l, p)) = i.next() {
+            if l >= &(begin + length) {
+                break;
+            }
+
+            for (i, pbr) in self.patched_bytes.iter_mut().enumerate() {
+                if &(begin + i as u64) >= l && ((begin + i as u64 - l) as usize) < p.bytes.len() {
+                    pbr.value = p.bytes[(begin + i as u64 - l) as usize];
+                    pbr.patched = true;
+                }
+            }
+        }
+
+        self.patches = patches.clone();
     }
     
-    pub fn progress(&mut self, cx: &mut task::Context) -> bool {
-        match &mut self.async_state {
+    pub fn update(&mut self, listing: &listing::Listing, cx: &mut task::Context) -> bool {
+        let mut updated: bool = false;
+
+        /* poll future if we haven't loaded data yet */
+        updated = match &mut self.async_state {
             AsyncState::Pending(future) => {
                 match future.as_mut().poll(cx) {
                     task::Poll::Ready(fetch_result) => {
@@ -325,14 +300,26 @@ impl HexLineGroup {
                         };
                         self.async_state = AsyncState::Finished(async_result);
                         self.raw_bytes = data;
-                        self.try_patch();
-                        self.invalidate_cache();
+                        self.patches = listing::PatchMap::new();
                         true
                     },
                     task::Poll::Pending => false
                 }
             },
             AsyncState::Finished(_) => false
+        } || updated;
+
+        /* (re)apply patches if we're using a stale patch list */
+        updated = if !self.patches.ptr_eq(&listing.get_patches()) {
+            self.apply_patches(&listing.get_patches());
+            true
+        } else { updated };
+
+        if updated {
+            self.invalidate_cache();
+            true
+        } else {
+            false
         }
     }
 
@@ -480,5 +467,15 @@ impl<T: window::BreakViewDir> std::fmt::Debug for HexBreakView<T> {
             .field("current_addr", &self.current_addr)
             .field("extent", &self.extent)
             .finish()
+    }
+}
+
+impl PatchByteRecord {
+    pub fn get_loaded(&self) -> Option<u8> {
+        if self.loaded {
+            Some(self.value)
+        } else {
+            None
+        }
     }
 }

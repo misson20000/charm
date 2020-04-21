@@ -22,7 +22,7 @@ pub struct Listing {
     patch_map: parking_lot::RwLock<PatchMap>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Patch {
     bytes: vec::Vec<u8>,
 }

@@ -61,6 +61,9 @@ impl CharmWindow {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Go to..."), Some("win-listing.goto"));
                 edit_menu.append(Some("Insert or edit break..."), Some("win-listing.insert_break"));
+                edit_menu.append(Some("Command mode"), Some("win-listing.mode::command"));
+                edit_menu.append(Some("Hex entry"), Some("win-listing.mode::entry"));
+                edit_menu.append(Some("Text entry (UTF8)"), Some("win-listing.mode::utf8"));
                 edit_menu.freeze();
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
@@ -245,6 +248,8 @@ impl CharmApplication {
         app.application.set_accels_for_action("listing.goto_start_of_line", &["<Ctrl>A"]);
         app.application.set_accels_for_action("listing.goto_end_of_line", &["<Ctrl>E"]);
         app.application.set_accels_for_action("listing.insert_break", &["B"]);
+        app.application.set_accels_for_action("listing.mode::entry", &["E"]);
+        app.application.set_accels_for_action("listing.mode::utf8", &["T"]);
 
         app
     }

@@ -198,6 +198,7 @@ impl ListingWidget {
 
         ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
         ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
+        ag.add_action(&action::mode::create_mode(&rc, da));
         
         da.insert_action_group("listing", Some(&ag));
         
@@ -295,8 +296,7 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("cursor LG: {:#?}", self.cursor_view.cursor.get_line_group()),
-            format!("line_groups[0..5] {:#?}", &self.window.line_groups.as_slices().0[0..5]),
+            format!("patches: {:#?}", &*self.window.get_listing().get_patches()),
             
         ];
         let mut lineno = 0;
@@ -460,7 +460,7 @@ impl ListingWidget {
             (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
             (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
-            _ => gtk::Inhibit(false)
+            _ => self.cursor_view.entry(self.window.get_listing(), ek)
         };
 
         self.collect_draw_events(da);
