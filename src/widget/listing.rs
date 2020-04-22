@@ -1,6 +1,5 @@
 use std::sync;
 use std::task;
-use std::option;
 use std::vec;
 use std::time;
 use std::collections::HashMap;
@@ -12,6 +11,7 @@ use crate::listing;
 use crate::listing::brk;
 use crate::listing::cursor;
 use crate::listing::line_group;
+use crate::gui;
 
 use crate::ext::CairoExt;
 
@@ -92,10 +92,12 @@ pub struct ListingWidget {
     upstream_listing: sync::Arc<parking_lot::RwLock<listing::Listing>>,
     
     window: listing::window::ListingWindow,
-    rt: tokio::runtime::Handle,
-    update_task: option::Option<tokio::task::JoinHandle<()>>,
+
+    update_task: Option<tokio::task::JoinHandle<()>>,
     update_task_waker: sync::Mutex<Option<task::Waker>>,
     has_updated: bool, // signal from update thread back to gui thread
+
+    da: send_wrapper::SendWrapper<gtk::DrawingArea>,
     
     last_config_version: usize,
     last_animation_time: i64,
@@ -112,19 +114,20 @@ pub struct ListingWidget {
 }
 
 impl ListingWidget {
-    pub fn new(
-        upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>,
-        rt: tokio::runtime::Handle) -> ListingWidget {
+    pub fn new(cw: &gui::window::CharmWindow, upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>) -> (sync::Arc<parking_lot::RwLock<ListingWidget>>, gtk::DrawingArea) {
         let cfg = config::get();
         let listing = (*upstream_listing).read_recursive();
-        ListingWidget {
+        
+        let rc = sync::Arc::new(parking_lot::RwLock::new(ListingWidget {
             upstream_listing: upstream_listing.clone(),
             window: listing::window::ListingWindow::new(&listing),
-            rt,
+
             update_task: None,
             update_task_waker: sync::Mutex::new(None),
             has_updated: false,
 
+            da: send_wrapper::SendWrapper::new(gtk::DrawingArea::new()), // TODO: split out model (things that update) from view (this)
+            
             last_config_version: 0,
             last_animation_time: 0,
 
@@ -141,18 +144,11 @@ impl ListingWidget {
 
             line_cache: HashMap::new(),
             last_frame_duration: None,
-        }
-    }
-    
-    pub fn attach(self, da: &gtk::DrawingArea) {
-        let rc: sync::Arc<parking_lot::RwLock<Self>> = sync::Arc::new(parking_lot::RwLock::new(self));
+        }));
 
         let mut lw = rc.write();
 
-        lw.update_task = Some(
-            lw.rt.spawn(ListingWidgetFuture::new(&rc)));
-
-        lw.has_focus = da.is_focus();
+        lw.update_task = Some(cw.application.rt.spawn(ListingWidgetFuture::new(&rc)));
         
         /* Events I might be interested in
         O connect_button_press_event
@@ -175,17 +171,17 @@ impl ListingWidget {
          */
 
         /* signals */
-        { let rc_clone = rc.clone(); da.connect_button_press_event(move |da, eb| rc_clone.write().button_event(da, eb)); }
-        { let rc_clone = rc.clone(); da.connect_button_release_event(move |da, eb| rc_clone.write().button_event(da, eb)); }
-        { let rc_clone = rc.clone(); da.connect_draw(move |da, cr| rc_clone.write().draw(da, cr)); }
-        { let rc_clone = rc.clone(); da.connect_focus_in_event(move |da, ef| rc_clone.write().focus_change_event(da, ef)); }
-        { let rc_clone = rc.clone(); da.connect_focus_out_event(move |da, ef| rc_clone.write().focus_change_event(da, ef)); }
-        { let rc_clone = rc.clone(); da.connect_key_press_event(move |da, ek| rc_clone.write().key_press_event(da, ek)); }
-        { let rc_clone = rc.clone(); da.connect_scroll_event(move |da, es| rc_clone.write().scroll_event(da, es)); }
-        { let rc_clone = rc.clone(); da.connect_size_allocate(move |da, al| rc_clone.write().size_allocate(da, al)); }
-        { let rc_clone = rc.clone(); da.add_tick_callback(move |da, fc| rc_clone.write().tick_callback(da, fc)); }
+        { let rc_clone = rc.clone(); lw.da.connect_button_press_event(move |_, eb| rc_clone.write().button_event(eb)); }
+        { let rc_clone = rc.clone(); lw.da.connect_button_release_event(move |_, eb| rc_clone.write().button_event(eb)); }
+        { let rc_clone = rc.clone(); lw.da.connect_draw(move |_, cr| rc_clone.write().draw(cr)); }
+        { let rc_clone = rc.clone(); lw.da.connect_focus_in_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
+        { let rc_clone = rc.clone(); lw.da.connect_focus_out_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
+        { let rc_clone = rc.clone(); lw.da.connect_key_press_event(move |_, ek| rc_clone.write().key_press_event(ek)); }
+        { let rc_clone = rc.clone(); lw.da.connect_scroll_event(move |_, es| rc_clone.write().scroll_event(es)); }
+        { let rc_clone = rc.clone(); lw.da.connect_size_allocate(move |_, al| rc_clone.write().size_allocate(al)); }
+        { let rc_clone = rc.clone(); lw.da.add_tick_callback(move |_, fc| rc_clone.write().tick_callback(fc)); }
 
-        da.add_events(
+        lw.da.add_events(
             gdk::EventMask::FOCUS_CHANGE_MASK |
             gdk::EventMask::SCROLL_MASK |
             gdk::EventMask::SMOOTH_SCROLL_MASK |
@@ -196,24 +192,29 @@ impl ListingWidget {
         );
 
         /* misc flags */
-        da.set_can_focus(true);
-        da.set_focus_on_click(true);
+        lw.da.set_can_focus(true);
+        lw.da.set_focus_on_click(true);
 
         /* actions */
         let ag = gio::SimpleActionGroup::new();
-        ag.add_action(&action::goto::create(&rc, da));
-        ag.add_action(&action::insert_break::create(&rc, &lw.upstream_listing, da));
+        ag.add_action(&action::goto::create(&rc, &lw));
+        ag.add_action(&action::insert_break::create(&rc, &lw));
 
-        ag.add_action(&action::movement::create_goto_start_of_line(&rc, da));
-        ag.add_action(&action::movement::create_goto_end_of_line(&rc, da));
-        ag.add_action(&action::mode::create_mode(&rc, da));
+        ag.add_action(&action::movement::create_goto_start_of_line(&rc, &lw));
+        ag.add_action(&action::movement::create_goto_end_of_line(&rc, &lw));
+        ag.add_action(&action::mode::create_mode(&rc, &lw));
         
-        da.insert_action_group("listing", Some(&ag));
+        lw.da.insert_action_group("listing", Some(&ag));
         
-        lw.reconfigure(da, &config::get());
+        lw.reconfigure(&config::get());
+
+        let da_clone = (*lw.da).clone();
+        std::mem::drop(lw);
+        
+        (rc, da_clone)
     }
 
-    pub fn draw<'a>(&'a mut self, da: &gtk::DrawingArea, cr: &cairo::Context) -> gtk::Inhibit {
+    pub fn draw<'a>(&'a mut self, cr: &cairo::Context) -> gtk::Inhibit {
         let frame_begin = time::Instant::now();
         
         let cfg = config::get();
@@ -247,6 +248,7 @@ impl ListingWidget {
             cr.save();
             cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
+            let da = (*self.da).clone();
             let lc = &mut self.line_cache;
             match (lg.get_cache_id().and_then(|cache_id| {
                 match lc.entry(cache_id) {
@@ -295,18 +297,13 @@ impl ListingWidget {
 
         /* evict stale entries */
         self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
-
-        /* fill address pane */
-        cr.set_source_gdk_rgba(cfg.addr_pane_color);
-        cr.rectangle(0.0, 0.0, self.layout.width, self.fonts.extents.height);
-        cr.fill();
         
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
             format!("patches: {:#?}", &*self.upstream_listing.read().get_patches()),
-            
         ];
+        
         let mut lineno = 0;
         cr.set_scaled_font(&irc.fonts.mono_scaled);
         for group in debug {
@@ -323,9 +320,9 @@ impl ListingWidget {
         gtk::Inhibit(false)
     }
     
-    fn collect_events(&mut self, da: &gtk::DrawingArea) {
-        self.cursor_view.events.collect_draw(da);
-        self.scroll.events.collect_draw(da);
+    fn collect_events(&mut self) {
+        self.cursor_view.events.collect_draw(&self.da);
+        self.scroll.events.collect_draw(&self.da);
 
         let mut wants_update = false;
         wants_update = self.cursor_view.events.collect_update() || wants_update;
@@ -337,22 +334,23 @@ impl ListingWidget {
         }
     }
     
-    fn scroll_event(&mut self, da: &gtk::DrawingArea, es: &gdk::EventScroll) -> gtk::Inhibit {
+    fn scroll_event(&mut self, es: &gdk::EventScroll) -> gtk::Inhibit {
         self.scroll.scroll_wheel_impulse(es.get_delta().1);
-        self.collect_events(da);
+        self.collect_events();
         
         gtk::Inhibit(true)
     }
     
-    fn tick_callback(&mut self, da: &gtk::DrawingArea, fc: &gdk::FrameClock) -> Continue {
+    fn tick_callback(&mut self, fc: &gdk::FrameClock) -> Continue {
         let cfg = config::get();
 
         if cfg.version > self.last_config_version {
-            self.reconfigure(da, &cfg);
+            self.reconfigure(&cfg);
         }
 
+        // TODO: use idle_add to trigger this from update task
         if self.has_updated {
-            da.queue_draw();
+            self.da.queue_draw();
             self.has_updated = false;
         }
 
@@ -371,16 +369,16 @@ impl ListingWidget {
             self.last_animation_time+= ais_micros;
         }
 
-        self.collect_events(da);
+        self.collect_events();
         
         Continue(true)
     }
 
-    fn reconfigure(&mut self, da: &gtk::DrawingArea, cfg: &config::Config) {
+    fn reconfigure(&mut self, cfg: &config::Config) {
         self.fonts = send_wrapper::SendWrapper::new(Fonts::new(cfg));
 
-        self.layout.width = da.get_allocated_width() as f64;
-        self.layout.height = da.get_allocated_height() as f64;
+        self.layout.width = self.da.get_allocated_width() as f64;
+        self.layout.height = self.da.get_allocated_height() as f64;
         self.layout.addr_pane_width = {
             let addr_pane_extents = self.fonts.bold_scaled.text_extents("0x0000000000000000.0");
             cfg.padding * 2.0 + addr_pane_extents.width
@@ -390,7 +388,7 @@ impl ListingWidget {
         self.last_config_version = cfg.version;
         self.line_cache = HashMap::new();
 
-        self.collect_events(da);
+        self.collect_events();
     }
     
     fn resize_window(&mut self, cfg: &config::Config) {
@@ -410,9 +408,10 @@ impl ListingWidget {
         Ok(())
     }
     
-    fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, da: &gtk::DrawingArea, eb: &gdk::EventButton) -> gtk::Inhibit {
+    fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, eb: &gdk::EventButton) -> gtk::Inhibit {
         match eb.get_event_type() {
             gdk::EventType::ButtonPress => {
+                let da = (*self.da).clone();
                 std::mem::drop(self); /* grab_focus triggers focus_change_event before we return */
                 da.grab_focus();
                 return gtk::Inhibit(false);
@@ -420,27 +419,27 @@ impl ListingWidget {
             _ => ()
         }
         
-        self.collect_events(da);
+        self.collect_events();
 
         gtk::Inhibit(false)
     }
 
-    fn focus_change_event(&mut self, da: &gtk::DrawingArea, ef: &gdk::EventFocus) -> gtk::Inhibit {
+    fn focus_change_event(&mut self, ef: &gdk::EventFocus) -> gtk::Inhibit {
         self.cursor_view.blink();
         self.cursor_view.has_focus = ef.get_in();
         
-        self.collect_events(da);
+        self.collect_events();
 
         gtk::Inhibit(false)
     }
     
-    fn size_allocate(&mut self, da: &gtk::DrawingArea, al: &gtk::Rectangle) {
+    fn size_allocate(&mut self, al: &gtk::Rectangle) {
         self.layout.width = al.width as f64;
         self.layout.height = al.height as f64;
         
         self.resize_window(&config::get());
 
-        self.collect_events(da);
+        self.collect_events();
     }
 
     fn cursor_transaction<F>(&mut self, cb: F, dir: component::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
@@ -451,7 +450,7 @@ impl ListingWidget {
     }
 
     
-    fn key_press_event(&mut self, da: &gtk::DrawingArea, ek: &gdk::EventKey) -> gtk::Inhibit {
+    fn key_press_event(&mut self, ek: &gdk::EventKey) -> gtk::Inhibit {
         let r = match (ek.get_keyval(), ek.get_state().intersects(gdk::ModifierType::SHIFT_MASK), ek.get_state().intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
             (gdk::enums::key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  component::scroll::EnsureCursorInViewDirection::Up),
@@ -472,7 +471,7 @@ impl ListingWidget {
             _ => self.cursor_view.entry(&mut *self.upstream_listing.write(), ek)
         };
 
-        self.collect_events(da);
+        self.collect_events();
 
         r
     }
@@ -485,6 +484,8 @@ impl ListingWidget {
         updated = self.cursor_view.cursor.update(&listing, cx) || updated;
 
         *self.update_task_waker.lock().unwrap() = Some(cx.waker().clone());
+
+        // TODO: trigger animation with glib::idle_add
         self.has_updated = self.has_updated || updated;
     }
 

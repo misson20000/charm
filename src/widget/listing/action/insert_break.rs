@@ -23,7 +23,7 @@ struct InsertBreakAction {
     hex_break_line_width_entry: gtk::SpinButton,
 }
 
-pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("insert_break", None);
     let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Insert Break"),
@@ -82,8 +82,8 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, upstream_listi
     let iba = rc::Rc::new(InsertBreakAction {
         dialog,
         lw: rc.clone(),
-        upstream_listing: upstream_listing.clone(),
-        da: da.clone(),
+        upstream_listing: lw.upstream_listing.clone(),
+        da: (*lw.da).clone(),
         error_label,
         label_entry,
         addr_entry,

@@ -15,7 +15,7 @@ struct GoToAction {
     goto_entry: gtk::Entry
 }
 
-pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, da: &gtk::DrawingArea) -> gio::SimpleAction {
+pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("goto", None);
     let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
         Some("Go to Location"),
@@ -41,7 +41,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, da: &gtk::Draw
     let gta = rc::Rc::new(GoToAction {
         dialog,
         lw: rc.clone(),
-        da: da.clone(),
+        da: (*lw.da).clone(),
         error_label,
         goto_entry,
     });
