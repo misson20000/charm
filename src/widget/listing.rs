@@ -261,7 +261,7 @@ impl ListingWidget {
                         
                         da.get_parent_window().and_then(|window| {
                             /* super important for performance! avoid uploading to GPU every frame! */
-                            window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.descent) as i32)
+                            window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.ascent + irc.fonts.extents.descent) as i32)
                         }).and_then(|surface| {
                             let cache_cr = cairo::Context::new(&surface);
                             
