@@ -13,14 +13,16 @@ use gio::prelude::*;
 
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
-    listing: sync::Arc<parking_lot::RwLock<listing::Listing>>,
+    listing_watch: sync::Arc<listing::ListingWatch>,
     lw: sync::Arc<parking_lot::RwLock<widget::listing::ListingWidget>>,
+    patches: sync::Arc<parking_lot::RwLock<widget::patches::PatchesModel>>,
 }
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     window: gtk::ApplicationWindow,
-    paned: gtk::Paned,
+    listing_container: gtk::Container,
+    patch_list: gtk::TreeView,
     context: cell::RefCell<Option<WindowContext>>,
 }
 
@@ -71,7 +73,56 @@ impl CharmWindow {
             main_box.pack_start(&menu_bar_widget, false, false, 0);
         }
 
-        let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        let listing_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        listing_container.set_homogeneous(true);
+        
+        let hpaned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        let patch_list = gtk::TreeView::new();
+        {
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 0);
+                c.set_title("Location");
+                patch_list.append_column(&c);
+            }
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 1);
+                c.set_title("Size");
+                patch_list.append_column(&c);
+            }
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 2);
+                c.set_title("Patched Bytes");
+                patch_list.append_column(&c);
+            }
+        }
+        
+        {
+            let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
+            vpaned.pack1(&listing_container, true, false);
+
+            { // patch_list frame
+                let frame = gtk::Frame::new(None);
+                frame.set_shadow_type(gtk::ShadowType::In);
+                frame.set_margin_top(10);
+                frame.set_margin_bottom(10);
+                frame.set_margin_start(10);
+                frame.set_margin_end(10);
+                frame.add(&patch_list);
+                
+                vpaned.pack2(&frame, false, true);
+            }
+            
+            hpaned.pack1(&vpaned, true, false);
+        }
         
         {
             let editor = widget::config_editor::build_config_editor();
@@ -85,20 +136,28 @@ impl CharmWindow {
             frame.set_margin_end(10);
             frame.add(&editor);
             
-            paned.pack2(&frame, false, true);
+            hpaned.pack2(&frame, false, true);
         }
-
-        main_box.pack_start(&paned, true, true, 0);                
+        
+        main_box.pack_start(&hpaned, true, true, 0);                
         
         window.add(&main_box);
 
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
             window,
-            paned,
-            
+            listing_container: listing_container.upcast::<gtk::Container>(),
+            patch_list,
             context: cell::RefCell::new(None),
         });
+
+        {
+            // extend our lifetime until the window closes
+            let w_clone = Some(w.clone());
+            w.window.connect_destroy(move |_| {
+                let _ = &w_clone;
+            });
+        }
 
         w
     }
@@ -119,22 +178,33 @@ impl CharmWindow {
         );
 
         self.window.set_title(format!("Charm: {}", space.get_label()).as_str());
-        let (context, da) = WindowContext::new(self, listing::Listing::new(space));
-        self.paned.pack1(&da, true, false);
-        
-        std::mem::replace(&mut *self.context.borrow_mut(), Some(context));
+        WindowContext::new(self, listing::Listing::new(space)).attach(self);
     }
 }
 
 impl WindowContext {
-    fn new(window: &rc::Rc<CharmWindow>, listing: listing::Listing) -> (WindowContext, gtk::DrawingArea) {
-        let listing = sync::Arc::new(parking_lot::RwLock::new(listing));
-        let (lw, da) = widget::listing::ListingWidget::new(window, &listing);
+    fn new(window: &rc::Rc<CharmWindow>, listing: listing::Listing) -> WindowContext {
+        let listing_watch = sync::Arc::new(listing::ListingWatch::new(listing));
+        let lw = widget::listing::ListingWidget::new(window, &listing_watch);
+        let patches = widget::patches::PatchesModel::new(window, &listing_watch);
         
-        (WindowContext {
+        WindowContext {
             window: rc::Rc::downgrade(window),
-            listing,
+            listing_watch,
             lw,
-        }, da)
+            patches,
+        }
+    }
+
+    fn attach(self, window: &CharmWindow) {
+        let lw = self.lw.read();
+        let da = lw.get_drawing_area();
+        window.listing_container.foreach(|w| window.listing_container.remove(w));
+        window.listing_container.add(da);
+        window.patch_list.set_model(Some(self.patches.read().get_tree_model()));
+        da.grab_focus();
+
+        std::mem::drop(lw);
+        std::mem::replace(&mut *window.context.borrow_mut(), Some(self));
     }
 }

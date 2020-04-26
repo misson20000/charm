@@ -5,16 +5,19 @@ pub mod window;
 
 use std::string;
 use std::sync;
+use std::task;
 use std::vec;
 
 use crate::addr;
+use crate::util;
 use crate::space::AddressSpace;
 
 extern crate im;
 use im::ordmap;
 
-type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
-type PatchMap = ordmap::OrdMap<u64, Patch>;
+pub type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
+pub type PatchMap = ordmap::OrdMap<u64, Patch>;
+pub type WatchRef<'a> = owning_ref::OwningRef<sync::RwLockReadGuard<'a, ListingWatchInterior>, Listing>;
 
 #[derive(Clone, Copy)]
 enum UndoOp {
@@ -28,17 +31,125 @@ pub struct Listing {
     space: sync::Arc<dyn AddressSpace>,
     breaks: BreakMap,
     patches: PatchMap,
-    
-    redo: Option<sync::Arc<Listing>>,
-    undo: Option<(UndoOp, sync::Arc<Listing>)>,
-    // TODO: undo depth limit
+}
+
+pub struct ListingWatchInterior { // implementation detail...
+    current: Listing,
+    undo: vec::Vec<(UndoOp, Listing)>,
+}
+
+pub struct ListingWatch {
+    notifier: util::Notifier,
+    interior: sync::RwLock<ListingWatchInterior>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Patch {
-    bytes: vec::Vec<u8>,
+    pub bytes: vec::Vec<u8>,
 }
 
+impl ListingWatch {
+    pub fn new(v: Listing) -> ListingWatch {
+        ListingWatch {
+            notifier: util::Notifier::new(),
+            interior: sync::RwLock::new(ListingWatchInterior {
+                current: v,
+                undo: vec::Vec::new(),
+            })
+        }
+    }
+
+    pub fn wait(&self, cx: &task::Context) {
+        self.notifier.enroll(cx);
+    }
+    
+    pub fn get_listing(&self) -> WatchRef {
+        owning_ref::OwningRef::new(self.interior.read().unwrap()).map(|r| &r.current)
+    }
+    
+    /// Inserts a break or replaces an existing one.
+    pub fn insert_break(&self, brk: brk::Break) {
+        self.mutating_transaction(UndoOp::ModifyBreak, |l| {
+            l.breaks.insert(brk.addr, sync::Arc::new(brk));
+            Result::<(), ()>::Ok(())
+        }).expect("insert break has no failure case");
+    }
+    
+    /// Removes a break.
+    pub fn delete_break(&self, addr: &addr::Address) -> Result<(), BreakDeletionError> {
+        if *addr == addr::unit::NULL {
+            return Err(BreakDeletionError::IsZeroBreak);
+        }
+        
+        self.mutating_transaction(UndoOp::DeleteBreak, |l| {
+            match l.breaks.remove(addr) {
+                Some(_) => Ok(()),
+                None => Err(BreakDeletionError::NotFound)
+            }
+        })
+    }
+
+    pub fn patch_byte(&self, location: u64, patch: u8) {
+        self.mutating_transaction(UndoOp::Patch(location, 1), |listing| {
+            match listing.patches.get_prev_mut(&location) {
+                Some((k, v)) if k <= &location && location - k < v.bytes.len() as u64 => {
+                    v.bytes[(location - k) as usize] = patch;
+                },
+                Some((&k, v)) if k + v.bytes.len() as u64 == location => {
+                    v.bytes.push(patch);
+                    match listing.patches.get_next_mut(&location) {
+                        Some((&nk, _)) if k == location + 1 => {
+                            let mut old_patch = listing.patches.remove(&nk).unwrap();
+                            listing.patches[&k].bytes.append(&mut old_patch.bytes);
+                        },
+                        _ => ()
+                    }
+                },
+                Some((&k, _)) if k == (location + 1) => {
+                    let mut old_patch = listing.patches.remove(&k).unwrap();
+                    old_patch.bytes.insert(0, patch);
+                    listing.patches.insert(location, old_patch);
+                },
+                _ => {
+                    listing.patches.insert(location, Patch { bytes: vec![patch] });
+                }
+            };
+            Result::<(),()>::Ok(())
+        }).expect("patch has no failure case");
+    }
+
+    fn mutating_transaction<E, T, F>(&self, op: UndoOp, cb: F) -> Result<T, E>
+    where F: FnOnce(&mut Listing) -> Result<T, E> {
+        let mut interior = self.interior.write().unwrap();
+        let interior_ref = &mut *interior; // rustc can't see splitting borrow through MutexGuard
+        
+        match match interior_ref.undo.last_mut() {
+            Some((old_op, _)) => match old_op.stack_with(op) {
+                Some(new_op) => Some((old_op, new_op)),
+                None => None,
+            },
+            None => None,
+        } {
+            Some((op_target, op_value)) => {
+                cb(&mut interior_ref.current).map(|v| {
+                    *op_target = op_value;
+                    v
+                })
+            }
+            None => {
+                let undo = interior_ref.current.clone();
+                cb(&mut interior_ref.current).map(|v| {
+                    interior_ref.undo.push((op, undo));
+                    v
+                })
+            }
+        }.map(|v| {
+            self.notifier.notify();
+            v
+        })
+    }
+}
+    
 impl Listing {
     pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Listing {
         Listing {
@@ -56,25 +167,9 @@ impl Listing {
                 }
             },
             space,
-            redo: None,
-            undo: None,
         }
     }
-    
-    fn clone_for_undo(&self, op: UndoOp) -> Option<(UndoOp, sync::Arc<Listing>)> {
-        match &self.undo {
-            Some((old_op, old_undo)) => match old_op.stack_with(op) {
-                Some(new_op) => return Some((new_op, old_undo.clone())),
-                None => (),
-            },
-            None => ()
-        }
-
-        let mut undo = (*self).clone();
-        undo.redo = None;
-        Some((op, sync::Arc::new(undo)))
-    }
-    
+        
     // read only, please
     pub fn get_space(&self) -> &sync::Arc<dyn AddressSpace> {
         &self.space
@@ -88,56 +183,6 @@ impl Listing {
     // read only, please
     pub fn get_patches(&self) -> &PatchMap {
         &self.patches
-    }
-
-    /// Inserts a break or replaces an existing one.
-    pub fn insert_break(&mut self, brk: brk::Break) {
-        self.undo = self.clone_for_undo(UndoOp::ModifyBreak);
-        self.breaks.insert(brk.addr, sync::Arc::new(brk));
-    }
-    
-    /// Removes a break.
-    pub fn delete_break(&mut self, addr: &addr::Address) -> Result<(), BreakDeletionError> {
-        if *addr == addr::unit::NULL {
-            return Err(BreakDeletionError::IsZeroBreak);
-        }
-
-        let undo = self.clone_for_undo(UndoOp::DeleteBreak);
-        match self.breaks.remove(addr) {
-            Some(_) => {
-                self.undo = undo;
-                Ok(())
-            },
-            None => Err(BreakDeletionError::NotFound)
-        }
-    }
-
-    pub fn patch_byte(&mut self, location: u64, patch: u8) {
-        self.undo = self.clone_for_undo(UndoOp::Patch(location, 1));
-        
-        match self.patches.get_prev_mut(&location) {
-            Some((k, v)) if k <= &location && location - k < v.bytes.len() as u64 => {
-                v.bytes[(location - k) as usize] = patch;
-            },
-            Some((&k, v)) if k + v.bytes.len() as u64 == location => {
-                v.bytes.push(patch);
-                match self.patches.get_next_mut(&location) {
-                    Some((&nk, _)) if k == location + 1 => {
-                        let mut old_patch = self.patches.remove(&nk).unwrap();
-                        self.patches[&k].bytes.append(&mut old_patch.bytes);
-                    },
-                    _ => ()
-                }
-            },
-            Some((&k, _)) if k == (location + 1) => {
-                let mut old_patch = self.patches.remove(&k).unwrap();
-                old_patch.bytes.insert(0, patch);
-                self.patches.insert(location, old_patch);
-            },
-            _ => {
-                self.patches.insert(location, Patch { bytes: vec![patch] });
-            }
-        }
     }
 }
 

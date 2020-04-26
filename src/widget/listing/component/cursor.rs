@@ -105,7 +105,7 @@ impl CursorView {
         self.cursor.goto(addr)
     }
 
-    pub fn entry(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> gtk::Inhibit {
+    pub fn entry(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> gtk::Inhibit {
         match match self.mode {
             Mode::Command => return gtk::Inhibit(false),
             Mode::Entry => self.cursor.enter_standard(listing, key),

@@ -89,12 +89,12 @@ struct LineCacheEntry {
 }
 
 pub struct ListingWidget {
-    upstream_listing: sync::Arc<parking_lot::RwLock<listing::Listing>>,
+    listing_watch: sync::Arc<listing::ListingWatch>,
     
     window: listing::window::ListingWindow,
 
     update_task: Option<tokio::task::JoinHandle<()>>,
-    update_task_waker: sync::Mutex<Option<task::Waker>>,
+    update_notifier: util::Notifier,
     has_updated: bool, // signal from update thread back to gui thread
 
     da: send_wrapper::SendWrapper<gtk::DrawingArea>,
@@ -114,16 +114,17 @@ pub struct ListingWidget {
 }
 
 impl ListingWidget {
-    pub fn new(cw: &gui::window::CharmWindow, upstream_listing: &sync::Arc<parking_lot::RwLock<listing::Listing>>) -> (sync::Arc<parking_lot::RwLock<ListingWidget>>, gtk::DrawingArea) {
+    pub fn new(cw: &gui::window::CharmWindow, listing_watch: &sync::Arc<listing::ListingWatch>) -> sync::Arc<parking_lot::RwLock<ListingWidget>> {
         let cfg = config::get();
-        let listing = (*upstream_listing).read_recursive();
+        let listing_watch_clone = listing_watch.clone();
+        let listing = listing_watch.get_listing();
         
         let rc = sync::Arc::new(parking_lot::RwLock::new(ListingWidget {
-            upstream_listing: upstream_listing.clone(),
+            listing_watch: listing_watch_clone,
             window: listing::window::ListingWindow::new(&listing),
 
             update_task: None,
-            update_task_waker: sync::Mutex::new(None),
+            update_notifier: util::Notifier::new(),
             has_updated: false,
 
             da: send_wrapper::SendWrapper::new(gtk::DrawingArea::new()), // TODO: split out model (things that update) from view (this)
@@ -208,12 +209,15 @@ impl ListingWidget {
         
         lw.reconfigure(&config::get());
 
-        let da_clone = (*lw.da).clone();
         std::mem::drop(lw);
-        
-        (rc, da_clone)
+
+        rc
     }
 
+    pub fn get_drawing_area(&self) -> &gtk::DrawingArea {
+        &self.da
+    }
+    
     pub fn draw<'a>(&'a mut self, cr: &cairo::Context) -> gtk::Inhibit {
         let frame_begin = time::Instant::now();
         
@@ -301,7 +305,7 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("patches: {:#?}", &*self.upstream_listing.read().get_patches()),
+            format!("patches: {:#?}", &*self.listing_watch.get_listing().get_patches()),
         ];
         
         let mut lineno = 0;
@@ -330,7 +334,7 @@ impl ListingWidget {
         wants_update = std::mem::replace(&mut self.window.wants_update, false) || wants_update;
 
         if wants_update {
-            self.wake_update_task();
+            self.update_notifier.notify();
         }
     }
     
@@ -468,7 +472,7 @@ impl ListingWidget {
             (gdk::enums::key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
             (gdk::enums::key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
-            _ => self.cursor_view.entry(&mut *self.upstream_listing.write(), ek)
+            _ => self.cursor_view.entry(&*self.listing_watch, ek)
         };
 
         self.collect_events();
@@ -478,21 +482,15 @@ impl ListingWidget {
 
     fn update(&mut self, cx: &mut task::Context) {
         let mut updated = false;
-        let listing = self.upstream_listing.read_recursive();
+        let listing = self.listing_watch.get_listing();
+        self.listing_watch.wait(cx);
+        self.update_notifier.enroll(cx);
         
         updated = self.window.update(&listing, cx) || updated;
         updated = self.cursor_view.cursor.update(&listing, cx) || updated;
 
-        *self.update_task_waker.lock().unwrap() = Some(cx.waker().clone());
-
         // TODO: trigger animation with glib::idle_add
         self.has_updated = self.has_updated || updated;
-    }
-
-    fn wake_update_task(&self) {
-        if let Some(wk) = std::mem::replace(&mut *self.update_task_waker.lock().unwrap(), None) {
-            wk.wake();
-        }
     }
 }
 

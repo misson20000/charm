@@ -229,7 +229,7 @@ impl cursor::CursorClassExt for HexCursor {
         }
     }
 
-    fn enter_standard(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+    fn enter_standard(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
         let nybble = match gdk::keyval_to_unicode(key.get_keyval()) {
             Some('0') => 0,
             Some('1') => 1,
@@ -277,7 +277,7 @@ impl cursor::CursorClassExt for HexCursor {
         Ok(self.move_right())
     }
 
-    fn enter_utf8(&mut self, _listing: &mut listing::Listing, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+    fn enter_utf8(&mut self, _listing: &listing::ListingWatch, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
         Err(cursor::EntryError::InvalidForType) // TODO
     }
 }

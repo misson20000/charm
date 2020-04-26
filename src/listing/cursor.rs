@@ -54,8 +54,8 @@ pub trait CursorClassExt {
     fn move_left_large(&mut self) -> MovementResult;
     fn move_right_large(&mut self) -> MovementResult;
 
-    fn enter_standard(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
-    fn enter_utf8    (&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_standard(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_utf8    (&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -158,11 +158,11 @@ impl Cursor {
         }
     }
 
-    pub fn enter_standard(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+    pub fn enter_standard(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
         self.class.enter_standard(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
     }
 
-    pub fn enter_utf8(&mut self, listing: &mut listing::Listing, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+    pub fn enter_utf8(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
         self.class.enter_utf8(listing, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
     }
 }
