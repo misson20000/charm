@@ -159,6 +159,11 @@ impl CharmWindow {
             });
         }
 
+        w.window.connect_key_press_event(|w, ek| {
+            /* key events before accelerators, because we have accelerators like "B" and "G" */
+            gtk::Inhibit(w.propagate_key_event(ek) || w.activate_key(ek))
+        });
+
         w
     }
 
