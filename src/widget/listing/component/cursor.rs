@@ -67,6 +67,7 @@ impl CursorView {
     }
 
     pub fn bonk(&mut self) {
+        self.blink();
         self.events.want_draw();
         self.events.want_animate();
         self.bonk_timer = 0.25;
