@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct Address {
     pub byte: u64,
     pub bit: u8
@@ -206,6 +206,15 @@ impl std::fmt::Display for Address {
         match self.bit {
             0 => write!(f, "{:#018x}", self.byte),
             _ => write!(f, "{:#018x}.{}", self.byte, self.bit)
+        }
+    }
+}
+
+impl std::fmt::Debug for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.bit {
+            0 => write!(f, "addr({:#018x})", self.byte),
+            _ => write!(f, "addr({:#018x}.{})", self.byte, self.bit)
         }
     }
 }
