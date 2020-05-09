@@ -151,6 +151,12 @@ impl Extent {
         Extent { begin, end }
     }
 
+    pub fn between_bidirectional(a: Address, b: Address) -> Extent {
+        Extent {
+            begin: std::cmp::min(a, b),
+            end: std::cmp::max(a, b)
+        }
+    }
     pub fn unbounded(begin: Address) -> Extent {
         Extent { begin, end: unit::REAL_END }
     }
@@ -163,6 +169,21 @@ impl Extent {
         let rd = self.begin.round_down();
 
         (rd.byte, (self.end.round_up() - rd).bytes)
+    }
+
+    pub fn includes(&self, addr: Address) -> bool {
+        addr >= self.begin && addr < self.end
+    }
+
+    pub fn intersection(&self, other: Extent) -> Option<Extent> {
+        let begin = std::cmp::max(self.begin, other.begin);
+        let end = std::cmp::min(self.end, other.end);
+
+        if end > begin {
+            Some(Self::between(begin, end))
+        } else {
+            None
+        }
     }
 }
 
