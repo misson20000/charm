@@ -107,14 +107,20 @@ impl CursorView {
     }
 
     pub fn entry(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> gtk::Inhibit {
-        match match self.mode {
-            Mode::Command => return gtk::Inhibit(false),
-            Mode::Entry => self.cursor.enter_standard(listing, key),
-            Mode::TextEntry => self.cursor.enter_utf8(listing, key)
-        } {
-            Ok(cursor::MovementResult::Ok) => { self.blink(); gtk::Inhibit(true) },
-            Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); gtk::Inhibit(false) },
-            _ => { self.bonk(); gtk::Inhibit(true) }
+        if key.get_keyval() == gdk::enums::key::Return {
+            self.blink();
+            self.mode = Mode::Command;
+            gtk::Inhibit(true)
+        } else {
+            match match self.mode {
+                Mode::Command => return gtk::Inhibit(false),
+                Mode::Entry => self.cursor.enter_standard(listing, key),
+                Mode::TextEntry => self.cursor.enter_utf8(listing, key)
+            } {
+                Ok(cursor::MovementResult::Ok) => { self.blink(); gtk::Inhibit(true) },
+                Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); gtk::Inhibit(false) },
+                _ => { self.bonk(); gtk::Inhibit(true) }
+            }
         }
     }
 }
