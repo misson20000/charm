@@ -49,13 +49,13 @@ impl CharmWindow {
             }
             {
                 let edit_menu = gio::Menu::new();
-                edit_menu.append(Some("Go to..."), Some("win-listing.goto"));
-                edit_menu.append(Some("Insert or edit break..."), Some("win-listing.insert_break"));
+                edit_menu.append(Some("Go to..."), Some("listing.goto"));
+                edit_menu.append(Some("Insert or edit break..."), Some("listing.insert_break"));
                 {
                     let mode_menu = gio::Menu::new();
-                    mode_menu.append(Some("Command mode"), Some("win-listing.mode::command"));
-                    mode_menu.append(Some("Hex entry"), Some("win-listing.mode::entry"));
-                    mode_menu.append(Some("Text entry (UTF8)"), Some("win-listing.mode::utf8"));
+                    mode_menu.append(Some("Command mode"), Some("listing.mode::command"));
+                    mode_menu.append(Some("Hex entry"), Some("listing.mode::entry"));
+                    mode_menu.append(Some("Text entry (UTF8)"), Some("listing.mode::utf8"));
                     edit_menu.append_section(Some("Edit Mode"), &mode_menu);
                     mode_menu.freeze();
                 }
