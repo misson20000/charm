@@ -198,6 +198,7 @@ impl ListingWidget {
 
         /* actions */
         let ag = gio::SimpleActionGroup::new();
+        ag.add_action(&action::export_ips::create(&rc, &lw));
         ag.add_action(&action::goto::create(&rc, &lw));
         ag.add_action(&action::insert_break::create(&rc, &lw));
 
@@ -305,7 +306,6 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("patches: {:#?}", &*self.listing_watch.get_listing().get_patches()),
         ];
         
         let mut lineno = 0;

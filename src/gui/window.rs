@@ -42,6 +42,7 @@ impl CharmWindow {
             {
                 let file_menu = gio::Menu::new();
                 file_menu.append(Some("New Window"), Some("app.new_window"));
+                file_menu.append(Some("Export patches (IPS)..."), Some("win-listing.export_ips"));
                 file_menu.append(Some("Open..."), Some("app.open"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
