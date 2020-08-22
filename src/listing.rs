@@ -162,9 +162,10 @@ impl Listing {
                     })))
             },
             patches: ordmap!{
+                /*
                 0x3 => Patch {
                     bytes: vec![0x44, 0x55, 0x66, 0x77]
-                }
+                }*/
             },
             space,
         }

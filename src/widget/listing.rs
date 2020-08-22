@@ -29,6 +29,7 @@ struct InternalRenderingContext<'a> {
     cfg: &'a config::Config,
     fonts: &'a Fonts,
     layout: &'a Layout,
+    selection: &'a Option<addr::Extent>,
     
     perf: time::Instant,
     
@@ -88,6 +89,14 @@ struct LineCacheEntry {
     touched: bool,
 }
 
+#[derive(PartialEq)]
+enum AddressEstimationBias {
+    Strict,
+    Left,
+    Right,
+    AwayFrom(addr::Address),
+}
+
 pub struct ListingWidget {
     listing_watch: sync::Arc<listing::ListingWatch>,
     
@@ -111,6 +120,10 @@ pub struct ListingWidget {
 
     line_cache: HashMap<listing::line_group::CacheId, send_wrapper::SendWrapper<LineCacheEntry>>,
     last_frame_duration: Option<time::Duration>,
+
+    hover: (f64, f64),
+    drag_start_address: Option<addr::Address>,
+    selection: Option<addr::Extent>,
 }
 
 impl ListingWidget {
@@ -145,6 +158,10 @@ impl ListingWidget {
 
             line_cache: HashMap::new(),
             last_frame_duration: None,
+
+            hover: (0.0, 0.0),
+            drag_start_address: None,
+            selection: None,
         }));
 
         let mut lw = rc.write();
@@ -178,6 +195,7 @@ impl ListingWidget {
         { let rc_clone = rc.clone(); lw.da.connect_focus_in_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
         { let rc_clone = rc.clone(); lw.da.connect_focus_out_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
         { let rc_clone = rc.clone(); lw.da.connect_key_press_event(move |_, ek| rc_clone.write().key_press_event(ek)); }
+        { let rc_clone = rc.clone(); lw.da.connect_motion_notify_event(move |_, em| rc_clone.write().motion_notify_event(em)); }
         { let rc_clone = rc.clone(); lw.da.connect_scroll_event(move |_, es| rc_clone.write().scroll_event(es)); }
         { let rc_clone = rc.clone(); lw.da.connect_size_allocate(move |_, al| rc_clone.write().size_allocate(al)); }
         { let rc_clone = rc.clone(); lw.da.add_tick_callback(move |_, fc| rc_clone.write().tick_callback(fc)); }
@@ -189,7 +207,8 @@ impl ListingWidget {
             gdk::EventMask::KEY_PRESS_MASK |
             gdk::EventMask::KEY_RELEASE_MASK |
             gdk::EventMask::BUTTON_PRESS_MASK |
-            gdk::EventMask::BUTTON_RELEASE_MASK
+            gdk::EventMask::BUTTON_RELEASE_MASK |
+            gdk::EventMask::POINTER_MOTION_MASK
         );
 
         /* misc flags */
@@ -198,6 +217,7 @@ impl ListingWidget {
 
         /* actions */
         let ag = gio::SimpleActionGroup::new();
+        ag.add_action(&action::export_ips::create(&rc, &lw));
         ag.add_action(&action::goto::create(&rc, &lw));
         ag.add_action(&action::insert_break::create(&rc, &lw));
 
@@ -228,6 +248,7 @@ impl ListingWidget {
             cfg: &cfg,
             fonts: &self.fonts,
             layout: &self.layout,
+            selection: &self.selection,
 
             perf: frame_begin,
             byte_cache: vec::Vec::new(),
@@ -247,11 +268,23 @@ impl ListingWidget {
         /* render lines */
         cr.save();
         cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
-            
+
+        let hover = self.estimate_address_at(self.hover.0, self.hover.1, AddressEstimationBias::Strict);
+        
         for (lineno, lg) in self.window.iter() {
             cr.save();
             cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
+            match self.selection {
+                Some(sel) => lg.draw_selection(&mut irc, &cr, &sel),
+                None => ()
+            };
+
+            match hover {
+                Some(hover) => lg.draw_hover(&mut irc, &cr, hover),
+                None => ()
+            };
+            
             let da = (*self.da).clone();
             let lc = &mut self.line_cache;
             match (lg.get_cache_id().and_then(|cache_id| {
@@ -305,7 +338,6 @@ impl ListingWidget {
         /* DEBUG */
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
-            format!("patches: {:#?}", &*self.listing_watch.get_listing().get_patches()),
         ];
         
         let mut lineno = 0;
@@ -370,6 +402,19 @@ impl ListingWidget {
             self.scroll.animate(&mut self.window, &self.cursor_view, ais);
             self.cursor_view.animate(&cfg, ais);
 
+            /* do selection */
+            if let Some(a) = self.drag_start_address {
+                if let Some(na) = self.estimate_address_at(self.hover.0, self.hover.1, AddressEstimationBias::AwayFrom(a)) {
+                    let _ = self.goto(na);
+                    self.selection = if a == na {
+                        None
+                    } else {
+                        Some(addr::Extent::between_bidirectional(a, na))
+                    };
+                    self.da.queue_draw();
+                }
+            }
+            
             self.last_animation_time+= ais_micros;
         }
 
@@ -415,11 +460,20 @@ impl ListingWidget {
     fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, eb: &gdk::EventButton) -> gtk::Inhibit {
         match eb.get_event_type() {
             gdk::EventType::ButtonPress => {
+                self.drag_start_address = eb.get_coords().and_then(|(x, y)| self.estimate_address_at(x, y, AddressEstimationBias::Left));
+                match self.drag_start_address {
+                    Some(a) => { let _ = self.goto(a); },
+                    _ => ()
+                };
+                
                 let da = (*self.da).clone();
                 std::mem::drop(self); /* grab_focus triggers focus_change_event before we return */
                 da.grab_focus();
                 return gtk::Inhibit(false);
             },
+            gdk::EventType::ButtonRelease => {
+                self.drag_start_address = None;
+            }
             _ => ()
         }
         
@@ -480,6 +534,68 @@ impl ListingWidget {
         r
     }
 
+    fn motion_notify_event(&mut self, em: &gdk::EventMotion) -> gtk::Inhibit {
+        self.hover = em.get_position();
+        self.da.queue_draw();
+        self.collect_events();
+        
+        match self.drag_start_address {
+            Some(_) => gtk::Inhibit(true),
+            None => gtk::Inhibit(false),
+        }
+    }
+    
+    fn estimate_address_at(&self, x: f64, y: f64, bias: AddressEstimationBias) -> Option<addr::Address> {
+        let cfg = config::get();
+
+        let offset_y = y - cfg.padding + self.fonts.extents.ascent + self.fonts.extents.height * self.scroll.get_position();
+        let line_no = ((offset_y) / self.fonts.extents.height - 1.0) as isize;
+
+        self.window.get_line(line_no).or(if bias == AddressEstimationBias::Strict { None } else { self.window.line_groups.back() }).and_then(|lg| {
+            match lg {
+                listing::line_group::LineGroup::Hex(hlg) => {
+                    let mut chr = f64::max(0.0, x - self.layout.addr_pane_width - cfg.padding) / self.fonts.extents.max_x_advance;
+                    if chr > 24.0 {
+                        chr-= 1.0;
+                    }
+                    let offset = match bias {
+                        AddressEstimationBias::Strict if chr % 3.0 >= 2.0 => return None,
+                        AddressEstimationBias::Strict => (chr / 3.0) as u64,
+                        AddressEstimationBias::Left => (chr / 3.0) as u64,
+                        AddressEstimationBias::Right => (chr / 3.0) as u64 + 1,
+                        AddressEstimationBias::AwayFrom(a) => {
+                            if a < hlg.extent.begin {
+                                (chr / 3.0) as u64 + 1
+                            } else if a >= hlg.extent.end {
+                                (chr / 3.0) as u64
+                            } else {
+                                let abyte = (a - hlg.extent.begin).bytes;
+                                let achr = if abyte >= 8 {
+                                    (abyte * 3 + 1) as f64
+                                } else {
+                                    (abyte * 3) as f64
+                                };
+                                
+                                if chr < achr {
+                                    (chr / 3.0) as u64
+                                } else {
+                                    (chr / 3.0) as u64 + 1
+                                }
+                            }
+                        }
+                    };
+                    Some(hlg.extent.begin + std::cmp::min(addr::Size::from(offset), hlg.extent.length()))
+                },
+                listing::line_group::LineGroup::BreakHeader(bhlg) => {
+                    match bias {
+                        AddressEstimationBias::Strict => None,
+                        _ => Some(bhlg.brk.addr),
+                    }
+                },
+            }
+        })
+    }
+    
     fn update(&mut self, cx: &mut task::Context) {
         let mut updated = false;
         let listing = self.listing_watch.get_listing();
@@ -523,6 +639,8 @@ impl std::future::Future for ListingWidgetFuture {
 
 trait DrawableLineGroup {
     fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>);
+    fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent);
+    fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address);
 }
 
 impl DrawableLineGroup for listing::line_group::LineGroup {
@@ -533,6 +651,28 @@ impl DrawableLineGroup for listing::line_group::LineGroup {
             },
             line_group::LineGroup::BreakHeader(bhlg) => {
                 bhlg.draw(c, cr, cursor_view);
+            },
+        }
+    }
+
+    fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
+        match self {
+            line_group::LineGroup::Hex(hlg) => {
+                hlg.draw_selection(c, cr, selection);
+            },
+            line_group::LineGroup::BreakHeader(bhlg) => {
+                bhlg.draw_selection(c, cr, selection);
+            },
+        }
+    }
+
+    fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address) {
+        match self {
+            line_group::LineGroup::Hex(hlg) => {
+                hlg.draw_hover(c, cr, hover);
+            },
+            line_group::LineGroup::BreakHeader(bhlg) => {
+                bhlg.draw_hover(c, cr, hover);
             },
         }
     }
@@ -567,13 +707,14 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         cr.set_scaled_font(&c.fonts.mono_scaled);
         cr.set_source_gdk_rgba(c.cfg.text_color);
 
+        let fe = &c.fonts.extents;
         let mut utf8_buffer: [u8; 4] = [0; 4];
         
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i == 8 {
                 cr.show_text(" ");
             }
-
+            
             for low_nybble in &[false, true] {
                 let pbr = if i < c.byte_cache.len() {
                     c.byte_cache[i]
@@ -596,8 +737,6 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 if let Some((hc, cv)) = cursor {
                     if hc.offset.bytes == i as u64 && hc.low_nybble == *low_nybble {
                         let (x, y) = cr.get_current_point();
-
-                        let fe = &c.fonts.extents;
                         
                         if cv.has_focus {
                             if cv.get_blink() {
@@ -651,6 +790,46 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         cr.show_text(" | ");
         cr.show_text(self.describe_state());
     }
+
+    fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
+        if let Some(intersect) = self.extent.intersection(*selection) {
+            let byte_begin = (intersect.begin - self.extent.begin).bytes;
+            let byte_end = (intersect.end - self.extent.begin).bytes;
+
+            let mut chr_begin = byte_begin * 3;
+            if byte_begin >= 8 {
+                chr_begin+= 1;
+            }
+
+            let mut chr_end = byte_end * 3 - 1;
+            if byte_end > 8 {
+                chr_end+= 1;
+            }
+
+            let fe = c.font_extents();
+            
+            cr.set_source_gdk_rgba(c.cfg.addr_color);
+            cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
+            cr.fill();
+        }
+    }
+
+    fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address) {
+        if self.extent.includes(hover) {
+            let byte = (hover - self.extent.begin).bytes;
+
+            let mut chr = byte * 3;
+            if byte >= 8 {
+                chr+= 1;
+            }
+
+            let fe = c.font_extents();
+            
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
+            cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, 2.0 * fe.max_x_advance, fe.height);
+            cr.fill();
+        }
+    }
 }
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
@@ -664,5 +843,13 @@ impl DrawableLineGroup for brk::BreakHeaderLineGroup {
             None => "unlabeled"
         });
         cr.show_text(":");
+    }
+
+    fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
+        // TODO
+    }
+
+    fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address) {
+        // TODO
     }
 }

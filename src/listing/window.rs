@@ -211,6 +211,10 @@ impl ListingWindow {
     pub fn find_group(&self, slg: &LineGroup) -> Option<isize> {
         self.iter().find(|(_, lg)| lg == &slg).map(|t| t.0)
     }
+
+    pub fn get_line(&self, lineno: isize) -> Option<&LineGroup> {
+        self.iter().find_map(|(i, lg)| if i >= lineno { Some(lg) } else { None })
+    }
     
     /* internal actions */
 
