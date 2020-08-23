@@ -494,6 +494,8 @@ impl ListingWidget {
     fn size_allocate(&mut self, al: &gtk::Rectangle) {
         self.layout.width = al.width as f64;
         self.layout.height = al.height as f64;
+
+        self.line_cache.clear();
         
         self.resize_window(&config::get());
 
