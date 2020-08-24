@@ -471,6 +471,7 @@ impl ListingWidget {
         self.last_config_version = cfg.version;
         self.line_cache = HashMap::new();
 
+        self.da.queue_draw();
         self.collect_events();
     }
     
