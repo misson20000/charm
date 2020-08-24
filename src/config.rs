@@ -21,6 +21,7 @@ pub struct Config {
     pub page_navigation_leadup: usize, /* lines */
     
     pub padding: f64, /* pixels */
+    pub mode_line_padding: f64, /* pixels */
     pub font_size: f64, /* pixels */
 
     pub background_color: gdk::RGBA,
@@ -64,6 +65,7 @@ lazy_static! {
         page_navigation_leadup: 5,
 
         padding: 15.0,
+        mode_line_padding: 8.0,
         font_size: 14.0,
 
         background_color: gdk::RGBA::bytes(hex!("090909ff")),

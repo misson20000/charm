@@ -27,23 +27,24 @@ const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
 struct InternalRenderingContext<'a> {
     cr: &'a cairo::Context,
     cfg: &'a config::Config,
-    fonts: &'a Fonts,
-    layout: &'a Layout,
-    selection: &'a Option<addr::Extent>,
+    fonts: Fonts,
+    layout: Layout,
+    selection: Option<addr::Extent>,
     
     perf: time::Instant,
-    
+
     byte_cache: vec::Vec<brk::hex::PatchByteRecord>,
     
     pad: f64,
 }
 
 impl<'a> InternalRenderingContext<'a> {
-    fn font_extents(&self) -> &'a cairo::FontExtents {
+    fn font_extents(&self) -> &cairo::FontExtents {
         &self.fonts.extents
     }
 }
 
+#[derive(Clone)]
 struct Fonts {
     mono_face: cairo::FontFace,
     bold_face: cairo::FontFace,
@@ -77,6 +78,7 @@ impl Fonts {
     }
 }
 
+#[derive(Clone)]
 struct Layout {
     width: f64,
     height: f64,
@@ -246,9 +248,9 @@ impl ListingWidget {
         let mut irc = InternalRenderingContext {
             cr,
             cfg: &cfg,
-            fonts: &self.fonts,
-            layout: &self.layout,
-            selection: &self.selection,
+            fonts: (*self.fonts).clone(),
+            layout: self.layout.clone(),
+            selection: self.selection.clone(),
 
             perf: frame_begin,
             byte_cache: vec::Vec::new(),
@@ -268,106 +270,16 @@ impl ListingWidget {
         /* render lines */
         cr.save();
         cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
-
-        let hover = self.estimate_address_at(self.hover.0, self.hover.1, AddressEstimationBias::Strict);
-        
-        for (lineno, lg) in self.window.iter() {
-            cr.save();
-            cr.translate(0.0, irc.font_extents().height * (lineno as f64));
-
-            match self.selection {
-                Some(sel) => lg.draw_selection(&mut irc, &cr, &sel),
-                None => ()
-            };
-
-            match hover {
-                Some(hover) => lg.draw_hover(&mut irc, &cr, hover),
-                None => ()
-            };
-            
-            let da = (*self.da).clone();
-            let lc = &mut self.line_cache;
-            match (lg.get_cache_id().and_then(|cache_id| {
-                match lc.entry(cache_id) {
-                    std::collections::hash_map::Entry::Occupied(occu) => Some(occu.into_mut()),
-                    std::collections::hash_map::Entry::Vacant(vac) => {
-                        
-                        /* This line is not in our cache, so try to render
-                         * it. If we fail, no big deal- just draw the line
-                         * straight to the screen. */
-                        
-                        da.get_parent_window().and_then(|window| {
-                            /* super important for performance! avoid uploading to GPU every frame! */
-                            window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.ascent + irc.fonts.extents.descent) as i32)
-                        }).and_then(|surface| {
-                            let cache_cr = cairo::Context::new(&surface);
-                            
-                            lg.draw(&mut irc, &cache_cr, None);
-
-                            surface.flush();
-                            
-                            Some(vac.insert(send_wrapper::SendWrapper::new(LineCacheEntry {
-                                pattern: cairo::SurfacePattern::create(&surface),
-                                surface,
-                                touched: true
-                            })))
-                        })
-                    }
-                }
-            }), if lg == self.cursor_view.cursor.get_line_group() { Some(&self.cursor_view) } else { None }) {
-                /* We either found it in the cache, or just rendered it to the cache and are ready to use the cached image. */
-                (Some(entry), None) => { /* don't use cached lines if the cursor is on them */
-                    entry.touched = true;
-                    cr.set_source(&entry.pattern);
-                    cr.paint();
-                    
-                },
-                /* Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly. */
-                (_, has_cursor) => {
-                    lg.draw(&mut irc, &cr, has_cursor);
-                }
-            }
-
-            cr.restore();
-        }
+        self.draw_line_groups(&mut irc);
         cr.restore();
 
-        /* evict stale entries */
-        self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
-
         /* render mode line */
-        let ml_pad = 8.0;
-        cr.set_source_gdk_rgba(cfg.mode_line_color);
-        cr.rectangle(0.0, self.layout.height - irc.font_extents().height - ml_pad * 2.0, self.layout.width, irc.font_extents().height + ml_pad * 2.0);
-        cr.fill();
-
-        cr.set_source_gdk_rgba(cfg.text_color);
-        cr.move_to(self.layout.addr_pane_width + irc.pad, self.layout.height - irc.font_extents().descent - ml_pad);
-        cr.set_scaled_font(&irc.fonts.bold_scaled);
-
-        cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr()));
-
-        /* left part */
-        {
-            let (bg, fg, text) = match self.cursor_view.mode {
-                component::cursor::Mode::Command =>
-                    (cfg.mode_command_color,    cfg.background_color, "COMMAND"),
-                component::cursor::Mode::Entry =>
-                    (cfg.mode_entry_color,      cfg.background_color, "BYTE ENTRY"),
-                component::cursor::Mode::TextEntry =>
-                    (cfg.mode_text_entry_color, cfg.background_color, "TEXT ENTRY")
-            };
-            
-            cr.set_source_gdk_rgba(bg);
-            cr.rectangle(0.0, self.layout.height - irc.font_extents().height - ml_pad * 2.0, self.layout.addr_pane_width, irc.font_extents().height + ml_pad * 2.0);
-            cr.fill();
-        
-            cr.set_source_gdk_rgba(fg);
-            cr.move_to(irc.pad, self.layout.height - irc.font_extents().descent - ml_pad);
-            cr.set_scaled_font(&irc.fonts.bold_scaled);
-
-            cr.show_text(text);
-        }
+        cr.save();
+        cr.translate(0.0, self.layout.height - irc.font_extents().height - cfg.mode_line_padding * 2.0);
+        cr.rectangle(0.0, 0.0, self.layout.width, irc.font_extents().height + cfg.mode_line_padding * 2.0);
+        cr.clip();
+        self.draw_mode_line(&mut irc);
+        cr.restore();
         
         /* DEBUG */
         let debug = vec![
@@ -388,6 +300,108 @@ impl ListingWidget {
         self.last_frame_duration = Some(time::Instant::now() - frame_begin);
         
         gtk::Inhibit(false)
+    }
+
+    fn draw_line_groups(&mut self, irc: &mut InternalRenderingContext) {
+        let hover = self.estimate_address_at(self.hover.0, self.hover.1, AddressEstimationBias::Strict);
+        
+        for (lineno, lg) in self.window.iter() {
+            irc.cr.save();
+            irc.cr.translate(0.0, irc.font_extents().height * (lineno as f64));
+
+            match self.selection {
+                Some(sel) => lg.draw_selection(irc, irc.cr, &sel),
+                None => ()
+            };
+
+            match hover {
+                Some(hover) => lg.draw_hover(irc, irc.cr, hover),
+                None => ()
+            };
+            
+            let da = (*self.da).clone();
+            let lc = &mut self.line_cache;
+            match (lg.get_cache_id().and_then(|cache_id| {
+                match lc.entry(cache_id) {
+                    std::collections::hash_map::Entry::Occupied(occu) => Some(occu.into_mut()),
+                    std::collections::hash_map::Entry::Vacant(vac) => {
+                        
+                        /* This line is not in our cache, so try to render
+                         * it. If we fail, no big deal- just draw the line
+                         * straight to the screen. */
+                        
+                        da.get_parent_window().and_then(|window| {
+                            /* super important for performance! avoid uploading to GPU every frame! */
+                            window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.ascent + irc.fonts.extents.descent) as i32)
+                        }).and_then(|surface| {
+                            let cache_cr = cairo::Context::new(&surface);
+                            
+                            lg.draw(irc, &cache_cr, None);
+
+                            surface.flush();
+                            
+                            Some(vac.insert(send_wrapper::SendWrapper::new(LineCacheEntry {
+                                pattern: cairo::SurfacePattern::create(&surface),
+                                surface,
+                                touched: true
+                            })))
+                        })
+                    }
+                }
+            }), if lg == self.cursor_view.cursor.get_line_group() { Some(&self.cursor_view) } else { None }) {
+                /* We either found it in the cache, or just rendered it to the cache and are ready to use the cached image. */
+                (Some(entry), None) => { /* don't use cached lines if the cursor is on them */
+                    entry.touched = true;
+                    irc.cr.set_source(&entry.pattern);
+                    irc.cr.paint();
+                    
+                },
+                /* Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly. */
+                (_, has_cursor) => {
+                    lg.draw(irc, irc.cr, has_cursor);
+                }
+            }
+
+            irc.cr.restore();
+        }
+
+        /* evict stale entries */
+        self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
+    }
+
+    fn draw_mode_line(&self, irc: &mut InternalRenderingContext) {
+        let pad = irc.cfg.mode_line_padding;
+        
+        irc.cr.set_source_gdk_rgba(irc.cfg.mode_line_color);
+        irc.cr.paint();
+
+        irc.cr.set_source_gdk_rgba(irc.cfg.text_color);
+        irc.cr.move_to(self.layout.addr_pane_width + irc.pad, pad + irc.font_extents().ascent);
+        irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
+
+        irc.cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr()));
+
+        /* left part */
+        {
+            let (bg, fg, text) = match self.cursor_view.mode {
+                component::cursor::Mode::Command =>
+                    (irc.cfg.mode_command_color,    irc.cfg.background_color, "COMMAND"),
+                component::cursor::Mode::Entry =>
+                    (irc.cfg.mode_entry_color,      irc.cfg.background_color, "BYTE ENTRY"),
+                component::cursor::Mode::TextEntry =>
+                    (irc.cfg.mode_text_entry_color, irc.cfg.background_color, "TEXT ENTRY")
+            };
+            
+            irc.cr.set_source_gdk_rgba(bg);
+            irc.cr.rectangle(0.0, 0.0, self.layout.addr_pane_width, irc.font_extents().height + pad * 2.0);
+            irc.cr.fill();
+        
+            irc.cr.set_source_gdk_rgba(fg);
+            irc.cr.move_to(irc.pad, pad + irc.font_extents().ascent);
+            irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
+
+            irc.cr.show_text(text);
+        }
     }
     
     fn collect_events(&mut self) {
