@@ -99,6 +99,12 @@ enum AddressEstimationBias {
     AwayFrom(addr::Address),
 }
 
+struct ModeTheme {
+    accent: gdk::RGBA,
+    counter_accent: gdk::RGBA,
+    mode_string: &'static str,
+}
+
 pub struct ListingWidget {
     listing_watch: sync::Arc<listing::ListingWatch>,
     
@@ -112,8 +118,6 @@ pub struct ListingWidget {
     
     last_config_version: usize,
     last_animation_time: i64,
-    
-    has_focus: bool,
 
     fonts: send_wrapper::SendWrapper<Fonts>,
     layout: Layout,
@@ -146,8 +150,6 @@ impl ListingWidget {
             
             last_config_version: 0,
             last_animation_time: 0,
-
-            has_focus: false,
 
             fonts: send_wrapper::SendWrapper::new(Fonts::new(&cfg)),
             layout: Layout {
@@ -280,6 +282,12 @@ impl ListingWidget {
         cr.clip();
         self.draw_mode_line(&mut irc);
         cr.restore();
+
+        /* stroke frame */
+        cr.set_source_gdk_rgba(self.get_mode_theme(&irc).accent);
+        cr.set_line_width(2.0);
+        cr.rectangle(1.0, 1.0, self.layout.width - 2.0, self.layout.height - irc.font_extents().height - cfg.mode_line_padding * 2.0 - 2.0);
+        cr.stroke();
         
         /* DEBUG */
         let debug = vec![
@@ -369,6 +377,32 @@ impl ListingWidget {
         self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
     }
 
+    fn get_mode_theme(&self, irc: &InternalRenderingContext) -> ModeTheme {
+        let mut mt = match self.cursor_view.mode {
+            component::cursor::Mode::Command => ModeTheme {
+                accent: irc.cfg.mode_command_color,
+                counter_accent: irc.cfg.background_color,
+                mode_string: "COMMAND",
+            },
+            component::cursor::Mode::Entry => ModeTheme {
+                accent: irc.cfg.mode_entry_color,
+                counter_accent: irc.cfg.background_color,
+                mode_string: "BYTE ENTRY",
+            },
+            component::cursor::Mode::TextEntry => ModeTheme {
+                accent: irc.cfg.mode_text_entry_color,
+                counter_accent: irc.cfg.background_color,
+                mode_string: "TEXT ENTRY",
+            }
+        };
+
+        if !self.cursor_view.has_focus {
+            mt.accent = irc.cfg.mode_defocused_color;
+        }
+
+        mt
+    }
+    
     fn draw_mode_line(&self, irc: &mut InternalRenderingContext) {
         let pad = irc.cfg.mode_line_padding;
         
@@ -383,24 +417,17 @@ impl ListingWidget {
 
         /* left part */
         {
-            let (bg, fg, text) = match self.cursor_view.mode {
-                component::cursor::Mode::Command =>
-                    (irc.cfg.mode_command_color,    irc.cfg.background_color, "COMMAND"),
-                component::cursor::Mode::Entry =>
-                    (irc.cfg.mode_entry_color,      irc.cfg.background_color, "BYTE ENTRY"),
-                component::cursor::Mode::TextEntry =>
-                    (irc.cfg.mode_text_entry_color, irc.cfg.background_color, "TEXT ENTRY")
-            };
+            let mt = self.get_mode_theme(irc);
             
-            irc.cr.set_source_gdk_rgba(bg);
+            irc.cr.set_source_gdk_rgba(mt.accent);
             irc.cr.rectangle(0.0, 0.0, self.layout.addr_pane_width, irc.font_extents().height + pad * 2.0);
             irc.cr.fill();
         
-            irc.cr.set_source_gdk_rgba(fg);
+            irc.cr.set_source_gdk_rgba(mt.counter_accent);
             irc.cr.move_to(irc.pad, pad + irc.font_extents().ascent);
             irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
 
-            irc.cr.show_text(text);
+            irc.cr.show_text(mt.mode_string);
         }
     }
     

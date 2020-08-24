@@ -40,6 +40,7 @@ pub struct Config {
 
     pub mode_line_color: gdk::RGBA,
 
+    pub mode_defocused_color: gdk::RGBA,
     pub mode_command_color: gdk::RGBA,
     pub mode_entry_color: gdk::RGBA,
     pub mode_text_entry_color: gdk::RGBA,
@@ -83,6 +84,7 @@ lazy_static! {
         cursor_blink_period: 1.0,
 
         mode_line_color: gdk::RGBA::bytes(hex!("404040ff")),
+        mode_defocused_color: gdk::RGBA::bytes(hex!("606060ff")),
 
         mode_command_color: gdk::RGBA::bytes(hex!("8891efff")),
         mode_entry_color: gdk::RGBA::bytes(hex!("ffbf48ff")),
