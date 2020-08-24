@@ -14,10 +14,10 @@ pub enum Mode {
 pub struct CursorView {
     pub events: component::Events,
     pub cursor: cursor::Cursor,
+    pub mode: Mode,
     pub has_focus: bool,
     blink_timer: f64,
     bonk_timer: f64,
-    mode: Mode,
 }
 
 impl CursorView {
@@ -110,12 +110,21 @@ impl CursorView {
         if key.get_keyval() == gdk::enums::key::Return {
             self.blink();
             self.mode = Mode::Command;
+            
+            self.events.want_draw();
+            
             gtk::Inhibit(true)
         } else {
             match match self.mode {
                 Mode::Command => return gtk::Inhibit(false),
-                Mode::Entry => self.cursor.enter_standard(listing, key),
-                Mode::TextEntry => self.cursor.enter_utf8(listing, key)
+                Mode::Entry => {
+                    self.events.want_draw();
+                    self.cursor.enter_standard(listing, key)
+                },
+                Mode::TextEntry => {
+                    self.events.want_draw();
+                    self.cursor.enter_utf8(listing, key)
+                }
             } {
                 Ok(cursor::MovementResult::Ok) => { self.blink(); gtk::Inhibit(true) },
                 Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); gtk::Inhibit(false) },

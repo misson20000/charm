@@ -36,6 +36,12 @@ pub struct Config {
     pub cursor_bg_color: gdk::RGBA,
     pub cursor_fg_color: gdk::RGBA,
     pub cursor_blink_period: f64,
+
+    pub mode_line_color: gdk::RGBA,
+
+    pub mode_command_color: gdk::RGBA,
+    pub mode_entry_color: gdk::RGBA,
+    pub mode_text_entry_color: gdk::RGBA,
     
     pub version: usize, /* incremented when config changes */
 }
@@ -73,6 +79,12 @@ lazy_static! {
         cursor_bg_color: gdk::RGBA::bytes(hex!("8891efff")),
         cursor_fg_color: gdk::RGBA::bytes(hex!("090909ff")),
         cursor_blink_period: 1.0,
+
+        mode_line_color: gdk::RGBA::bytes(hex!("404040ff")),
+
+        mode_command_color: gdk::RGBA::bytes(hex!("8891efff")),
+        mode_entry_color: gdk::RGBA::bytes(hex!("ffbf48ff")),
+        mode_text_entry_color: gdk::RGBA::bytes(hex!("ff4921ff")),
         
         version: 0,
     });

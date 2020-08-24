@@ -334,6 +334,40 @@ impl ListingWidget {
 
         /* evict stale entries */
         self.line_cache.retain(|_, lce| std::mem::replace(&mut lce.touched, false));
+
+        /* render mode line */
+        let ml_pad = 8.0;
+        cr.set_source_gdk_rgba(cfg.mode_line_color);
+        cr.rectangle(0.0, self.layout.height - irc.font_extents().height - ml_pad * 2.0, self.layout.width, irc.font_extents().height + ml_pad * 2.0);
+        cr.fill();
+
+        cr.set_source_gdk_rgba(cfg.text_color);
+        cr.move_to(self.layout.addr_pane_width + irc.pad, self.layout.height - irc.font_extents().descent - ml_pad);
+        cr.set_scaled_font(&irc.fonts.bold_scaled);
+
+        cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr()));
+
+        /* left part */
+        {
+            let (bg, fg, text) = match self.cursor_view.mode {
+                component::cursor::Mode::Command =>
+                    (cfg.mode_command_color,    cfg.background_color, "COMMAND"),
+                component::cursor::Mode::Entry =>
+                    (cfg.mode_entry_color,      cfg.background_color, "BYTE ENTRY"),
+                component::cursor::Mode::TextEntry =>
+                    (cfg.mode_text_entry_color, cfg.background_color, "TEXT ENTRY")
+            };
+            
+            cr.set_source_gdk_rgba(bg);
+            cr.rectangle(0.0, self.layout.height - irc.font_extents().height - ml_pad * 2.0, self.layout.addr_pane_width, irc.font_extents().height + ml_pad * 2.0);
+            cr.fill();
+        
+            cr.set_source_gdk_rgba(fg);
+            cr.move_to(irc.pad, self.layout.height - irc.font_extents().descent - ml_pad);
+            cr.set_scaled_font(&irc.fonts.bold_scaled);
+
+            cr.show_text(text);
+        }
         
         /* DEBUG */
         let debug = vec![
