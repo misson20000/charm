@@ -894,7 +894,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 chr_begin+= 1;
             }
 
-            let mut chr_end = byte_end * 3 - 1;
+            let mut chr_end = byte_end * 3 - 1; // TODO: debug an intermittent failure here
             if byte_end > 8 {
                 chr_end+= 1;
             }
