@@ -290,6 +290,7 @@ impl ListingWidget {
         cr.stroke();
         
         /* DEBUG */
+        /*
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
         ];
@@ -304,6 +305,7 @@ impl ListingWidget {
                 lineno+= 1;
             }
         }
+         */
 
         self.last_frame_duration = Some(time::Instant::now() - frame_begin);
         
