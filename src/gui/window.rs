@@ -7,6 +7,7 @@ use crate::space;
 use crate::space::AddressSpace;
 use crate::listing;
 use crate::widget;
+use crate::gui;
 
 use gtk::prelude::*;
 use gio::prelude::*;
@@ -23,6 +24,9 @@ pub struct CharmWindow {
     window: gtk::ApplicationWindow,
     listing_container: gtk::Container,
     patch_list: gtk::TreeView,
+    config_editor: gtk::ListBox,
+    patch_list_frame: gtk::Frame,
+    config_editor_frame: gtk::Frame,
     context: cell::RefCell<Option<WindowContext>>,
 }
 
@@ -36,7 +40,7 @@ impl CharmWindow {
         window.set_default_size(800, 600);
 
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
+        
         {
             let menu_bar = gio::Menu::new();
             {
@@ -63,13 +67,20 @@ impl CharmWindow {
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
             {
+                let view_menu = gio::Menu::new();
+                view_menu.append(Some("Patch List"), Some("win.view.patch_list"));
+                view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
+                view_menu.freeze();
+                menu_bar.append_submenu(Some("View"), &view_menu);
+            }
+            {
                 let help_menu = gio::Menu::new();
                 help_menu.append(Some("About"), Some("app.about"));
                 help_menu.freeze();
                 menu_bar.append_submenu(Some("Help"), &help_menu);
             }
             menu_bar.freeze();
-            
+
             let menu_bar_widget = gtk::MenuBar::new_from_model(&menu_bar);
             main_box.pack_start(&menu_bar_widget, false, false, 0);
         }
@@ -105,39 +116,39 @@ impl CharmWindow {
                 patch_list.append_column(&c);
             }
         }
-        
+
+        let patch_list_frame = gtk::Frame::new(None);
         {
             let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
             vpaned.pack1(&listing_container, true, false);
 
             { // patch_list frame
-                let frame = gtk::Frame::new(None);
-                frame.set_shadow_type(gtk::ShadowType::In);
-                frame.set_margin_top(10);
-                frame.set_margin_bottom(10);
-                frame.set_margin_start(10);
-                frame.set_margin_end(10);
-                frame.add(&patch_list);
+                patch_list_frame.set_shadow_type(gtk::ShadowType::In);
+                patch_list_frame.set_margin_top(10);
+                patch_list_frame.set_margin_bottom(10);
+                patch_list_frame.set_margin_start(10);
+                patch_list_frame.set_margin_end(10);
+                patch_list_frame.add(&patch_list);
                 
-                vpaned.pack2(&frame, false, true);
+                vpaned.pack2(&patch_list_frame, false, true);
             }
             
             hpaned.pack1(&vpaned, true, false);
         }
-        
+
+        let config_editor = widget::config_editor::build_config_editor();
+        let config_editor_frame = gtk::Frame::new(None);
         {
-            let editor = widget::config_editor::build_config_editor();
-            editor.set_size_request(400, -1);
+            config_editor.set_size_request(400, -1);
+
+            config_editor_frame.set_shadow_type(gtk::ShadowType::In);
+            config_editor_frame.set_margin_top(10);
+            config_editor_frame.set_margin_bottom(10);
+            config_editor_frame.set_margin_start(10);
+            config_editor_frame.set_margin_end(10);
+            config_editor_frame.add(&config_editor);
             
-            let frame = gtk::Frame::new(None);
-            frame.set_shadow_type(gtk::ShadowType::In);
-            frame.set_margin_top(10);
-            frame.set_margin_bottom(10);
-            frame.set_margin_start(10);
-            frame.set_margin_end(10);
-            frame.add(&editor);
-            
-            hpaned.pack2(&frame, false, true);
+            hpaned.pack2(&config_editor_frame, false, true);
         }
         
         main_box.pack_start(&hpaned, true, true, 0);                
@@ -149,6 +160,9 @@ impl CharmWindow {
             window,
             listing_container: listing_container.upcast::<gtk::Container>(),
             patch_list,
+            config_editor,
+            patch_list_frame,
+            config_editor_frame,
             context: cell::RefCell::new(None),
         });
 
@@ -165,11 +179,26 @@ impl CharmWindow {
             gtk::Inhibit(w.propagate_key_event(ek) || w.activate_key(ek))
         });
 
+        gui::helpers::bind_stateful_action(&w, &w.window, "view.patch_list", true, |act, w, state| {
+            if let Some(vis) = state {
+                w.patch_list_frame.set_visible(vis);
+                act.set_state(&glib::Variant::from(vis));
+            }
+        });
+        
+        gui::helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
+            if let Some(vis) = state {
+                w.config_editor_frame.set_visible(vis);
+                act.set_state(&glib::Variant::from(vis));
+            }
+        });
+
         w
     }
 
     pub fn show(&self) {
         self.window.show_all();
+        self.config_editor_frame.hide();
     }
 
     pub fn open_file(self: &rc::Rc<Self>, file: &gio::File) {
