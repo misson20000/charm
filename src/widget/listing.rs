@@ -938,11 +938,11 @@ impl DrawableLineGroup for brk::BreakHeaderLineGroup {
         cr.show_text(":");
     }
 
-    fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
+    fn draw_selection<'a, 'b, 'c>(&'a self, _c: &'b mut InternalRenderingContext<'c>, _cr: &cairo::Context, _selection: &addr::Extent) {
         // TODO
     }
 
-    fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address) {
+    fn draw_hover<'a, 'b, 'c>(&'a self, _c: &'b mut InternalRenderingContext<'c>, _cr: &cairo::Context, _hover: addr::Address) {
         // TODO
     }
 }

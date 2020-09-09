@@ -151,18 +151,14 @@ fn main() {
     /* startup */
     { let app_model_clone = app_model_for_closures.clone();
       application.connect_startup(move |app| {
-          std::mem::replace(
-              &mut *app_model_clone.borrow_mut(),
-              Some(CharmApplication::new(app.clone())));
+          *app_model_clone.borrow_mut() = Some(CharmApplication::new(app.clone()));
       });
     }
 
     /* shutdown */
     { let app_model_clone = app_model_for_closures.clone();
       application.connect_shutdown(move |_app| {
-          std::mem::replace(
-              &mut *app_model_clone.borrow_mut(),
-              None);
+          *app_model_clone.borrow_mut() = None;
       });
     }
 

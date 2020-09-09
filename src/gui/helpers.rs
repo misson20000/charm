@@ -169,7 +169,7 @@ impl ActionForwarder {
             };
 
             /* the important part here is dropping and disconnecting the old signals */
-            std::mem::replace(&mut *self.signals.lock().unwrap(), Some(signals));
+            *self.signals.lock().unwrap() = Some(signals);
             
             action_map
         })

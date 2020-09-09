@@ -240,6 +240,6 @@ impl WindowContext {
         da.grab_focus();
 
         std::mem::drop(lw);
-        std::mem::replace(&mut *window.context.borrow_mut(), Some(self));
+        *window.context.borrow_mut() = Some(self);
     }
 }
