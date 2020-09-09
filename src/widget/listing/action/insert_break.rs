@@ -25,7 +25,7 @@ struct InsertBreakAction {
 
 pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("insert_break", None);
-    let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
+    let dialog = gtk::Dialog::with_buttons::<gtk::Window>(
         Some("Insert Break"),
         None,
         gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
@@ -70,7 +70,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
 
     let hex_break_grid = gtk::Grid::new();
     hex_break_grid.set_row_spacing(12);
-    let hex_break_line_width_entry = gtk::SpinButton::new_with_range(1.0, 32.0, 1.0); {
+    let hex_break_line_width_entry = gtk::SpinButton::with_range(1.0, 32.0, 1.0); {
         let label = gtk::Label::new(Some("Line Width"));
         label.set_hexpand(true);
         label.set_halign(gtk::Align::Start);
@@ -121,10 +121,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
 impl InsertBreakAction {
     fn update_dialog_buttons(&self) {
         let addr_text_gstring = self.addr_entry.get_text();
-        let addr_text = match addr_text_gstring.as_ref() {
-            Some(gs) => gs.as_ref(),
-            None => ""
-        };
+        let addr_text = addr_text_gstring.as_ref();
 
         match addr::Address::parse(addr_text) {
             Ok(addr) => {
@@ -200,17 +197,15 @@ impl InsertBreakAction {
         loop {
             let response = self.dialog.run();
             let addr_text_gstring = self.addr_entry.get_text();
-            let addr_text = match addr_text_gstring.as_ref() {
-                Some(gs) => gs.as_ref(),
-                None => ""
-            };
-
+            let addr_text = addr_text_gstring.as_ref();
+            let label_text = self.label_entry.get_text();
+            
             let message = match response {
                 gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { /* edit or insert */
                     Ok(addr) => {
                         self.listing_watch.insert_break(brk::Break {
                             addr,
-                            label: self.label_entry.get_text().and_then(|t| if t.len() == 0 { None } else { Some(t.to_string()) }),
+                            label: if label_text.len() == 0 { None } else { Some(label_text.to_string()) },
                             class: brk::BreakClass::Hex(brk::hex::HexBreak {
                                 line_size: addr::Size::from(self.hex_break_line_width_entry.get_value_as_int() as u64),
                             }),
