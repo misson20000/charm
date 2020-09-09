@@ -115,6 +115,7 @@ pub struct ListingWidget {
     has_updated: bool, // signal from update thread back to gui thread
 
     da: send_wrapper::SendWrapper<gtk::DrawingArea>,
+    action_group: send_wrapper::SendWrapper<Option<gio::SimpleActionGroup>>,
     
     last_config_version: usize,
     last_animation_time: i64,
@@ -147,6 +148,7 @@ impl ListingWidget {
             has_updated: false,
 
             da: send_wrapper::SendWrapper::new(gtk::DrawingArea::new()), // TODO: split out model (things that update) from view (this)
+            action_group: send_wrapper::SendWrapper::new(None),
             
             last_config_version: 0,
             last_animation_time: 0,
@@ -228,8 +230,8 @@ impl ListingWidget {
         ag.add_action(&action::movement::create_goto_start_of_line(&rc, &lw));
         ag.add_action(&action::movement::create_goto_end_of_line(&rc, &lw));
         ag.add_action(&action::mode::create_mode(&rc, &lw));
-        
-        lw.da.insert_action_group("listing", Some(&ag));
+
+        *lw.action_group = Some(ag);
         
         lw.reconfigure(&config::get());
 
@@ -240,6 +242,10 @@ impl ListingWidget {
 
     pub fn get_drawing_area(&self) -> &gtk::DrawingArea {
         &self.da
+    }
+
+    pub fn get_action_group(&self) -> Option<&gio::SimpleActionGroup> {
+        self.action_group.as_ref()
     }
     
     pub fn draw<'a>(&'a mut self, cr: &cairo::Context) -> gtk::Inhibit {

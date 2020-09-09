@@ -46,7 +46,7 @@ impl CharmWindow {
             {
                 let file_menu = gio::Menu::new();
                 file_menu.append(Some("New Window"), Some("app.new_window"));
-                file_menu.append(Some("Export patches (IPS)..."), Some("win-listing.export_ips"));
+                file_menu.append(Some("Export patches (IPS)..."), Some("listing.export_ips"));
                 file_menu.append(Some("Open..."), Some("app.open"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
@@ -237,6 +237,7 @@ impl WindowContext {
         window.listing_container.foreach(|w| window.listing_container.remove(w));
         window.listing_container.add(da);
         window.patch_list.set_model(Some(self.patches.read().get_tree_model()));
+        window.window.insert_action_group("listing", lw.get_action_group());
         da.grab_focus();
 
         std::mem::drop(lw);
