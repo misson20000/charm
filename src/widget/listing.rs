@@ -634,7 +634,16 @@ impl ListingWidget {
         self.window.get_line(line_no).or(if bias == AddressEstimationBias::Strict { None } else { self.window.line_groups.back() }).and_then(|lg| {
             match lg {
                 listing::line_group::LineGroup::Hex(hlg) => {
-                    let mut chr = f64::max(0.0, x - self.layout.addr_pane_width - cfg.padding) / self.fonts.extents.max_x_advance;
+                    let mut chr = (x - self.layout.addr_pane_width - cfg.padding) / self.fonts.extents.max_x_advance;
+
+                    if chr < 0.0 {
+                        if bias == AddressEstimationBias::Strict {
+                            return None
+                        } else {
+                            chr = 0.0;
+                        }
+                    }
+                    
                     if chr > 24.0 {
                         chr-= 1.0;
                     }
@@ -664,7 +673,11 @@ impl ListingWidget {
                             }
                         }
                     };
-                    Some(hlg.extent.begin + std::cmp::min(addr::Size::from(offset), hlg.extent.length()))
+
+                    match bias {
+                        AddressEstimationBias::Strict if addr::Size::from(offset) >= hlg.extent.length() => None,
+                        _ => Some(hlg.extent.begin + std::cmp::min(addr::Size::from(offset), hlg.extent.length()))
+                    }
                 },
                 listing::line_group::LineGroup::BreakHeader(bhlg) => {
                     match bias {
