@@ -230,23 +230,24 @@ impl cursor::CursorClassExt for HexCursor {
     }
 
     fn enter_standard(&mut self, listing: &listing::ListingWatch, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        let nybble = match gdk::keyval_to_unicode(key.get_keyval()) {
-            Some('0') => 0,
-            Some('1') => 1,
-            Some('2') => 2,
-            Some('3') => 3,
-            Some('4') => 4,
-            Some('5') => 5,
-            Some('6') => 6,
-            Some('7') => 7,
-            Some('8') => 8,
-            Some('9') => 9,
-            Some('a') => 0xa,
-            Some('b') => 0xb,
-            Some('c') => 0xc,
-            Some('d') => 0xd,
-            Some('e') => 0xe,
-            Some('f') => 0xf,
+        let nybble = match key.get_keyval() {
+            _ if !key.get_state().is_empty() => return Err(cursor::EntryError::KeyNotRecognized),
+            gdk::keys::constants::_0 => 0,
+            gdk::keys::constants::_1 => 1,
+            gdk::keys::constants::_2 => 2,
+            gdk::keys::constants::_3 => 3,
+            gdk::keys::constants::_4 => 4,
+            gdk::keys::constants::_5 => 5,
+            gdk::keys::constants::_6 => 6,
+            gdk::keys::constants::_7 => 7,
+            gdk::keys::constants::_8 => 8,
+            gdk::keys::constants::_9 => 9,
+            gdk::keys::constants::a => 0xa,
+            gdk::keys::constants::b => 0xb,
+            gdk::keys::constants::c => 0xc,
+            gdk::keys::constants::d => 0xd,
+            gdk::keys::constants::e => 0xe,
+            gdk::keys::constants::f => 0xf,
             _ => return Err(cursor::EntryError::KeyNotRecognized)
         };
 
@@ -278,7 +279,7 @@ impl cursor::CursorClassExt for HexCursor {
     }
 
     fn enter_utf8(&mut self, _listing: &listing::ListingWatch, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::InvalidForType) // TODO
+        Err(cursor::EntryError::KeyNotRecognized) // TODO
     }
 }
 

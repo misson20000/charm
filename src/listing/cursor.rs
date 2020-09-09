@@ -31,9 +31,11 @@ pub enum PlacementFailure {
 
 pub enum EntryError {
     DataNotLoaded,
-    InvalidForPosition,
-    InvalidForType,
     KeyNotRecognized,
+    /// key was recognized, but invalid for entry in this location
+    InvalidForPosition,
+    /// key was recognized, but invalid for entry for this type of cursor
+    InvalidForType,
 }
 
 #[enum_dispatch]
