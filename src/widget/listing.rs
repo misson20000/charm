@@ -789,7 +789,6 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
         self.get_patched_bytes(&mut c.byte_cache);
 
-        #[allow(unreachable_patterns)] // TODO
         let cursor = cursor_view.and_then(|cv| match &cv.cursor.class {
             cursor::CursorClass::Hex(hc) => Some((hc, cv)),
             _ => None
@@ -926,16 +925,43 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 }
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, _cursor: Option<&component::cursor::CursorView>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor: Option<&component::cursor::CursorView>) {
         /* draw label */
-        cr.set_scaled_font(&c.fonts.bold_scaled);
+
+        // TODO: rearchitect line rendering so we can cache things like this
+        let label = match &self.brk.label {
+            Some(l) => l.clone() + ":",
+            None => "unlabeled:".to_string()
+        };
+        
+        let fe = c.font_extents();
+
         cr.set_source_gdk_rgba(c.cfg.text_color);
-        cr.move_to(c.layout.addr_pane_width + c.pad, c.font_extents().height * 2.0);
-        cr.show_text(match &self.brk.label {
-            Some(l) => l.as_str(),
-            None => "unlabeled"
-        });
-        cr.show_text(":");
+        if let Some(cv) = cursor {
+            let te = c.fonts.bold_scaled.text_extents(label.as_str());
+            
+            if cv.has_focus {
+                if cv.get_blink() {
+                    cr.set_source_gdk_rgba(c.cfg.addr_color);
+                    cr.rectangle(c.layout.addr_pane_width + c.pad + cv.get_bonk(), fe.height * 2.0 - fe.ascent, te.x_advance, fe.height);
+                    cr.fill();
+                    
+                    cr.set_source_gdk_rgba(c.cfg.background_color);
+                }
+            } else {
+                cr.set_source_gdk_rgba(c.cfg.addr_color);
+                cr.set_line_width(1.0);
+                cr.rectangle(c.layout.addr_pane_width + c.pad + cv.get_bonk() + 0.5, fe.height * 2.0 - fe.ascent + 0.5, te.x_advance - 1.0, fe.height - 1.0);
+                
+                cr.stroke();
+                
+                cr.set_source_gdk_rgba(c.cfg.text_color);
+            }
+        }
+        
+        cr.set_scaled_font(&c.fonts.bold_scaled);
+        cr.move_to(c.layout.addr_pane_width + c.pad, fe.height * 2.0);
+        cr.show_text(label.as_str());
     }
 
     fn draw_selection<'a, 'b, 'c>(&'a self, _c: &'b mut InternalRenderingContext<'c>, _cr: &cairo::Context, _selection: &addr::Extent) {

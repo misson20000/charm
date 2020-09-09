@@ -12,6 +12,7 @@ use crate::listing::line_group;
 use enum_dispatch::enum_dispatch;
 
 pub mod hex;
+pub mod break_header;
 
 #[derive(Debug)]
 pub enum MovementResult {
@@ -61,7 +62,8 @@ pub trait CursorClassExt {
 #[enum_dispatch(CursorClassExt)]
 #[derive(Debug)]
 pub enum CursorClass {
-    Hex(hex::HexCursor)
+    Hex(hex::HexCursor),
+    BreakHeader(break_header::BreakHeaderCursor),
 }
 
 #[derive(Debug)]
@@ -176,7 +178,7 @@ impl CursorClass {
     fn new_placement(lg: line_group::LineGroup, hint: &PlacementHint) -> Result<CursorClass, line_group::LineGroup> {
         match lg {
             line_group::LineGroup::Hex(_) => hex::HexCursor::new_placement(lg, &hint).map(|cc| CursorClass::Hex(cc)),
-            line_group::LineGroup::BreakHeader(_) => Err(lg), //TODO: implement break header cursor
+            line_group::LineGroup::BreakHeader(_) => break_header::BreakHeaderCursor::new_placement(lg, &hint).map(|cc| CursorClass::BreakHeader(cc)),
         }
     }
 
@@ -184,7 +186,7 @@ impl CursorClass {
     fn new_transition(lg: line_group::LineGroup, hint: &TransitionHint) -> Result<CursorClass, line_group::LineGroup> {
         match lg {
             line_group::LineGroup::Hex(_) => hex::HexCursor::new_transition(lg, &hint).map(|cc| CursorClass::Hex(cc)),
-            line_group::LineGroup::BreakHeader(_) => Err(lg), //TODO: implement break header cursor
+            line_group::LineGroup::BreakHeader(_) => break_header::BreakHeaderCursor::new_transition(lg, &hint).map(|cc| CursorClass::BreakHeader(cc)),
         }
     }
 
@@ -275,6 +277,7 @@ pub struct PlacementHint {
 #[derive(Debug)]
 pub enum PlacementHintClass {
     Hex(hex::HexPlacementHint),
+    BreakHeader,
     Unused
 }
 
@@ -316,14 +319,14 @@ impl TransitionOp {
 }
 
 /// Used to hint at how to transition a cursor from one break to another.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TransitionHint {
     pub intended_offset: Option<addr::Size>,
     pub op: TransitionOp,
     pub class: TransitionHintClass,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TransitionHintClass {
     Hex(hex::HexTransitionHint),
     Unused

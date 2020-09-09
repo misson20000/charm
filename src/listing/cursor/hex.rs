@@ -287,7 +287,7 @@ pub struct HexPlacementHint {
     low_nybble: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HexTransitionHint {
     low_nybble: bool,
 }
