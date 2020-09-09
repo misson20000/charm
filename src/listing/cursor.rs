@@ -316,6 +316,16 @@ impl TransitionOp {
             TransitionOp::UnspecifiedRight => true,
         }
     }
+
+    pub fn is_entry(&self) -> bool {
+        match self {
+            TransitionOp::MoveLeftLarge => false,
+            TransitionOp::EntryStandard => true,
+            TransitionOp::EntryUTF8 => true,
+            TransitionOp::UnspecifiedLeft => false,
+            TransitionOp::UnspecifiedRight => false,
+        }
+    }
 }
 
 /// Used to hint at how to transition a cursor from one break to another.

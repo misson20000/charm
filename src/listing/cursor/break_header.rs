@@ -25,10 +25,15 @@ impl LineGroupExt for line_group::LineGroup {
 
 impl BreakHeaderCursor {
     pub fn new_transition(lg: line_group::LineGroup, hint: &cursor::TransitionHint) -> Result<BreakHeaderCursor, line_group::LineGroup> {
-        Ok(BreakHeaderCursor {
-            lg,
-            transition_hint: Some(hint.clone()),
-        })
+        if !hint.op.is_entry() {
+            Ok(BreakHeaderCursor {
+                lg,
+                transition_hint: Some(hint.clone()),
+            })
+        } else {
+            // when entering bytes, we should skip over break headers
+            Err(lg)
+        }
     }
     
     pub fn new_placement(lg: line_group::LineGroup, hint: &cursor::PlacementHint) -> Result<BreakHeaderCursor, line_group::LineGroup> {
