@@ -111,10 +111,10 @@ impl cursor::CursorClassExt for BreakHeaderCursor {
     }
 
     fn enter_standard(&mut self, _listing: &listing::ListingWatch, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::InvalidForType)
+        Err(cursor::EntryError::KeyNotRecognized)
     }
 
     fn enter_utf8(&mut self, _listing: &listing::ListingWatch, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::InvalidForType)
+        Err(cursor::EntryError::KeyNotRecognized)
     }
 }
