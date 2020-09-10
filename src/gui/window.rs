@@ -46,8 +46,8 @@ impl CharmWindow {
             {
                 let file_menu = gio::Menu::new();
                 file_menu.append(Some("New Window"), Some("app.new_window"));
+                file_menu.append(Some("Open File..."), Some("win.open"));
                 file_menu.append(Some("Export patches (IPS)..."), Some("listing.export_ips"));
-                file_menu.append(Some("Open..."), Some("app.open"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
             }
@@ -179,6 +179,12 @@ impl CharmWindow {
             gtk::Inhibit(w.propagate_key_event(ek) || w.activate_key(ek))
         });
 
+        /* window actions */
+        
+        gui::helpers::bind_simple_action(&w, &w.window, "open", |w| {
+            w.action_open();
+        });
+
         gui::helpers::bind_stateful_action(&w, &w.window, "view.patch_list", true, |act, w, state| {
             if let Some(vis) = state {
                 w.patch_list_frame.set_visible(vis);
@@ -201,6 +207,43 @@ impl CharmWindow {
         self.config_editor_frame.hide();
     }
 
+    fn action_open(self: &rc::Rc<Self>) {
+        let dialog = gtk::FileChooserDialog::with_buttons::<gtk::ApplicationWindow>( // TODO: use FileChooserNative
+            Some("Charm: Open File"),
+            None,
+            gtk::FileChooserAction::Open,
+            &[
+                ("_Cancel", gtk::ResponseType::Cancel),
+                ("_Open", gtk::ResponseType::Accept)
+            ]);
+        dialog.set_select_multiple(true);
+        match dialog.run() {
+            gtk::ResponseType::Accept => {
+                self.close_file();
+                
+                for file in dialog.get_files() {
+                    if self.context.borrow().is_some() {
+                        let w = self.application.new_window();
+                        w.open_file(&file);
+                        w.show();
+                    } else {
+                        self.open_file(&file);
+                        self.show();
+                    }
+                }
+            },
+            _ => {} /* we were cancelled, ignore */
+        }
+        dialog.close();
+    }
+
+    pub fn close_file(self: &rc::Rc<Self>) {
+        self.listing_container.foreach(|w| self.listing_container.remove(w));
+        self.patch_list.set_model::<gtk::TreeModel>(None);
+        self.window.insert_action_group::<gio::ActionGroup>("listing", None);
+        *self.context.borrow_mut() = None;
+    }
+    
     pub fn open_file(self: &rc::Rc<Self>, file: &gio::File) {
         let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
         let dn = attributes.get_attribute_as_string("standard::display-name").unwrap();
