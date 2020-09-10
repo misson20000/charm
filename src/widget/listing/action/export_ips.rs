@@ -132,7 +132,7 @@ impl ExportIPSAction {
                             .transient_for(&self.dialog)
                             .build();
                         dialog.run();
-                        dialog.destroy();
+                        dialog.close();
                     };
             },
             _ => {} /* we were cancelled, ignore */

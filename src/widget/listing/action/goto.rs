@@ -17,7 +17,7 @@ struct GoToAction {
 
 pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("goto", None);
-    let dialog = gtk::Dialog::new_with_buttons::<gtk::Window>(
+    let dialog = gtk::Dialog::with_buttons::<gtk::Window>(
         Some("Go to Location"),
         None,
         gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
@@ -64,10 +64,7 @@ impl GoToAction {
         loop {
             let response = self.dialog.run();
             let text_gstring = self.goto_entry.get_text();
-            let text = match text_gstring.as_ref() {
-                Some(gs) => gs.as_ref(),
-                None => ""
-            };
+            let text = text_gstring.as_ref();
             
             let message = match response {
                 gtk::ResponseType::Accept => {

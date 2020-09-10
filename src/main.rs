@@ -105,7 +105,7 @@ impl CharmApplication {
             },
             _ => {} /* we were cancelled, ignore */
         }
-        dialog.destroy();
+        dialog.close();
     }
     
     fn action_about(self: &rc::Rc<Self>) {

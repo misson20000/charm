@@ -81,7 +81,7 @@ impl CharmWindow {
             }
             menu_bar.freeze();
 
-            let menu_bar_widget = gtk::MenuBar::new_from_model(&menu_bar);
+            let menu_bar_widget = gtk::MenuBar::from_model(&menu_bar);
             main_box.pack_start(&menu_bar_widget, false, false, 0);
         }
 
