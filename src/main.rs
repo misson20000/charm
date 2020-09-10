@@ -55,11 +55,6 @@ impl CharmApplication {
         gui::helpers::bind_simple_action(&app, &app.application, "new_window", |app| {
             app.action_new_window();
         });
-
-
-        gui::helpers::bind_simple_action(&app, &app.application, "open", |app| {
-            app.action_open();
-        });
         
         gui::helpers::bind_simple_action(&app, &app.application, "about", |app| {
             app.action_about();
@@ -67,7 +62,7 @@ impl CharmApplication {
 
         /* accelerators */
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
-        app.application.set_accels_for_action("app.open", &["<Ctrl>O"]);
+        app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("listing.export_ips", &["<Ctrl><Shift>E"]);
         app.application.set_accels_for_action("listing.goto", &["G"]);
         app.application.set_accels_for_action("listing.goto_start_of_line", &["<Ctrl>A"]);
@@ -83,29 +78,6 @@ impl CharmApplication {
     fn action_new_window(self: &rc::Rc<Self>) {
         let w = self.new_window();
         w.show();
-    }
-
-    fn action_open(self: &rc::Rc<Self>) {
-        let dialog = gtk::FileChooserDialog::with_buttons::<gtk::ApplicationWindow>( // TODO: use FileChooserNative
-            Some("Charm: Open File"),
-            None,
-            gtk::FileChooserAction::Open,
-            &[
-                ("_Cancel", gtk::ResponseType::Cancel),
-                ("_Open", gtk::ResponseType::Accept)
-            ]);
-        dialog.set_select_multiple(true);
-        match dialog.run() {
-            gtk::ResponseType::Accept => {
-                for file in dialog.get_files() {
-                    let w = self.new_window();
-                    w.open_file(&file);
-                    w.show();
-                }
-            },
-            _ => {} /* we were cancelled, ignore */
-        }
-        dialog.close();
     }
     
     fn action_about(self: &rc::Rc<Self>) {
