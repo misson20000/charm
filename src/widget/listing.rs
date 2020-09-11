@@ -226,6 +226,7 @@ impl ListingWidget {
         ag.add_action(&action::export_ips::create(&rc, &lw));
         ag.add_action(&action::goto::create(&rc, &lw));
         ag.add_action(&action::insert_break::create(&rc, &lw));
+        ag.add_action(&action::collapse::create(&rc, &lw));
 
         ag.add_action(&action::movement::create_goto_start_of_line(&rc, &lw));
         ag.add_action(&action::movement::create_goto_end_of_line(&rc, &lw));

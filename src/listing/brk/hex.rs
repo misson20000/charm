@@ -12,13 +12,14 @@ use crate::listing::line_group::LineGroup;
 use crate::listing::window;
 use crate::listing::brk;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HexBreak {
     pub line_size: addr::Size,
 }
 
 pub struct HexBreakView<T: window::BreakViewDir> {
     header: bool,
+    collapsed: bool,
     current_addr: addr::Address,
     extent: addr::Extent,
     hbrk: owning_ref::ArcRef<brk::Break, HexBreak>,
@@ -63,6 +64,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
     pub fn new_from_top(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>) -> HexBreakView<T> {
         HexBreakView {
             header: false,
+            collapsed: brk.collapsed,
             current_addr: brk.addr,
             extent: breaks.extents_at(brk.addr),
             hbrk: owning_ref::OwningRef::new(brk).map(|brk| match &brk.class {
@@ -75,6 +77,10 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
 
     #[allow(unreachable_patterns)] // TODO: remove when we get more break types
     pub fn new_from_middle(breaks: &listing::BreakMap, brk: sync::Arc<brk::Break>, current_addr: addr::Address) -> HexBreakView<T> {
+        if brk.collapsed {
+            return Self::new_from_top(breaks, brk)
+        }
+        
         let extent = breaks.extents_at(brk.addr);
         let offset = current_addr - brk.addr;
         
@@ -85,6 +91,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
                                                   
         HexBreakView {
             header: true,
+            collapsed: false,
             current_addr: extent.begin + hb.line_size * (offset / hb.line_size), /* round */
             extent,
             hbrk: hb,
@@ -103,6 +110,7 @@ impl<T: window::BreakViewDir> HexBreakView<T> {
                                                   
         HexBreakView {
             header: true,
+            collapsed: hb.as_owner().collapsed,
             current_addr: extent.end,
             extent,
             hbrk: hb,
@@ -119,7 +127,7 @@ impl window::BreakView for HexBreakView<window::UpDir> {
     /* current_addr is the address of the line we just generated */
     
     fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup> {
-        if self.current_addr <= self.extent.begin {
+        if self.current_addr <= self.extent.begin || self.collapsed {
             if !self.header {
                 None
             } else {
@@ -136,7 +144,7 @@ impl window::BreakView for HexBreakView<window::UpDir> {
     }
     
     fn trim(&mut self, lg: &LineGroup) -> bool {
-        if self.current_addr >= self.extent.end {
+        if self.current_addr >= self.extent.end || (self.collapsed && self.header) {
             false
         } else {
             match lg {
@@ -178,7 +186,7 @@ impl window::BreakView for HexBreakView<window::DownDir> {
         if self.current_addr <= self.extent.begin && !self.header {
             self.header = true;
             Some(LineGroup::BreakHeader(brk::BreakHeaderLineGroup::new(self.get_break())))
-        } else if self.current_addr < self.extent.end {
+        } else if self.current_addr < self.extent.end && !self.collapsed {
             let line_size = std::cmp::min(self.hbrk.line_size, self.extent.end - self.current_addr);
             let extent = addr::Extent::between(self.current_addr, self.current_addr + line_size);
             self.current_addr+= line_size;

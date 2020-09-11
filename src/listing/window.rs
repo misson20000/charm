@@ -129,7 +129,12 @@ impl ListingWindow {
         
         while self.num_lines < self.top_margin + self.window_height {
             if hit_bottom {
-                offset+= self.scroll_up(1);
+                let scroll_amt = self.scroll_up(1);
+                if scroll_amt == 0 {
+                    break;
+                } else {
+                    offset+= scroll_amt;
+                }
             } else {
                 hit_bottom = self.produce_lines_bottom();
             }

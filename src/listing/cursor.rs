@@ -97,11 +97,21 @@ impl Cursor {
         let mut updated = false;
         
         updated = if self.window.is_outdated(listing) {
-            Self::place(listing.get_breaks(), listing.get_space(), PlacementHint {
+            match Self::place(listing.get_breaks(), listing.get_space(), PlacementHint {
                 addr: self.class.get_addr(),
                 intended_offset: self.class.get_intended_offset(),
                 class: self.class.get_placement_hint()
-            }).map(|new| { *self = new; }).is_ok() // TODO: better failure condition
+            }) {
+                Ok(new) => {
+                    *self = new;
+                    true
+                },
+                Err(e) => {
+                    // TODO: make this a little more fatal?
+                    println!("failed to update cursor: {:?}", e);
+                    false
+                }
+            }
         } else { updated };
 
         updated = self.class.get_line_group_mut().update(listing, cx) || updated;

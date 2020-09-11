@@ -17,6 +17,7 @@ struct InsertBreakAction {
     error_label: gtk::Label,
     label_entry: gtk::Entry,
     addr_entry: gtk::Entry,
+    collapsed_check: gtk::CheckButton,
     type_box: gtk::ComboBoxText,
 
     hex_break_grid: gtk::Grid,
@@ -61,8 +62,16 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
         addr_entry.set_activates_default(true);
         grid.attach(&label, 0, 1, 1, 1);
         grid.attach(&addr_entry, 1, 1, 1, 1);
-        ca.pack_start(&grid, false, false, 0);
     };
+
+    let collapsed_check = gtk::CheckButton::new(); {
+        let label = gtk::Label::new(Some("Collapsed"));
+        label.set_hexpand(true);
+        label.set_halign(gtk::Align::Start);
+        grid.attach(&label, 0, 2, 1, 1);
+        grid.attach(&collapsed_check, 1, 2, 1, 1);
+    };
+    ca.pack_start(&grid, false, false, 0);
     
     let type_box = gtk::ComboBoxText::new();
     type_box.append(Some("hex"), "Hex");
@@ -87,6 +96,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
         error_label,
         label_entry,
         addr_entry,
+        collapsed_check,
         type_box,
 
         hex_break_grid,
@@ -182,12 +192,15 @@ impl InsertBreakAction {
 
         let upstream = self.listing_watch.get_listing();
         let breaks = upstream.get_breaks();
+
+        let brk = breaks.get(&addr);
         
-        self.label_entry.set_text(breaks.get(&addr).and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
+        self.label_entry.set_text(brk.and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
         self.label_entry.grab_focus();
         
         self.error_label.set_text("");
         self.addr_entry.set_text(&format!("{}", lw.cursor_view.cursor.get_addr()));
+        self.collapsed_check.set_active(brk.map(|brk| brk.collapsed).unwrap_or(false));
 
         self.update_details(breaks.break_at(addr));
 
@@ -205,6 +218,7 @@ impl InsertBreakAction {
                     Ok(addr) => {
                         self.listing_watch.insert_break(brk::Break {
                             addr,
+                            collapsed: self.collapsed_check.get_active(),
                             label: if label_text.len() == 0 { None } else { Some(label_text.to_string()) },
                             class: brk::BreakClass::Hex(brk::hex::HexBreak {
                                 line_size: addr::Size::from(self.hex_break_line_width_entry.get_value_as_int() as u64),

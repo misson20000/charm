@@ -1,3 +1,4 @@
+use std::sync;
 use std::task;
 
 use crate::listing;
@@ -28,6 +29,13 @@ impl LineGroup {
         }
     }
 
+    pub fn get_break(&self) -> &sync::Arc<listing::brk::Break> {
+        match self {
+            LineGroup::Hex(hex) => hex.hbrk.as_owner(),
+            LineGroup::BreakHeader(bhdr) => &bhdr.brk
+        }
+    }
+    
     pub fn get_cache_id(&self) -> Option<CacheId> {
         match self {
             LineGroup::Hex(hex) => hex.get_cache_id().map(|cid| CacheId::Hex(cid)),

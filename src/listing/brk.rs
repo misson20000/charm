@@ -5,14 +5,15 @@ use crate::addr;
 
 pub mod hex;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Break {
     pub addr: addr::Address,
     pub label: Option<string::String>,
+    pub collapsed: bool,
     pub class: BreakClass
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BreakClass {
     Hex(hex::HexBreak),
     //Binary,
@@ -25,6 +26,7 @@ impl Break {
         Break {
             addr: addr::Address::from(addr),
             label: label.map(|l| l.to_string()),
+            collapsed: false,
             class
         }
     }

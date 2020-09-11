@@ -37,14 +37,20 @@ impl BreakHeaderCursor {
     }
     
     pub fn new_placement(lg: line_group::LineGroup, hint: &cursor::PlacementHint) -> Result<BreakHeaderCursor, line_group::LineGroup> {
-        match hint.class {
-            // we only place the cursor on a break header if explicitly requested;
-            // otherwise, we prefer to place it on a content line.
-            cursor::PlacementHintClass::BreakHeader => Ok(BreakHeaderCursor {
+        // we only place the cursor on a break header if explicitly
+        // requested, or the break is collapsed; otherwise, we prefer to
+        // place it on a content line.
+        if match hint.class {
+            cursor::PlacementHintClass::BreakHeader => true,
+            _ if lg.get_break().collapsed => true,
+        _ => false
+        } {
+            Ok(BreakHeaderCursor {
                 lg,
                 transition_hint: None
-            }),
-            _ => Err(lg)
+            })
+        } else {
+            Err(lg)
         }
     }
 }
