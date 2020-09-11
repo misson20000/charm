@@ -6,6 +6,7 @@ extern crate cairo;
 extern crate gio;
 extern crate gtk;
 extern crate gdk;
+extern crate gdk_pixbuf;
 extern crate futures;
 extern crate tokio;
 extern crate send_wrapper;
@@ -29,6 +30,7 @@ use std::option;
 use std::cell;
 
 use gio::prelude::*;
+use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 
 pub struct CharmApplication {
@@ -123,6 +125,17 @@ fn main() {
     /* startup */
     { let app_model_clone = app_model_for_closures.clone();
       application.connect_startup(move |app| {
+          /* set default icon */
+          let charm_icon = include_bytes!("charm.png");
+          let pixbuf_loader = gdk_pixbuf::PixbufLoader::new();
+          if let Some(pixbuf) = pixbuf_loader.write(charm_icon).ok().and_then(|_| {
+              pixbuf_loader.close().ok()
+          }).and_then(|_| {
+              pixbuf_loader.get_pixbuf()
+          }) {
+              gtk::Window::set_default_icon(&pixbuf);
+          }
+          
           *app_model_clone.borrow_mut() = Some(CharmApplication::new(app.clone()));
       });
     }
