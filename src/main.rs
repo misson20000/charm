@@ -16,14 +16,12 @@ extern crate enum_dispatch;
 #[cfg(feature = "test_listing")]
 extern crate ncurses;
 
-mod util;
 mod ext;
-mod addr;
-mod listing;
-mod space;
-mod widget;
+mod util;
 mod config;
-mod gui;
+
+mod model;
+mod view;
 
 use std::rc;
 use std::option;
@@ -54,11 +52,11 @@ impl CharmApplication {
 
         /* application actions */
 
-        gui::helpers::bind_simple_action(&app, &app.application, "new_window", |app| {
+        view::helpers::bind_simple_action(&app, &app.application, "new_window", |app| {
             app.action_new_window();
         });
         
-        gui::helpers::bind_simple_action(&app, &app.application, "about", |app| {
+        view::helpers::bind_simple_action(&app, &app.application, "about", |app| {
             app.action_about();
         });
 
@@ -87,8 +85,8 @@ impl CharmApplication {
         self.about_dialog.hide();
     }
 
-    fn new_window(self: &rc::Rc<Self>) -> rc::Rc<gui::window::CharmWindow> {
-        gui::window::CharmWindow::new(self)
+    fn new_window(self: &rc::Rc<Self>) -> rc::Rc<view::window::CharmWindow> {
+        view::window::CharmWindow::new(self)
     }
     
     fn create_about_dialog() -> gtk::AboutDialog {
