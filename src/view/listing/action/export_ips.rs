@@ -8,7 +8,7 @@ use crate::model::document;
 use crate::view::listing::ListingWidget;
 
 extern crate byteorder;
-use byteorder::ByteOrder;
+//use byteorder::ByteOrder;
 
 struct ExportIPSAction {
     dialog: gtk::FileChooserDialog,
@@ -80,8 +80,10 @@ impl FullWrite for gio::FileOutputStream {
     }
 }
 
-fn export_patches(fos: &gio::FileOutputStream, document: &document::Document) -> Result<(), IPSExportError> {
+fn export_patches(fos: &gio::FileOutputStream, _document: &document::Document) -> Result<(), IPSExportError> {
     fos.full_write(b"PATCH")?;
+    // TODO
+    /*
     for (loc, patch) in document.get_patches().iter() {
         if *loc == byteorder::BE::read_u24(b"EOF") as u64 {
             return Err(IPSExportError::InvalidHunkOffset);
@@ -101,6 +103,7 @@ fn export_patches(fos: &gio::FileOutputStream, document: &document::Document) ->
         fos.full_write(&header)?;
         fos.full_write(&patch.bytes)?;
     }
+     */
     fos.full_write(b"EOF")?;
 
     Ok(())

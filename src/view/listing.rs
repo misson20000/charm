@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use crate::config;
 use crate::util;
 use crate::model::addr;
+use crate::model::datapath;
+use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::brk;
 use crate::model::listing;
@@ -34,7 +36,7 @@ struct InternalRenderingContext<'a> {
     
     perf: time::Instant,
 
-    byte_cache: vec::Vec<brk::hex::PatchByteRecord>,
+    byte_cache: vec::Vec<datapath::ByteRecord>,
     
     pad: f64,
 }
@@ -300,6 +302,7 @@ impl ListingWidget {
         /*
         let debug = vec![
             format!("last frame duration: {}", self.last_frame_duration.map(|d| d.as_micros() as f64).unwrap_or(0.0) / 1000.0),
+            format!("document datapath generation: {}", self.document_host.get_document().get_datapath_generation_for_debug()),
         ];
         
         let mut lineno = 0;
@@ -711,6 +714,11 @@ impl ListingWidget {
         let document = self.document_host.get_document();
         self.document_host.wait(cx);
         self.update_notifier.enroll(cx);
+
+        /* We don't care about updates from the datapath. If the datapath
+         * fetched any data that we actually cared about, we will find out when
+         * we update the line groups. */
+        document.datapath.poll(cx);
         
         updated = self.window.update(&document, cx) || updated;
         updated = self.cursor_view.cursor.update(&document, cx) || updated;
@@ -828,16 +836,16 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 let pbr = if i < c.byte_cache.len() {
                     c.byte_cache[i]
                 } else {
-                    brk::hex::PatchByteRecord::default()
+                    datapath::ByteRecord::default()
                 };
                 
-                let chr = if pbr.loaded || pbr.patched {
+                let chr = if pbr.loaded || pbr.overwritten {
                     util::nybble_to_hex((pbr.value >> if *low_nybble { 0 } else { 4 }) & 0xf)
                 } else {
                     ' '
                 };
 
-                if pbr.patched {
+                if pbr.overwritten {
                     cr.set_source_rgba(0.0, 1.0, 0.0, 1.0);
                 } else {
                     cr.set_source_gdk_rgba(c.cfg.text_color);

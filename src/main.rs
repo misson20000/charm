@@ -1,4 +1,5 @@
 #![feature(arbitrary_self_types)]
+#![feature(slice_fill)]
 #![allow(dead_code)]
 
 extern crate glib;

@@ -125,7 +125,7 @@ impl InsertBreakAction {
 
         match addr::Address::parse(addr_text) {
             Ok(addr) => {
-                match self.document_host.get_document().get_breaks().break_at(addr) {
+                match self.document_host.get_document().breaks.break_at(addr) {
                     brk if brk.addr == addr => {
                         self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); /* delete */
                         self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); /* edit */
@@ -181,7 +181,7 @@ impl InsertBreakAction {
         let addr = lw.cursor_view.cursor.get_addr();
 
         let upstream = self.document_host.get_document();
-        let breaks = upstream.get_breaks();
+        let breaks = &upstream.breaks;
         
         self.label_entry.set_text(breaks.get(&addr).and_then(|brk| brk.label.as_ref()).map(|l| l.as_str()).unwrap_or(""));
         self.label_entry.grab_focus();

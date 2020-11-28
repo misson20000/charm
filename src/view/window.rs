@@ -15,16 +15,16 @@ pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
     document_host: sync::Arc<document::DocumentHost>,
     lw: sync::Arc<parking_lot::RwLock<view::listing::ListingWidget>>,
-    patches: sync::Arc<parking_lot::RwLock<view::patches::PatchesModel>>,
+    datapath: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
 }
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     window: gtk::ApplicationWindow,
     listing_container: gtk::Container,
-    patch_list: gtk::TreeView,
+    datapath_editor: gtk::TreeView,
     config_editor: gtk::ListBox,
-    patch_list_frame: gtk::Frame,
+    datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
     context: cell::RefCell<Option<WindowContext>>,
 }
@@ -67,7 +67,7 @@ impl CharmWindow {
             }
             {
                 let view_menu = gio::Menu::new();
-                view_menu.append(Some("Patch List"), Some("win.view.patch_list"));
+                view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
                 view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
                 view_menu.freeze();
                 menu_bar.append_submenu(Some("View"), &view_menu);
@@ -88,48 +88,32 @@ impl CharmWindow {
         listing_container.set_homogeneous(true);
         
         let hpaned = gtk::Paned::new(gtk::Orientation::Horizontal);
-        let patch_list = gtk::TreeView::new();
+        let datapath_editor = gtk::TreeView::new();
         {
             {
                 let crt = gtk::CellRendererText::new();
                 let c = gtk::TreeViewColumn::new();
                 c.pack_start(&crt, true);
                 c.add_attribute(&crt, "text", 0);
-                c.set_title("Location");
-                patch_list.append_column(&c);
-            }
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 1);
-                c.set_title("Size");
-                patch_list.append_column(&c);
-            }
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 2);
-                c.set_title("Patched Bytes");
-                patch_list.append_column(&c);
+                c.set_title("Entry");
+                datapath_editor.append_column(&c);
             }
         }
 
-        let patch_list_frame = gtk::Frame::new(None);
+        let datapath_editor_frame = gtk::Frame::new(None);
         {
             let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
             vpaned.pack1(&listing_container, true, false);
 
-            { // patch_list frame
-                patch_list_frame.set_shadow_type(gtk::ShadowType::In);
-                patch_list_frame.set_margin_top(10);
-                patch_list_frame.set_margin_bottom(10);
-                patch_list_frame.set_margin_start(10);
-                patch_list_frame.set_margin_end(10);
-                patch_list_frame.add(&patch_list);
+            { // datapath_editor frame
+                datapath_editor_frame.set_shadow_type(gtk::ShadowType::In);
+                datapath_editor_frame.set_margin_top(10);
+                datapath_editor_frame.set_margin_bottom(10);
+                datapath_editor_frame.set_margin_start(10);
+                datapath_editor_frame.set_margin_end(10);
+                datapath_editor_frame.add(&datapath_editor);
                 
-                vpaned.pack2(&patch_list_frame, false, true);
+                vpaned.pack2(&datapath_editor_frame, false, true);
             }
             
             hpaned.pack1(&vpaned, true, false);
@@ -158,9 +142,9 @@ impl CharmWindow {
             application: charm.clone(),
             window,
             listing_container: listing_container.upcast::<gtk::Container>(),
-            patch_list,
+            datapath_editor,
             config_editor,
-            patch_list_frame,
+            datapath_editor_frame,
             config_editor_frame,
             context: cell::RefCell::new(None),
         });
@@ -184,9 +168,9 @@ impl CharmWindow {
             w.action_open();
         });
 
-        view::helpers::bind_stateful_action(&w, &w.window, "view.patch_list", true, |act, w, state| {
+        view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
-                w.patch_list_frame.set_visible(vis);
+                w.datapath_editor_frame.set_visible(vis);
                 act.set_state(&glib::Variant::from(vis));
             }
         });
@@ -238,7 +222,7 @@ impl CharmWindow {
 
     pub fn close_file(self: &rc::Rc<Self>) {
         self.listing_container.foreach(|w| self.listing_container.remove(w));
-        self.patch_list.set_model::<gtk::TreeModel>(None);
+        self.datapath_editor.set_model::<gtk::TreeModel>(None);
         self.window.insert_action_group::<gio::ActionGroup>("listing", None);
         *self.context.borrow_mut() = None;
     }
@@ -263,13 +247,13 @@ impl WindowContext {
     fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         let lw = view::listing::ListingWidget::new(window, &document_host);
-        let patches = view::patches::PatchesModel::new(window, &document_host);
+        let datapath = view::datapath::DataPathModel::new(window, &document_host);
         
         WindowContext {
             window: rc::Rc::downgrade(window),
             document_host,
             lw,
-            patches,
+            datapath,
         }
     }
 
@@ -278,7 +262,7 @@ impl WindowContext {
         let da = lw.get_drawing_area();
         window.listing_container.foreach(|w| window.listing_container.remove(w));
         window.listing_container.add(da);
-        window.patch_list.set_model(Some(self.patches.read().get_tree_model()));
+        window.datapath_editor.set_model(Some(self.datapath.read().get_tree_model()));
         window.window.insert_action_group("listing", lw.get_action_group());
         da.grab_focus();
 

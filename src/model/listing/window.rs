@@ -2,7 +2,6 @@ use std::sync;
 use std::task;
 
 use crate::model::addr;
-use crate::model::space;
 use crate::model::document;
 use crate::model::document::BreakMapExt;
 use crate::model::document::brk;
@@ -37,7 +36,7 @@ We don't ever fragment "line groups".
 
 #[enum_dispatch]
 pub trait BreakView {
-    fn produce(&mut self, space: &sync::Arc<dyn space::AddressSpace>) -> Option<LineGroup>;
+    fn produce(&mut self) -> Option<LineGroup>;
 
     /// We've scrolled in the opposite direction you want, and this line fell
     /// off the end of the window. Regress your state so you can generate it
@@ -301,7 +300,7 @@ impl FixedWindow {
         }
 
         for lg in self.line_groups.iter_mut() {
-            updated = lg.update(document, cx) || updated;
+            updated = lg.update(&document, cx) || updated;
         }
 
         updated
@@ -310,14 +309,14 @@ impl FixedWindow {
 
 impl FlexWindow {
     pub fn new(document: &document::Document, addr: addr::Address) -> FlexWindow {
-        let (top_view, bottom_view) = match document.get_breaks().break_at(addr) {
+        let (top_view, bottom_view) = match document.breaks.break_at(addr) {
             brk if brk.addr == addr => {
-                (BreakViewUpward::new_from_top(&document.get_breaks(), brk.clone()),
-                 BreakViewDownward::new_from_top(&document.get_breaks(), brk.clone()))
+                (BreakViewUpward::new_from_top(&document.breaks, brk.clone()),
+                 BreakViewDownward::new_from_top(&document.breaks, brk.clone()))
             },
             brk => {
-                (BreakViewUpward::new_from_middle(&document.get_breaks(), brk.clone(), addr),
-                 BreakViewDownward::new_from_middle(&document.get_breaks(), brk.clone(), addr))
+                (BreakViewUpward::new_from_middle(&document.breaks, brk.clone(), addr),
+                 BreakViewDownward::new_from_middle(&document.breaks, brk.clone(), addr))
             }
         };
 
@@ -328,22 +327,13 @@ impl FlexWindow {
         }
     }
 
+    /// Useful for if you need to re-create the window at a new address
     pub fn get_document(&self) -> &document::Document {
         &self.document
     }
     
-    /// Useful for if you need to re-create the window at a new address
-    pub fn get_breaks(&self) -> &document::BreakMap {
-        &self.document.get_breaks()
-    }
-
-    /// Useful for if you need to re-create the window at a new address
-    pub fn get_space(&self) -> &sync::Arc<dyn space::AddressSpace> {
-        &self.document.get_space()
-    }
-
     pub fn is_outdated(&self, new_document: &document::Document) -> bool {
-        &self.document != new_document
+        self.document.is_layout_outdated(new_document)
     }
     
     /// NOTE: zero-sizes the window
@@ -354,8 +344,8 @@ impl FlexWindow {
     /// Shrinks the window by one line group on the bottom.
     pub fn trim_up(&mut self, lg: &LineGroup) {
         while !self.bottom_view.trim(lg) {
-            match self.document.get_breaks().break_before(self.bottom_view.get_break()) {
-                Some(p) => self.bottom_view = BreakViewDownward::new_from_bottom(&self.document.get_breaks(), p.clone()),
+            match self.document.breaks.break_before(self.bottom_view.get_break()) {
+                Some(p) => self.bottom_view = BreakViewDownward::new_from_bottom(&self.document.breaks, p.clone()),
                 None => panic!("tried to trim up to top of address space"),
             }
         }
@@ -367,8 +357,8 @@ impl FlexWindow {
             if self.top_view.get_break().addr == addr::unit::REAL_END {
                 panic!("tried to trim down to bottom of address space");
             } else {
-                match self.document.get_breaks().get_next(&(self.top_view.get_break().addr + addr::unit::BIT)) {
-                    Some(n) => self.top_view = BreakViewUpward::new_from_top(&self.document.get_breaks(), n.1.clone()),
+                match self.document.breaks.get_next(&(self.top_view.get_break().addr + addr::unit::BIT)) {
+                    Some(n) => self.top_view = BreakViewUpward::new_from_top(&self.document.breaks, n.1.clone()),
                     None => panic!("tried to trim down to bottom of address space"),
                 }
             }
@@ -378,12 +368,12 @@ impl FlexWindow {
     /// Tries to grow the window by one line group on the top.
     pub fn produce_up(&mut self) -> Option<LineGroup> {
         Some(loop {
-            let lg = self.top_view.produce(&self.document.get_space());
+            let lg = self.top_view.produce();
 
             match lg {
                 Some(lg) => break lg,
-                None => match self.document.get_breaks().break_before(self.top_view.get_break()) {
-                    Some(p) => self.top_view = BreakViewUpward::new_from_bottom(&self.document.get_breaks(), p.clone()),
+                None => match self.document.breaks.break_before(self.top_view.get_break()) {
+                    Some(p) => self.top_view = BreakViewUpward::new_from_bottom(&self.document.breaks, p.clone()),
                     None => return None,
                 }
             }
@@ -393,12 +383,12 @@ impl FlexWindow {
     /// Tries to grow the window by one line group on the bottom.
     pub fn produce_down(&mut self) -> Option<LineGroup> {
         Some(loop {
-            let lg = self.bottom_view.produce(&self.document.get_space());
+            let lg = self.bottom_view.produce();
 
             match lg {
                 Some(lg) => break lg,
-                None => match self.document.get_breaks().break_after(self.bottom_view.get_break()) {
-                    Some(n) => self.bottom_view = BreakViewDownward::new_from_top(&self.document.get_breaks(), n.clone()),
+                None => match self.document.breaks.break_after(self.bottom_view.get_break()) {
+                    Some(n) => self.bottom_view = BreakViewDownward::new_from_top(&self.document.breaks, n.clone()),
                     None => return None,
                 }
             }
@@ -406,7 +396,7 @@ impl FlexWindow {
     }
 
     pub fn get_bottom_hit_end(&self) -> bool {
-        self.bottom_view.hit_boundary() && self.document.get_breaks().break_after(self.bottom_view.get_break()).is_none()
+        self.bottom_view.hit_boundary() && self.document.breaks.break_after(self.bottom_view.get_break()).is_none()
     }
 }
 

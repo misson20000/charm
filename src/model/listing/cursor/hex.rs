@@ -264,11 +264,11 @@ impl cursor::CursorClassExt for HexCursor {
          */
 
         if self.low_nybble && shift <= 4 {
-            let raw = self.lg.as_hex_line().patched_bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
+            let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
             let mask = 0xF << shift;
             document_host.patch_byte(loc, (raw & !mask) | (nybble << shift));
         } else if !self.low_nybble && shift == 0 {
-            let raw = self.lg.as_hex_line().patched_bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
+            let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
             let mask = 0xF << 4;
             document_host.patch_byte(loc, (raw & !mask) | (nybble << 4));
         } else {

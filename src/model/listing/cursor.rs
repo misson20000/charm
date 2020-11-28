@@ -102,7 +102,7 @@ impl Cursor {
             }).map(|new| { *self = new; }).is_ok() // TODO: better failure condition
         } else { updated };
 
-        updated = self.class.get_line_group_mut().update(document, cx) || updated;
+        updated = self.class.get_line_group_mut().update(&document, cx) || updated;
 
         updated
     }
@@ -141,7 +141,7 @@ impl Cursor {
     pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionOp::UnspecifiedRight) }
 
     pub fn move_up_to_break(&mut self) -> MovementResult {
-        match self.goto(match self.window.get_breaks().break_before_addr(self.class.get_addr()) {
+        match self.goto(match self.window.get_document().breaks.break_before_addr(self.class.get_addr()) {
             Some(brk) => brk.addr,
             None => return MovementResult::HitStart,
         }) {
@@ -151,7 +151,7 @@ impl Cursor {
     }
     
     pub fn move_down_to_break(&mut self) -> MovementResult {
-        match self.goto(match self.window.get_breaks().break_after_addr(self.class.get_addr()) {
+        match self.goto(match self.window.get_document().breaks.break_after_addr(self.class.get_addr()) {
             Some(brk) => brk.addr,
             None => return MovementResult::HitEnd,
         }) {
