@@ -229,7 +229,7 @@ impl cursor::CursorClassExt for HexCursor {
         }
     }
 
-    fn enter_standard(&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+    fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
         let nybble = match key.get_keyval() {
             _ if !key.get_state().is_empty() => return Err(cursor::EntryError::KeyNotRecognized),
             gdk::keys::constants::_0 => 0,
@@ -266,11 +266,17 @@ impl cursor::CursorClassExt for HexCursor {
         if self.low_nybble && shift <= 4 {
             let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
             let mask = 0xF << shift;
+            
             document_host.patch_byte(loc, (raw & !mask) | (nybble << shift));
         } else if !self.low_nybble && shift == 0 {
             let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
             let mask = 0xF << 4;
-            document_host.patch_byte(loc, (raw & !mask) | (nybble << 4));
+            
+            if insert {
+                document_host.insert_byte(loc, (raw & !mask) | (nybble << 4));
+            } else {
+                document_host.patch_byte(loc, (raw & !mask) | (nybble << 4));
+            }
         } else {
             todo!(); // TODO
         }
@@ -278,7 +284,7 @@ impl cursor::CursorClassExt for HexCursor {
         Ok(self.move_right())
     }
 
-    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
         Err(cursor::EntryError::KeyNotRecognized) // TODO
     }
 }

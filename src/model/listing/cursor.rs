@@ -55,8 +55,8 @@ pub trait CursorClassExt {
     fn move_left_large(&mut self) -> MovementResult;
     fn move_right_large(&mut self) -> MovementResult;
 
-    fn enter_standard(&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
-    fn enter_utf8    (&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
+    fn enter_utf8    (&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<MovementResult, EntryError>;
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -160,12 +160,12 @@ impl Cursor {
         }
     }
 
-    pub fn enter_standard(&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
-        self.class.enter_standard(document_host, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
+    pub fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+        self.class.enter_standard(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
     }
 
-    pub fn enter_utf8(&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
-        self.class.enter_utf8(document_host, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
+    pub fn enter_utf8(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<MovementResult, EntryError> {
+        self.class.enter_utf8(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
     }
 }
 

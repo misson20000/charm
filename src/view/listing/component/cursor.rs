@@ -16,6 +16,7 @@ pub struct CursorView {
     pub cursor: cursor::Cursor,
     pub mode: Mode,
     pub has_focus: bool,
+    pub insert: bool,
     blink_timer: f64,
     bonk_timer: f64,
 }
@@ -28,6 +29,7 @@ impl CursorView {
             blink_timer: 0.0,
             bonk_timer: 0.0,
             has_focus: true,
+            insert: false,
             mode: Mode::Command,
         }
     }
@@ -78,6 +80,12 @@ impl CursorView {
         self.mode = mode;
         self.events.want_draw();
     }
+
+    pub fn change_insert(&mut self, insert: bool) {
+        self.blink();
+        self.insert = insert;
+        self.events.want_draw();
+    }
     
     // TODO: macro this
     fn movement<F>(&mut self, mov: F) where F: FnOnce(&mut cursor::Cursor) -> cursor::MovementResult {
@@ -111,12 +119,12 @@ impl CursorView {
             Mode::Command => return false,
             Mode::Entry => {
                 self.events.want_draw();
-                self.cursor.enter_standard(document_host, key)
+                self.cursor.enter_standard(document_host, self.insert, key)
             },
             Mode::TextEntry => {
                 self.events.want_draw();
-                self.cursor.enter_utf8(document_host, key)
-            }
+                self.cursor.enter_utf8(document_host, self.insert, key)
+            },
         } {
             Ok(cursor::MovementResult::Ok) => { self.blink(); true },
             Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); false },

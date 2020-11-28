@@ -47,7 +47,7 @@ impl DataPathModel {
         self.store.clear();
 
         // TODO: only adjust difference
-        for filter in upstream.datapath.iter() {
+        for filter in upstream.datapath.iter().rev() {
             let i = self.store.append();
             self.store.set(&i, &[0], &[&filter.describe()]);
         }

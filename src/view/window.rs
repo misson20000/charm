@@ -59,6 +59,7 @@ impl CharmWindow {
                     mode_menu.append(Some("Command mode"), Some("listing.mode::command"));
                     mode_menu.append(Some("Hex entry"), Some("listing.mode::entry"));
                     mode_menu.append(Some("Text entry (UTF8)"), Some("listing.mode::utf8"));
+                    mode_menu.append(Some("Insert"), Some("listing.insert_mode"));
                     edit_menu.append_section(Some("Edit Mode"), &mode_menu);
                     mode_menu.freeze();
                 }
@@ -95,7 +96,7 @@ impl CharmWindow {
                 let c = gtk::TreeViewColumn::new();
                 c.pack_start(&crt, true);
                 c.add_attribute(&crt, "text", 0);
-                c.set_title("Entry");
+                c.set_title("Datapath Filter");
                 datapath_editor.append_column(&c);
             }
         }

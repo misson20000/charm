@@ -18,7 +18,7 @@ pub struct ByteRecord {
     pub loaded: bool, /* Touched by a LoadSpaceEdit */
     pub overwritten: bool, /* Touched by an OverwriteEdit */
     pub inserted: bool, /* Touched by an InsertEdit */
-    pub moved: bool, /* Touched by a MoveEdit */
+    pub moved: bool, /* Touched by a MoveEdit or trailing end of an InsertEdit */
     pub error: bool, /* Some kind of error was encountered on the datapath. Probably an I/O error. */
 }
 
@@ -29,6 +29,14 @@ impl ByteRecord {
         } else {
             None
         }
+    }
+
+    pub fn has_any_value(&self) -> bool {
+        self.loaded || self.overwritten || self.inserted
+    }
+
+    pub fn has_direct_edit(&self) -> bool {
+        self.overwritten || self.inserted
     }
 }
 
@@ -55,6 +63,7 @@ impl Filter {
             (Filter::Overwrite(ai), Filter::Overwrite(bi)) => OverwriteFilter::stack(ai, bi).map(|oe| Filter::Overwrite(oe)),
             (Filter::Move(ai), Filter::Move(bi)) => MoveFilter::stack(ai, bi).map(|me| Filter::Move(me)),
             (Filter::Insert(ai), Filter::Insert(bi)) => InsertFilter::stack(ai, bi).map(|ie| Filter::Insert(ie)),
+            (Filter::Insert(ai), Filter::Overwrite(bi)) => InsertFilter::stack_overwrite(ai, bi).map(|ie| Filter::Insert(ie)),
             _ => None,
         }
     }
@@ -305,6 +314,7 @@ impl LoadSpaceFilter {
 
 impl OverwriteFilter {
     fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
+        /* so we set load flags properly */
         Filter::fetch_next(iter, range, cx);
 
         // TODO: optimize this
@@ -384,8 +394,36 @@ impl MoveFilter {
 }
 
 impl InsertFilter {
-    fn fetch<'a, 'b, 'c>(&self, _iter: impl iter::Iterator<Item = &'a Filter>, _range: &'c mut ByteRecordRange<'b>, _cx: &mut task::Context) {
-        todo!("implement Insert::fetch");
+    fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
+        let (mut before, mut overlap, mut after) = range.split3((self.offset, Some(self.bytes.len() as u64)));
+
+        if !before.is_empty() {
+            Filter::fetch_next(iter.clone(), &mut before, cx);
+        }
+
+        if !after.is_empty() {
+            after.addr-= self.bytes.len() as u64;
+            Filter::fetch_next(iter.clone(), &mut after, cx);
+
+            for br in after.out.iter_mut() {
+                br.moved = true;
+            }
+        }
+
+        if !overlap.is_empty() {
+            /* so we set load flags properly */
+            Filter::fetch_next(iter, &mut overlap, cx);
+            
+            // TODO: optimize this
+            let addr = range.addr;
+            
+            for (i, br) in range.out.iter_mut().enumerate() {
+                if addr + i as u64 >= self.offset && addr + i as u64 - self.offset < self.bytes.len() as u64 {
+                    br.inserted = true;
+                    br.value = self.bytes[(addr + i as u64 - self.offset) as usize];
+                }
+            }            
+        }
     }
 
     fn stack(a: &InsertFilter, b: &InsertFilter) -> Option<InsertFilter> {
@@ -402,6 +440,21 @@ impl InsertFilter {
         } else {
             None
         }
+    }
+
+    fn stack_overwrite(a: &InsertFilter, b: &OverwriteFilter) -> Option<InsertFilter> {
+        if b.offset == a.offset + a.bytes.len() as u64 - 1 && b.bytes.len() == 1 {
+            /* Stack if b overwrites the last byte of a */
+            let mut filter = a.clone();
+            filter.bytes[a.bytes.len() - 1] = b.bytes[0];
+            Some(filter)
+        } else {
+            None
+        }
+    }
+
+    pub fn to_filter(self) -> Filter {
+        Filter::Insert(self)
     }
 }
 

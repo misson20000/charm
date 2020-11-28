@@ -94,6 +94,13 @@ impl DocumentHost {
         }.to_filter())
     }
 
+    pub fn insert_byte(&self, location: u64, patch: u8) {
+        self.apply_filter(datapath::InsertFilter {
+            offset: location,
+            bytes: vec![patch]
+        }.to_filter())
+    }
+
     pub fn apply_filter(&self, filter: datapath::Filter) {
         let mut interior = self.interior.write().unwrap();
 

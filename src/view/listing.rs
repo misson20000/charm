@@ -233,6 +233,7 @@ impl ListingWidget {
         ag.add_action(&action::movement::create_goto_start_of_line(&rc, &lw));
         ag.add_action(&action::movement::create_goto_end_of_line(&rc, &lw));
         ag.add_action(&action::mode::create_mode(&rc, &lw));
+        ag.add_action(&action::mode::create_insert_mode(&rc, &lw));
 
         *lw.action_group = Some(ag);
         
@@ -399,12 +400,12 @@ impl ListingWidget {
             component::cursor::Mode::Entry => ModeTheme {
                 accent: irc.cfg.mode_entry_color,
                 counter_accent: irc.cfg.background_color,
-                mode_string: "BYTE ENTRY",
+                mode_string: if self.cursor_view.insert { "BYTE INSERT" } else { "BYTE ENTRY" },
             },
             component::cursor::Mode::TextEntry => ModeTheme {
                 accent: irc.cfg.mode_text_entry_color,
                 counter_accent: irc.cfg.background_color,
-                mode_string: "TEXT ENTRY",
+                mode_string: if self.cursor_view.insert { "TEXT INSERT" } else { "TEXT ENTRY" },
             }
         };
 
@@ -839,13 +840,13 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                     datapath::ByteRecord::default()
                 };
                 
-                let chr = if pbr.loaded || pbr.overwritten {
+                let chr = if pbr.has_any_value() {
                     util::nybble_to_hex((pbr.value >> if *low_nybble { 0 } else { 4 }) & 0xf)
                 } else {
                     ' '
                 };
 
-                if pbr.overwritten {
+                if pbr.has_direct_edit() {
                     cr.set_source_rgba(0.0, 1.0, 0.0, 1.0);
                 } else {
                     cr.set_source_gdk_rgba(c.cfg.text_color);

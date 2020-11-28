@@ -72,6 +72,7 @@ impl CharmApplication {
         app.application.set_accels_for_action("listing.mode::command", &["Escape", "Return"]);
         app.application.set_accels_for_action("listing.mode::entry", &["E"]);
         app.application.set_accels_for_action("listing.mode::utf8", &["T"]);
+        app.application.set_accels_for_action("listing.insert_mode", &["Insert"]);
 
         app
     }
