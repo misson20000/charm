@@ -657,6 +657,10 @@ impl ListingWidget {
                 listing::line_group::LineGroup::Hex(hlg) => {
                     let mut chr = (x - self.layout.addr_pane_width - cfg.padding) / self.fonts.extents.max_x_advance;
 
+                    let hexdump_bytes = hlg.hbrk.line_size.round_up().bytes as usize;
+                    let hexdump_width = hexdump_bytes * 3 + (hexdump_bytes - 1) / 8;
+                    let gutter_width = 2;
+                    
                     if chr < 0.0 {
                         if bias == AddressEstimationBias::Strict {
                             return None
@@ -665,31 +669,64 @@ impl ListingWidget {
                         }
                     }
 
-                    chr-= (chr as usize / 24) as f64; /* spacing */
-                    
-                    let offset = match bias {
-                        AddressEstimationBias::Strict if chr % 3.0 >= 2.0 => return None,
-                        AddressEstimationBias::Strict => (chr / 3.0) as u64,
-                        AddressEstimationBias::Left => (chr / 3.0) as u64,
-                        AddressEstimationBias::Right => (chr / 3.0) as u64 + 1,
-                        AddressEstimationBias::AwayFrom(a) => {
-                            if a < hlg.extent.begin {
-                                (chr / 3.0) as u64 + 1
-                            } else if a >= hlg.extent.end {
-                                (chr / 3.0) as u64
-                            } else {
-                                let abyte = (a - hlg.extent.begin).bytes;
-                                let achr = (abyte * 3 + abyte / 8) as f64; /* divide by 8 for spacing */
-                                
-                                if chr < achr {
+                    let offset = if chr < hexdump_width as f64 {
+                        /* hex */
+                        chr-= (chr as usize / 25) as f64; /* spacing */
+                        
+                        match bias {
+                            AddressEstimationBias::Strict if chr % 3.0 >= 2.0 => return None,
+                            AddressEstimationBias::Strict => (chr / 3.0) as u64,
+                            AddressEstimationBias::Left => (chr / 3.0) as u64,
+                            AddressEstimationBias::Right => (chr / 3.0) as u64 + 1,
+                            AddressEstimationBias::AwayFrom(a) => {
+                                if a < hlg.extent.begin {
+                                    (chr / 3.0) as u64 + 1
+                                } else if a >= hlg.extent.end {
                                     (chr / 3.0) as u64
                                 } else {
-                                    (chr / 3.0) as u64 + 1
+                                    let abyte = (a - hlg.extent.begin).bytes;
+                                    let achr = (abyte * 3 + abyte / 8) as f64; /* divide by 8 for spacing */
+                                    
+                                    if chr < achr {
+                                        (chr / 3.0) as u64
+                                    } else {
+                                        (chr / 3.0) as u64 + 1
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        /* ascii */
+                        chr-= (hexdump_width + gutter_width) as f64;
+                        let spacers_left = (chr as isize / 9) as f64;
+                        let spacers_right = ((chr - 1.0) as isize / 9) as f64;
+                        
+                        match bias {
+                            AddressEstimationBias::Strict if chr < 0.0 => return None,
+                            AddressEstimationBias::Strict if chr % 9.0 > 8.0 => return None, /* if we fall in a spacer */
+                            AddressEstimationBias::Strict => (chr - spacers_left) as u64,
+                            AddressEstimationBias::Left => (chr - spacers_left) as u64,
+                            AddressEstimationBias::Right => (chr + 1.0 - spacers_right) as u64,
+                            AddressEstimationBias::AwayFrom(a) => {
+                                if a < hlg.extent.begin { /* bias right */
+                                    (chr + 1.0 - spacers_right) as u64
+                                } else if a >= hlg.extent.end { /* bias left */
+                                    (chr - spacers_left) as u64
+                                } else {
+                                    let abyte = (a - hlg.extent.begin).bytes;
+                                    let achr = (abyte + abyte / 8) as f64; /* divide by 8 for spacing */
+
+                                    if chr < achr { /* bias left */
+                                        (chr - spacers_left) as u64
+                                    } else { /* bias right */
+                                        (chr + 1.0 - spacers_right) as u64
+                                    }
                                 }
                             }
                         }
                     };
 
+                    /* convert offset to address, clamping to bounds */
                     match bias {
                         AddressEstimationBias::Strict if addr::Size::from(offset) >= hlg.extent.length() => None,
                         _ => Some(hlg.extent.begin + std::cmp::min(addr::Size::from(offset), hlg.extent.length()))
@@ -917,35 +954,68 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
     fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
         if let Some(intersect) = self.extent.intersection(*selection) {
-            let byte_begin = (intersect.begin - self.extent.begin).bytes;
-            let byte_end = (intersect.end - self.extent.begin).bytes;
+            let byte_begin = (intersect.begin - self.extent.begin).bytes as usize;
+            let byte_end = (intersect.end - self.extent.begin).bytes as usize;
 
-            let mut chr_begin = byte_begin * 3;
-            chr_begin+= byte_begin / 8; /* spacing */
+            { /* hex */
+                 let mut chr_begin = byte_begin * 3;
+                 chr_begin+= byte_begin / 8; /* spacing */
 
-            let mut chr_end = byte_end * 3 - 1; // TODO: debug an intermittent failure here
-            chr_end+= (byte_end - 1) / 8; /* spacing */
+                 let mut chr_end = byte_end * 3 - 1; // TODO: debug an intermittent failure here
+                 chr_end+= (byte_end - 1) / 8; /* spacing */
 
-            let fe = c.font_extents();
+                 let fe = c.font_extents();
+                 
+                 cr.set_source_gdk_rgba(c.cfg.addr_color);
+                 cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
+                 cr.fill();
+            }
             
-            cr.set_source_gdk_rgba(c.cfg.addr_color);
-            cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
-            cr.fill();
+            { /* ascii */
+                 let hexdump_bytes = self.hbrk.line_size.round_up().bytes as usize;
+                 let hexdump_width = hexdump_bytes * 3 + (hexdump_bytes - 1) / 8;
+                 let gutter_width = 2;
+                 
+                 let chr_begin = hexdump_width + gutter_width + byte_begin + byte_begin / 8;
+                 let chr_end = hexdump_width + gutter_width + byte_end + (byte_end - 1) / 8;
+
+                 let fe = c.font_extents();
+                 
+                 cr.set_source_gdk_rgba(c.cfg.addr_color);
+                 cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
+                 cr.fill();
+            }
         }
     }
 
     fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address) {
         if self.extent.includes(hover) {
-            let byte = (hover - self.extent.begin).bytes;
+            let byte = (hover - self.extent.begin).bytes as usize;
 
-            let mut chr = byte * 3;
-            chr+= byte / 8; /* spacing */
+            { /* hex */
+                 let mut chr = byte * 3;
+                 chr+= byte / 8; /* spacing */
 
-            let fe = c.font_extents();
-            
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
-            cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, 2.0 * fe.max_x_advance, fe.height);
-            cr.fill();
+                 let fe = c.font_extents();
+                 
+                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
+                 cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, 2.0 * fe.max_x_advance, fe.height);
+                 cr.fill();
+            }
+
+            { /* ascii */
+                 let hexdump_bytes = self.hbrk.line_size.round_up().bytes as usize;
+                 let hexdump_width = hexdump_bytes * 3 + (hexdump_bytes - 1) / 8;
+                 let gutter_width = 2;
+                 
+                 let chr = hexdump_width + gutter_width + byte + byte / 8;
+
+                 let fe = c.font_extents();
+                
+                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
+                 cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, fe.max_x_advance, fe.height);
+                 cr.fill();
+            }
         }
     }
 }
