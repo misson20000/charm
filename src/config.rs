@@ -30,6 +30,7 @@ pub struct Config {
 
     pub addr_color: gdk::RGBA,
     pub text_color: gdk::RGBA,
+    pub patch_color: gdk::RGBA,
 
     pub addr_pane_bold: bool,
     pub breaks_bold: bool,
@@ -75,6 +76,7 @@ lazy_static! {
 
         addr_color: gdk::RGBA::bytes(hex!("8891efff")),
         text_color: gdk::RGBA::bytes(hex!("dbdbe6ff")),
+        patch_color: gdk::RGBA::bytes(hex!("ffff00ff")),
 
         addr_pane_bold: true,
         breaks_bold: true,

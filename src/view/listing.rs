@@ -846,22 +846,32 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                     ' '
                 };
 
-                if pbr.has_direct_edit() {
-                    cr.set_source_rgba(0.0, 1.0, 0.0, 1.0);
+                let byte_color = if pbr.has_direct_edit() {
+                    c.cfg.patch_color
                 } else {
-                    cr.set_source_gdk_rgba(c.cfg.text_color);
-                }
+                    c.cfg.text_color
+                };
+
+                cr.set_source_gdk_rgba(byte_color);
                 
                 if let Some((hc, cv)) = cursor {
                     if hc.offset.bytes == i as u64 && hc.low_nybble == *low_nybble {
                         let (x, y) = cr.get_current_point();
-                        
-                        if cv.has_focus {
+
+                        if cv.insert {
+                            if cv.get_blink() {
+                                cr.set_source_gdk_rgba(c.cfg.addr_color);
+                                cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, 2.0, fe.height);
+                                cr.fill();
+
+                                cr.set_source_gdk_rgba(byte_color);
+                            }
+                        } else if cv.has_focus {
                             if cv.get_blink() {
                                 cr.set_source_gdk_rgba(c.cfg.addr_color);
                                 cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, fe.max_x_advance, fe.height);
                                 cr.fill();
-                                
+
                                 cr.set_source_gdk_rgba(c.cfg.background_color);
                             }
                         } else {
@@ -869,7 +879,8 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                             cr.set_line_width(1.0);
                             cr.rectangle(x.round() + 0.5 + cv.get_bonk(), fe.height - fe.ascent + 0.5, fe.max_x_advance - 1.0, fe.height - 1.0);
                             cr.stroke();
-                            cr.set_source_gdk_rgba(c.cfg.text_color);
+                            
+                            cr.set_source_gdk_rgba(byte_color);
                         }
 
                         cr.move_to(x, y);
