@@ -664,10 +664,9 @@ impl ListingWidget {
                             chr = 0.0;
                         }
                     }
+
+                    chr-= (chr as usize / 24) as f64; /* spacing */
                     
-                    if chr > 24.0 {
-                        chr-= 1.0;
-                    }
                     let offset = match bias {
                         AddressEstimationBias::Strict if chr % 3.0 >= 2.0 => return None,
                         AddressEstimationBias::Strict => (chr / 3.0) as u64,
@@ -680,11 +679,7 @@ impl ListingWidget {
                                 (chr / 3.0) as u64
                             } else {
                                 let abyte = (a - hlg.extent.begin).bytes;
-                                let achr = if abyte >= 8 {
-                                    (abyte * 3 + 1) as f64
-                                } else {
-                                    (abyte * 3) as f64
-                                };
+                                let achr = (abyte * 3 + abyte / 8) as f64; /* divide by 8 for spacing */
                                 
                                 if chr < achr {
                                     (chr / 3.0) as u64
@@ -829,7 +824,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         let mut utf8_buffer: [u8; 4] = [0; 4];
         
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
-            if i == 8 {
+            if i > 0 && i % 8 == 0 {
                 cr.show_text(" ");
             }
             
@@ -898,7 +893,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 
         /* asciidump */
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
-            if i == 8 {
+            if i > 0 && i % 8 == 0 {
                 cr.show_text(" ");
             }
             
@@ -926,14 +921,10 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             let byte_end = (intersect.end - self.extent.begin).bytes;
 
             let mut chr_begin = byte_begin * 3;
-            if byte_begin >= 8 {
-                chr_begin+= 1;
-            }
+            chr_begin+= byte_begin / 8; /* spacing */
 
             let mut chr_end = byte_end * 3 - 1; // TODO: debug an intermittent failure here
-            if byte_end > 8 {
-                chr_end+= 1;
-            }
+            chr_end+= (byte_end - 1) / 8; /* spacing */
 
             let fe = c.font_extents();
             
@@ -948,9 +939,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             let byte = (hover - self.extent.begin).bytes;
 
             let mut chr = byte * 3;
-            if byte >= 8 {
-                chr+= 1;
-            }
+            chr+= byte / 8; /* spacing */
 
             let fe = c.font_extents();
             
