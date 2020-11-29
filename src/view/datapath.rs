@@ -3,6 +3,7 @@ use std::task;
 
 use crate::util;
 use crate::view;
+use crate::model::datapath;
 use crate::model::document;
 
 use gtk::prelude::*;
@@ -24,6 +25,9 @@ impl DataPathModel {
             update_notifier: util::Notifier::new(),
 
             store: send_wrapper::SendWrapper::new(gtk::ListStore::new(&[
+                glib::types::Type::String,
+                glib::types::Type::String,
+                glib::types::Type::String,
                 glib::types::Type::String,
             ])),
         };
@@ -49,7 +53,17 @@ impl DataPathModel {
         // TODO: only adjust difference
         for filter in upstream.datapath.iter().rev() {
             let i = self.store.append();
-            self.store.set(&i, &[0], &[&filter.describe()]);
+            self.store.set(&i, &[0, 1, 2, 3], &[
+                match filter {
+                    datapath::Filter::LoadSpace(_) => &"Load Address Space",
+                    datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
+                    datapath::Filter::Move(_) => &"Move Bytes",
+                    datapath::Filter::Insert(_) => &"Insert Bytes",
+                },
+                &format!("0x{:x}", filter.human_affects_addr()),
+                &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or("Infinite".to_string()),
+                &filter.human_details()
+            ]);
         }
         
         self.document = upstream;

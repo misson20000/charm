@@ -319,7 +319,7 @@ impl UndoOp {
         match self {
             UndoOp::ModifyBreak => "modify break".to_string(),
             UndoOp::DeleteBreak => "delete break".to_string(),
-            UndoOp::AddFilter(filter) => format!("add filter: {}", filter.describe()),
+            UndoOp::AddFilter(filter) => format!("add filter: {}", filter.human_details()), // TODO
         }
     }
 }

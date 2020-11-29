@@ -5,6 +5,7 @@ use std::task;
 use std::vec;
 
 use crate::model::space;
+use crate::util;
 
 extern crate im;
 extern crate lru;
@@ -96,12 +97,30 @@ impl Filter {
         }
     }
 
-    pub fn describe(&self) -> string::String {
+    pub fn human_details(&self) -> string::String {
         match self {
-            Filter::LoadSpace(_) => string::String::from("load address space"),
-            Filter::Overwrite(ovr) => format!("overwrite {} bytes at 0x{:x}", ovr.bytes.len(), ovr.offset),
-            Filter::Move(mov) => format!("move {} bytes from 0x{:x} to 0x{:x}", mov.size, mov.from, mov.to),
-            Filter::Insert(ins) => format!("insert {} bytes at 0x{:x}", ins.bytes.len(), ins.offset),
+            Filter::LoadSpace(f) => f.human_details(),
+            Filter::Overwrite(f) => f.human_details(),
+            Filter::Move(f) => f.human_details(),
+            Filter::Insert(f) => f.human_details(),
+        }
+    }
+
+    pub fn human_affects_addr(&self) -> u64 {
+        match self {
+            Filter::LoadSpace(f) => f.human_affects_addr(),
+            Filter::Overwrite(f) => f.human_affects_addr(),
+            Filter::Move(f) => f.human_affects_addr(),
+            Filter::Insert(f) => f.human_affects_addr(),
+        }
+    }
+
+    pub fn human_affects_size(&self) -> Option<u64> {
+        match self {
+            Filter::LoadSpace(f) => f.human_affects_size(),
+            Filter::Overwrite(f) => f.human_affects_size(),
+            Filter::Move(f) => f.human_affects_size(),
+            Filter::Insert(f) => f.human_affects_size(),
         }
     }
 }
@@ -303,6 +322,18 @@ impl LoadSpaceFilter {
         }
     }
 
+    fn human_details(&self) -> string::String {
+        self.cache.space.get_label().to_string()
+    }
+
+    fn human_affects_addr(&self) -> u64 {
+        self.load_offset
+    }
+
+    fn human_affects_size(&self) -> Option<u64> {
+        self.size
+    }
+    
     fn poll(&self, cx: &mut task::Context) {
         self.cache.poll_blocks(cx);
     }
@@ -369,6 +400,18 @@ impl OverwriteFilter {
         }
     }
 
+    fn human_details(&self) -> string::String {
+        util::fmt_hex_vec(&self.bytes).unwrap_or("error".to_string())
+    }
+
+    fn human_affects_addr(&self) -> u64 {
+        self.offset
+    }
+
+    fn human_affects_size(&self) -> Option<u64> {
+        Some(self.bytes.len() as u64)
+    }
+    
     pub fn to_filter(self) -> Filter {
         Filter::Overwrite(self)
     }
@@ -390,6 +433,19 @@ impl MoveFilter {
         } else {
             None
         }
+    }
+
+
+    fn human_details(&self) -> string::String {
+        "todo".to_string()
+    }
+
+    fn human_affects_addr(&self) -> u64 {
+        self.to
+    }
+
+    fn human_affects_size(&self) -> Option<u64> {
+        Some(self.size)
     }
 }
 
@@ -453,6 +509,18 @@ impl InsertFilter {
         }
     }
 
+    fn human_details(&self) -> string::String {
+        util::fmt_hex_vec(&self.bytes).unwrap_or("error".to_string())
+    }
+
+    fn human_affects_addr(&self) -> u64 {
+        self.offset
+    }
+
+    fn human_affects_size(&self) -> Option<u64> {
+        Some(self.bytes.len() as u64)
+    }
+    
     pub fn to_filter(self) -> Filter {
         Filter::Insert(self)
     }

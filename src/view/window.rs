@@ -96,7 +96,31 @@ impl CharmWindow {
                 let c = gtk::TreeViewColumn::new();
                 c.pack_start(&crt, true);
                 c.add_attribute(&crt, "text", 0);
-                c.set_title("Datapath Filter");
+                c.set_title("Type");
+                datapath_editor.append_column(&c);
+            }
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 1);
+                c.set_title("Address");
+                datapath_editor.append_column(&c);
+            }
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 2);
+                c.set_title("Size");
+                datapath_editor.append_column(&c);
+            }
+            {
+                let crt = gtk::CellRendererText::new();
+                let c = gtk::TreeViewColumn::new();
+                c.pack_start(&crt, true);
+                c.add_attribute(&crt, "text", 3);
+                c.set_title("Description");
                 datapath_editor.append_column(&c);
             }
         }
