@@ -17,12 +17,14 @@ use crate::ext::CairoExt;
 
 use gtk::prelude::*;
 use gio::prelude::*;
+use pango::prelude::*;
 
 mod action;
 mod component;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
+const DIGIT_STRINGS: [&'static str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 struct InternalRenderingContext<'a> {
     cr: &'a cairo::Context,
@@ -46,34 +48,70 @@ impl<'a> InternalRenderingContext<'a> {
 
 #[derive(Clone)]
 struct Fonts {
-    mono_face: cairo::FontFace,
-    bold_face: cairo::FontFace,
+    mono_font: pango::Font,
+    bold_font: pango::Font,
     mono_scaled: cairo::ScaledFont,
     bold_scaled: cairo::ScaledFont,
-
+    
+    mono_glyphs: [pango::GlyphString; 16],
+    mono_advance: f64,
+    
     extents: cairo::FontExtents,
 }
 
 impl Fonts {
-    fn new(cfg: &config::Config) -> Fonts {
-        let mono_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        let bold_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    fn new(cfg: &config::Config, pg: &pango::Context) -> Fonts {
+        let mut mono_description = pango::FontDescription::from_string("monospace normal");
+        let mut bold_description = pango::FontDescription::from_string("monospace bold");
         
-        let mut font_matrix = cairo::Matrix::identity();
-        font_matrix.scale(cfg.font_size, cfg.font_size);
-        let ctm = cairo::Matrix::identity();
-        let options = cairo::FontOptions::new();
+        mono_description.set_absolute_size(cfg.font_size * pango::SCALE as f64);
+        bold_description.set_absolute_size(cfg.font_size * pango::SCALE as f64);
 
-        let mono_scaled = cairo::ScaledFont::new(&mono_face, &font_matrix, &ctm, &options);
-        let bold_scaled = cairo::ScaledFont::new(&bold_face, &font_matrix, &ctm, &options);
+        let fm = pangocairo::FontMap::get_default().unwrap();
+        
+        let mono_font = fm.load_font(pg, &mono_description).expect("need a monospace font");
+        let bold_font = fm.load_font(pg, &bold_description).expect("need a monospace bold font");
+
+        let mono_scaled = pangocairo::FontExt::get_scaled_font(
+            mono_font.dynamic_cast_ref::<pangocairo::Font>().unwrap())
+            .expect("need monospace font to be usable with cairo");
+        let bold_scaled = pangocairo::FontExt::get_scaled_font(
+            bold_font.dynamic_cast_ref::<pangocairo::Font>().unwrap())
+            .expect("need monospace bold font to be usable with cairo");
+        /* gtk-rs bindings think they own the reference they get from get_scaled_font, but they don't actually. */
+        /* TODO: get this fixed upstream */
+        //std::mem::forget(mono_scaled.clone());
+        //std::mem::forget(bold_scaled.clone());
+        
+        /* In the hexdump view, each nybble is drawn as its own glyph so we can
+         * completely control the positioning and make sure they always line up
+         * like they should, even if we somehow don't get a monospace
+         * font. Pre-shape the GlyphStrings for each digit here. */
+
+        pg.set_font_description(&mono_font.describe().unwrap());
+        
+        let mut mono_advance = 0.0;
+        let mono_glyphs = DIGIT_STRINGS.map(|d| {
+            let items = pango::itemize(&pg, d, 0, d.len() as i32, &pango::AttrList::new(), None);
+            if items.len() != 1 {
+                panic!("expected exactly one pango::Item while itemizing individual hex nybbles");
+            }
+
+            let mut gs = pango::GlyphString::new();
+            pango::shape(d, &items[0].analysis(), &mut gs);
+            mono_advance = f64::max(mono_advance, gs.get_width() as f64 / pango::SCALE as f64);
+            gs
+        });
         
         Fonts {
+            mono_font,
+            bold_font,
             extents: mono_scaled.extents(),
-            
-            mono_face,
-            bold_face,
             mono_scaled,
             bold_scaled,
+
+            mono_glyphs,
+            mono_advance,
         }
     }
 }
@@ -138,6 +176,9 @@ impl ListingWidget {
         let cfg = config::get();
         let listing_watch_clone = listing_watch.clone();
         let listing = listing_watch.get_listing();
+
+        let da = gtk::DrawingArea::new();
+        let pango = da.get_pango_context();
         
         let rc = sync::Arc::new(parking_lot::RwLock::new(ListingWidget {
             listing_watch: listing_watch_clone,
@@ -147,13 +188,13 @@ impl ListingWidget {
             update_notifier: util::Notifier::new(),
             has_updated: false,
 
-            da: send_wrapper::SendWrapper::new(gtk::DrawingArea::new()), // TODO: split out model (things that update) from view (this)
+            da: send_wrapper::SendWrapper::new(da), // TODO: split out model (things that update) from view (this)
             action_group: send_wrapper::SendWrapper::new(None),
             
             last_config_version: 0,
             last_animation_time: 0,
 
-            fonts: send_wrapper::SendWrapper::new(Fonts::new(&cfg)),
+            fonts: send_wrapper::SendWrapper::new(Fonts::new(&cfg, &pango)),
             layout: Layout {
                 width: 0.0,
                 height: 0.0,
@@ -419,8 +460,8 @@ impl ListingWidget {
 
         irc.cr.set_source_gdk_rgba(irc.cfg.text_color);
         irc.cr.move_to(self.layout.addr_pane_width + irc.pad, pad + irc.font_extents().ascent);
-        irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
 
+        irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
         irc.cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr()));
 
         /* left part */
@@ -507,7 +548,7 @@ impl ListingWidget {
     }
 
     fn reconfigure(&mut self, cfg: &config::Config) {
-        self.fonts = send_wrapper::SendWrapper::new(Fonts::new(cfg));
+        self.fonts = send_wrapper::SendWrapper::new(Fonts::new(cfg, &self.da.get_pango_context()));
 
         self.layout.width = self.da.get_allocated_width() as f64;
         self.layout.height = self.da.get_allocated_height() as f64;
@@ -640,7 +681,7 @@ impl ListingWidget {
         self.window.get_line(line_no).or(if bias == AddressEstimationBias::Strict { None } else { self.window.line_groups.back() }).and_then(|lg| {
             match lg {
                 listing::line_group::LineGroup::Hex(hlg) => {
-                    let mut chr = (x - self.layout.addr_pane_width - cfg.padding) / self.fonts.extents.max_x_advance;
+                    let mut chr = (x - self.layout.addr_pane_width - cfg.padding) / self.fonts.mono_advance;
 
                     if chr < 0.0 {
                         if bias == AddressEstimationBias::Strict {
@@ -810,7 +851,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i == 8 {
-                cr.show_text(" ");
+                cr.rel_move_to(c.fonts.mono_advance, 0.0);
             }
             
             for low_nybble in &[false, true] {
@@ -820,10 +861,11 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                     brk::hex::PatchByteRecord::default()
                 };
                 
-                let chr = if pbr.loaded || pbr.patched {
-                    util::nybble_to_hex((pbr.value >> if *low_nybble { 0 } else { 4 }) & 0xf)
+                let glyph_string = if pbr.loaded || pbr.patched {
+                    let nybble = (pbr.value >> if *low_nybble { 0 } else { 4 }) & 0xf;
+                    Some(&c.fonts.mono_glyphs[nybble as usize])
                 } else {
-                    ' '
+                    None
                 };
 
                 if pbr.patched {
@@ -839,7 +881,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                         if cv.has_focus {
                             if cv.get_blink() {
                                 cr.set_source_gdk_rgba(c.cfg.addr_color);
-                                cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, fe.max_x_advance, fe.height);
+                                cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, c.fonts.mono_advance, fe.height);
                                 cr.fill();
                                 
                                 cr.set_source_gdk_rgba(c.cfg.background_color);
@@ -847,7 +889,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                         } else {
                             cr.set_source_gdk_rgba(c.cfg.addr_color);
                             cr.set_line_width(1.0);
-                            cr.rectangle(x.round() + 0.5 + cv.get_bonk(), fe.height - fe.ascent + 0.5, fe.max_x_advance - 1.0, fe.height - 1.0);
+                            cr.rectangle(x.round() + 0.5 + cv.get_bonk(), fe.height - fe.ascent + 0.5, c.fonts.mono_advance - 1.0, fe.height - 1.0);
                             cr.stroke();
                             cr.set_source_gdk_rgba(c.cfg.text_color);
                         }
@@ -855,10 +897,13 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                         cr.move_to(x, y);
                     }
                 }
-                
-                cr.show_text(chr.encode_utf8(&mut utf8_buffer));
+
+                if let Some(gs) = glyph_string {
+                    pangocairo::show_glyph_string(cr, &c.fonts.mono_font, &mut gs.clone());
+                }
+                cr.rel_move_to(c.fonts.mono_advance, 0.0);
             }
-            cr.show_text(" ");
+            cr.rel_move_to(c.fonts.mono_advance, 0.0);
         }
 
         cr.set_source_gdk_rgba(c.cfg.text_color);
@@ -907,7 +952,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             let fe = c.font_extents();
             
             cr.set_source_gdk_rgba(c.cfg.addr_color);
-            cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
+            cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * c.fonts.mono_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * c.fonts.mono_advance, fe.height);
             cr.fill();
         }
     }
@@ -924,7 +969,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             let fe = c.font_extents();
             
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
-            cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, 2.0 * fe.max_x_advance, fe.height);
+            cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * c.fonts.mono_advance, fe.height - fe.ascent, 2.0 * c.fonts.mono_advance, fe.height);
             cr.fill();
         }
     }

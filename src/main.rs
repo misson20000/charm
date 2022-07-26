@@ -1,4 +1,5 @@
 #![feature(arbitrary_self_types)]
+#![feature(array_map)]
 #![allow(dead_code)]
 
 extern crate glib;
@@ -8,6 +9,8 @@ extern crate gtk;
 extern crate gdk;
 extern crate gdk_pixbuf;
 extern crate futures;
+extern crate pango;
+extern crate pangocairo;
 extern crate tokio;
 extern crate send_wrapper;
 extern crate owning_ref;
