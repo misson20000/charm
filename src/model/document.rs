@@ -10,8 +10,8 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
 
-extern crate im;
-use im::ordmap;
+extern crate imbl;
+use imbl::ordmap;
 
 pub type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
 pub type DocumentRef<'a> = owning_ref::OwningRef<sync::RwLockReadGuard<'a, DocumentHostInterior>, Document>;

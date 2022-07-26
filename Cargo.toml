@@ -22,7 +22,7 @@ send_wrapper = "0.4.0"
 owning_ref = "0.4.1"
 conv = "0.3.3"
 parking_lot = "0.11.1"
-im = { git = "https://github.com/vorner/im-rs/", branch = "iter-clone" }
+imbl = { git = "https://github.com/jneem/imbl/" }
 enum_dispatch = "0.3.3"
 byteorder = "1.3.4"
 lru = "0.6.1"

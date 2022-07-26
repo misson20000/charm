@@ -7,7 +7,7 @@ use std::vec;
 use crate::model::space;
 use crate::util;
 
-extern crate im;
+extern crate imbl;
 extern crate lru;
 extern crate take_mut;
 
@@ -55,7 +55,7 @@ pub enum Filter {
     Insert(InsertFilter),
 }
 
-pub type DataPath = im::Vector<Filter>;
+pub type DataPath = imbl::Vector<Filter>;
 
 impl Filter {
     pub fn stack(a: &Filter, b: &Filter) -> Option<Filter> {
