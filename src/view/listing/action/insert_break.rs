@@ -36,7 +36,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
             ("_Insert", gtk::ResponseType::Other(3)),
         ]);
 
-    let ca = dialog.get_content_area();
+    let ca = dialog.content_area();
     ca.set_spacing(12);
     
     let grid = gtk::Grid::new();
@@ -120,30 +120,30 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
 
 impl InsertBreakAction {
     fn update_dialog_buttons(&self) {
-        let addr_text_gstring = self.addr_entry.get_text();
+        let addr_text_gstring = self.addr_entry.text();
         let addr_text = addr_text_gstring.as_ref();
 
         match addr::Address::parse(addr_text) {
             Ok(addr) => {
                 match self.document_host.get_document().breaks.break_at(addr) {
                     brk if brk.addr == addr => {
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); /* delete */
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); /* edit */
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(addr != addr::unit::NULL)); /* delete */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(true)); /* edit */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
                         self.dialog.set_default_response(gtk::ResponseType::Other(2)); /* edit */
                     },
                     _ => {
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
-                        self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); /* insert */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
+                        self.dialog.widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(true)); /* insert */
                         self.dialog.set_default_response(gtk::ResponseType::Other(3)); /* insert */
                     }
                 }
             },
             _ => {
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
-                self.dialog.get_widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
+                self.dialog.widget_for_response(gtk::ResponseType::Other(1)).map(|w| w.set_sensitive(false)); /* delete */
+                self.dialog.widget_for_response(gtk::ResponseType::Other(2)).map(|w| w.set_sensitive(false)); /* edit */
+                self.dialog.widget_for_response(gtk::ResponseType::Other(3)).map(|w| w.set_sensitive(false)); /* insert */
                 self.dialog.set_default_response(gtk::ResponseType::Cancel);
             }
         }
@@ -164,7 +164,7 @@ impl InsertBreakAction {
     fn update_available_details(&self) {
         self.hex_break_grid.hide();
 
-        match self.type_box.get_active_id() {
+        match self.type_box.active_id() {
             Some(gs) => match gs.as_ref() {
                 "hex" => self.hex_break_grid.show(),
                 _ => {},
@@ -175,7 +175,7 @@ impl InsertBreakAction {
     }
 
     fn activate(&self) {
-        self.dialog.set_transient_for(self.da.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
+        self.dialog.set_transient_for(self.da.toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
         let lw = self.lw.read();
         let addr = lw.cursor_view.cursor.get_addr();
@@ -196,9 +196,9 @@ impl InsertBreakAction {
         
         loop {
             let response = self.dialog.run();
-            let addr_text_gstring = self.addr_entry.get_text();
+            let addr_text_gstring = self.addr_entry.text();
             let addr_text = addr_text_gstring.as_ref();
-            let label_text = self.label_entry.get_text();
+            let label_text = self.label_entry.text();
             
             let message = match response {
                 gtk::ResponseType::Other(2) | gtk::ResponseType::Other(3) => match addr::Address::parse(addr_text) { /* edit or insert */
@@ -207,7 +207,7 @@ impl InsertBreakAction {
                             addr,
                             label: if label_text.len() == 0 { None } else { Some(label_text.to_string()) },
                             class: brk::BreakClass::Hex(brk::hex::HexBreak {
-                                line_size: addr::Size::from(self.hex_break_line_width_entry.get_value_as_int() as u64),
+                                line_size: addr::Size::from(self.hex_break_line_width_entry.value_as_int() as u64),
                             }),
                         }); break
                     },
@@ -232,6 +232,6 @@ impl InsertBreakAction {
             self.error_label.set_text(message);
         }
         self.dialog.hide();
-        self.dialog.set_transient_for::<gtk::Window>(None);
+        self.dialog.set_transient_for(Option::<&gtk::Window>::None);
     }
 }

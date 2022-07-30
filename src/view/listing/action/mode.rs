@@ -1,10 +1,12 @@
 use std::sync;
 
+use glib::prelude::*;
+
 use crate::view::listing::ListingWidget;
 use crate::view::listing::component;
 
 pub fn create_mode(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _lw: &ListingWidget) -> gio::SimpleAction {
-    let action = gio::SimpleAction::new_stateful("mode", Some(glib::VariantTy::new("s").unwrap()), &glib::Variant::from("command"));
+    let action = gio::SimpleAction::new_stateful("mode", Some(glib::VariantTy::new("s").unwrap()), &"command".to_variant());
 
     /* some examples of modes we might have:
      * - command
@@ -16,7 +18,7 @@ pub fn create_mode(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _lw: &Lis
     action.set_enabled(true);
     
     action.connect_change_state(move |act, par| {
-        let mode = match par.and_then(|v| v.get_str()) {
+        let mode = match par.and_then(|v| v.str()) {
             Some("command") => component::cursor::Mode::Command,
             Some("entry") => component::cursor::Mode::Entry,
             Some("utf8") => component::cursor::Mode::TextEntry,
@@ -34,7 +36,7 @@ pub fn create_mode(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _lw: &Lis
 }
 
 pub fn create_insert_mode(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _lw: &ListingWidget) -> gio::SimpleAction {
-    let action = gio::SimpleAction::new_stateful("insert_mode", None, &glib::Variant::from(false));
+    let action = gio::SimpleAction::new_stateful("insert_mode", None, &false.to_variant());
 
     let rc_clone = rc.clone();
     action.set_enabled(true);

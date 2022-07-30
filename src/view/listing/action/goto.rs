@@ -27,7 +27,7 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
         ]);
     dialog.set_default_response(gtk::ResponseType::Accept);
 
-    let ca = dialog.get_content_area();
+    let ca = dialog.content_area();
     
     let error_label = gtk::Label::new(None);
     ca.pack_start(&error_label, false, false, 0);
@@ -56,14 +56,14 @@ pub fn create(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, lw: &ListingWi
 
 impl GoToAction {
     fn activate(&self) {
-        self.dialog.set_transient_for(self.da.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
+        self.dialog.set_transient_for(self.da.toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
 
         self.goto_entry.set_text(&format!("{}", self.lw.read().cursor_view.cursor.get_addr()));
         self.goto_entry.grab_focus();
         
         loop {
             let response = self.dialog.run();
-            let text_gstring = self.goto_entry.get_text();
+            let text_gstring = self.goto_entry.text();
             let text = text_gstring.as_ref();
             
             let message = match response {
@@ -84,6 +84,6 @@ impl GoToAction {
             self.error_label.set_text(message);
         }
         self.dialog.hide();
-        self.dialog.set_transient_for::<gtk::Window>(None);
+        self.dialog.set_transient_for(Option::<&gtk::Window>::None);
     }
 }

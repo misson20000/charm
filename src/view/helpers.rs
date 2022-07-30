@@ -5,11 +5,10 @@ use std::string;
 use std::sync;
 
 use gtk::prelude::*;
-use gio::prelude::*;
 
 use std::borrow::Borrow;
 
-pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
+pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
@@ -27,11 +26,11 @@ where F: Fn(rc::Rc<T>) + 'static,
     action
 }
 
-pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::ActionMapExt, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
+pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
 where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
-    let action = gio::SimpleAction::new_stateful(id, None, &glib::Variant::from(&initial_state));
+    let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
     let obj_clone = rc::Rc::downgrade(obj);
     let cb_cap = cb;
     action.connect_change_state(move |action, state| {
@@ -85,15 +84,15 @@ impl ActionForwarder {
             &af.forwarded_group,
             af.clone().attach(
                 window
-                    .get_focus()
-                    .and_then(|focus| focus.get_action_group(&af.group))
+                    .focused_widget()
+                    .and_then(|focus| focus.action_group(&af.group))
                     .as_ref()).as_ref());
 
         {
             let af_clone = af.clone();
             window.connect_set_focus(move |window,focus| {
                 if let Some(wid) = focus {
-                    window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.get_action_group(&af_clone.group).as_ref()).as_ref());
+                    window.insert_action_group(&af_clone.forwarded_group, af_clone.clone().attach(wid.action_group(&af_clone.group).as_ref()).as_ref());
                 }
             });                                            
         }
@@ -102,16 +101,16 @@ impl ActionForwarder {
     }
 
     fn setup_mirror(ag: &gio::ActionGroup, simple_map: &mut collections::HashMap<string::String, gio::SimpleAction>, action: &str) -> gio::SimpleAction {
-        let parameter_type = ag.get_action_parameter_type(action);
-        let simple_action = match (parameter_type, ag.get_action_state(action)) {
+        let parameter_type = ag.action_parameter_type(action);
+        let simple_action = match (parameter_type, ag.action_state(action)) {
             (None, None) => gio::SimpleAction::new(action, None),
             (None, Some(state)) => gio::SimpleAction::new_stateful(action, None, &state),
             (Some(pt), None) => gio::SimpleAction::new(action, Some(pt.borrow())),
             (Some(pt), Some(state)) => gio::SimpleAction::new_stateful(action, Some(pt.borrow()), &state),
         };
         
-        simple_action.set_enabled(ag.get_action_enabled(action));
-        simple_action.set_state_hint(ag.get_action_state_hint(action).as_ref());
+        simple_action.set_enabled(ag.is_action_enabled(action));
+        simple_action.set_state_hint(ag.action_state_hint(action).as_ref());
 
         { let agc = ag.clone(); let act = action.to_string();
           simple_action.connect_activate(
@@ -143,27 +142,27 @@ impl ActionForwarder {
                 added_signal: Some(
                     { let smc = simple_map.clone();
                       let am = action_map.clone();
-                      ag.connect_action_added(move |ag, action| {
-                          am.add_action(&Self::setup_mirror(ag, &mut smc.borrow_mut(), &action));
+                      ag.connect_action_added(None, move |ag, action| {
+                          am.add_action(&Self::setup_mirror(ag, &mut smc.borrow_mut(), action));
                       }) }),
 
                 enabled_changed_signal: Some(
                     { let smc = simple_map.clone();
-                      ag.connect_action_enabled_changed(move |_ag, action, enabled| {
+                      ag.connect_action_enabled_changed(None, move |_ag, action, enabled| {
                           cell::RefCell::borrow(&smc).get(action).map(|sa| sa.set_enabled(enabled));
                       }) }),
 
                 removed_signal: Some(
                     { let smc = simple_map.clone();
                       let am = action_map.clone();
-                      ag.connect_action_removed(move |_ag, action| {
+                      ag.connect_action_removed(None, move |_ag, action| {
                           am.remove_action(action);
                           smc.borrow_mut().remove(action);
                       }) }),
 
                 state_changed_signal: Some(
                     { let smc = simple_map.clone();
-                      ag.connect_action_state_changed(move |_ag, action, state| {
+                      ag.connect_action_state_changed(None, move |_ag, action, state| {
                           cell::RefCell::borrow(&smc).get(action).map(|sa| sa.set_state(state));
                       }) }),
             };

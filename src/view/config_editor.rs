@@ -32,7 +32,7 @@ fn edit_spinbutton_integer<T, F: 'static>(label: &str, default: T, setter: F) ->
     sb.set_snap_to_ticks(true);
     sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
     sb.set_wrap(false);
-    sb.connect_value_changed(move |sb| update_config(&setter, sb.get_value_as_int().approx_into().unwrap()));
+    sb.connect_value_changed(move |sb| update_config(&setter, sb.value_as_int().approx_into().unwrap()));
     
     bx.pack_end(&sb, false, false, 0);
     lbr.add(&bx);
@@ -58,7 +58,7 @@ fn edit_spinbutton_f64<F: 'static>(label: &str, default: f64, setter: F) -> gtk:
     sb.set_numeric(true);
     sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
     sb.set_wrap(false);
-    sb.connect_value_changed(move |sb| update_config(&setter, sb.get_value()));
+    sb.connect_value_changed(move |sb| update_config(&setter, sb.value()));
     
     bx.pack_end(&sb, false, false, 0);
     lbr.add(&bx);
@@ -72,13 +72,13 @@ fn edit_color<F: 'static>(label: &str, default: gdk::RGBA, setter: F) -> gtk::Li
     let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     bx.pack_start(&gtk::Label::new(Some(label)), false, false, 0);
 
-    let cb = gtk::ColorButtonBuilder::new()
+    let cb: gtk::ColorButton = gtk::builders::ColorButtonBuilder::new()
         .rgba(&default)
         .show_editor(true)
         .title(label)
         .use_alpha(true)
         .build();
-    gtk::ColorChooserExt::connect_property_rgba_notify(&cb, move |cb| update_config(&setter, cb.get_rgba()));
+    gtk::traits::ColorChooserExt::connect_rgba_notify(&cb, move |cb| update_config(&setter, cb.rgba()));
     
     bx.pack_end(&cb, false, false, 0);
     lbr.add(&bx);

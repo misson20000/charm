@@ -25,10 +25,10 @@ impl DataPathModel {
             update_notifier: util::Notifier::new(),
 
             store: send_wrapper::SendWrapper::new(gtk::ListStore::new(&[
-                glib::types::Type::String,
-                glib::types::Type::String,
-                glib::types::Type::String,
-                glib::types::Type::String,
+                glib::types::Type::STRING,
+                glib::types::Type::STRING,
+                glib::types::Type::STRING,
+                glib::types::Type::STRING,
             ])),
         };
 
@@ -53,16 +53,16 @@ impl DataPathModel {
         // TODO: only adjust difference
         for filter in upstream.datapath.iter().rev() {
             let i = self.store.append();
-            self.store.set(&i, &[0, 1, 2, 3], &[
-                match filter {
+            self.store.set(&i, &[
+                (0, match filter {
                     datapath::Filter::LoadSpace(_) => &"Load Address Space",
                     datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
                     datapath::Filter::Move(_) => &"Move Bytes",
                     datapath::Filter::Insert(_) => &"Insert Bytes",
-                },
-                &format!("0x{:x}", filter.human_affects_addr()),
-                &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or("Infinite".to_string()),
-                &filter.human_details()
+                }),
+                (1, &format!("0x{:x}", filter.human_affects_addr())),
+                (2, &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or("Infinite".to_string())),
+                (3, &filter.human_details())
             ]);
         }
         

@@ -111,23 +111,23 @@ fn export_patches(fos: &gio::FileOutputStream, _document: &document::Document) -
 
 impl ExportIPSAction {
     fn activate(&self) {
-        self.dialog.set_transient_for(self.da.get_toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
+        self.dialog.set_transient_for(self.da.toplevel().and_then(|tl| tl.dynamic_cast::<gtk::Window>().ok()).as_ref());
         // TODO: self.dialog.set_current_name( document.ips ) ?
 
         match self.dialog.run() {
             gtk::ResponseType::Accept => {
-                if let Err(e) = self.dialog.get_file()
+                if let Err(e) = self.dialog.file()
                     .ok_or(IPSExportError::NoFileSelected) /* no file selected? */
-                    .and_then(|f| f.replace::<gio::Cancellable>(
+                    .and_then(|f| f.replace(
                         None,
                         false,
                         gio::FileCreateFlags::NONE,
-                        None).map_err(|e| IPSExportError::IOError(e)))
+                        Option::<&gio::Cancellable>::None).map_err(|e| IPSExportError::IOError(e)))
                     .and_then(|fos| {
                         export_patches(&fos, &self.lw.read().document_host.get_document())
                     }) {
                         let message = format!("{}", e);
-                        let dialog = gtk::MessageDialogBuilder::new()
+                        let dialog = gtk::builders::MessageDialogBuilder::new()
                             .message_type(gtk::MessageType::Error)
                             .buttons(gtk::ButtonsType::Close)
                             .text(&message)
@@ -142,6 +142,6 @@ impl ExportIPSAction {
         }
         
         self.dialog.hide();
-        self.dialog.set_transient_for::<gtk::Window>(None);
+        self.dialog.set_transient_for(Option::<&gtk::Window>::None);
     }
 }

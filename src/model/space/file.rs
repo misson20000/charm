@@ -20,7 +20,7 @@ pub struct FileAddressSpace {
 }
 
 struct FetchFuture {
-    delay: pin::Pin<Box<tokio::time::Delay>>, /* pin projection is obnoxious and prevents us from mutating the other fields here */
+    delay: pin::Pin<Box<tokio::time::Sleep>>, /* pin projection is obnoxious and prevents us from mutating the other fields here */
     fas: sync::Arc<FileAddressSpace>,
     extent: (u64, u64),
 }
@@ -72,12 +72,11 @@ impl space::AddressSpace for FileAddressSpace {
     }
     
     fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
-        self.tokio_handle.enter(|| {
-            Box::pin(FetchFuture {
-                delay: Box::pin(tokio::time::delay_for(tokio::time::Duration::from_millis(config::get().file_access_delay))),
-                fas: self.clone(),
-                extent,
-            })
+        let _guard = self.tokio_handle.enter();
+        Box::pin(FetchFuture {
+            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(config::get().file_access_delay))),
+            fas: self.clone(),
+            extent,
         })
     }
 }

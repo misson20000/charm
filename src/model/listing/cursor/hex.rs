@@ -230,8 +230,8 @@ impl cursor::CursorClassExt for HexCursor {
     }
 
     fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        let nybble = match key.get_keyval() {
-            _ if !key.get_state().is_empty() => return Err(cursor::EntryError::KeyNotRecognized),
+        let nybble = match key.keyval() {
+            _ if !key.state().is_empty() => return Err(cursor::EntryError::KeyNotRecognized),
             gdk::keys::constants::_0 => 0,
             gdk::keys::constants::_1 => 1,
             gdk::keys::constants::_2 => 2,

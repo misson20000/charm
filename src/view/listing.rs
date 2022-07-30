@@ -19,7 +19,6 @@ use crate::view;
 use crate::ext::CairoExt;
 
 use gtk::prelude::*;
-use gio::prelude::*;
 
 mod action;
 mod component;
@@ -59,16 +58,17 @@ struct Fonts {
 
 impl Fonts {
     fn new(cfg: &config::Config) -> Fonts {
-        let mono_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        let bold_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+        let mono_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Normal).unwrap();
+        let bold_face = cairo::FontFace::toy_create("monospace", cairo::FontSlant::Normal, cairo::FontWeight::Bold).unwrap();
         
         let mut font_matrix = cairo::Matrix::identity();
         font_matrix.scale(cfg.font_size, cfg.font_size);
         let ctm = cairo::Matrix::identity();
-        let options = cairo::FontOptions::new();
+        let options = cairo::FontOptions::new().unwrap();
 
-        let mono_scaled = cairo::ScaledFont::new(&mono_face, &font_matrix, &ctm, &options);
-        let bold_scaled = cairo::ScaledFont::new(&bold_face, &font_matrix, &ctm, &options);
+        /* TODO: font rewrite */
+        let mono_scaled = cairo::ScaledFont::new(&mono_face, &font_matrix, &ctm, &options).unwrap();
+        let bold_scaled = cairo::ScaledFont::new(&bold_face, &font_matrix, &ctm, &options).unwrap();
         
         Fonts {
             extents: mono_scaled.extents(),
@@ -272,32 +272,32 @@ impl ListingWidget {
 
         /* fill background */
         cr.set_source_gdk_rgba(irc.cfg.background_color);
-        cr.paint();
+        cr.paint().unwrap();
 
         /* fill address pane */
         cr.set_source_gdk_rgba(cfg.addr_pane_color);
         cr.rectangle(0.0, 0.0, self.layout.addr_pane_width, self.layout.height);
-        cr.fill();
+        cr.fill().unwrap();
 
         /* render lines */
-        cr.save();
+        cr.save().unwrap();
         cr.translate(0.0, irc.pad + irc.font_extents().height * -self.scroll.get_position());
         self.draw_line_groups(&mut irc);
-        cr.restore();
+        cr.restore().unwrap();
 
         /* render mode line */
-        cr.save();
+        cr.save().unwrap();
         cr.translate(0.0, self.layout.height - irc.font_extents().height - cfg.mode_line_padding * 2.0);
         cr.rectangle(0.0, 0.0, self.layout.width, irc.font_extents().height + cfg.mode_line_padding * 2.0);
         cr.clip();
         self.draw_mode_line(&mut irc);
-        cr.restore();
+        cr.restore().unwrap();
 
         /* stroke frame */
         cr.set_source_gdk_rgba(self.get_mode_theme(&irc).accent);
         cr.set_line_width(2.0);
         cr.rectangle(1.0, 1.0, self.layout.width - 2.0, self.layout.height - irc.font_extents().height - cfg.mode_line_padding * 2.0 - 2.0);
-        cr.stroke();
+        cr.stroke().unwrap();
         
         /* DEBUG */
         /*
@@ -327,7 +327,7 @@ impl ListingWidget {
         let hover = self.estimate_address_at(self.hover.0, self.hover.1, AddressEstimationBias::Strict);
         
         for (lineno, lg) in self.window.iter() {
-            irc.cr.save();
+            irc.cr.save().unwrap();
             irc.cr.translate(0.0, irc.font_extents().height * (lineno as f64));
 
             match self.selection {
@@ -351,11 +351,12 @@ impl ListingWidget {
                          * it. If we fail, no big deal- just draw the line
                          * straight to the screen. */
                         
-                        da.get_parent_window().and_then(|window| {
+                        da.parent_window().and_then(|window| {
                             /* super important for performance! avoid uploading to GPU every frame! */
                             window.create_similar_surface(cairo::Content::ColorAlpha, irc.layout.width as i32, (irc.fonts.extents.height + irc.fonts.extents.ascent + irc.fonts.extents.descent) as i32)
                         }).and_then(|surface| {
-                            let cache_cr = cairo::Context::new(&surface);
+                            /* TODO: report this error */
+                            let cache_cr = cairo::Context::new(&surface).unwrap();
                             
                             lg.draw(irc, &cache_cr, None);
 
@@ -373,8 +374,8 @@ impl ListingWidget {
                 /* We either found it in the cache, or just rendered it to the cache and are ready to use the cached image. */
                 (Some(entry), None) => { /* don't use cached lines if the cursor is on them */
                     entry.touched = true;
-                    irc.cr.set_source(&entry.pattern);
-                    irc.cr.paint();
+                    irc.cr.set_source(&entry.pattern).unwrap();
+                    irc.cr.paint().unwrap();
                     
                 },
                 /* Line was not cacheable, errored trying to allocate surface to put it in cache, or the cursor is on this line. Render it directly. */
@@ -383,7 +384,7 @@ impl ListingWidget {
                 }
             }
 
-            irc.cr.restore();
+            irc.cr.restore().unwrap();
         }
 
         /* evict stale entries */
@@ -420,13 +421,13 @@ impl ListingWidget {
         let pad = irc.cfg.mode_line_padding;
         
         irc.cr.set_source_gdk_rgba(irc.cfg.mode_line_color);
-        irc.cr.paint();
+        irc.cr.paint().unwrap();
 
         irc.cr.set_source_gdk_rgba(irc.cfg.text_color);
         irc.cr.move_to(self.layout.addr_pane_width + irc.pad, pad + irc.font_extents().ascent);
         irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
 
-        irc.cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr()));
+        irc.cr.show_text(&format!("{}", self.cursor_view.cursor.get_addr())).unwrap();
 
         /* left part */
         {
@@ -434,13 +435,13 @@ impl ListingWidget {
             
             irc.cr.set_source_gdk_rgba(mt.accent);
             irc.cr.rectangle(0.0, 0.0, self.layout.addr_pane_width, irc.font_extents().height + pad * 2.0);
-            irc.cr.fill();
+            irc.cr.fill().unwrap();
         
             irc.cr.set_source_gdk_rgba(mt.counter_accent);
             irc.cr.move_to(irc.pad, pad + irc.font_extents().ascent);
             irc.cr.set_scaled_font(&irc.fonts.bold_scaled);
 
-            irc.cr.show_text(mt.mode_string);
+            irc.cr.show_text(mt.mode_string).unwrap();
         }
     }
     
@@ -459,7 +460,7 @@ impl ListingWidget {
     }
     
     fn scroll_event(&mut self, es: &gdk::EventScroll) -> gtk::Inhibit {
-        self.scroll.scroll_wheel_impulse(es.get_delta().1);
+        self.scroll.scroll_wheel_impulse(es.delta().1);
         self.collect_events();
         
         gtk::Inhibit(true)
@@ -478,13 +479,13 @@ impl ListingWidget {
             self.has_updated = false;
         }
 
-        if fc.get_frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
+        if fc.frame_time() - self.last_animation_time > (MICROSECONDS_PER_SECOND as i64) {
             /* if we fall too far behind, just drop frames */
-            self.last_animation_time = fc.get_frame_time();
+            self.last_animation_time = fc.frame_time();
         }
 
-        while self.last_animation_time < fc.get_frame_time() {
-            let ais_micros = std::cmp::min(fc.get_frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); /* don't go below 20 TPS or the integration error gets bad */
+        while self.last_animation_time < fc.frame_time() {
+            let ais_micros = std::cmp::min(fc.frame_time() - self.last_animation_time, MICROSECONDS_PER_SECOND_INT / 20); /* don't go below 20 TPS or the integration error gets bad */
             let ais:f64 = ais_micros as f64 / MICROSECONDS_PER_SECOND;
 
             self.scroll.animate(&mut self.window, &self.cursor_view, ais);
@@ -513,8 +514,8 @@ impl ListingWidget {
     fn reconfigure(&mut self, cfg: &config::Config) {
         self.fonts = send_wrapper::SendWrapper::new(Fonts::new(cfg));
 
-        self.layout.width = self.da.get_allocated_width() as f64;
-        self.layout.height = self.da.get_allocated_height() as f64;
+        self.layout.width = self.da.allocated_width() as f64;
+        self.layout.height = self.da.allocated_height() as f64;
         self.layout.addr_pane_width = {
             let addr_pane_extents = self.fonts.bold_scaled.text_extents("0x0000000000000000.0");
             cfg.padding * 2.0 + addr_pane_extents.width
@@ -546,9 +547,9 @@ impl ListingWidget {
     }
     
     fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, eb: &gdk::EventButton) -> gtk::Inhibit {
-        match eb.get_event_type() {
+        match eb.event_type() {
             gdk::EventType::ButtonPress => {
-                self.drag_start_address = eb.get_coords().and_then(|(x, y)| self.estimate_address_at(x, y, AddressEstimationBias::Left));
+                self.drag_start_address = eb.coords().and_then(|(x, y)| self.estimate_address_at(x, y, AddressEstimationBias::Left));
                 match self.drag_start_address {
                     Some(a) => { let _ = self.goto(a); },
                     _ => ()
@@ -572,7 +573,7 @@ impl ListingWidget {
 
     fn focus_change_event(&mut self, ef: &gdk::EventFocus) -> gtk::Inhibit {
         self.cursor_view.blink();
-        self.cursor_view.has_focus = ef.get_in();
+        self.cursor_view.has_focus = ef.is_in();
         
         self.collect_events();
 
@@ -580,8 +581,8 @@ impl ListingWidget {
     }
     
     fn size_allocate(&mut self, al: &gtk::Rectangle) {
-        self.layout.width = al.width as f64;
-        self.layout.height = al.height as f64;
+        self.layout.width = al.width() as f64;
+        self.layout.height = al.height() as f64;
 
         self.line_cache.clear();
         
@@ -610,7 +611,7 @@ impl ListingWidget {
     fn key_press_event(&mut self, ek: &gdk::EventKey) -> gtk::Inhibit {
         let document_host = self.document_host.clone();
         
-        let r = match (ek.get_keyval(), ek.get_state().intersects(gdk::ModifierType::SHIFT_MASK), ek.get_state().intersects(gdk::ModifierType::CONTROL_MASK)) {
+        let r = match (ek.keyval(), ek.state().intersects(gdk::ModifierType::SHIFT_MASK), ek.state().intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
             (gdk::keys::constants::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  component::scroll::EnsureCursorInViewDirection::Up),
             (gdk::keys::constants::Right, false, false) => self.cursor_transaction(|c| c.move_right(), component::scroll::EnsureCursorInViewDirection::Down),
@@ -636,7 +637,7 @@ impl ListingWidget {
     }
 
     fn motion_notify_event(&mut self, em: &gdk::EventMotion) -> gtk::Inhibit {
-        self.hover = em.get_position();
+        self.hover = em.position();
         self.da.queue_draw();
         self.collect_events();
         
@@ -836,14 +837,14 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
             cr.set_source_gdk_rgba(c.cfg.ridge_color);
             cr.move_to(c.layout.addr_pane_width, c.font_extents().descent);
             cr.line_to(c.layout.width, c.font_extents().descent);
-            cr.stroke();
+            cr.stroke().unwrap();
         }
         
         /* draw address in addr pane */
         cr.set_scaled_font(&c.fonts.bold_scaled);
         cr.set_source_gdk_rgba(c.cfg.addr_color);
         cr.move_to(c.pad, c.font_extents().height);
-        cr.show_text(&format!("{}", self.extent.begin));
+        cr.show_text(&format!("{}", self.extent.begin)).unwrap();
 
         self.get_patched_bytes(&mut c.byte_cache);
 
@@ -862,7 +863,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
         
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i > 0 && i % 8 == 0 {
-                cr.show_text(" ");
+                cr.show_text(" ").unwrap();
             }
             
             for low_nybble in &[false, true] {
@@ -888,13 +889,13 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 
                 if let Some((hc, cv)) = cursor {
                     if hc.offset.bytes == i as u64 && hc.low_nybble == *low_nybble {
-                        let (x, y) = cr.get_current_point();
+                        let (x, y) = cr.current_point().expect("there should be a current point I think");
 
                         if cv.insert {
                             if cv.get_blink() {
                                 cr.set_source_gdk_rgba(c.cfg.addr_color);
                                 cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, 2.0, fe.height);
-                                cr.fill();
+                                cr.fill().unwrap();
 
                                 cr.set_source_gdk_rgba(byte_color);
                             }
@@ -902,7 +903,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                             if cv.get_blink() {
                                 cr.set_source_gdk_rgba(c.cfg.addr_color);
                                 cr.rectangle(x.round() + cv.get_bonk(), fe.height - fe.ascent, fe.max_x_advance, fe.height);
-                                cr.fill();
+                                cr.fill().unwrap();
 
                                 cr.set_source_gdk_rgba(c.cfg.background_color);
                             }
@@ -910,7 +911,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                             cr.set_source_gdk_rgba(c.cfg.addr_color);
                             cr.set_line_width(1.0);
                             cr.rectangle(x.round() + 0.5 + cv.get_bonk(), fe.height - fe.ascent + 0.5, fe.max_x_advance - 1.0, fe.height - 1.0);
-                            cr.stroke();
+                            cr.stroke().unwrap();
                             
                             cr.set_source_gdk_rgba(byte_color);
                         }
@@ -919,37 +920,37 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                     }
                 }
                 
-                cr.show_text(chr.encode_utf8(&mut utf8_buffer));
+                cr.show_text(chr.encode_utf8(&mut utf8_buffer)).unwrap();
             }
-            cr.show_text(" ");
+            cr.show_text(" ").unwrap();
         }
 
         cr.set_source_gdk_rgba(c.cfg.text_color);
         cr.set_scaled_font(&c.fonts.mono_scaled);
-        cr.show_text("| ");
+        cr.show_text("| ").unwrap();
 
         /* asciidump */
         for i in 0..(self.hbrk.line_size.round_up().bytes as usize) {
             if i > 0 && i % 8 == 0 {
-                cr.show_text(" ");
+                cr.show_text(" ").unwrap();
             }
             
             if i < c.byte_cache.len() {
                 let b = c.byte_cache[i].value;
                 cr.set_source_gdk_rgba(c.cfg.text_color);
                 if (b as char).is_ascii_graphic() {
-                    cr.show_text((b as char).encode_utf8(&mut utf8_buffer));
+                    cr.show_text((b as char).encode_utf8(&mut utf8_buffer)).unwrap();
                 } else {
-                    cr.show_text(".");
+                    cr.show_text(".").unwrap();
                 }
             } else {
-                cr.show_text(" ");
+                cr.show_text(" ").unwrap();
             }
         }
 
         cr.set_source_gdk_rgba(c.cfg.text_color);
-        cr.show_text(" | ");
-        cr.show_text(self.describe_state());
+        cr.show_text(" | ").unwrap();
+        cr.show_text(self.describe_state()).unwrap();
     }
 
     fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent) {
@@ -968,7 +969,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                  
                  cr.set_source_gdk_rgba(c.cfg.addr_color);
                  cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
-                 cr.fill();
+                 cr.fill().unwrap();
             }
             
             { /* ascii */
@@ -983,7 +984,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                  
                  cr.set_source_gdk_rgba(c.cfg.addr_color);
                  cr.rectangle(c.layout.addr_pane_width + c.pad + chr_begin as f64 * fe.max_x_advance, fe.height - fe.ascent, (chr_end - chr_begin) as f64 * fe.max_x_advance, fe.height);
-                 cr.fill();
+                 cr.fill().unwrap();
             }
         }
     }
@@ -1000,7 +1001,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                  
                  cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
                  cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, 2.0 * fe.max_x_advance, fe.height);
-                 cr.fill();
+                 cr.fill().unwrap();
             }
 
             { /* ascii */
@@ -1014,7 +1015,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
                 
                  cr.set_source_rgba(1.0, 1.0, 1.0, 0.2);
                  cr.rectangle(c.layout.addr_pane_width + c.pad + chr as f64 * fe.max_x_advance, fe.height - fe.ascent, fe.max_x_advance, fe.height);
-                 cr.fill();
+                 cr.fill().unwrap();
             }
         }
     }
@@ -1040,7 +1041,7 @@ impl DrawableLineGroup for brk::BreakHeaderLineGroup {
                 if cv.get_blink() {
                     cr.set_source_gdk_rgba(c.cfg.addr_color);
                     cr.rectangle(c.layout.addr_pane_width + c.pad + cv.get_bonk(), fe.height * 2.0 - fe.ascent, te.x_advance, fe.height);
-                    cr.fill();
+                    cr.fill().unwrap();
                     
                     cr.set_source_gdk_rgba(c.cfg.background_color);
                 }
@@ -1049,7 +1050,7 @@ impl DrawableLineGroup for brk::BreakHeaderLineGroup {
                 cr.set_line_width(1.0);
                 cr.rectangle(c.layout.addr_pane_width + c.pad + cv.get_bonk() + 0.5, fe.height * 2.0 - fe.ascent + 0.5, te.x_advance - 1.0, fe.height - 1.0);
                 
-                cr.stroke();
+                cr.stroke().unwrap();
                 
                 cr.set_source_gdk_rgba(c.cfg.text_color);
             }
@@ -1057,7 +1058,7 @@ impl DrawableLineGroup for brk::BreakHeaderLineGroup {
         
         cr.set_scaled_font(&c.fonts.bold_scaled);
         cr.move_to(c.layout.addr_pane_width + c.pad, fe.height * 2.0);
-        cr.show_text(label.as_str());
+        cr.show_text(label.as_str()).unwrap();
     }
 
     fn draw_selection<'a, 'b, 'c>(&'a self, _c: &'b mut InternalRenderingContext<'c>, _cr: &cairo::Context, _selection: &addr::Extent) {

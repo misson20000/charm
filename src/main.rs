@@ -42,8 +42,7 @@ impl CharmApplication {
     fn new(application: gtk::Application) -> rc::Rc<CharmApplication> {
         let app = rc::Rc::new(CharmApplication {
             application,
-            rt: tokio::runtime::Builder::new()
-                .threaded_scheduler()
+            rt: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build().unwrap(),
 
@@ -116,8 +115,7 @@ fn main() {
     let application =
         gtk::Application::new(
             Some("net.xenotoad.charm"),
-            gio::ApplicationFlags::HANDLES_OPEN)
-        .expect("Initialization failed..");
+            gio::ApplicationFlags::HANDLES_OPEN);
 
     /* setup signals */
 
@@ -130,7 +128,7 @@ fn main() {
           if let Some(pixbuf) = pixbuf_loader.write(charm_icon).ok().and_then(|_| {
               pixbuf_loader.close().ok()
           }).and_then(|_| {
-              pixbuf_loader.get_pixbuf()
+              pixbuf_loader.pixbuf()
           }) {
               gtk::Window::set_default_icon(&pixbuf);
           }
@@ -170,5 +168,5 @@ fn main() {
       });
     }
     
-    application.run(&std::env::args().collect::<Vec<_>>());
+    application.run();
 }

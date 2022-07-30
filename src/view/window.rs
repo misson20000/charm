@@ -8,8 +8,8 @@ use crate::model::space;
 use crate::model::space::AddressSpace;
 use crate::view;
 
+use glib::prelude::*;
 use gtk::prelude::*;
-use gio::prelude::*;
 
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
@@ -196,14 +196,14 @@ impl CharmWindow {
         view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
-                act.set_state(&glib::Variant::from(vis));
+                act.set_state(&vis.to_variant());
             }
         });
         
         view::helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
             if let Some(vis) = state {
                 w.config_editor_frame.set_visible(vis);
-                act.set_state(&glib::Variant::from(vis));
+                act.set_state(&vis.to_variant());
             }
         });
 
@@ -229,7 +229,7 @@ impl CharmWindow {
             gtk::ResponseType::Accept => {
                 self.close_file();
                 
-                for file in dialog.get_files() {
+                for file in dialog.files() {
                     if self.context.borrow().is_some() {
                         let w = self.application.new_window();
                         w.open_file(&file);
@@ -247,19 +247,19 @@ impl CharmWindow {
 
     pub fn close_file(self: &rc::Rc<Self>) {
         self.listing_container.foreach(|w| self.listing_container.remove(w));
-        self.datapath_editor.set_model::<gtk::TreeModel>(None);
-        self.window.insert_action_group::<gio::ActionGroup>("listing", None);
+        self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
+        self.window.insert_action_group("listing", Option::<&gio::ActionGroup>::None);
         *self.context.borrow_mut() = None;
     }
     
     pub fn open_file(self: &rc::Rc<Self>, file: &gio::File) {
         let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
-        let dn = attributes.get_attribute_as_string("standard::display-name").unwrap();
+        let dn = attributes.attribute_as_string("standard::display-name").unwrap();
 
         let space = std::sync::Arc::new(
             space::file::FileAddressSpace::open(
                 self.application.rt.handle().clone(),
-                &file.get_path().unwrap(),
+                &file.path().unwrap(),
                 &dn).unwrap(),
         );
 
