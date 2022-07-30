@@ -13,9 +13,6 @@ extern crate send_wrapper;
 extern crate owning_ref;
 extern crate enum_dispatch;
 
-#[cfg(feature = "test_listing")]
-extern crate ncurses;
-
 mod ext;
 mod util;
 mod config;
