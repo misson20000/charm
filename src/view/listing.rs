@@ -198,8 +198,8 @@ impl ListingWidget {
          */
 
         /* signals */
-        { let rc_clone = rc.clone(); lw.da.connect_button_press_event(move |_, eb| rc_clone.write().button_event(eb)); }
-        { let rc_clone = rc.clone(); lw.da.connect_button_release_event(move |_, eb| rc_clone.write().button_event(eb)); }
+        { let rc_clone = rc.clone(); lw.da.connect_button_press_event(move |_, eb| ListingWidget::button_event(rc_clone.write(), eb)); }
+        { let rc_clone = rc.clone(); lw.da.connect_button_release_event(move |_, eb| ListingWidget::button_event(rc_clone.write(), eb)); }
         { let rc_clone = rc.clone(); lw.da.connect_draw(move |_, cr| rc_clone.write().draw(cr)); }
         { let rc_clone = rc.clone(); lw.da.connect_focus_in_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
         { let rc_clone = rc.clone(); lw.da.connect_focus_out_event(move |_, ef| rc_clone.write().focus_change_event(ef)); }
@@ -546,27 +546,34 @@ impl ListingWidget {
         Ok(())
     }
     
-    fn button_event(mut self: parking_lot::RwLockWriteGuard<Self>, eb: &gdk::EventButton) -> gtk::Inhibit {
+    fn button_event(mut guard: parking_lot::RwLockWriteGuard<Self>, eb: &gdk::EventButton) -> gtk::Inhibit {
+        let this = &mut *guard;
+        
         match eb.event_type() {
             gdk::EventType::ButtonPress => {
-                self.drag_start_address = eb.coords().and_then(|(x, y)| self.estimate_address_at(x, y, AddressEstimationBias::Left));
-                match self.drag_start_address {
-                    Some(a) => { let _ = self.goto(a); },
+                this.drag_start_address = eb.coords().and_then(|(x, y)| this.estimate_address_at(x, y, AddressEstimationBias::Left));
+                match this.drag_start_address {
+                    Some(a) => { let _ = this.goto(a); },
                     _ => ()
                 };
                 
-                let da = (*self.da).clone();
-                std::mem::drop(self); /* grab_focus triggers focus_change_event before we return */
+                let da = (*this.da).clone();
+
+                /* grab_focus triggers focus_change_event before we return,
+                  which would cause a deadlock if we don't release our lock
+                  first. */
+                std::mem::drop(guard);
+                
                 da.grab_focus();
                 return gtk::Inhibit(false);
             },
             gdk::EventType::ButtonRelease => {
-                self.drag_start_address = None;
+                this.drag_start_address = None;
             }
             _ => ()
         }
         
-        self.collect_events();
+        this.collect_events();
 
         gtk::Inhibit(false)
     }

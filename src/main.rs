@@ -1,4 +1,3 @@
-#![feature(arbitrary_self_types)]
 #![allow(dead_code)]
 
 extern crate glib;
