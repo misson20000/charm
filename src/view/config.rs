@@ -1,5 +1,7 @@
 use std::sync;
 
+use gtk::gdk;
+
 use lazy_static::lazy_static;
 use hex_literal::hex;
 use crate::view::ext::RGBAExt;

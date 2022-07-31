@@ -6,6 +6,7 @@ use crate::view;
 use crate::model::datapath;
 use crate::model::document;
 
+use gtk::glib;
 use gtk::prelude::*;
 
 pub struct DataPathModel {

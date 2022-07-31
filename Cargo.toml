@@ -7,15 +7,10 @@ default-run = "gtk"
 
 [features]
 default = []
-gtk = ["dep:glib", "dep:gtk", "dep:gdk", "dep:gdk-pixbuf", "dep:gio", "dep:cairo-rs"]
+gtk = ["dep:gtk"]
 
 [dependencies]
-glib = { version = "0.15.12", optional = true }
-gtk = { version = "0.15.5", features = ["v3_20"], optional = true }
-gdk = { version = "0.15.4", optional = true }
-gdk-pixbuf = { version = "0.15.11", optional = true }
-gio = { version = "0.15.12", optional = true }
-cairo-rs = {version = "0.15.12", optional = true }
+gtk = { version = "0.4.8", optional = true, package = "gtk4" }
 futures = "0.3.21"
 lazy_static = "1.4.0"
 tokio = { version = "1.20.1", features = ["full"] }

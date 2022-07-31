@@ -3,6 +3,8 @@ use std::sync;
 use crate::view::listing::component;
 use crate::view::listing::ListingWidget;
 
+use gtk::gio;
+
 pub fn create_goto_start_of_line(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new("goto_start_of_line", None);
     
