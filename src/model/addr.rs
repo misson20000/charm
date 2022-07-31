@@ -189,7 +189,7 @@ impl Extent {
 
 #[cfg(test)]
 mod tests {
-    use crate::addr;
+    use crate::model::addr;
     
     #[test]
     fn address_arithmetic() {
