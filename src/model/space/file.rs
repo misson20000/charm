@@ -7,7 +7,8 @@ use std::io::Read;
 use std::io::Seek;
 
 use crate::model::space;
-use crate::config;
+#[cfg(feature = "gtk")]
+use crate::view::config;
 
 struct Inner {
     file: std::fs::File,
@@ -66,6 +67,16 @@ impl futures::Future for FetchFuture {
     }
 }
 
+#[cfg(feature = "gtk")]
+fn get_file_access_delay() -> u64 {
+    config::get().file_access_delay
+}
+
+#[cfg(not(feature = "gtk"))]
+fn get_file_access_delay() -> u64 {
+    0
+}
+
 impl space::AddressSpace for FileAddressSpace {
     fn get_label(&self) -> &str {
         return &self.label;
@@ -74,7 +85,7 @@ impl space::AddressSpace for FileAddressSpace {
     fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
         let _guard = self.tokio_handle.enter();
         Box::pin(FetchFuture {
-            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(config::get().file_access_delay))),
+            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(get_file_access_delay()))),
             fas: self.clone(),
             extent,
         })

@@ -229,25 +229,24 @@ impl cursor::CursorClassExt for HexCursor {
         }
     }
 
-    fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
-        let nybble = match key.keyval() {
-            _ if !key.state().is_empty() => return Err(cursor::EntryError::KeyNotRecognized),
-            gdk::keys::constants::_0 => 0,
-            gdk::keys::constants::_1 => 1,
-            gdk::keys::constants::_2 => 2,
-            gdk::keys::constants::_3 => 3,
-            gdk::keys::constants::_4 => 4,
-            gdk::keys::constants::_5 => 5,
-            gdk::keys::constants::_6 => 6,
-            gdk::keys::constants::_7 => 7,
-            gdk::keys::constants::_8 => 8,
-            gdk::keys::constants::_9 => 9,
-            gdk::keys::constants::a => 0xa,
-            gdk::keys::constants::b => 0xb,
-            gdk::keys::constants::c => 0xc,
-            gdk::keys::constants::d => 0xd,
-            gdk::keys::constants::e => 0xe,
-            gdk::keys::constants::f => 0xf,
+    fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
+        let nybble = match key {
+            cursor::key::Key::_0 => 0,
+            cursor::key::Key::_1 => 1,
+            cursor::key::Key::_2 => 2,
+            cursor::key::Key::_3 => 3,
+            cursor::key::Key::_4 => 4,
+            cursor::key::Key::_5 => 5,
+            cursor::key::Key::_6 => 6,
+            cursor::key::Key::_7 => 7,
+            cursor::key::Key::_8 => 8,
+            cursor::key::Key::_9 => 9,
+            cursor::key::Key::a => 0xa,
+            cursor::key::Key::b => 0xb,
+            cursor::key::Key::c => 0xc,
+            cursor::key::Key::d => 0xd,
+            cursor::key::Key::e => 0xe,
+            cursor::key::Key::f => 0xf,
             _ => return Err(cursor::EntryError::KeyNotRecognized)
         };
 
@@ -284,7 +283,7 @@ impl cursor::CursorClassExt for HexCursor {
         Ok(self.move_right())
     }
 
-    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &gdk::EventKey) -> Result<cursor::MovementResult, cursor::EntryError> {
+    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
         Err(cursor::EntryError::KeyNotRecognized) // TODO
     }
 }

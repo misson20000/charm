@@ -1,4 +1,4 @@
-use crate::config;
+use crate::view::config;
 use crate::model::addr;
 use crate::model::listing::window;
 use crate::view::listing::component;

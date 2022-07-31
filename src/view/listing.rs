@@ -4,7 +4,7 @@ use std::vec;
 use std::time;
 use std::collections::HashMap;
 
-use crate::config;
+use crate::view::config;
 use crate::util;
 use crate::model::addr;
 use crate::model::datapath;
@@ -15,8 +15,7 @@ use crate::model::listing;
 use crate::model::listing::cursor;
 use crate::model::listing::line_group;
 use crate::view;
-
-use crate::ext::CairoExt;
+use crate::view::ext::CairoExt;
 
 use gtk::prelude::*;
 

@@ -2,7 +2,7 @@ use std::sync;
 
 use lazy_static::lazy_static;
 use hex_literal::hex;
-use crate::ext::RGBAExt;
+use crate::view::ext::RGBAExt;
 
 pub struct Config {
     pub file_access_delay: u64, /* milliseconds */

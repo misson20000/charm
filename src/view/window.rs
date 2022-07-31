@@ -2,7 +2,7 @@ use std::cell;
 use std::rc;
 use std::sync;
 
-use crate::CharmApplication;
+use crate::view::CharmApplication;
 use crate::model::document;
 use crate::model::space;
 use crate::model::space::AddressSpace;

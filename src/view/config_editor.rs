@@ -1,5 +1,5 @@
 use gtk::prelude::*;
-use crate::config;
+use crate::view::config;
 
 extern crate conv;
 use conv::ApproxInto;

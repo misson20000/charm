@@ -1,7 +1,7 @@
-use crate::config;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::listing::cursor;
+use crate::view::config;
 use crate::view::listing::component;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -119,11 +119,11 @@ impl CursorView {
             Mode::Command => return false,
             Mode::Entry => {
                 self.events.want_draw();
-                self.cursor.enter_standard(document_host, self.insert, key)
+                self.cursor.enter_standard(document_host, self.insert, &cursor::key::Key::from(key))
             },
             Mode::TextEntry => {
                 self.events.want_draw();
-                self.cursor.enter_utf8(document_host, self.insert, key)
+                self.cursor.enter_utf8(document_host, self.insert, &cursor::key::Key::from(key))
             },
         } {
             Ok(cursor::MovementResult::Ok) => { self.blink(); true },

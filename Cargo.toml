@@ -3,16 +3,19 @@ name = "charm"
 version = "0.1.0"
 authors = ["misson20000 <xenotoad@xenotoad.net>"]
 edition = "2018"
+default-run = "gtk"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["gtk"]
+gtk = ["dep:glib", "dep:gtk", "dep:gdk", "dep:gdk-pixbuf", "dep:gio", "dep:cairo-rs"]
 
 [dependencies]
-glib = "0.15.12"
-gtk = { version = "0.15.5", features = ["v3_20"] }
-gdk = "0.15.4"
-gdk-pixbuf = "0.15.11"
-gio = "0.15.12"
-cairo-rs = "0.15.12"
+glib = { version = "0.15.12", optional = true }
+gtk = { version = "0.15.5", features = ["v3_20"], optional = true }
+gdk = { version = "0.15.4", optional = true }
+gdk-pixbuf = { version = "0.15.11", optional = true }
+gio = { version = "0.15.12", optional = true }
+cairo-rs = {version = "0.15.12", optional = true }
 futures = "0.3.21"
 lazy_static = "1.4.0"
 tokio = { version = "1.20.1", features = ["full"] }
@@ -27,6 +30,9 @@ byteorder = "1.4.3"
 lru = "0.7.8"
 take_mut = "0.2.2"
 
-[features]
-default = []
-test_listing = []
+[[bin]]
+name = "gtk"
+required-features = ["gtk"]
+
+[[bin]]
+name = "cli_test"
