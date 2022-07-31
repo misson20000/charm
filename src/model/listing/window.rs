@@ -1,38 +1,17 @@
+use std::collections;
 use std::sync;
 use std::task;
+use std::vec;
 
 use crate::model::addr;
 use crate::model::document;
-use crate::model::document::BreakMapExt;
-use crate::model::document::brk;
-use crate::model::listing::line_group::LineGroup;
+use crate::model::document::structure;
+use crate::model::listing;
+use crate::model::listing::token;
 
 use enum_dispatch::enum_dispatch;
 
-/*
-
-A listing looks like this:
-
-start of buffer:
-    top_address 0x00400050
- [  0x00400050  [intentionally empty line]
-    0x00400050  label:
-  ] 0x00400050  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
- [] 0x00400070  10 21 32 43 54 65 76 87  98 a9 ba cb dc ed fe 0f
-top_margin (measured in lines): (everything above this is outside the window)
- [] 0x00400080  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
- [] 0x00400090  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
- [] 0x004000a0  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
- [  0x004000b0  [intentionally empty line]
-    0x004000b0  label2:
-top_margin + window_height: (measured in lines) (everything below this is outside the window)
-  ] 0x004000b0  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
- [] 0x004000c0  00 11 22 33 44 55 66 77  88 99 aa bb cc dd ee ff
-num_lines: (this is the extent of our buffer)
-    bottom_address 0x004000d0
-
-We don't ever fragment "line groups".
- */
+use Line = vec::Vec<token::Token>;
 
 #[enum_dispatch]
 pub trait BreakView {
@@ -57,23 +36,32 @@ pub trait BreakView {
     fn get_addr(&self) -> addr::Address;
 }
 
-// TODO: replace this with const generics when they actually work
-pub trait BreakViewDir {}
-pub struct UpDir;
-pub struct DownDir;
-impl BreakViewDir for UpDir {}
-impl BreakViewDir for DownDir {}
-
-#[enum_dispatch(BreakView)]
-#[derive(Debug)]
-pub enum BreakViewUpward {
-    Hex(brk::hex::HexBreakView<UpDir>),
+enum TokenGeneratorState {
+    Clean, //< if going downward, would emit Null token.
+    Title, //< if going downward, would emit Title token.
+    Content(addr::Offset, usize), //< if going downward, would emit either the indexed child, or content starting at the offset.
+    End, //< if going downward, we've hit the end of this node's content.
 }
 
-#[enum_dispatch(BreakView)]
-#[derive(Debug)]
-pub enum BreakViewDownward {
-    Hex(brk::hex::HexBreakView<DownDir>),
+struct TokenGenerator {
+    state: TokenGeneratorState,
+    node: sync::Arc<structure::Node>,
+}
+
+enum TokenGenerationResult {
+    Ok(token::Token),
+    Descend(sync::Arc<structure::Node>),
+    Ascend
+}
+
+impl TokenGenerator {
+    /* for the top end */
+    fn advance_up(&mut self) -> TokenGenerationResult;
+    fn retreat_down(&mut self);
+
+    /* for the bottom end */
+    fn advance_down(&mut self) -> TokenGenerationResult;
+    fn retreat_up(&mut self);
 }
 
 /// A listing window with a fixed height. Useful for scrolling by lines.
@@ -81,7 +69,7 @@ pub enum BreakViewDownward {
 pub struct FixedWindow {
     flex: FlexWindow,
     
-    pub line_groups: std::collections::VecDeque<LineGroup>,
+    pub lines: collections::VecDeque<Line>,
     pub top_margin: usize,
     pub window_height: usize,
     
@@ -93,8 +81,8 @@ pub struct FixedWindow {
 /// A listing window with variable, unspecified height.
 pub struct FlexWindow {
     document: document::Document,
-    top_view: BreakViewUpward,
-    bottom_view: BreakViewDownward,
+    top: TokenGenerator,
+    bottom: TokenGenerator,
 }
 
 impl FixedWindow {
@@ -102,7 +90,7 @@ impl FixedWindow {
         FixedWindow {
             flex: FlexWindow::new(document, addr::Address::default()),
             
-            line_groups: std::collections::VecDeque::<LineGroup>::new(),
+            lines: std::collections::VecDeque::<LineGroup>::new(),
             top_margin: 0,
             window_height: 0,
             
@@ -400,62 +388,73 @@ impl FlexWindow {
     }
 }
 
-impl BreakViewUpward {
-    pub fn new_from_top(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>) -> BreakViewUpward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewUpward::Hex(brk::hex::HexBreakView::<UpDir>::new_from_top(breaks, brk)),
+impl TokenGenerator {
+    pub fn new_from_top(node: &sync::Arc<structure::Node>) -> TokenGenerator {
+        TokenGenerator {
+            state: TokenGeneratorState::Clean,
+            node: node.clone()
         }
     }
 
-    pub fn new_from_middle(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>, addr: addr::Address) -> BreakViewUpward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewUpward::Hex(brk::hex::HexBreakView::<UpDir>::new_from_middle(breaks, brk, addr)),
+    pub fn new_from_bottom(node: &sync::Arc<structure::Node>) -> TokenGenerator {
+        TokenGenerator {
+            state: TokenGeneratorState::End,
+            node: node.clone()
         }
     }
 
-    pub fn new_from_bottom(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>) -> BreakViewUpward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewUpward::Hex(brk::hex::HexBreakView::<UpDir>::new_from_bottom(breaks, brk)),
-        }
-    }
-}
-
-impl BreakViewDownward {
-    pub fn new_from_top(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>) -> BreakViewDownward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewDownward::Hex(brk::hex::HexBreakView::<DownDir>::new_from_top(breaks, brk)),
-        }
-    }
-
-    pub fn new_from_middle(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>, addr: addr::Address) -> BreakViewDownward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewDownward::Hex(brk::hex::HexBreakView::<DownDir>::new_from_middle(breaks, brk, addr)),
-        }
-    }
-
-    pub fn new_from_bottom(breaks: &document::BreakMap, brk: sync::Arc<brk::Break>) -> BreakViewDownward {
-        match brk.class {
-            brk::BreakClass::Hex(_) => BreakViewDownward::Hex(brk::hex::HexBreakView::<DownDir>::new_from_bottom(breaks, brk)),
+    pub fn advance_down(&mut self) -> TokenGenerationResult {
+        match self.state {
+            Clean => {
+                self.state = TokenGeneratorState::Title;
+                TokenGenerationResult::Ok(token::Token {
+                    class: token::TokenClass::Null,
+                    node: self.node.clone(),
+                    newline: true,
+                })
+            },
+            Title => {
+                self.state = TokenGeneratorState::Content(0, 0);
+                TokenGenerationResult::Ok(token::Token {
+                    class: token::TokenClass::Title,
+                    node: self.node.clone(),
+                    newline: true,
+                })
+            },
+            Content(offset, index) => {
+                let next_child = &self.node.children[index];
+                // TODO: ascencion
+                if(next_child.offset <= offset) {
+                    self.state = TokenGeneratorState::Content(next_child.offset + next_child.node.size, index + 1);
+                    TokenGenerationResult::Descend(next_child.node)
+                } else if {
+                    TokenGenerationResult::Ok(token::Token {
+                        class: token::TokenClass::Hexdump(addr::Extent::sized(offset, 16)),
+                        node: self.node.clone(),
+                        newline: true,
+                    })
+                }
+            },
         }
     }
 }
 
 pub struct ListingIterator<'a> {
-    iter: std::collections::vec_deque::Iter<'a, LineGroup>,
+    iter: std::collections::vec_deque::Iter<'a, Line>,
     line_no: isize,
 }
 
 impl<'a> ListingIterator<'a> {
     fn new(window: &FixedWindow) -> ListingIterator {
         ListingIterator {
-            iter: window.line_groups.iter(),
+            iter: window.lines.iter(),
             line_no: -(window.top_margin as isize),
         }
     }
 }
 
 impl<'a> std::iter::Iterator for ListingIterator<'a> {
-    type Item = (isize, &'a LineGroup);
+    type Item = (isize, &'a Line);
                  
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|lg| {
@@ -469,8 +468,8 @@ impl<'a> std::iter::Iterator for ListingIterator<'a> {
 impl std::fmt::Debug for FlexWindow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FlexWindow")
-            .field("top_view", &self.top_view)
-            .field("bottom_view", &self.bottom_view)
+            .field("top_gen", &self.top_gen)
+            .field("bottom_gen", &self.bottom_gen)
             .finish()
     }
 }

@@ -1,6 +1,5 @@
 /// The term "listing" is used to refer to the representation of a document that the user interacts with, which is a
-/// list of line groups. Typically, most line groups consist of only a single hex line, but there are other types of
-/// line groups; break header line groups, for example, consist of both a blank line and a line describing the break.
+/// list of lines containing tokens.
 
 /// The window module is used to describe how the listing is accessed. A listing is a stream of lines, and it is often
 /// difficult to exactly represent a specific location to seek to within a listing; if you were to ask for the line at
@@ -12,6 +11,6 @@
 
 /// The cursor module is used to describe how the cursor moves around in the listing and accepts edits to it.
 
-pub mod line_group;
+pub mod token;
 pub mod window;
 pub mod cursor;

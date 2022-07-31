@@ -1,4 +1,4 @@
-pub mod brk;
+pub mod structure;
 
 use std::string;
 use std::sync;
@@ -13,7 +13,6 @@ use crate::model::space::AddressSpace;
 extern crate imbl;
 use imbl::ordmap;
 
-pub type BreakMap = ordmap::OrdMap<addr::Address, sync::Arc<brk::Break>>;
 pub type DocumentRef<'a> = owning_ref::OwningRef<sync::RwLockReadGuard<'a, DocumentHostInterior>, Document>;
 
 #[derive(Clone)]
@@ -25,7 +24,7 @@ enum UndoOp {
 
 #[derive(Clone)]
 pub struct Document {
-    pub breaks: BreakMap,
+    pub struct_root: structure::Node,
     pub datapath: datapath::DataPath,
     id: u64,
     layout_generation: u64,

@@ -6,6 +6,8 @@ pub struct Address {
     pub bit: u8
 }
 
+pub use Offset = Address;
+
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct Size {
     pub bytes: u64,
@@ -157,6 +159,11 @@ impl Extent {
             end: std::cmp::max(a, b)
         }
     }
+
+    pub fn sized(begin: Address, size: Size) -> Extent {
+        Extent { begin, begin + size }
+    }
+    
     pub fn unbounded(begin: Address) -> Extent {
         Extent { begin, end: unit::REAL_END }
     }
