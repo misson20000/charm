@@ -4,6 +4,7 @@ use std::sync;
 use std::path;
 
 use charm::model::document;
+use charm::model::listing;
 use charm::model::space;
 
 fn main() {
@@ -20,8 +21,5 @@ fn main() {
             .unwrap());
 
     let mut document = document::Document::new(space);
-
-    
-    
-    let host = sync::Arc::new(document::DocumentHost::new(document));
+    //let mut gen = listing::window::TokenGenerator::new_from_root(&document.root);
 }

@@ -24,13 +24,15 @@ pub enum ContentDisplay {
     Hexstring
 }
 
+#[derive(Debug)]
 pub struct Childhood {
-    node: sync::Arc<Node>,
-    offset: addr::Offset,
+    pub node: sync::Arc<Node>,
+    pub offset: addr::Offset,
 }
 
 #[derive(Debug)]
 pub struct Node {
+    /* reference to parent causes a lot of problems */
     pub name: String,
     pub size: addr::Size,
     pub title_display: TitleDisplay,

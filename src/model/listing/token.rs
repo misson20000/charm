@@ -1,4 +1,4 @@
-use sync::Arc;
+use std::sync;
 
 use crate::model::addr;
 use crate::model::document::structure;
@@ -11,6 +11,7 @@ pub enum TokenClass {
     Hexstring(addr::Extent)
 }
 
+#[derive(Debug)]
 pub struct Token {
     pub class: TokenClass,
     pub node: sync::Arc<structure::Node>,

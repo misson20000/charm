@@ -6,7 +6,7 @@ pub struct Address {
     pub bit: u8
 }
 
-pub use Offset = Address;
+pub type Offset = Size;
 
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct Size {
@@ -146,6 +146,10 @@ impl Size {
     pub fn floor(&self) -> Size {
         Size { bytes: self.bytes, bits: 0 }
     }
+
+    pub fn to_addr(&self) -> Address {
+        Address { byte: self.bytes, bit: self.bits }
+    }
 }
 
 impl Extent {
@@ -161,7 +165,7 @@ impl Extent {
     }
 
     pub fn sized(begin: Address, size: Size) -> Extent {
-        Extent { begin, begin + size }
+        Extent { begin, end: begin + size }
     }
     
     pub fn unbounded(begin: Address) -> Extent {

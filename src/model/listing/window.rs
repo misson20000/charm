@@ -1,18 +1,19 @@
-use std::collections;
+//use std::collections;
 use std::sync;
-use std::task;
+//use std::task;
 use std::vec;
 
 use crate::model::addr;
-use crate::model::document;
+//use crate::model::document;
 use crate::model::document::structure;
-use crate::model::listing;
+//use crate::model::listing;
 use crate::model::listing::token;
 
-use enum_dispatch::enum_dispatch;
+//use enum_dispatch::enum_dispatch;
 
-use Line = vec::Vec<token::Token>;
+pub type Line = vec::Vec<token::Token>;
 
+/*
 #[enum_dispatch]
 pub trait BreakView {
     fn produce(&mut self) -> Option<LineGroup>;
@@ -35,6 +36,7 @@ pub trait BreakView {
 
     fn get_addr(&self) -> addr::Address;
 }
+*/
 
 enum TokenGeneratorState {
     Clean, //< if going downward, would emit Null token.
@@ -44,26 +46,28 @@ enum TokenGeneratorState {
 }
 
 struct TokenGenerator {
+    /* invariants:
+       - stack should always contain a path all the way back to the root node
+     */
+    stack: Option<Box<TokenGenerator>>,
     state: TokenGeneratorState,
     node: sync::Arc<structure::Node>,
 }
 
-enum TokenGenerationResult {
-    Ok(token::Token),
-    Descend(sync::Arc<structure::Node>),
-    Ascend
-}
-
+/*
 impl TokenGenerator {
     /* for the top end */
-    fn advance_up(&mut self) -> TokenGenerationResult;
+    fn advance_up(&mut self) -> Option<token::Token>;
     fn retreat_down(&mut self);
 
     /* for the bottom end */
-    fn advance_down(&mut self) -> TokenGenerationResult;
+    fn advance_down(&mut self) -> Option<token::Token>;
     fn retreat_up(&mut self);
+    fn hit_bottom(&self);
 }
+*/
 
+/*
 /// A listing window with a fixed height. Useful for scrolling by lines.
 /// It is up to the user to make sure that this gets properly notified with break list invalidation events.
 pub struct FixedWindow {
@@ -329,116 +333,127 @@ impl FlexWindow {
         *self = Self::new(&self.document, target); // a shame to have to clone Document only for the original to be dropped
     }
 
-    /// Shrinks the window by one line group on the bottom.
-    pub fn trim_up(&mut self, lg: &LineGroup) {
-        while !self.bottom_view.trim(lg) {
-            match self.document.breaks.break_before(self.bottom_view.get_break()) {
-                Some(p) => self.bottom_view = BreakViewDownward::new_from_bottom(&self.document.breaks, p.clone()),
-                None => panic!("tried to trim up to top of address space"),
-            }
-        }
+    /// Shrinks the window by one token on the bottom.
+    pub fn trim_up(&mut self) {
+        self.bottom_gen.retreat_up();
     }
 
-    /// Shrinks the window by one line group on the top.
-    pub fn trim_down(&mut self, lg: &LineGroup) {
-        while !self.top_view.trim(lg) {
-            if self.top_view.get_break().addr == addr::unit::REAL_END {
-                panic!("tried to trim down to bottom of address space");
-            } else {
-                match self.document.breaks.get_next(&(self.top_view.get_break().addr + addr::unit::BIT)) {
-                    Some(n) => self.top_view = BreakViewUpward::new_from_top(&self.document.breaks, n.1.clone()),
-                    None => panic!("tried to trim down to bottom of address space"),
-                }
-            }
-        }
+    /// Shrinks the window by one token on the top.
+    pub fn trim_down(&mut self) {
+        self.top_gen.retreat_down();
     }
 
-    /// Tries to grow the window by one line group on the top.
-    pub fn produce_up(&mut self) -> Option<LineGroup> {
-        Some(loop {
-            let lg = self.top_view.produce();
-
-            match lg {
-                Some(lg) => break lg,
-                None => match self.document.breaks.break_before(self.top_view.get_break()) {
-                    Some(p) => self.top_view = BreakViewUpward::new_from_bottom(&self.document.breaks, p.clone()),
-                    None => return None,
-                }
-            }
-        })
+    /// Tries to grow the window by one token on the top.
+    pub fn produce_up(&mut self) -> Option<token::Token> {
+        self.top_gen.advance_up()
     }
 
     /// Tries to grow the window by one line group on the bottom.
     pub fn produce_down(&mut self) -> Option<LineGroup> {
-        Some(loop {
-            let lg = self.bottom_view.produce();
-
-            match lg {
-                Some(lg) => break lg,
-                None => match self.document.breaks.break_after(self.bottom_view.get_break()) {
-                    Some(n) => self.bottom_view = BreakViewDownward::new_from_top(&self.document.breaks, n.clone()),
-                    None => return None,
-                }
-            }
-        })
+        self.bottom_gen.advance_down()
     }
 
     pub fn get_bottom_hit_end(&self) -> bool {
-        self.bottom_view.hit_boundary() && self.document.breaks.break_after(self.bottom_view.get_break()).is_none()
+        self.bottom_gen.hit_bottom()
     }
 }
+*/
 
 impl TokenGenerator {
-    pub fn new_from_top(node: &sync::Arc<structure::Node>) -> TokenGenerator {
+    pub fn new_from_root(root: &sync::Arc<structure::Node>) -> TokenGenerator {
         TokenGenerator {
+            stack: None,
             state: TokenGeneratorState::Clean,
-            node: node.clone()
+            node: root.clone()
         }
     }
 
-    pub fn new_from_bottom(node: &sync::Arc<structure::Node>) -> TokenGenerator {
-        TokenGenerator {
-            state: TokenGeneratorState::End,
-            node: node.clone()
-        }
-    }
-
-    pub fn advance_down(&mut self) -> TokenGenerationResult {
-        match self.state {
-            Clean => {
-                self.state = TokenGeneratorState::Title;
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Null,
-                    node: self.node.clone(),
-                    newline: true,
-                })
-            },
-            Title => {
-                self.state = TokenGeneratorState::Content(0, 0);
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Title,
-                    node: self.node.clone(),
-                    newline: true,
-                })
-            },
-            Content(offset, index) => {
-                let next_child = &self.node.children[index];
-                // TODO: ascencion
-                if(next_child.offset <= offset) {
-                    self.state = TokenGeneratorState::Content(next_child.offset + next_child.node.size, index + 1);
-                    TokenGenerationResult::Descend(next_child.node)
-                } else if {
-                    TokenGenerationResult::Ok(token::Token {
-                        class: token::TokenClass::Hexdump(addr::Extent::sized(offset, 16)),
+    pub fn advance_down(&mut self) -> Option<token::Token> {
+        loop {
+            match self.state {
+                TokenGeneratorState::Clean => {
+                    self.state = TokenGeneratorState::Title;
+                    break Some(token::Token {
+                        class: token::TokenClass::Null,
                         node: self.node.clone(),
                         newline: true,
-                    })
+                    });
+                },
+                TokenGeneratorState::Title => {
+                    self.state = TokenGeneratorState::Content(addr::unit::ZERO, 0);
+                    break Some(token::Token {
+                        class: token::TokenClass::Title,
+                        node: self.node.clone(),
+                        newline: true,
+                    });
+                },
+                TokenGeneratorState::Content(offset, index) => {
+                    let next_child_option = self.node.children.get(index);
+                    
+                    /* should we descend? */
+                    if let Some(next_child) = next_child_option {
+                        if next_child.offset <= offset {
+                            /* push our state onto the traversal stack while simultaneously seting up our state for new node */
+                            let nco = next_child.offset;
+                            let ncn = next_child.node.clone();
+                            let parent_node = std::mem::replace(&mut self.node, ncn);
+                            self.stack = Some(Box::new(TokenGenerator {
+                                stack: None,
+                                state: TokenGeneratorState::Content(nco + self.node.size, index + 1),
+                                node: parent_node,
+                            }));
+                            self.state = TokenGeneratorState::Clean;
+                            /* re-enter loop */
+                            continue;
+                        }
+                    }
+
+                    /* is there any content left? */
+                    if offset < self.node.size {
+                        let pitch = addr::Size::from(16);
+                        
+                        let (amount, end) = match next_child_option {
+                            Some(next_child) => (std::cmp::min(next_child.offset - offset, pitch), false),
+                            _ if self.node.size - offset <= pitch => (self.node.size - offset, true),
+                            _ => (pitch, false)
+                        };
+
+                        if end {
+                            self.state = TokenGeneratorState::End;
+                        } else {
+                            self.state = TokenGeneratorState::Content(offset + amount, index);
+                        }
+                        
+                        break Some(token::Token {
+                            class: token::TokenClass::Hexdump(addr::Extent::sized(offset.to_addr(), amount)),
+                            node: self.node.clone(),
+                            newline: true,
+                        });
+                    }
+                },
+                TokenGeneratorState::End => {
+                    /* try to ascend hierarchy by popping the stack */
+                    match std::mem::replace(&mut self.stack, None) {
+                        Some(replacement) => {
+                            *self = *replacement;
+                            continue;
+                        },
+                        None => break None
+                    }
                 }
-            },
+            }
+        }
+    }
+
+    pub fn hit_bottom(&self) -> bool {
+        match self.state {
+            TokenGeneratorState::End => self.stack.is_none(),
+            _ => false
         }
     }
 }
 
+/*
 pub struct ListingIterator<'a> {
     iter: std::collections::vec_deque::Iter<'a, Line>,
     line_no: isize,
@@ -471,5 +486,45 @@ impl std::fmt::Debug for FlexWindow {
             .field("top_gen", &self.top_gen)
             .field("bottom_gen", &self.bottom_gen)
             .finish()
+    }
+}
+*/
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_generator() {
+        let mut root = structure::Node {
+            name: "root".to_string(),
+            size: addr::Size::from(0x100),
+            title_display: structure::TitleDisplay::Major,
+            children_display: structure::ChildrenDisplay::Full,
+            content_display: structure::ContentDisplay::Hexdump(16),
+            locked: true,
+            children: vec::Vec::new()
+        };
+
+        let mut child = structure::Node {
+            name: "child".to_string(),
+            size: addr::Size::from(0x18),
+            title_display: structure::TitleDisplay::Major,
+            children_display: structure::ChildrenDisplay::Full,
+            content_display: structure::ContentDisplay::Hexdump(16),
+            locked: true,
+            children: vec::Vec::new()
+        };
+
+        root.children.push(structure::Childhood {
+            node: sync::Arc::new(child),
+            offset: addr::Size::from(0x32)
+        });
+
+        let mut gen = TokenGenerator::new_from_root(&sync::Arc::new(root));
+
+        while let Some(token) = gen.advance_down() {
+            println!("token: {:?}", token);
+        }
     }
 }
