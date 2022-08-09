@@ -1,17 +1,14 @@
-//use std::collections;
-use std::sync;
-//use std::task;
-use std::vec;
+//! This module includes the logic that converts from a token stream
+//! to lines that would be displayed in a window.
 
-use crate::model::addr;
-//use crate::model::document;
-use crate::model::document::structure;
-//use crate::model::listing;
-use crate::model::listing::token;
+//use std::sync;
+//use std::vec;
 
-//use enum_dispatch::enum_dispatch;
+//use crate::model::addr;
+//use crate::model::document::structure;
+//use crate::model::listing::token;
 
-pub type Line = vec::Vec<token::Token>;
+//pub type Line = vec::Vec<token::Token>;
 
 /*
 #[enum_dispatch]
@@ -38,58 +35,22 @@ pub trait BreakView {
 }
 */
 
-enum TokenGeneratorState {
-    Clean, //< if going downward, would emit Null token.
-    Title, //< if going downward, would emit Title token.
-    Content(addr::Offset, usize), //< if going downward, would emit either the indexed child, or content starting at the offset.
-    End, //< if going downward, we've hit the end of this node's content.
-}
-
-struct TokenGenerator {
-    /* invariants:
-       - stack should always contain a path all the way back to the root node
-     */
-    stack: Option<Box<TokenGenerator>>,
-    state: TokenGeneratorState,
-    node: sync::Arc<structure::Node>,
-}
-
-/*
-impl TokenGenerator {
-    /* for the top end */
-    fn advance_up(&mut self) -> Option<token::Token>;
-    fn retreat_down(&mut self);
-
-    /* for the bottom end */
-    fn advance_down(&mut self) -> Option<token::Token>;
-    fn retreat_up(&mut self);
-    fn hit_bottom(&self);
-}
-*/
-
 /*
 /// A listing window with a fixed height. Useful for scrolling by lines.
-/// It is up to the user to make sure that this gets properly notified with break list invalidation events.
-pub struct FixedWindow {
-    flex: FlexWindow,
+/// It is up to the user to make sure that this gets properly notified with structure invalidation events.
+pub struct Window {
+    document: document::Document,
+    top: TokenGenerator,
+    bottom: TokenGenerator,
     
     pub lines: collections::VecDeque<Line>,
     pub top_margin: usize,
     pub window_height: usize,
     
-    num_lines: usize, /* number of lines contained in line_groups */
-
     pub wants_update: bool,
 }
 
-/// A listing window with variable, unspecified height.
-pub struct FlexWindow {
-    document: document::Document,
-    top: TokenGenerator,
-    bottom: TokenGenerator,
-}
-
-impl FixedWindow {
+impl Window {
     pub fn new(document: &document::Document) -> FixedWindow {
         FixedWindow {
             flex: FlexWindow::new(document, addr::Address::default()),
@@ -359,100 +320,6 @@ impl FlexWindow {
 }
 */
 
-impl TokenGenerator {
-    pub fn new_from_root(root: &sync::Arc<structure::Node>) -> TokenGenerator {
-        TokenGenerator {
-            stack: None,
-            state: TokenGeneratorState::Clean,
-            node: root.clone()
-        }
-    }
-
-    pub fn advance_down(&mut self) -> Option<token::Token> {
-        loop {
-            match self.state {
-                TokenGeneratorState::Clean => {
-                    self.state = TokenGeneratorState::Title;
-                    break Some(token::Token {
-                        class: token::TokenClass::Null,
-                        node: self.node.clone(),
-                        newline: true,
-                    });
-                },
-                TokenGeneratorState::Title => {
-                    self.state = TokenGeneratorState::Content(addr::unit::ZERO, 0);
-                    break Some(token::Token {
-                        class: token::TokenClass::Title,
-                        node: self.node.clone(),
-                        newline: true,
-                    });
-                },
-                TokenGeneratorState::Content(offset, index) => {
-                    let next_child_option = self.node.children.get(index);
-                    
-                    /* should we descend? */
-                    if let Some(next_child) = next_child_option {
-                        if next_child.offset <= offset {
-                            /* push our state onto the traversal stack while simultaneously seting up our state for new node */
-                            let nco = next_child.offset;
-                            let ncn = next_child.node.clone();
-                            let parent_node = std::mem::replace(&mut self.node, ncn);
-                            self.stack = Some(Box::new(TokenGenerator {
-                                stack: None,
-                                state: TokenGeneratorState::Content(nco + self.node.size, index + 1),
-                                node: parent_node,
-                            }));
-                            self.state = TokenGeneratorState::Clean;
-                            /* re-enter loop */
-                            continue;
-                        }
-                    }
-
-                    /* is there any content left? */
-                    if offset < self.node.size {
-                        let pitch = addr::Size::from(16);
-                        
-                        let (amount, end) = match next_child_option {
-                            Some(next_child) => (std::cmp::min(next_child.offset - offset, pitch), false),
-                            _ if self.node.size - offset <= pitch => (self.node.size - offset, true),
-                            _ => (pitch, false)
-                        };
-
-                        if end {
-                            self.state = TokenGeneratorState::End;
-                        } else {
-                            self.state = TokenGeneratorState::Content(offset + amount, index);
-                        }
-                        
-                        break Some(token::Token {
-                            class: token::TokenClass::Hexdump(addr::Extent::sized(offset.to_addr(), amount)),
-                            node: self.node.clone(),
-                            newline: true,
-                        });
-                    }
-                },
-                TokenGeneratorState::End => {
-                    /* try to ascend hierarchy by popping the stack */
-                    match std::mem::replace(&mut self.stack, None) {
-                        Some(replacement) => {
-                            *self = *replacement;
-                            continue;
-                        },
-                        None => break None
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn hit_bottom(&self) -> bool {
-        match self.state {
-            TokenGeneratorState::End => self.stack.is_none(),
-            _ => false
-        }
-    }
-}
-
 /*
 pub struct ListingIterator<'a> {
     iter: std::collections::vec_deque::Iter<'a, Line>,
@@ -489,42 +356,3 @@ impl std::fmt::Debug for FlexWindow {
     }
 }
 */
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn token_generator() {
-        let mut root = structure::Node {
-            name: "root".to_string(),
-            size: addr::Size::from(0x100),
-            title_display: structure::TitleDisplay::Major,
-            children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16),
-            locked: true,
-            children: vec::Vec::new()
-        };
-
-        let mut child = structure::Node {
-            name: "child".to_string(),
-            size: addr::Size::from(0x18),
-            title_display: structure::TitleDisplay::Major,
-            children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16),
-            locked: true,
-            children: vec::Vec::new()
-        };
-
-        root.children.push(structure::Childhood {
-            node: sync::Arc::new(child),
-            offset: addr::Size::from(0x32)
-        });
-
-        let mut gen = TokenGenerator::new_from_root(&sync::Arc::new(root));
-
-        while let Some(token) = gen.advance_down() {
-            println!("token: {:?}", token);
-        }
-    }
-}

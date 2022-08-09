@@ -1,0 +1,21 @@
+<testcase>
+  <node name="root" size="0x70">
+    <node name="child" offset="0x32" size="0x18">
+    </node>
+  </node>
+  <tokens>
+    <null node="root" nl="true" />
+    <title node="root" nl="true" />
+    <hexdump node="root" begin="0x0" end="0x10" nl="true" />
+    <hexdump node="root" begin="0x10" end="0x20" nl="true" />
+    <hexdump node="root" begin="0x20" end="0x30" nl="true" />
+    <hexdump node="root" begin="0x30" end="0x32" nl="true" />
+    <null node="child" nl="true" />
+    <title node="child" nl="true" />
+    <hexdump node="child" begin="0x0" end="0x10" nl="true" />
+    <hexdump node="child" begin="0x10" end="0x18" nl="true" />
+    <hexdump node="root" begin="0x4a" end="0x50" nl="true" />
+    <hexdump node="root" begin="0x50" end="0x60" nl="true" />
+    <hexdump node="root" begin="0x60" end="0x70" nl="true" />
+  </tokens>
+</testcase>

@@ -29,6 +29,7 @@ enum_dispatch = "0.3.8"
 byteorder = "1.4.3"
 lru = "0.7.8"
 take_mut = "0.2.2"
+itertools = "0.10.3"
 
 [[bin]]
 name = "gtk"
@@ -36,3 +37,6 @@ required-features = ["gtk"]
 
 [[bin]]
 name = "cli_test"
+
+[dev-dependencies]
+roxmltree = "0.14.1"

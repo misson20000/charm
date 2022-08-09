@@ -12,5 +12,6 @@
 /// The cursor module is used to describe how the cursor moves around in the listing and accepts edits to it.
 
 pub mod token;
-pub mod window;
+pub mod tokenizer;
+pub mod layout;
 //pub mod cursor;
