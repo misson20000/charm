@@ -8,13 +8,13 @@ pub struct Address {
 
 pub type Offset = Size;
 
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct Size {
     pub bytes: u64,
     pub bits: u8
 }
 
-#[derive(Default, PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(Default, PartialEq, Eq, Copy, Clone)]
 pub struct Extent {
     pub begin: Address,
     pub end: Address,
@@ -245,8 +245,8 @@ impl std::fmt::Display for Address {
 impl std::fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.bit {
-            0 => write!(f, "addr({:#018x})", self.byte),
-            _ => write!(f, "addr({:#018x}.{})", self.byte, self.bit)
+            0 => write!(f, "addr({:#x})", self.byte),
+            _ => write!(f, "addr({:#x}.{})", self.byte, self.bit)
         }
     }
 }
@@ -346,6 +346,15 @@ impl std::fmt::Display for Size {
     }
 }
 
+impl std::fmt::Debug for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.bits {
+            0 => write!(f, "size({:#x})", self.bytes),
+            _ => write!(f, "size({:#x}.{})", self.bytes, self.bits)
+        }
+    }
+}
+
 impl std::convert::From<u64> for Size {
     fn from(bytes: u64) -> Size {
         Size {bytes, bits: 0}
@@ -429,3 +438,12 @@ impl std::ops::Rem<Size> for Size {
         dividend
     }
 }
+
+/* extent traits */
+
+impl std::fmt::Debug for Extent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "extent({:?} to {:?})", self.begin, self.end)
+    }
+}
+
