@@ -35,16 +35,16 @@ pub struct ExtentTriplet {
 pub mod unit {
     use super::{Address, Size};
 
-    pub static NULL: Address = Address { byte: 0, bit: 0 };
-    pub static REAL_END: Address = Address { byte: u64::MAX, bit: 8 }; // TODO: change this back to END
+    pub const NULL: Address = Address { byte: 0, bit: 0 };
+    pub const REAL_END: Address = Address { byte: u64::MAX, bit: 8 }; // TODO: change this back to END
 
-    pub static ZERO: Size = Size { bytes: 0, bits: 0 };
-    pub static BIT: Size = Size { bytes: 0, bits: 1 };
-    pub static NYBBLE: Size = Size { bytes: 0, bits: 4 };
-    pub static BYTE: Size = Size { bytes: 1, bits: 0 };
-    pub static BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
-    pub static QWORD: Size = Size { bytes: 8, bits: 0 };
-    pub static REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
+    pub const ZERO: Size = Size { bytes: 0, bits: 0 };
+    pub const BIT: Size = Size { bytes: 0, bits: 1 };
+    pub const NYBBLE: Size = Size { bytes: 0, bits: 4 };
+    pub const BYTE: Size = Size { bytes: 1, bits: 0 };
+    pub const BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
+    pub const QWORD: Size = Size { bytes: 8, bits: 0 };
+    pub const REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
 }
 
 pub enum AddressParseError {
