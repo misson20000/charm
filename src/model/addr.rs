@@ -47,6 +47,7 @@ pub mod unit {
     pub const REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
 }
 
+#[derive(Debug)]
 pub enum AddressParseError {
     MissingBytes,
     MalformedBytes(std::num::ParseIntError),
