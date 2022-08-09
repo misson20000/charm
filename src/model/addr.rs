@@ -402,6 +402,7 @@ impl std::ops::Mul<u64> for Size {
 }
 
 /// NOTE: Unsafe for very large fractional divisors!
+// TODO: uhh, what do we do about dividing max size by one bit?
 impl std::ops::Div<Size> for Size {
     type Output = u64;
 
