@@ -30,6 +30,12 @@ pub struct Childhood {
     pub offset: addr::Offset,
 }
 
+impl Childhood {
+    pub fn end(&self) -> addr::Offset {
+        self.offset + self.node.size
+    }
+}
+
 #[derive(Debug)]
 pub struct Node {
     /* reference to parent causes a lot of problems */
