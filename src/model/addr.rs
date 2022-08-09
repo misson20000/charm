@@ -109,6 +109,10 @@ impl Address {
             Address { byte: self.byte + 1, bit: 0 }
         }
     }
+
+    pub fn to_size(&self) -> Size {
+        Size { bytes: self.byte, bits: self.bit }
+    }
 }
 
 impl Size {
@@ -154,8 +158,8 @@ impl Size {
 }
 
 impl Extent {
-    pub fn between(begin: Address, end: Address) -> Extent {
-        Extent { begin, end }
+    pub fn between<T: Into<Address>>(begin: T, end: T) -> Extent {
+        Extent { begin: begin.into(), end: end.into() }
     }
 
     pub fn between_bidirectional(a: Address, b: Address) -> Extent {
@@ -166,6 +170,11 @@ impl Extent {
     }
 
     pub fn sized(begin: Address, size: Size) -> Extent {
+        Extent { begin, end: begin + size }
+    }
+    
+    pub fn sized_u64(begin: u64, size: u64) -> Extent {
+        let begin = Address::from(begin);
         Extent { begin, end: begin + size }
     }
     
