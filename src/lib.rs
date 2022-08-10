@@ -9,6 +9,7 @@ extern crate enum_dispatch;
 pub mod util;
 
 pub mod model;
+pub mod logic;
 
 #[cfg(feature = "gtk")]
 pub mod view;

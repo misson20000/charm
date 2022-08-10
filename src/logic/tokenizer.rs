@@ -409,14 +409,14 @@ mod tests {
     
     #[test]
     fn simple() {
-        let tc = Testcase::from_xml(include_bytes!("test/simple.xml"));
+        let tc = Testcase::from_xml(include_bytes!("tokenizer_tests/simple.xml"));
         tc.test_forward();
         tc.test_backward();
     }
 
     #[test]
     fn nesting() {
-        let tc = Testcase::from_xml(include_bytes!("test/nesting.xml"));
+        let tc = Testcase::from_xml(include_bytes!("tokenizer_tests/nesting.xml"));
         tc.test_forward();
         tc.test_backward();
     }
