@@ -322,13 +322,150 @@ impl Tokenizer {
     }
 }
 
+pub mod xml {
+    use super::*;
+
+    use std::collections;
+    use std::sync;
+    use std::vec;
+    
+    extern crate roxmltree;
+
+    pub struct Testcase {
+        pub structure: sync::Arc<structure::Node>,
+        pub expected_tokens: vec::Vec<token::Token>,
+    }
+
+    struct TokenDef {
+        class: token::TokenClass,
+        node_name: String,
+        depth: usize,
+        newline: bool,
+    }
+
+    impl Testcase {
+        pub fn from_xml(document: &roxmltree::Document) -> Testcase {
+            let re = document.root_element();
+            assert!(re.has_tag_name("testcase"));
+
+            let mut lookup = collections::HashMap::new();
+            let mut structure = None;
+            let mut expected_tokens: Option<Vec<TokenDef>> = None;
+            
+            for child in re.children() {
+                if !child.is_element() { continue; }
+                match child.tag_name().name() {
+                    "node" => {
+                        structure = match structure {
+                            Some(_) => panic!("multiple structure definitions"),
+                            None => Some(inflate_structure(child, &mut lookup))
+                        }
+                    }
+                    "tokens" => {
+                        expected_tokens = match expected_tokens {
+                            Some(_) => panic!("multiple expected tokens"),
+                            None => {
+                                let mut vec = vec::Vec::new();
+                                inflate_token_tree(child, &mut vec, 0);
+                                Some(vec)
+                            }
+                        }
+                    },
+                    tn => panic!("unexpected tag '{}'", tn)
+                }
+            }
+
+            Testcase {
+                structure: structure.expect("should've had a structure definition"),
+                expected_tokens: expected_tokens.expect("should've had expected tokens").into_iter().map(|c| c.to_token(&lookup)).collect(),
+            }
+        }
+    }
+
+    fn inflate_token_tree(xml: roxmltree::Node, collection: &mut vec::Vec<TokenDef>, depth: usize) {
+        for c in xml.children().filter(|c| c.is_element()) {
+            if c.has_tag_name("indent") {
+                inflate_token_tree(c, collection, depth + 1)
+            } else {
+                collection.push(TokenDef {
+                    class: match c.tag_name().name() {
+                        "null" => token::TokenClass::Null,
+                        "title" => token::TokenClass::Title,
+                        "hexdump" => token::TokenClass::Hexdump(inflate_extent(&c)),
+                        "hexstring" => token::TokenClass::Hexstring(inflate_extent(&c)),
+                        tn => panic!("invalid token def: '{}'", tn)
+                    },
+                    node_name: c.attribute("node").unwrap().to_string(),
+                    depth,
+                    newline: c.attribute("nl").unwrap().eq("true"),
+                })
+            }
+        }
+    }
+
+    fn inflate_extent(xml: &roxmltree::Node) -> addr::Extent {
+        addr::Extent::between(
+            addr::Address::parse(xml.attribute("begin").unwrap()).unwrap(),
+            addr::Address::parse(xml.attribute("end").unwrap()).unwrap()
+        )
+    }
+        
+    fn inflate_childhood(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> structure::Childhood {
+        structure::Childhood {
+            node: inflate_structure(xml, map),
+            offset: addr::Address::parse(xml.attribute("offset").unwrap()).unwrap().to_size(),
+        }
+    }
+        
+    pub fn inflate_structure(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> sync::Arc<structure::Node> {
+        let node = structure::Node {
+            name: xml.attribute("name").unwrap().to_string(),
+            size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
+            title_display: match xml.attribute("title") {
+                None => structure::TitleDisplay::Major,
+                Some("major") => structure::TitleDisplay::Major,
+                Some("minor") => structure::TitleDisplay::Minor,
+                Some("inline") => structure::TitleDisplay::Inline,
+                Some(invalid) => panic!("invalid title attribute: {}", invalid)
+            },
+            children_display: structure::ChildrenDisplay::Full,
+            content_display: match xml.attribute("content") {
+                None => structure::ContentDisplay::Hexdump(16.into()),
+                Some("hexstring") => structure::ContentDisplay::Hexstring,
+                Some("hexdump") => structure::ContentDisplay::Hexdump(
+                    xml.attribute("pitch").map_or(
+                        16.into(),
+                        |p| addr::Address::parse(p).map_or_else(                                
+                            |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                            |a| a.to_size()))),
+                Some(invalid) => panic!("invalid content attribute: {}", invalid)
+            },
+            locked: true,
+            children: xml.children().filter(|c| c.is_element()).map(|c| inflate_childhood(c, map)).collect()
+        };
+        let arc = sync::Arc::new(node);
+        map.insert(arc.name.clone(), arc.clone());
+        arc
+    }
+
+    impl TokenDef {
+        fn to_token(self, lookup: &collections::HashMap<String, sync::Arc<structure::Node>>) -> token::Token {
+            token::Token {
+                class: self.class,
+                node: lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name)).clone(),
+                depth: self.depth,
+                newline: self.newline
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
 
     extern crate roxmltree;
 
-    use std::collections;
     use std::iter;
     use std::vec;
 
@@ -360,164 +497,40 @@ pub mod tests {
             a
         }
     }
-
-    pub struct Testcase {
-        pub structure: sync::Arc<structure::Node>,
-        pub expected_tokens: vec::Vec<token::Token>,
-    }
-
-    struct TokenDef {
-        class: token::TokenClass,
-        node_name: String,
-        depth: usize,
-        newline: bool,
-    }
     
-    impl Testcase {
-        pub fn from_xml(xml: &[u8]) -> Testcase {
-            let document = match roxmltree::Document::parse(std::str::from_utf8(xml).unwrap()) {
-                Ok(document) => document,
-                Err(e) => panic!("{}", e)
-            };
+    fn parse_testcase(xml: &[u8]) -> xml::Testcase {
+        let document = match roxmltree::Document::parse(std::str::from_utf8(xml).unwrap()) {
+            Ok(document) => document,
+            Err(e) => panic!("{}", e)
+        };
 
-            let re = document.root_element();
-            assert!(re.has_tag_name("testcase"));
-
-            let mut lookup = collections::HashMap::new();
-            let mut structure = None;
-            let mut expected_tokens: Option<Vec<TokenDef>> = None;
-            
-            for child in re.children() {
-                if !child.is_element() { continue; }
-                match child.tag_name().name() {
-                    "node" => {
-                        structure = match structure {
-                            Some(_) => panic!("multiple structure definitions"),
-                            None => Some(Self::inflate_structure(child, &mut lookup))
-                        }
-                    }
-                    "tokens" => {
-                        expected_tokens = match expected_tokens {
-                            Some(_) => panic!("multiple expected tokens"),
-                            None => {
-                                let mut vec = vec::Vec::new();
-                                Self::inflate_token_tree(child, &mut vec, 0);
-                                Some(vec)
-                            }
-                        }
-                    },
-                    tn => panic!("unexpected tag '{}'", tn)
-                }
-            }
-
-            Testcase {
-                structure: structure.expect("should've had a structure definition"),
-                expected_tokens: expected_tokens.expect("should've had expected tokens").into_iter().map(|c| c.to_token(&lookup)).collect(),
-            }
-        }
-
-        fn inflate_token_tree(xml: roxmltree::Node, collection: &mut vec::Vec<TokenDef>, depth: usize) {
-            for c in xml.children().filter(|c| c.is_element()) {
-                if c.has_tag_name("indent") {
-                    Self::inflate_token_tree(c, collection, depth + 1)
-                } else {
-                    collection.push(TokenDef {
-                        class: match c.tag_name().name() {
-                            "null" => token::TokenClass::Null,
-                            "title" => token::TokenClass::Title,
-                            "hexdump" => token::TokenClass::Hexdump(Self::inflate_extent(&c)),
-                            "hexstring" => token::TokenClass::Hexstring(Self::inflate_extent(&c)),
-                            tn => panic!("invalid token def: '{}'", tn)
-                        },
-                        node_name: c.attribute("node").unwrap().to_string(),
-                        depth,
-                        newline: c.attribute("nl").unwrap().eq("true"),
-                    })
-                }
-            }
-        }
-
-        fn inflate_extent(xml: &roxmltree::Node) -> addr::Extent {
-            addr::Extent::between(
-                addr::Address::parse(xml.attribute("begin").unwrap()).unwrap(),
-                addr::Address::parse(xml.attribute("end").unwrap()).unwrap()
-            )
-        }
-        
-        fn inflate_childhood(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> structure::Childhood {
-            structure::Childhood {
-                node: Self::inflate_structure(xml, map),
-                offset: addr::Address::parse(xml.attribute("offset").unwrap()).unwrap().to_size(),
-            }
-        }
-        
-        fn inflate_structure(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> sync::Arc<structure::Node> {
-            let node = structure::Node {
-                name: xml.attribute("name").unwrap().to_string(),
-                size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
-                title_display: match xml.attribute("title") {
-                    None => structure::TitleDisplay::Major,
-                    Some("major") => structure::TitleDisplay::Major,
-                    Some("minor") => structure::TitleDisplay::Minor,
-                    Some("inline") => structure::TitleDisplay::Inline,
-                    Some(invalid) => panic!("invalid title attribute: {}", invalid)
-                },
-                children_display: structure::ChildrenDisplay::Full,
-                content_display: match xml.attribute("content") {
-                    None => structure::ContentDisplay::Hexdump(16.into()),
-                    Some("hexstring") => structure::ContentDisplay::Hexstring,
-                    Some("hexdump") => structure::ContentDisplay::Hexdump(
-                        xml.attribute("pitch").map_or(
-                            16.into(),
-                            |p| addr::Address::parse(p).map_or_else(                                
-                                |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                                |a| a.to_size()))),
-                    Some(invalid) => panic!("invalid content attribute: {}", invalid)
-                },
-                locked: true,
-                children: xml.children().filter(|c| c.is_element()).map(|c| Self::inflate_childhood(c, map)).collect()
-            };
-            let arc = sync::Arc::new(node);
-            map.insert(arc.name.clone(), arc.clone());
-            arc
-        }
-
-        fn test_forward(&self) {
-            itertools::assert_equal(
-                self.expected_tokens.iter().map(|x| x.clone()),
-                &mut DownwardTokenizerIterator(Tokenizer::at_beginning(&self.structure)));
-        }
-
-        fn test_backward(&self) {
-            itertools::assert_equal(
-                self.expected_tokens.iter().rev().map(|x| x.clone()),
-                &mut UpwardTokenizerIterator(Tokenizer::at_end(&self.structure)));
-        }
+        xml::Testcase::from_xml(&document)
     }
 
-    impl TokenDef {
-        fn to_token(self, lookup: &collections::HashMap<String, sync::Arc<structure::Node>>) -> token::Token {
-            token::Token {
-                class: self.class,
-                node: lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name)).clone(),
-                depth: self.depth,
-                newline: self.newline
-            }
-        }
+    fn test_forward(tc: &xml::Testcase) {
+        itertools::assert_equal(
+            tc.expected_tokens.iter().map(|x| x.clone()),
+            &mut DownwardTokenizerIterator(Tokenizer::at_beginning(&tc.structure)));
+    }
+
+    fn test_backward(tc: &xml::Testcase) {
+        itertools::assert_equal(
+            tc.expected_tokens.iter().rev().map(|x| x.clone()),
+            &mut UpwardTokenizerIterator(Tokenizer::at_end(&tc.structure)));
     }
     
     #[test]
     fn simple() {
-        let tc = Testcase::from_xml(include_bytes!("tokenizer_tests/simple.xml"));
-        tc.test_forward();
-        tc.test_backward();
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
     }
 
     #[test]
     fn nesting() {
-        let tc = Testcase::from_xml(include_bytes!("tokenizer_tests/nesting.xml"));
-        tc.test_forward();
-        tc.test_backward();
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
     }
 
     #[test]
@@ -615,12 +628,12 @@ pub mod tests {
             },
         ];
 
-        let testcase = Testcase {
+        let testcase = xml::Testcase {
             structure: root,
             expected_tokens,
         };
 
-        testcase.test_forward();
-        testcase.test_backward();
+        test_forward(&testcase);
+        test_backward(&testcase);
     }
 }

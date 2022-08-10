@@ -30,10 +30,11 @@ byteorder = "1.4.3"
 lru = "0.7.8"
 take_mut = "0.2.2"
 itertools = "0.10.3"
+roxmltree = "0.14.1"
 
 [[bin]]
 name = "gtk"
 required-features = ["gtk"]
 
-[dev-dependencies]
-roxmltree = "0.14.1"
+[[bin]]
+name = "layoutplayground"
