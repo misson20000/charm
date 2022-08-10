@@ -1,0 +1,31 @@
+<testcase>
+  <node name="root" size="0x70">
+    <node name="inline32" offset="0x10" size="0x4" title="inline" content="hexstring">
+    </node>
+    <node name="inlinedump" offset="0x20" size="0x20" title="inline" content="hexdump" pitch="8">
+    </node>
+  </node>
+  <tokens>
+    <null node="root" nl="true" />
+    <title node="root" nl="true" />
+    <indent>
+      <hexdump node="root" begin="0x0" end="0x10" nl="true" />
+      <title node="inline32" nl="false" />
+      <indent>
+	<hexstring node="inline32" begin="0x0" end="0x4" nl="true" />
+      </indent>
+      <hexdump node="root" begin="0x14" end="0x20" nl="true" />
+      <title node="inlinedump" nl="false" />
+      <indent>
+	<hexdump node="inlinedump" begin="0x0" end="0x8" nl="true" />
+	<hexdump node="inlinedump" begin="0x8" end="0x10" nl="true" />
+	<hexdump node="inlinedump" begin="0x10" end="0x18" nl="true" />
+	<hexdump node="inlinedump" begin="0x18" end="0x20" nl="true" />
+      </indent>
+      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
+      <hexdump node="root" begin="0x50" end="0x60" nl="true" />
+      <hexdump node="root" begin="0x60" end="0x70" nl="true" />
+      <null node="root" nl="true" />
+    </indent>
+  </tokens>
+</testcase>

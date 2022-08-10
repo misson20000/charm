@@ -136,7 +136,7 @@ impl Tokenizer {
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
                             node: self.node.clone(),
-                            depth: self.depth,
+                            depth: self.depth + 1,
                             newline: true,
                         });
                     } else {
@@ -246,7 +246,7 @@ impl Tokenizer {
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
                             node: self.node.clone(),
-                            depth: self.depth,
+                            depth: self.depth + 1,
                             newline: true,
                         });
                     } else {
@@ -529,6 +529,13 @@ pub mod tests {
     #[test]
     fn nesting() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
+    }
+
+    #[test]
+    fn formatting() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/formatting.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
