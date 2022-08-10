@@ -183,7 +183,7 @@ impl Document {
                 size: addr::unit::REAL_MAX,
                 title_display: structure::TitleDisplay::Major,
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16),
+                content_display: structure::ContentDisplay::Hexdump(16.into()),
                 locked: true,
                 children: vec::Vec::new()
             }),
@@ -201,7 +201,7 @@ impl Document {
                 size: addr::unit::REAL_MAX,
                 title_display: structure::TitleDisplay::Major,
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16),
+                content_display: structure::ContentDisplay::Hexdump(16.into()),
                 locked: true,
                 children: vec::Vec::new()
             }),

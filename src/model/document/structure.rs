@@ -20,7 +20,7 @@ pub enum ChildrenDisplay {
 
 #[derive(Debug)]
 pub enum ContentDisplay {
-    Hexdump(usize /* pitch */),
+    Hexdump(addr::Size),
     Hexstring
 }
 
@@ -47,4 +47,63 @@ pub struct Node {
     pub locked: bool,
 
     pub children: vec::Vec<Childhood>
+}
+
+impl TitleDisplay {
+    pub fn has_blanks(&self) -> bool {
+        match self {
+            TitleDisplay::Inline => false,
+            TitleDisplay::Major => true,
+            TitleDisplay::Minor => false,
+        }
+    }
+
+    pub fn is_inline(&self) -> bool {
+        match self {
+            TitleDisplay::Inline => true,
+            TitleDisplay::Major => false,
+            TitleDisplay::Minor => false,
+        }
+    }
+}
+
+impl Default for TitleDisplay {
+    fn default() -> TitleDisplay {
+        TitleDisplay::Major
+    }
+}
+
+impl Default for ChildrenDisplay {
+    fn default() -> ChildrenDisplay {
+        ChildrenDisplay::Full
+    }
+}
+
+impl ContentDisplay {
+    pub fn preferred_pitch(&self) -> Option<addr::Size> {
+        match self {
+            ContentDisplay::Hexdump(pitch) => Some(*pitch),
+            ContentDisplay::Hexstring => None,
+        }
+    }
+}
+
+impl Default for ContentDisplay {
+    fn default() -> ContentDisplay {
+        ContentDisplay::Hexdump(addr::Size::from(16))
+    }
+}
+
+impl Default for Node {
+    fn default() -> Node {
+        Node {
+            name: "default".to_string(),
+            size: addr::unit::REAL_MAX,
+            title_display: TitleDisplay::default(),
+            children_display: ChildrenDisplay::default(),
+            content_display: ContentDisplay::default(),
+            locked: true,
+            children: vec::Vec::new(),
+        }
+    }
 }

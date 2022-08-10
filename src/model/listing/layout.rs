@@ -63,6 +63,10 @@ impl Window {
         
         while self.lines.len() < self.window_height {
             if self.bottom.hit_bottom() {
+                if self.top.hit_top() {
+                    /* entire document is too small to fit in window. */
+                    break;
+                }
                 self.grow_top();
                 offset+= 1;
             } else {
@@ -168,7 +172,15 @@ impl Window {
             self.shrink_bottom();
         }
         while self.lines.len() < self.window_height {
-            self.grow_bottom();
+            if self.bottom.hit_bottom() {
+                if self.top.hit_top() {
+                    break;
+                } else {
+                    self.grow_top();
+                }
+            } else {
+                self.grow_bottom();
+            }
         }
 
         self.wants_update = true;
@@ -235,10 +247,10 @@ mod tests {
         let tc = tokenizer::tests::Testcase::from_xml(include_bytes!("../../logic/tokenizer_tests/simple.xml"));
         let mut window = Window::new(&tc.structure);
 
-        window.resize(40);
+        window.resize(150);
 
         for line in window.lines {
-            for _ in 0..line.indent {
+            for _ in 0..(line.indent+1) {
                 print!("  ");
             }
             for token in line.tokens {

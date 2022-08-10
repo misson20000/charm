@@ -76,12 +76,16 @@ impl Tokenizer {
                 },
                 TokenizerState::Title => {
                     self.state = TokenizerState::PreBlank;
-                    break Some(token::Token {
-                        class: token::TokenClass::Null,
-                        node: self.node.clone(),
-                        depth: self.depth,
-                        newline: true,
-                    });
+                    if self.node.title_display.has_blanks() {
+                        break Some(token::Token {
+                            class: token::TokenClass::Null,
+                            node: self.node.clone(),
+                            depth: self.depth,
+                            newline: true,
+                        });
+                    } else {
+                        continue;
+                    }
                 },
                 TokenizerState::Content(offset, index) => {
                     let prev_child_option = match index {
@@ -106,11 +110,10 @@ impl Tokenizer {
 
                     /* Is there any content left? */
                     if offset > addr::unit::ZERO {
-                        // TODO: wire up pitch
-                        let pitch = addr::Size::from(16);
-                        
-                        /* Where would we *like* to begin, as decided by our hexdump pitch? */
-                        let preferred_begin = pitch * ((offset - addr::unit::BIT) / pitch);
+                        /* Where would we *like* to begin, as decided by our content's preferred pitch? */
+                        let preferred_begin = self.node.content_display.preferred_pitch().map(|pitch| {
+                            pitch * ((offset - addr::unit::BIT) / pitch)
+                        });
 
                         /* Where can we not begin before? */
                         let limit = match prev_child_option {
@@ -121,11 +124,17 @@ impl Tokenizer {
                         };
 
                         /* Pick a place to begin this line. */
-                        let begin = std::cmp::max(preferred_begin, limit);
+                        let begin = preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit));
 
+                        let extent = addr::Extent::between(begin.to_addr(), offset.to_addr());
+                        
                         self.state = TokenizerState::Content(begin, index);
+                        
                         break Some(token::Token {
-                            class: token::TokenClass::Hexdump(addr::Extent::between(begin.to_addr(), offset.to_addr())),
+                            class: match self.node.content_display {
+                                structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
+                                structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
+                            },
                             node: self.node.clone(),
                             depth: self.depth,
                             newline: true,
@@ -137,7 +146,7 @@ impl Tokenizer {
                             class: token::TokenClass::Title,
                             node: self.node.clone(),
                             depth: self.depth,
-                            newline: true,
+                            newline: !self.node.title_display.is_inline(),
                         });
                     }
                 },
@@ -148,12 +157,16 @@ impl Tokenizer {
                 },
                 TokenizerState::End => {
                     self.state = TokenizerState::PostBlank;
-                    break Some(token::Token {
-                        class: token::TokenClass::Null,
-                        node: self.node.clone(),
-                        depth: self.depth,
-                        newline: true,
-                    });
+                    if self.node.title_display.has_blanks() {
+                        break Some(token::Token {
+                            class: token::TokenClass::Null,
+                            node: self.node.clone(),
+                            depth: self.depth,
+                            newline: true,
+                        });
+                    } else {
+                        continue;
+                    }
                 },
             }
         }
@@ -165,12 +178,16 @@ impl Tokenizer {
             match self.state {
                 TokenizerState::PreBlank => {
                     self.state = TokenizerState::Title;
-                    break Some(token::Token {
-                        class: token::TokenClass::Null,
-                        node: self.node.clone(),
-                        depth: self.depth,
-                        newline: true,
-                    });
+                    if self.node.title_display.has_blanks() {
+                        break Some(token::Token {
+                            class: token::TokenClass::Null,
+                            node: self.node.clone(),
+                            depth: self.depth,
+                            newline: true,
+                        });
+                    } else {
+                        continue;
+                    }
                 },
                 TokenizerState::Title => {
                     self.state = TokenizerState::Content(addr::unit::ZERO, 0);
@@ -178,7 +195,7 @@ impl Tokenizer {
                         class: token::TokenClass::Title,
                         node: self.node.clone(),
                         depth: self.depth,
-                        newline: true,
+                        newline: !self.node.title_display.is_inline(),
                     });
                 },
                 TokenizerState::Content(offset, index) => {
@@ -200,11 +217,10 @@ impl Tokenizer {
 
                     /* Is there any content left? */
                     if offset < self.node.size {
-                        // TODO: wire up pitch
-                        let pitch = addr::Size::from(16);
-
-                        /* Where would we *like* to end, as decided by our hexdump pitch? */
-                        let preferred_end = pitch * ((offset / pitch) + 1);
+                        /* Where would we *like* to end, as decided by our content's preferred pitch? */
+                        let preferred_end = self.node.content_display.preferred_pitch().map(|pitch| {
+                            pitch * ((offset / pitch) + 1)
+                        });
 
                         /* Where can we not end beyond? */
                         let limit = match next_child_option {
@@ -215,15 +231,20 @@ impl Tokenizer {
                         };
 
                         /* Pick a place to end this line. */
-                        let end = std::cmp::min(preferred_end, limit);
+                        let end = preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit));
 
+                        let extent = addr::Extent::between(offset.to_addr(), end.to_addr());
+                        
                         /* It's ok if this puts us past the end of the data,
                          * since we'll just go through the End state the next
                          * time next() is called. */
                         self.state = TokenizerState::Content(end, index);
                         
                         break Some(token::Token {
-                            class: token::TokenClass::Hexdump(addr::Extent::between(offset.to_addr(), end.to_addr())),
+                            class: match self.node.content_display {
+                                structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
+                                structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
+                            },
                             node: self.node.clone(),
                             depth: self.depth,
                             newline: true,
@@ -236,12 +257,16 @@ impl Tokenizer {
                 },
                 TokenizerState::PostBlank => {
                     self.state = TokenizerState::End;
-                    break Some(token::Token {
-                        class: token::TokenClass::Null,
-                        node: self.node.clone(),
-                        depth: self.depth,
-                        newline: true,
-                    });
+                    if self.node.title_display.has_blanks() {
+                        break Some(token::Token {
+                            class: token::TokenClass::Null,
+                            node: self.node.clone(),
+                            depth: self.depth,
+                            newline: true,
+                        });
+                    } else {
+                        continue;
+                    }
                 },
                 TokenizerState::End => {
                     /* try to ascend hierarchy by popping the stack */
@@ -430,9 +455,25 @@ pub mod tests {
             let node = structure::Node {
                 name: xml.attribute("name").unwrap().to_string(),
                 size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
-                title_display: structure::TitleDisplay::Major,
+                title_display: match xml.attribute("title") {
+                    None => structure::TitleDisplay::Major,
+                    Some("major") => structure::TitleDisplay::Major,
+                    Some("minor") => structure::TitleDisplay::Minor,
+                    Some("inline") => structure::TitleDisplay::Inline,
+                    Some(invalid) => panic!("invalid title attribute: {}", invalid)
+                },
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16),
+                content_display: match xml.attribute("content") {
+                    None => structure::ContentDisplay::Hexdump(16.into()),
+                    Some("hexstring") => structure::ContentDisplay::Hexstring,
+                    Some("hexdump") => structure::ContentDisplay::Hexdump(
+                        xml.attribute("pitch").map_or(
+                            16.into(),
+                            |p| addr::Address::parse(p).map_or_else(                                
+                                |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                                |a| a.to_size()))),
+                    Some(invalid) => panic!("invalid content attribute: {}", invalid)
+                },
                 locked: true,
                 children: xml.children().filter(|c| c.is_element()).map(|c| Self::inflate_childhood(c, map)).collect()
             };
@@ -486,7 +527,7 @@ pub mod tests {
             size: addr::Size::from(0x70),
             title_display: structure::TitleDisplay::Major,
             children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16),
+            content_display: structure::ContentDisplay::Hexdump(16.into()),
             locked: true,
             children: vec::Vec::new()
         };
@@ -496,7 +537,7 @@ pub mod tests {
             size: addr::Size::from(0x18),
             title_display: structure::TitleDisplay::Major,
             children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16),
+            content_display: structure::ContentDisplay::Hexdump(16.into()),
             locked: true,
             children: vec::Vec::new()
         });
