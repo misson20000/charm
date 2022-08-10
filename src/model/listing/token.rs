@@ -22,6 +22,7 @@ pub enum TokenClass {
 pub struct Token {
     pub class: TokenClass,
     pub node: sync::Arc<structure::Node>,
+    pub depth: usize,
     pub newline: bool, // after this token
 }
 
@@ -30,6 +31,7 @@ impl fmt::Debug for Token {
         f.debug_struct("Token")
             .field("class", &self.class)
             .field("node", &self.node.name)
+            .field("depth", &self.depth)
             .field("newline", &self.newline)
             .finish()
     }

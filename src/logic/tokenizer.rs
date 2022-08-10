@@ -9,19 +9,21 @@ use crate::model::document::structure;
 
 #[derive(Clone, Debug)]
 enum TokenizerState {
-    Clean, //< if going downward, would emit Null token.
+    PreBlank, //< if going downward, would emit Null token.
     Title, //< if going downward, would emit Title token.
     Content(addr::Offset, usize), //< if going downward, would emit either the indexed child, or content starting at the offset.
+    PostBlank, //< if going downward, would emit Null token.
     End, //< if going downward, we've hit the end of this node's content.
 }
 
 #[derive(Clone)]
-struct Tokenizer {
+pub struct Tokenizer {
     /* invariants:
        - stack should always contain a path all the way back to the root node
      */
     stack: Option<sync::Arc<Tokenizer>>,
     state: TokenizerState,
+    depth: usize,
     node: sync::Arc<structure::Node>,
 }
 
@@ -36,7 +38,8 @@ impl Tokenizer {
     pub fn at_beginning(root: &sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
             stack: None,
-            state: TokenizerState::Clean,
+            state: TokenizerState::PreBlank,
+            depth: 0,
             node: root.clone()
         }
     }
@@ -46,6 +49,7 @@ impl Tokenizer {
         Tokenizer {
             stack: None,
             state: TokenizerState::End,
+            depth: 0,
             node: root.clone()
         }
     }
@@ -54,7 +58,7 @@ impl Tokenizer {
     pub fn prev(&mut self) -> Option<token::Token> {
         loop {
             match self.state {
-                TokenizerState::Clean => {
+                TokenizerState::PreBlank => {
                     /* try to ascend hierarchy by popping the stack */
                     if !self.try_ascend() {
                         break None;
@@ -63,10 +67,11 @@ impl Tokenizer {
                     continue;
                 },
                 TokenizerState::Title => {
-                    self.state = TokenizerState::Clean;
+                    self.state = TokenizerState::PreBlank;
                     break Some(token::Token {
                         class: token::TokenClass::Null,
                         node: self.node.clone(),
+                        depth: self.depth,
                         newline: true,
                     });
                 },
@@ -114,6 +119,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Hexdump(addr::Extent::between(begin.to_addr(), offset.to_addr())),
                             node: self.node.clone(),
+                            depth: self.depth,
                             newline: true,
                         });
                     } else {
@@ -122,14 +128,24 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Title,
                             node: self.node.clone(),
+                            depth: self.depth,
                             newline: true,
                         });
                     }
                 },
-                TokenizerState::End => {
+                TokenizerState::PostBlank => {
                     /* Bump state to content and retry. */
                     self.state = TokenizerState::Content(self.node.size, self.node.children.len());
                     continue;
+                },
+                TokenizerState::End => {
+                    self.state = TokenizerState::PostBlank;
+                    break Some(token::Token {
+                        class: token::TokenClass::Null,
+                        node: self.node.clone(),
+                        depth: self.depth,
+                        newline: true,
+                    });
                 },
             }
         }
@@ -139,11 +155,12 @@ impl Tokenizer {
     pub fn next(&mut self) -> Option<token::Token> {
         loop {
             match self.state {
-                TokenizerState::Clean => {
+                TokenizerState::PreBlank => {
                     self.state = TokenizerState::Title;
                     break Some(token::Token {
                         class: token::TokenClass::Null,
                         node: self.node.clone(),
+                        depth: self.depth,
                         newline: true,
                     });
                 },
@@ -152,6 +169,7 @@ impl Tokenizer {
                     break Some(token::Token {
                         class: token::TokenClass::Title,
                         node: self.node.clone(),
+                        depth: self.depth,
                         newline: true,
                     });
                 },
@@ -166,7 +184,7 @@ impl Tokenizer {
                                 /* By the time we ascend, we should reach the end of the child. */
                                 TokenizerState::Content(next_child.end(), index + 1),
                                 /* Descend to the beginning of the child. */
-                                TokenizerState::Clean);
+                                TokenizerState::PreBlank);
                             /* Re-enter loop */
                             continue;
                         }
@@ -199,13 +217,23 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Hexdump(addr::Extent::between(offset.to_addr(), end.to_addr())),
                             node: self.node.clone(),
+                            depth: self.depth,
                             newline: true,
                         });
                     } else {
                         /* We were pointed at (or past!) the end. Fixup state and retry. */
-                        self.state = TokenizerState::End;
+                        self.state = TokenizerState::PostBlank;
                         continue;
                     }
+                },
+                TokenizerState::PostBlank => {
+                    self.state = TokenizerState::End;
+                    break Some(token::Token {
+                        class: token::TokenClass::Null,
+                        node: self.node.clone(),
+                        depth: self.depth,
+                        newline: true,
+                    });
                 },
                 TokenizerState::End => {
                     /* try to ascend hierarchy by popping the stack */
@@ -225,9 +253,11 @@ impl Tokenizer {
         let parent_tokenizer = Tokenizer {
             stack: self.stack.take(),
             state: parent_state,
+            depth: self.depth,
             node: parent_node,
         };
 
+        self.depth+= 1;
         self.stack = Some(sync::Arc::new(parent_tokenizer));
         self.state = child_state;
     }
@@ -299,6 +329,7 @@ mod tests {
     struct TokenDef {
         class: token::TokenClass,
         node_name: String,
+        depth: usize,
         newline: bool,
     }
     
@@ -328,7 +359,11 @@ mod tests {
                     "tokens" => {
                         expected_tokens = match expected_tokens {
                             Some(_) => panic!("multiple expected tokens"),
-                            None => Some(child.children().filter(|c| c.is_element()).map(|c| Self::inflate_token(c)).collect())
+                            None => {
+                                let mut vec = vec::Vec::new();
+                                Self::inflate_token_tree(child, &mut vec, 0);
+                                Some(vec)
+                            }
                         }
                     },
                     tn => panic!("unexpected tag '{}'", tn)
@@ -341,17 +376,24 @@ mod tests {
             }
         }
 
-        fn inflate_token(xml: roxmltree::Node) -> TokenDef {
-            TokenDef {
-                class: match xml.tag_name().name() {
-                    "null" => token::TokenClass::Null,
-                    "title" => token::TokenClass::Title,
-                    "hexdump" => token::TokenClass::Hexdump(Self::inflate_extent(&xml)),
-                    "hexstring" => token::TokenClass::Hexstring(Self::inflate_extent(&xml)),
-                    tn => panic!("invalid token def: '{}'", tn)
-                },
-                node_name: xml.attribute("node").unwrap().to_string(),
-                newline: xml.attribute("nl").unwrap().eq("true"),
+        fn inflate_token_tree(xml: roxmltree::Node, collection: &mut vec::Vec<TokenDef>, depth: usize) {
+            for c in xml.children().filter(|c| c.is_element()) {
+                if c.has_tag_name("indent") {
+                    Self::inflate_token_tree(c, collection, depth + 1)
+                } else {
+                    collection.push(TokenDef {
+                        class: match c.tag_name().name() {
+                            "null" => token::TokenClass::Null,
+                            "title" => token::TokenClass::Title,
+                            "hexdump" => token::TokenClass::Hexdump(Self::inflate_extent(&c)),
+                            "hexstring" => token::TokenClass::Hexstring(Self::inflate_extent(&c)),
+                            tn => panic!("invalid token def: '{}'", tn)
+                        },
+                        node_name: c.attribute("node").unwrap().to_string(),
+                        depth,
+                        newline: c.attribute("nl").unwrap().eq("true"),
+                    })
+                }
             }
         }
 
@@ -402,6 +444,7 @@ mod tests {
             token::Token {
                 class: self.class,
                 node: lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name)).clone(),
+                depth: self.depth,
                 newline: self.newline
             }
         }
@@ -454,57 +497,65 @@ mod tests {
             /* root */
             token::Token {
                 class: token::TokenClass::Null,
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x20)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x20, 0x30)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x30, 0x32)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             /* child */
             token::Token {
                 class: token::TokenClass::Null,
-                node: child.clone(), newline: true
+                node: child.clone(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: child.clone(), newline: true
+                node: child.clone(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: child.clone(), newline: true
+                node: child.clone(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x18)),
-                node: child.clone(), newline: true
+                node: child.clone(), depth: 1, newline: true
+            },
+            token::Token {
+                class: token::TokenClass::Null,
+                node: child.clone(), depth: 1, newline: true
             },
             /* root */
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x4a, 0x50)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x50, 0x60)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x60, 0x70)),
-                node: root.clone(), newline: true
+                node: root.clone(), depth: 0, newline: true
+            },
+            token::Token {
+                class: token::TokenClass::Null,
+                node: root.clone(), depth: 0, newline: true
             },
         ];
 
