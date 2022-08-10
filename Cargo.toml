@@ -35,8 +35,5 @@ itertools = "0.10.3"
 name = "gtk"
 required-features = ["gtk"]
 
-[[bin]]
-name = "cli_test"
-
 [dev-dependencies]
 roxmltree = "0.14.1"
