@@ -6,7 +6,7 @@ edition = "2018"
 default-run = "gtk"
 
 [features]
-default = ["gtk"]
+default = []
 gtk = ["dep:glib", "dep:gtk", "dep:gdk", "dep:gdk-pixbuf", "dep:gio", "dep:cairo-rs"]
 
 [dependencies]
