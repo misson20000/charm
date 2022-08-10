@@ -44,6 +44,14 @@ impl Tokenizer {
         }
     }
 
+    pub fn at_address(_root: &sync::Arc<structure::Node>, _addr: addr::Address) -> Tokenizer {
+        todo!();
+    }
+
+    pub fn port(_old: &Tokenizer, _new_root: &sync::Arc<structure::Node>) -> Tokenizer {
+        todo!();
+    }
+
     /// Creates a new tokenizer seeked to the end of the token stream.
     pub fn at_end(root: &sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
@@ -280,10 +288,17 @@ impl Tokenizer {
             _ => false
         }
     }
+
+    pub fn hit_top(&self) -> bool {
+        match self.state {
+            TokenizerState::PreBlank => self.stack.is_none(),
+            _ => false
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     extern crate roxmltree;
@@ -321,9 +336,9 @@ mod tests {
         }
     }
 
-    struct Testcase {
-        structure: sync::Arc<structure::Node>,
-        expected_tokens: vec::Vec<token::Token>,
+    pub struct Testcase {
+        pub structure: sync::Arc<structure::Node>,
+        pub expected_tokens: vec::Vec<token::Token>,
     }
 
     struct TokenDef {
@@ -334,7 +349,7 @@ mod tests {
     }
     
     impl Testcase {
-        fn from_xml(xml: &[u8]) -> Testcase {
+        pub fn from_xml(xml: &[u8]) -> Testcase {
             let document = match roxmltree::Document::parse(std::str::from_utf8(xml).unwrap()) {
                 Ok(document) => document,
                 Err(e) => panic!("{}", e)

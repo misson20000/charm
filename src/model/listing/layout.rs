@@ -1,66 +1,48 @@
 //! This module includes the logic that converts from a token stream
 //! to lines that would be displayed in a window.
 
-//use std::sync;
-//use std::vec;
+use std::collections;
+use std::sync;
+use std::task;
+use std::vec;
 
-//use crate::model::addr;
-//use crate::model::document::structure;
-//use crate::model::listing::token;
+use crate::model::addr;
+use crate::model::document::structure;
+use crate::model::listing::token;
+use crate::logic::tokenizer;
 
-//pub type Line = vec::Vec<token::Token>;
-
-/*
-#[enum_dispatch]
-pub trait BreakView {
-    fn produce(&mut self) -> Option<LineGroup>;
-
-    /// We've scrolled in the opposite direction you want, and this line fell
-    /// off the end of the window. Regress your state so you can generate it
-    /// again. There is no guarantee that you specifically are the one who
-    /// produced this line; the downward view may have produced it and it slid
-    /// all the way across the window. However, you can expect to be the same
-    /// type and have the same break as whatever view produced the line you're
-    /// trimming.
-
-    /// Return true on success.
-    /// If you need to pass to the next BreakView, return false.
-    fn trim(&mut self, lg: &LineGroup) -> bool;
-    
-    fn hit_boundary(&self) -> bool;
-    
-    fn get_break(&self) -> &sync::Arc<brk::Break>;
-
-    fn get_addr(&self) -> addr::Address;
+pub struct Line {
+    pub indent: usize,
+    pub tokens: vec::Vec<token::Token>
 }
-*/
 
-/*
 /// A listing window with a fixed height. Useful for scrolling by lines.
 /// It is up to the user to make sure that this gets properly notified with structure invalidation events.
 pub struct Window {
-    document: document::Document,
-    top: TokenGenerator,
-    bottom: TokenGenerator,
+    current_root: sync::Arc<structure::Node>,
+    top: tokenizer::Tokenizer,
+    bottom: tokenizer::Tokenizer,
+
+    top_buffer: Option<token::Token>,
     
     pub lines: collections::VecDeque<Line>,
-    pub top_margin: usize,
     pub window_height: usize,
     
     pub wants_update: bool,
 }
 
 impl Window {
-    pub fn new(document: &document::Document) -> FixedWindow {
-        FixedWindow {
-            flex: FlexWindow::new(document, addr::Address::default()),
+    pub fn new(root: &sync::Arc<structure::Node>) -> Window {
+        Window {
+            top: tokenizer::Tokenizer::at_beginning(root),
+            bottom: tokenizer::Tokenizer::at_beginning(root),
+            top_buffer: None,
             
-            lines: std::collections::VecDeque::<LineGroup>::new(),
-            top_margin: 0,
+            current_root: root.clone(),
+            
+            lines: std::collections::VecDeque::<Line>::new(),
             window_height: 0,
             
-            num_lines: 0,
-
             wants_update: false,
         }
     }
@@ -68,23 +50,23 @@ impl Window {
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
     pub fn seek(&mut self, target: addr::Address) -> usize {
-        self.flex.seek(target);
-        self.repopulate_window()
+        self.repopulate_window(tokenizer::Tokenizer::at_address(&self.current_root, target))
     }
 
-    fn repopulate_window(&mut self) -> usize {
-        self.line_groups.clear();
-        self.num_lines = 0;
-        self.top_margin = 0;
+    fn repopulate_window(&mut self, pos: tokenizer::Tokenizer) -> usize {
+        self.top = pos.clone();
+        self.bottom = pos;
+        self.top_buffer = None;
+        self.lines.clear();
         
         let mut offset = 0;
-        let mut hit_bottom = false;
         
-        while self.num_lines < self.top_margin + self.window_height {
-            if hit_bottom {
-                offset+= self.scroll_up(1);
+        while self.lines.len() < self.window_height {
+            if self.bottom.hit_bottom() {
+                self.grow_top();
+                offset+= 1;
             } else {
-                hit_bottom = self.produce_lines_bottom();
+                self.grow_bottom();
             }
         }
 
@@ -93,54 +75,100 @@ impl Window {
         offset
     }
 
-    /// Scrolls the window upwards. Returns amount window was actually moved
-    /// by. This can be less than what was requested if the beginning or end of
-    /// the address space was hit.
-    pub fn scroll_up(&mut self, count: usize) -> usize {
-        /* produce lines in the top margin until we can just shrink it */
-        while self.top_margin < count {
-            if self.produce_lines_top() {
-                break
-            }
-        }
-
-        /* shrink the top margin then try to trim the bottom */
-        let actual = std::cmp::min(self.top_margin, count);
-        self.top_margin-= actual;
-        self.try_trim_bottom();
-
-        self.wants_update = true; 
+    fn grow_top(&mut self) {
+        let mut tokens = collections::VecDeque::new();
         
-        actual
+        while {
+            if let Some(token) = std::mem::replace(&mut self.top_buffer, self.top.prev()) {
+                tokens.push_front(token);
+            }
+            match &self.top_buffer {
+                Some(token) => !token.newline,
+                None => false /* hit top */
+            }
+        } { }
+
+        self.lines.push_front(Line {
+            indent: tokens[0].depth,
+            tokens: tokens.into()
+        });
     }
 
-    /// Scrolls the window downwards. Returns amount window was actually moved
-    /// by. This can be less than what was requested if the beginning or end of
-    /// the address space was hit.
-    pub fn scroll_down(&mut self, count: usize) -> usize {
-        /* grow bottom margin */
-        while self.num_lines < self.top_margin + self.window_height + count {
-            if self.produce_lines_bottom() {
-                break
+    fn grow_bottom(&mut self) {
+        let mut tokens = vec::Vec::new();
+
+        while let Some(token) = self.bottom.next() {
+            let nl = token.newline;
+            
+            tokens.push(token);
+
+            if nl {
+                break;
             }
         }
 
-        /* expand top margin (shifting window) then try to trim it */
-        let actual = std::cmp::min(count, self.num_lines - (self.top_margin + self.window_height));
-        self.top_margin+= actual;
-        self.try_trim_top();
+        self.lines.push_back(Line {
+            indent: tokens.get(0).map_or(0, |t| t.depth),
+            tokens
+        });
+    }
+
+    fn shrink_top(&mut self) {
+        let line = self.lines.pop_front().unwrap();
+
+        for token in line.tokens.into_iter() {
+            assert_eq!(token, self.top.next().unwrap());
+            self.top_buffer = Some(token);
+        }
+    }
+
+    fn shrink_bottom(&mut self) {
+        let line = self.lines.pop_back().unwrap();
+
+        for token in line.tokens.into_iter().rev() {
+            assert_eq!(token, self.bottom.prev().unwrap());
+        }
+    }
+    
+    /// Scrolls the window upwards by one line. Returns false if the
+    /// beginning of the token stream is hit.
+    pub fn scroll_up(&mut self) -> bool {
+        if self.top.hit_top() {
+            return true;
+        }
+        
+        self.grow_top();
+        self.shrink_bottom();
 
         self.wants_update = true;
+
+        false
+    }
+
+    /// Scrolls the window downwards by one line. Returns false if the
+    /// end of the token stream is hit.
+    pub fn scroll_down(&mut self) -> bool {
+        if self.bottom.hit_bottom() {
+            return true;
+        }
         
-        actual
+        self.grow_bottom();
+        self.shrink_top();
+
+        self.wants_update = true;
+
+        false
     }
 
     /// Changes the size of the window.
-    pub fn resize_window(&mut self, size: usize) {
+    pub fn resize(&mut self, size: usize) {
         self.window_height = size;
 
-        while self.num_lines < self.top_margin + self.window_height {
-            self.produce_lines_bottom();
+        while self.lines.len() > self.window_height {
+            self.shrink_bottom();
+        }
+        while self.lines.len() < self.window_height {
+            self.grow_bottom();
         }
 
         self.wants_update = true;
@@ -151,208 +179,72 @@ impl Window {
     }
 
     pub fn get_bottom_hit_end(&self) -> bool {
-        self.flex.get_bottom_hit_end()
-    }
-
-    /// Iterates over lines in the window. Outputs are tuples of (line_no,
-    /// line_group). The line_no represents an offset from the top of the window
-    /// and can be negative for lines in the top margin.
-    pub fn iter<'a>(&'a self) -> ListingIterator<'a> {
-        ListingIterator::new(self)
-    }
-
-    pub fn find_group(&self, slg: &LineGroup) -> Option<isize> {
-        self.iter().find(|(_, lg)| lg == &slg).map(|t| t.0)
-    }
-
-    pub fn get_line(&self, lineno: isize) -> Option<&LineGroup> {
-        self.iter().find_map(|(i, lg)| if i >= lineno { Some(lg) } else { None })
-    }
-    
-    /* internal actions */
-
-    /// Tries to trim as many lines as possible off the top margin, since they
-    /// are outside the window. Will not fragment line groups.
-    fn try_trim_top(&mut self) {
-        while match self.line_groups.front() {
-            std::option::Option::Some(lg) => lg.num_lines() <= self.top_margin, /* don't trim too large line groups, or don't trim if top_margin is 0 */
-            std::option::Option::None => false /* don't trim if line_groups is empty */
-        } {
-            let lg = self.line_groups.pop_front().unwrap();
-
-            let num_trimmed = lg.num_lines();
-            self.num_lines-= num_trimmed;
-            self.top_margin-= num_trimmed;
-
-            self.flex.trim_down(&lg);
-        }
-
-        self.wants_update = true;
-    }
-
-    /// Tries to trim as many lines as possible off the bottom margin, since
-    /// they are outside the window. Will not fragment line groups.
-    fn try_trim_bottom(&mut self) {
-        while match self.line_groups.back() {
-            Some(lg) => self.top_margin + self.window_height <= self.num_lines - lg.num_lines(),
-            None => false
-        } {
-            let lg = self.line_groups.pop_back().unwrap();
-            
-            self.num_lines-= lg.num_lines();
-
-            self.flex.trim_up(&lg);
-        }
-
-        self.wants_update = true;
-    }
-
-    /// Tries to add a line group to the top margin. Returns true if no lines
-    /// could be produced because the top of the address space was reached.
-    fn produce_lines_top(&mut self) -> bool {
-        let lg = match self.flex.produce_up() {
-            Some(lg) => lg,
-            None => return true
-        };
-        
-        let nl = lg.num_lines();
-        self.top_margin+= nl;
-        self.num_lines+= nl;
-        self.line_groups.push_front(lg);
-
-        self.wants_update = true;
-        
-        false
-    }
-
-    /// Tries to add a line group to the bottom margin. Returns true if no lines
-    /// could be produced because the bottom of the address space was reached.
-    fn produce_lines_bottom(&mut self) -> bool {
-        let lg = match self.flex.produce_down() {
-            Some(lg) => lg,
-            None => return true
-        };
-        
-        self.num_lines+= lg.num_lines();
-        self.line_groups.push_back(lg);
-
-        self.wants_update = true;
-        
-        false
+        self.bottom.hit_bottom()
     }
     
     /* state bookkeeping */
 
-    pub fn update(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+    pub fn update(&mut self, root: &sync::Arc<structure::Node>, _cx: &mut task::Context) -> bool {
         let mut updated = false;
         
-        if self.flex.is_outdated(document) {
-            self.flex = FlexWindow::new(document, self.flex.top_view.get_addr());
-            self.repopulate_window();
+        if !sync::Arc::ptr_eq(&self.current_root, root) {
+            self.current_root = root.clone();
+            self.repopulate_window(tokenizer::Tokenizer::port(&self.top, &self.current_root));
             updated = true;
         }
 
-        for lg in self.line_groups.iter_mut() {
-            updated = lg.update(&document, cx) || updated;
-        }
+        //for line in self.lines.iter_mut() {
+        //    updated = line.update(document, cx) || updated;
+        //}
 
         updated
     }
 }
 
-impl FlexWindow {
-    pub fn new(document: &document::Document, addr: addr::Address) -> FlexWindow {
-        let (top_view, bottom_view) = match document.breaks.break_at(addr) {
-            brk if brk.addr == addr => {
-                (BreakViewUpward::new_from_top(&document.breaks, brk.clone()),
-                 BreakViewDownward::new_from_top(&document.breaks, brk.clone()))
-            },
-            brk => {
-                (BreakViewUpward::new_from_middle(&document.breaks, brk.clone(), addr),
-                 BreakViewDownward::new_from_middle(&document.breaks, brk.clone(), addr))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    use std::fmt;
+
+    pub struct TokenExampleFormat<'a>(&'a token::Token);
+
+    impl<'a> fmt::Display for TokenExampleFormat<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self.0.class {
+                token::TokenClass::Null => write!(f, ""),
+                token::TokenClass::Title => write!(f, "{}: ", &self.0.node.name),
+                token::TokenClass::Hexdump(extent) => {
+                    for i in 0..extent.length().bytes {
+                        write!(f, "{:02x} ", (extent.begin.byte + i) & 0xff)?
+                    }
+                    Ok(())
+                },
+                token::TokenClass::Hexstring(extent) => {
+                    for i in 0..extent.length().bytes {
+                        write!(f, "{:02x}", (extent.begin.byte + i) & 0xff)?
+                    }
+                    Ok(())
+                }
             }
-        };
-
-        FlexWindow {
-            document: document.clone(),
-            top_view,
-            bottom_view
         }
     }
-
-    /// Useful for if you need to re-create the window at a new address
-    pub fn get_document(&self) -> &document::Document {
-        &self.document
-    }
     
-    pub fn is_outdated(&self, new_document: &document::Document) -> bool {
-        self.document.is_layout_outdated(new_document)
-    }
-    
-    /// NOTE: zero-sizes the window
-    pub fn seek(&mut self, target: addr::Address) {
-        *self = Self::new(&self.document, target); // a shame to have to clone Document only for the original to be dropped
-    }
+    #[test]
+    fn example() {
+        let tc = tokenizer::tests::Testcase::from_xml(include_bytes!("../../logic/tokenizer_tests/simple.xml"));
+        let mut window = Window::new(&tc.structure);
 
-    /// Shrinks the window by one token on the bottom.
-    pub fn trim_up(&mut self) {
-        self.bottom_gen.retreat_up();
-    }
+        window.resize(40);
 
-    /// Shrinks the window by one token on the top.
-    pub fn trim_down(&mut self) {
-        self.top_gen.retreat_down();
-    }
-
-    /// Tries to grow the window by one token on the top.
-    pub fn produce_up(&mut self) -> Option<token::Token> {
-        self.top_gen.advance_up()
-    }
-
-    /// Tries to grow the window by one line group on the bottom.
-    pub fn produce_down(&mut self) -> Option<LineGroup> {
-        self.bottom_gen.advance_down()
-    }
-
-    pub fn get_bottom_hit_end(&self) -> bool {
-        self.bottom_gen.hit_bottom()
-    }
-}
-*/
-
-/*
-pub struct ListingIterator<'a> {
-    iter: std::collections::vec_deque::Iter<'a, Line>,
-    line_no: isize,
-}
-
-impl<'a> ListingIterator<'a> {
-    fn new(window: &FixedWindow) -> ListingIterator {
-        ListingIterator {
-            iter: window.lines.iter(),
-            line_no: -(window.top_margin as isize),
+        for line in window.lines {
+            for _ in 0..line.indent {
+                print!("  ");
+            }
+            for token in line.tokens {
+                print!("{}", TokenExampleFormat(&token));
+            }
+            println!();
         }
     }
 }
-
-impl<'a> std::iter::Iterator for ListingIterator<'a> {
-    type Item = (isize, &'a Line);
-                 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|lg| {
-            let r = (self.line_no, lg);
-            self.line_no+= lg.num_lines() as isize;
-            r
-        })
-    }
-}
-
-impl std::fmt::Debug for FlexWindow {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FlexWindow")
-            .field("top_gen", &self.top_gen)
-            .field("bottom_gen", &self.bottom_gen)
-            .finish()
-    }
-}
-*/
