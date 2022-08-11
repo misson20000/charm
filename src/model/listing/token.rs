@@ -24,6 +24,9 @@ pub struct Token {
     pub node: sync::Arc<structure::Node>,
     pub node_addr: addr::Address,
     // TODO: colorization
+    // colorization will be implemented by emitting multiple hexdump tokens on one line
+    // all with the same "colorzation root" node, but different colorization vectors representing
+    // all the children between the colorization root and where this token is.
     pub depth: usize,
     pub newline: bool, // after this token
 }
