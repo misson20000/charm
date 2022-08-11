@@ -284,12 +284,12 @@ impl WindowContext {
 
     fn attach(self, window: &CharmWindow) {
         let lw = self.lw.read();
-        let da = lw.get_drawing_area();
+        //let da = lw.get_drawing_area();
         window.listing_container.foreach(|w| window.listing_container.remove(w));
-        window.listing_container.add(da);
+        //window.listing_container.add(da);
         window.datapath_editor.set_model(Some(self.datapath.read().get_tree_model()));
-        window.window.insert_action_group("listing", lw.get_action_group());
-        da.grab_focus();
+        //window.window.insert_action_group("listing", lw.get_action_group());
+        //da.grab_focus();
 
         std::mem::drop(lw);
         *window.context.borrow_mut() = Some(self);
