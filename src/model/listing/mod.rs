@@ -13,4 +13,4 @@
 
 pub mod token;
 pub mod layout;
-//pub mod cursor;
+pub mod cursor;
