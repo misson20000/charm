@@ -196,10 +196,14 @@ impl Window {
     
     /* state bookkeeping */
 
+    pub fn is_outdated(&self, root: &sync::Arc<structure::Node>) -> bool {
+        !sync::Arc::ptr_eq(&self.current_root, root)
+    }
+    
     pub fn update(&mut self, root: &sync::Arc<structure::Node>, _cx: &mut task::Context) -> bool {
         let mut updated = false;
         
-        if !sync::Arc::ptr_eq(&self.current_root, root) {
+        if self.is_outdated(root) {
             self.current_root = root.clone();
             self.repopulate_window(tokenizer::Tokenizer::port(&self.top, &self.current_root));
             updated = true;
