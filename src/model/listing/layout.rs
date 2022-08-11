@@ -2,6 +2,7 @@
 //! to lines that would be displayed in a window.
 
 use std::collections;
+use std::iter;
 use std::sync;
 use std::task;
 use std::vec;
@@ -11,28 +12,30 @@ use crate::model::document::structure;
 use crate::model::listing::token;
 use crate::logic::tokenizer;
 
-pub struct Line {
-    pub indent: usize,
-    pub tokens: vec::Vec<token::Token>
+pub trait Line {
+    type TokenIterator: iter::DoubleEndedIterator<Item = token::Token>;
+    
+    fn from_tokens(tokens: vec::Vec<token::Token>) -> Self;
+    fn to_tokens(self) -> Self::TokenIterator;
 }
 
 /// A listing window with a fixed height. Useful for scrolling by lines.
 /// It is up to the user to make sure that this gets properly notified with structure invalidation events.
-pub struct Window {
+pub struct Window<L: Line> {
     current_root: sync::Arc<structure::Node>,
     top: tokenizer::Tokenizer,
     bottom: tokenizer::Tokenizer,
 
     top_buffer: Option<token::Token>,
     
-    pub lines: collections::VecDeque<Line>,
+    pub lines: collections::VecDeque<L>,
     pub window_height: usize,
     
     pub wants_update: bool,
 }
 
-impl Window {
-    pub fn new(root: &sync::Arc<structure::Node>) -> Window {
+impl<L: Line> Window<L> {
+    pub fn new(root: &sync::Arc<structure::Node>) -> Window<L> {
         Window {
             top: tokenizer::Tokenizer::at_beginning(root),
             bottom: tokenizer::Tokenizer::at_beginning(root),
@@ -40,7 +43,7 @@ impl Window {
             
             current_root: root.clone(),
             
-            lines: std::collections::VecDeque::<Line>::new(),
+            lines: std::collections::VecDeque::<L>::new(),
             window_height: 0,
             
             wants_update: false,
@@ -92,10 +95,11 @@ impl Window {
             }
         } { }
 
-        self.lines.push_front(Line {
-            indent: tokens[0].depth,
-            tokens: tokens.into()
-        });
+        if self.top.hit_top() {
+            return;
+        }
+        
+        self.lines.push_front(L::from_tokens(tokens.into()));
     }
 
     fn grow_bottom(&mut self) {
@@ -111,16 +115,17 @@ impl Window {
             }
         }
 
-        self.lines.push_back(Line {
-            indent: tokens.get(0).map_or(0, |t| t.depth),
-            tokens
-        });
+        if self.bottom.hit_bottom() {
+            return;
+        }
+        
+        self.lines.push_back(L::from_tokens(tokens));
     }
 
     fn shrink_top(&mut self) {
         let line = self.lines.pop_front().unwrap();
 
-        for token in line.tokens.into_iter() {
+        for token in line.to_tokens() {
             assert_eq!(token, self.top.next().unwrap());
             self.top_buffer = Some(token);
         }
@@ -129,7 +134,7 @@ impl Window {
     fn shrink_bottom(&mut self) {
         let line = self.lines.pop_back().unwrap();
 
-        for token in line.tokens.into_iter().rev() {
+        for token in line.to_tokens().rev() {
             assert_eq!(token, self.bottom.prev().unwrap());
         }
     }
