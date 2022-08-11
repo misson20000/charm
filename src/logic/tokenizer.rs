@@ -25,6 +25,7 @@ pub struct Tokenizer {
     state: TokenizerState,
     depth: usize,
     node: sync::Arc<structure::Node>,
+    node_addr: addr::Address,
 }
 
 impl std::fmt::Debug for Tokenizer {
@@ -40,7 +41,8 @@ impl Tokenizer {
             stack: None,
             state: TokenizerState::PreBlank,
             depth: 0,
-            node: root.clone()
+            node: root.clone(),
+            node_addr: addr::unit::NULL,
         }
     }
 
@@ -58,7 +60,8 @@ impl Tokenizer {
             stack: None,
             state: TokenizerState::End,
             depth: 0,
-            node: root.clone()
+            node: root.clone(),
+            node_addr: addr::unit::NULL,
         }
     }
     
@@ -80,6 +83,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Null,
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth,
                             newline: true,
                         });
@@ -98,7 +102,7 @@ impl Tokenizer {
                     if let Some(prev_child) = prev_child_option {
                         if prev_child.end() >= offset {
                             self.descend(
-                                prev_child.node.clone(),
+                                prev_child.clone(),
                                 /* By the time we ascend, we should have reached the beginning of the child. */
                                 TokenizerState::Content(prev_child.offset, index - 1),
                                 /* Descend to the end of the child. */
@@ -136,6 +140,7 @@ impl Tokenizer {
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth + 1,
                             newline: true,
                         });
@@ -145,6 +150,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Title,
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth,
                             newline: !self.node.title_display.is_inline(),
                         });
@@ -161,6 +167,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Null,
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth,
                             newline: true,
                         });
@@ -182,6 +189,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Null,
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth,
                             newline: true,
                         });
@@ -194,6 +202,7 @@ impl Tokenizer {
                     break Some(token::Token {
                         class: token::TokenClass::Title,
                         node: self.node.clone(),
+                        node_addr: self.node_addr,
                         depth: self.depth,
                         newline: !self.node.title_display.is_inline(),
                     });
@@ -205,7 +214,7 @@ impl Tokenizer {
                     if let Some(next_child) = next_child_option {
                         if next_child.offset <= offset {
                             self.descend(
-                                next_child.node.clone(),
+                                next_child.clone(),
                                 /* By the time we ascend, we should reach the end of the child. */
                                 TokenizerState::Content(next_child.end(), index + 1),
                                 /* Descend to the beginning of the child. */
@@ -246,6 +255,7 @@ impl Tokenizer {
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth + 1,
                             newline: true,
                         });
@@ -261,6 +271,7 @@ impl Tokenizer {
                         break Some(token::Token {
                             class: token::TokenClass::Null,
                             node: self.node.clone(),
+                            node_addr: self.node_addr,
                             depth: self.depth,
                             newline: true,
                         });
@@ -280,19 +291,21 @@ impl Tokenizer {
         }
     }
 
-    fn descend(&mut self, child_node: sync::Arc<structure::Node>, parent_state: TokenizerState, child_state: TokenizerState) {
-        let parent_node = std::mem::replace(&mut self.node, child_node);
+    fn descend(&mut self, childhood: structure::Childhood, parent_state: TokenizerState, child_state: TokenizerState) {
+        let parent_node = std::mem::replace(&mut self.node, childhood.node);
         
         let parent_tokenizer = Tokenizer {
             stack: self.stack.take(),
             state: parent_state,
             depth: self.depth,
             node: parent_node,
+            node_addr: self.node_addr,
         };
 
         self.depth+= 1;
         self.stack = Some(sync::Arc::new(parent_tokenizer));
         self.state = child_state;
+        self.node_addr+= childhood.offset;
     }
     
     /// Replaces our context with the parent's context, returning false if there
@@ -358,7 +371,7 @@ pub mod xml {
                     "node" => {
                         structure = match structure {
                             Some(_) => panic!("multiple structure definitions"),
-                            None => Some(inflate_structure(child, &mut lookup))
+                            None => Some(inflate_structure(child, addr::unit::NULL, &mut lookup))
                         }
                     }
                     "tokens" => {
@@ -410,14 +423,15 @@ pub mod xml {
         )
     }
         
-    fn inflate_childhood(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> structure::Childhood {
+    fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> structure::Childhood {
+        let offset = addr::Address::parse(xml.attribute("offset").unwrap()).unwrap().to_size();
         structure::Childhood {
-            node: inflate_structure(xml, map),
-            offset: addr::Address::parse(xml.attribute("offset").unwrap()).unwrap().to_size(),
+            node: inflate_structure(xml, parent_addr + offset, map),
+            offset,
         }
     }
         
-    pub fn inflate_structure(xml: roxmltree::Node, map: &mut collections::HashMap<String, sync::Arc<structure::Node>>) -> sync::Arc<structure::Node> {
+    pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
         let node = structure::Node {
             name: xml.attribute("name").unwrap().to_string(),
             size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
@@ -441,18 +455,20 @@ pub mod xml {
                 Some(invalid) => panic!("invalid content attribute: {}", invalid)
             },
             locked: true,
-            children: xml.children().filter(|c| c.is_element()).map(|c| inflate_childhood(c, map)).collect()
+            children: xml.children().filter(|c| c.is_element()).map(|c| inflate_childhood(c, node_addr, map)).collect()
         };
         let arc = sync::Arc::new(node);
-        map.insert(arc.name.clone(), arc.clone());
+        map.insert(arc.name.clone(), (node_addr, arc.clone()));
         arc
     }
 
     impl TokenDef {
-        fn to_token(self, lookup: &collections::HashMap<String, sync::Arc<structure::Node>>) -> token::Token {
+        fn to_token(self, lookup: &collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> token::Token {
+            let lookup_result = lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name));
             token::Token {
                 class: self.class,
-                node: lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name)).clone(),
+                node: lookup_result.1.clone(),
+                node_addr: lookup_result.0,
                 depth: self.depth,
                 newline: self.newline
             }
@@ -573,65 +589,65 @@ pub mod tests {
             /* root */
             token::Token {
                 class: token::TokenClass::Null,
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x20)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x20, 0x30)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x30, 0x32)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             /* child */
             token::Token {
                 class: token::TokenClass::Null,
-                node: child.clone(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: child.clone(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: child.clone(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x18)),
-                node: child.clone(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Null,
-                node: child.clone(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
             },
             /* root */
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x4a, 0x50)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x50, 0x60)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x60, 0x70)),
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Null,
-                node: root.clone(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
             },
         ];
 

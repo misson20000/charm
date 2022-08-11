@@ -22,6 +22,7 @@ pub enum TokenClass {
 pub struct Token {
     pub class: TokenClass,
     pub node: sync::Arc<structure::Node>,
+    pub node_addr: addr::Address,
     // TODO: colorization
     pub depth: usize,
     pub newline: bool, // after this token

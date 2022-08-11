@@ -24,7 +24,7 @@ pub enum ContentDisplay {
     Hexstring
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Childhood {
     pub node: sync::Arc<Node>,
     pub offset: addr::Offset,
