@@ -20,7 +20,7 @@ use crate::view::ext::CairoExt;
 use gtk::prelude::*;
 
 mod action;
-mod component;
+mod facet;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
@@ -124,8 +124,8 @@ pub struct ListingWidget {
 
     fonts: send_wrapper::SendWrapper<Fonts>,
     layout: Layout,
-    cursor_view: component::cursor::CursorView,
-    scroll: component::scroll::Scroller,
+    cursor_view: facet::cursor::CursorView,
+    scroll: facet::scroll::Scroller,
 
     line_cache: HashMap<listing::line_group::CacheId, send_wrapper::SendWrapper<LineCacheEntry>>,
     last_frame_duration: Option<time::Duration>,
@@ -161,8 +161,8 @@ impl ListingWidget {
                 height: 0.0,
                 addr_pane_width: 0.0,
             },
-            cursor_view: component::cursor::CursorView::new(&document_host.get_document()),
-            scroll: component::scroll::Scroller::new(),
+            cursor_view: facet::cursor::CursorView::new(&document_host.get_document()),
+            scroll: facet::scroll::Scroller::new(),
 
             line_cache: HashMap::new(),
             last_frame_duration: None,
@@ -392,17 +392,17 @@ impl ListingWidget {
 
     fn get_mode_theme(&self, irc: &InternalRenderingContext) -> ModeTheme {
         let mut mt = match self.cursor_view.mode {
-            component::cursor::Mode::Command => ModeTheme {
+            facet::cursor::Mode::Command => ModeTheme {
                 accent: irc.cfg.mode_command_color,
                 counter_accent: irc.cfg.background_color,
                 mode_string: "COMMAND",
             },
-            component::cursor::Mode::Entry => ModeTheme {
+            facet::cursor::Mode::Entry => ModeTheme {
                 accent: irc.cfg.mode_entry_color,
                 counter_accent: irc.cfg.background_color,
                 mode_string: if self.cursor_view.insert { "BYTE INSERT" } else { "BYTE ENTRY" },
             },
-            component::cursor::Mode::TextEntry => ModeTheme {
+            facet::cursor::Mode::TextEntry => ModeTheme {
                 accent: irc.cfg.mode_text_entry_color,
                 counter_accent: irc.cfg.background_color,
                 mode_string: if self.cursor_view.insert { "TEXT INSERT" } else { "TEXT ENTRY" },
@@ -541,7 +541,7 @@ impl ListingWidget {
 
     fn goto(&mut self, addr: addr::Address) -> Result<(), cursor::PlacementFailure> {
         self.cursor_view.goto(addr)?;
-        self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, component::scroll::EnsureCursorInViewDirection::Any);
+        self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, facet::scroll::EnsureCursorInViewDirection::Any);
         Ok(())
     }
     
@@ -597,15 +597,15 @@ impl ListingWidget {
         self.collect_events();
     }
 
-    fn cursor_transaction<F>(&mut self, cb: F, dir: component::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
-    where F: FnOnce(&mut component::cursor::CursorView) {
+    fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
+    where F: FnOnce(&mut facet::cursor::CursorView) {
         cb(&mut self.cursor_view);
         self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
         gtk::Inhibit(true)
     }
 
-    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: component::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
-    where F: FnOnce(&mut component::cursor::CursorView) -> bool {
+    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
+    where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
         if cb(&mut self.cursor_view) {
             self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
             gtk::Inhibit(true)
@@ -619,22 +619,22 @@ impl ListingWidget {
         
         let r = match (ek.keyval(), ek.state().intersects(gdk::ModifierType::SHIFT_MASK), ek.state().intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
-            (gdk::keys::constants::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::keys::constants::Right, false, false) => self.cursor_transaction(|c| c.move_right(), component::scroll::EnsureCursorInViewDirection::Down),
-            (gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  component::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::keys::constants::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::keys::constants::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* fast cursor    key    shift  ctrl  */
-            (gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   component::scroll::EnsureCursorInViewDirection::Down),
-            (gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   component::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), component::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   facet::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
             (gdk::keys::constants::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
             (gdk::keys::constants::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
-            _ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), component::scroll::EnsureCursorInViewDirection::Any),
+            _ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), facet::scroll::EnsureCursorInViewDirection::Any),
         };
 
         self.collect_events();
@@ -796,13 +796,13 @@ impl std::future::Future for ListingWidgetFuture {
 }
 
 trait DrawableLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>);
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&facet::cursor::CursorView>);
     fn draw_selection<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, selection: &addr::Extent);
     fn draw_hover<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, hover: addr::Address);
 }
 
 impl DrawableLineGroup for listing::line_group::LineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&facet::cursor::CursorView>) {
         match self {
             line_group::LineGroup::Hex(hlg) => {
                 hlg.draw(c, cr, cursor_view);
@@ -837,7 +837,7 @@ impl DrawableLineGroup for listing::line_group::LineGroup {
 }
 
 impl DrawableLineGroup for brk::hex::HexLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&component::cursor::CursorView>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor_view: Option<&facet::cursor::CursorView>) {
         /* draw ridge */
         if ((self.extent.begin - self.get_break().addr) / self.hbrk.line_size) % 16 == 0 {
             cr.set_source_gdk_rgba(c.cfg.ridge_color);
@@ -1028,7 +1028,7 @@ impl DrawableLineGroup for brk::hex::HexLineGroup {
 }
 
 impl DrawableLineGroup for brk::BreakHeaderLineGroup {
-    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor: Option<&component::cursor::CursorView>) {
+    fn draw<'a, 'b, 'c>(&'a self, c: &'b mut InternalRenderingContext<'c>, cr: &cairo::Context, cursor: Option<&facet::cursor::CursorView>) {
         /* draw label */
 
         // TODO: rearchitect line rendering so we can cache things like this
