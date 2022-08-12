@@ -13,7 +13,7 @@ use crate::model::space::AddressSpace;
 extern crate imbl;
 //use imbl::ordmap;
 
-pub type DocumentRef<'a> = owning_ref::OwningRef<sync::RwLockReadGuard<'a, DocumentHostInterior>, Document>;
+pub type DocumentRef<'a> = parking_lot::MappedRwLockReadGuard<'a, Document>;
 
 #[derive(Clone)]
 enum UndoOp {
@@ -42,14 +42,14 @@ pub struct DocumentHostInterior { // implementation detail...
 
 pub struct DocumentHost {
     notifier: util::Notifier,
-    interior: sync::RwLock<DocumentHostInterior>,
+    interior: parking_lot::RwLock<DocumentHostInterior>,
 }
 
 impl DocumentHost {
     pub fn new(doc: Document) -> DocumentHost {
         DocumentHost {
             notifier: util::Notifier::new(),
-            interior: sync::RwLock::new(DocumentHostInterior {
+            interior: parking_lot::RwLock::new(DocumentHostInterior {
                 current: doc,
                 undo: vec::Vec::new(),
             })
@@ -61,7 +61,7 @@ impl DocumentHost {
     }
     
     pub fn get_document(&self) -> DocumentRef {
-        owning_ref::OwningRef::new(self.interior.read().unwrap()).map(|r| &r.current)
+        parking_lot::RwLockReadGuard::map(self.interior.read(), |r| &r.current)
     }
 
     /*
@@ -103,7 +103,7 @@ impl DocumentHost {
     }
 
     pub fn apply_filter(&self, filter: datapath::Filter) {
-        let mut interior = self.interior.write().unwrap();
+        let mut interior = self.interior.write();
 
         let last_undo = interior.undo.last_mut();
         

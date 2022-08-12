@@ -3,7 +3,6 @@
 extern crate futures;
 extern crate tokio;
 extern crate send_wrapper;
-extern crate owning_ref;
 extern crate enum_dispatch;
 
 pub mod util;
