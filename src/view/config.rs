@@ -1,6 +1,7 @@
 use std::sync;
 
 use gtk::gdk;
+use gtk::pango;
 
 use lazy_static::lazy_static;
 use hex_literal::hex;
@@ -47,6 +48,8 @@ pub struct Config {
     pub mode_command_color: gdk::RGBA,
     pub mode_entry_color: gdk::RGBA,
     pub mode_text_entry_color: gdk::RGBA,
+
+    pub monospace_font: pango::FontDescription,
     
     pub version: usize, /* incremented when config changes */
 }
@@ -93,6 +96,8 @@ lazy_static! {
         mode_command_color: gdk::RGBA::bytes(hex!("8891efff")),
         mode_entry_color: gdk::RGBA::bytes(hex!("ffbf48ff")),
         mode_text_entry_color: gdk::RGBA::bytes(hex!("ff4921ff")),
+
+        monospace_font: pango::FontDescription::from_string("Monospace Regular 12"),
         
         version: 0,
     });

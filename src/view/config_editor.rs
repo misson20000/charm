@@ -1,6 +1,7 @@
 use crate::view::config;
 
 use gtk::gdk;
+use gtk::pango;
 use gtk::prelude::*;
 use conv::ApproxInto;
 
@@ -33,7 +34,8 @@ fn edit_spinbutton_integer<T, F: 'static>(label: &str, default: T, setter: F) ->
     sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
     sb.set_wrap(false);
     sb.connect_value_changed(move |sb| update_config(&setter, sb.value_as_int().approx_into().unwrap()));
-    
+
+    sb.set_halign(gtk::Align::End);
     bx.append(&sb);
     lbr.set_child(Some(&bx));
     
@@ -59,7 +61,8 @@ fn edit_spinbutton_f64<F: 'static>(label: &str, default: f64, setter: F) -> gtk:
     sb.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
     sb.set_wrap(false);
     sb.connect_value_changed(move |sb| update_config(&setter, sb.value()));
-    
+
+    sb.set_halign(gtk::Align::End);
     bx.append(&sb);
     lbr.set_child(Some(&bx));
     
@@ -79,8 +82,29 @@ fn edit_color<F: 'static>(label: &str, default: gdk::RGBA, setter: F) -> gtk::Li
         .use_alpha(true)
         .build();
     gtk::traits::ColorChooserExt::connect_rgba_notify(&cb, move |cb| update_config(&setter, cb.rgba()));
-    
+
+    cb.set_halign(gtk::Align::End);
     bx.append(&cb);
+    lbr.set_child(Some(&bx));
+    
+    lbr
+}
+
+fn edit_font<F: 'static>(label: &str, default: &pango::FontDescription, setter: F) -> gtk::ListBoxRow where
+    F: Fn(&mut config::Config, pango::FontDescription) {
+    let lbr = gtk::ListBoxRow::new();
+    let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bx.prepend(&gtk::Label::new(Some(label)));
+
+    let fb: gtk::FontButton = gtk::FontButton::builder()
+        .font_desc(default)
+        .use_font(true)
+        .build();
+    fb.connect_font_set(move |fb| if let Some(d) = fb.font_desc() { update_config(&setter, d)});
+
+    fb.set_halign(gtk::Align::End);
+    bx.append(&fb);
+    bx.set_hexpand(true);
     lbr.set_child(Some(&bx));
     
     lbr
@@ -115,6 +139,8 @@ pub fn build_config_editor() -> gtk::ListBox {
 
     lb.append(&edit_color("Cursor Background Color", current.cursor_bg_color, |cfg, v| { cfg.cursor_bg_color = v; }));
     lb.append(&edit_color("Cursor Text Color", current.cursor_fg_color, |cfg, v| { cfg.cursor_fg_color = v; }));
+
+    lb.append(&edit_font("Monospace Font", &current.monospace_font, |cfg, v| { cfg.monospace_font = v; }));
     
     return lb;
 }
