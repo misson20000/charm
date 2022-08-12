@@ -1,9 +1,7 @@
 use std::rc;
 
-use gtk as gtk4;
 use gtk::gio;
 use gtk::glib;
-use gtk4::prelude::*;
 
 pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
