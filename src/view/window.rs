@@ -14,7 +14,7 @@ use gtk::prelude::*;
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
     document_host: sync::Arc<document::DocumentHost>,
-    lw: sync::Arc<parking_lot::RwLock<view::listing::ListingWidget>>,
+    lw: view::listing::ListingWidget,
     datapath: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
 }
 
@@ -127,7 +127,9 @@ impl CharmWindow {
         let datapath_editor_frame = gtk::Frame::new(None);
         {
             let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
+            vpaned.set_resize_start_child(true);
             listing_container.set_vexpand(true);
+            listing_container.set_valign(gtk::Align::Fill);
             vpaned.set_start_child(Some(&listing_container));
 
             { // datapath_editor frame
@@ -139,6 +141,7 @@ impl CharmWindow {
                 datapath_editor_frame.set_margin_end(10);
                 datapath_editor_frame.set_child(Some(&datapath_editor));
                 
+                datapath_editor_frame.set_vexpand(false);
                 vpaned.set_end_child(Some(&datapath_editor_frame));
             }
 
@@ -287,7 +290,8 @@ impl CharmWindow {
 impl WindowContext {
     fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
-        let lw = view::listing::ListingWidget::new(window, &document_host);
+        let lw = view::listing::ListingWidget::new();
+        lw.init(window, &document_host);
         let datapath = view::datapath::DataPathModel::new(window, &document_host);
         
         WindowContext {
@@ -299,17 +303,13 @@ impl WindowContext {
     }
 
     fn attach(self, window: &CharmWindow) {
-        let lw = self.lw.read();
-        //let da = lw.get_drawing_area();
         while let Some(w) = window.listing_container.first_child() {
             window.listing_container.remove(&w);
         }
-        //window.listing_container.add(da);
+        window.listing_container.prepend(&self.lw);
         window.datapath_editor.set_model(Some(self.datapath.read().get_tree_model()));
-        //window.window.insert_action_group("listing", lw.get_action_group());
-        //da.grab_focus();
-
-        std::mem::drop(lw);
+        self.lw.grab_focus();
+        
         *window.context.borrow_mut() = Some(self);
     }
 }

@@ -1,5 +1,4 @@
 use gtk::gio;
-use gtk::gdk_pixbuf;
 use gtk::prelude::*;
 
 pub mod config;
