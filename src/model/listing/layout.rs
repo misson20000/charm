@@ -143,7 +143,7 @@ impl<L: Line> Window<L> {
     /// beginning of the token stream is hit.
     pub fn scroll_up(&mut self) -> bool {
         if self.top.hit_top() {
-            return true;
+            return false;
         }
         
         self.grow_top();
@@ -151,14 +151,14 @@ impl<L: Line> Window<L> {
 
         self.wants_update = true;
 
-        false
+        true
     }
 
     /// Scrolls the window downwards by one line. Returns false if the
     /// end of the token stream is hit.
     pub fn scroll_down(&mut self) -> bool {
         if self.bottom.hit_bottom() {
-            return true;
+            return false;
         }
         
         self.grow_bottom();
@@ -166,7 +166,7 @@ impl<L: Line> Window<L> {
 
         self.wants_update = true;
 
-        false
+        true
     }
 
     /// Changes the size of the window.
