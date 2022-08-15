@@ -20,6 +20,7 @@ pub enum ChildrenDisplay {
 
 #[derive(Debug)]
 pub enum ContentDisplay {
+    None,
     Hexdump(addr::Size),
     Hexstring
 }
@@ -82,6 +83,7 @@ impl Default for ChildrenDisplay {
 impl ContentDisplay {
     pub fn preferred_pitch(&self) -> Option<addr::Size> {
         match self {
+            ContentDisplay::None => None,
             ContentDisplay::Hexdump(pitch) => Some(*pitch),
             ContentDisplay::Hexstring => None,
         }

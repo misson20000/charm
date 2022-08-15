@@ -133,9 +133,12 @@ impl Tokenizer {
                         let extent = addr::Extent::between(begin.to_addr(), offset.to_addr());
                         
                         self.state = TokenizerState::Content(begin, index);
-                        
+
                         break Some(token::Token {
                             class: match self.node.content_display {
+                                /* Skip this token and try again. */
+                                structure::ContentDisplay::None => continue,
+                                
                                 structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
@@ -251,6 +254,9 @@ impl Tokenizer {
                         
                         break Some(token::Token {
                             class: match self.node.content_display {
+                                /* Skip this token and try again. */
+                                structure::ContentDisplay::None => continue,
+
                                 structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
                                 structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                             },
@@ -452,6 +458,7 @@ pub mod xml {
                         |p| addr::Address::parse(p).map_or_else(                                
                             |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
                             |a| a.to_size()))),
+                Some("none") => structure::ContentDisplay::None,
                 Some(invalid) => panic!("invalid content attribute: {}", invalid)
             },
             locked: true,
@@ -552,6 +559,13 @@ pub mod tests {
     #[test]
     fn formatting() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/formatting.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
+    }
+
+    #[test]
+    fn content_display() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/content_display.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }

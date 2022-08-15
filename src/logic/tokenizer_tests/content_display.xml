@@ -1,0 +1,22 @@
+<testcase>
+  <node name="root" size="0x50" content="none">
+    <!-- root's content doesn't get displayed -->
+    <node name="hexdump" offset="0x10" size="0x10" title="inline" content="hexdump" pitch="8" />
+    <!-- root's content doesn't get displayed -->
+    <node name="hexstring" offset="0x30" size="0x10" title="inline" content="hexstring" />
+    <!-- root's content doesn't get displayed -->
+  </node>
+  <tokens>
+    <null node="root" nl="true" />
+    <title node="root" nl="true" />
+    <indent>
+      <title node="hexdump" nl="false" />
+      <hexdump node="hexdump" begin="0x0" end="0x8" nl="true" />
+      <hexdump node="hexdump" begin="0x8" end="0x10" nl="true" />
+
+      <title node="hexstring" nl="false" />
+      <hexstring node="hexstring" begin="0x0" end="0x10" nl="true" />
+    </indent>
+    <null node="root" nl="true" />
+  </tokens>
+</testcase>
