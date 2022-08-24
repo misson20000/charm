@@ -102,6 +102,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "lru",
+ "once_cell",
  "parking_lot",
  "roxmltree",
  "send_wrapper",
