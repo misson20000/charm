@@ -501,6 +501,10 @@ pub mod tests {
         fn next(&mut self) -> Option<token::Token> {
             let a = self.0.next();
             if a.is_some() {
+                let b = self.0.next();
+                if b.is_some() {
+                    assert_eq!(b, self.0.prev());
+                }
                 assert_eq!(a, self.0.prev());
                 assert_eq!(a, self.0.next());
             }
@@ -514,6 +518,10 @@ pub mod tests {
         fn next(&mut self) -> Option<token::Token> {
             let a = self.0.prev();
             if a.is_some() {
+                let b = self.0.prev();
+                if b.is_some() {
+                    assert_eq!(b, self.0.next());
+                }
                 assert_eq!(a, self.0.next());
                 assert_eq!(a, self.0.prev());
             }
