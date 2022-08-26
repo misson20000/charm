@@ -17,20 +17,64 @@ enum TokenizerState {
 }
 
 #[derive(Clone)]
+pub struct TokenizerStackEntry {
+    stack: Option<sync::Arc<TokenizerStackEntry>>,
+    before_state: TokenizerState,
+    after_state: TokenizerState,
+    depth: usize,
+    node: sync::Arc<structure::Node>,
+    node_addr: addr::Address,    
+}
+
+#[derive(Clone)]
 pub struct Tokenizer {
     /* invariants:
        - stack should always contain a path all the way back to the root node
      */
-    stack: Option<sync::Arc<Tokenizer>>,
+    stack: Option<sync::Arc<TokenizerStackEntry>>,
     state: TokenizerState,
     depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,
 }
 
+enum AscendDirection {
+    Prev, Next
+}
+
+struct TokenizerStackDebugHelper<'a>(&'a Option<sync::Arc<TokenizerStackEntry>>);
+
 impl std::fmt::Debug for Tokenizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "formatter(state: {:?}, node: {}, parent: {:?})", self.state, self.node.name, self.stack)
+        f.debug_struct("Tokenizer")
+            .field("state", &self.state)
+            .field("node", &self.node.name)
+            .field("stack", &TokenizerStackDebugHelper(&self.stack))
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut dl = f.debug_list();
+        let mut i = self.0;
+
+        while let Some(entry) = i {
+            dl.entry(entry);
+            i = &entry.stack;
+        }
+
+        dl.finish()
+    }
+}
+
+impl std::fmt::Debug for TokenizerStackEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Entry")
+            .field("before_state", &self.before_state)
+            .field("after_state", &self.after_state)
+            .field("node", &self.node.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -71,7 +115,7 @@ impl Tokenizer {
             match self.state {
                 TokenizerState::PreBlank => {
                     /* try to ascend hierarchy by popping the stack */
-                    if !self.try_ascend() {
+                    if !self.try_ascend(AscendDirection::Prev) {
                         break None;
                     }
                     /* retry using the parent's state. */
@@ -103,8 +147,10 @@ impl Tokenizer {
                         if prev_child.end() >= offset {
                             self.descend(
                                 prev_child.clone(),
-                                /* By the time we ascend, we should have reached the beginning of the child. */
+                                /* If we ascend going backwards, ascend to immediately before this child. */
                                 TokenizerState::Content(prev_child.offset, index - 1),
+                                /* If we ascend going forwards, ascend to immediately after this child. */
+                                TokenizerState::Content(prev_child.end(), index),
                                 /* Descend to the end of the child. */
                                 TokenizerState::End);
                             /* Re-enter loop */
@@ -218,7 +264,9 @@ impl Tokenizer {
                         if next_child.offset <= offset {
                             self.descend(
                                 next_child.clone(),
-                                /* By the time we ascend, we should reach the end of the child. */
+                                /* If we ascend going backwards, ascend to before this child. */
+                                TokenizerState::Content(next_child.offset, index),
+                                /* If we ascend going forwards, ascend to after this child. */
                                 TokenizerState::Content(next_child.end(), index + 1),
                                 /* Descend to the beginning of the child. */
                                 TokenizerState::PreBlank);
@@ -287,7 +335,7 @@ impl Tokenizer {
                 },
                 TokenizerState::End => {
                     /* try to ascend hierarchy by popping the stack */
-                    if !self.try_ascend() {
+                    if !self.try_ascend(AscendDirection::Next) {
                         break None;
                     }
                     /* retry using the parent's state. */
@@ -297,29 +345,57 @@ impl Tokenizer {
         }
     }
 
-    fn descend(&mut self, childhood: structure::Childhood, parent_state: TokenizerState, child_state: TokenizerState) {
-        let parent_node = std::mem::replace(&mut self.node, childhood.node);
+    /// Pushes an entry onto the tokenizer stack and sets up for traversing
+    /// a child node.
+    ///
+    /// # Arguments
+    ///
+    /// * `into_child` - The child to descend into.
+    /// * `state_before` - A TokenizerState positioned immediately before the child from the parent's perspective.
+    /// * `state_after` - A TokenizerState positioned immediately after the child from the parent's perspective.
+    /// * `state_within` - Where within the child to descend to.
+    ///
+    fn descend(
+        &mut self,
+        into_child: structure::Childhood,
+        state_before: TokenizerState,
+        state_after: TokenizerState,
+        state_within: TokenizerState) {
+        let parent_node = std::mem::replace(&mut self.node, into_child.node);
         
-        let parent_tokenizer = Tokenizer {
+        let parent_entry = TokenizerStackEntry {
             stack: self.stack.take(),
-            state: parent_state,
+            before_state: state_before,
+            after_state: state_after,
             depth: self.depth,
             node: parent_node,
             node_addr: self.node_addr,
         };
 
         self.depth+= 1;
-        self.stack = Some(sync::Arc::new(parent_tokenizer));
-        self.state = child_state;
-        self.node_addr+= childhood.offset;
+        self.stack = Some(sync::Arc::new(parent_entry));
+        self.state = state_within;
+        self.node_addr+= into_child.offset;
     }
     
     /// Replaces our context with the parent's context, returning false if there
     /// was no parent.
-    fn try_ascend(&mut self) -> bool {
+    fn try_ascend(&mut self, dir: AscendDirection) -> bool {
         match std::mem::replace(&mut self.stack, None) {
             Some(replacement) => {
-                *self = (*replacement).clone();
+                // TODO: replace this with unwrap_or_clone when it gets stabilized
+                //       https://github.com/rust-lang/rust/issues/93610
+                let replacement = sync::Arc::try_unwrap(replacement).unwrap_or_else(|arc| (*arc).clone());
+                *self = Tokenizer {
+                    stack: replacement.stack,
+                    state: match dir {
+                        AscendDirection::Prev => replacement.before_state,
+                        AscendDirection::Next => replacement.after_state
+                    },
+                    depth: replacement.depth,
+                    node: replacement.node.clone(),
+                    node_addr: replacement.node_addr,
+                };
                 true
             },
             None => false
