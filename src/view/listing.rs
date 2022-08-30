@@ -51,6 +51,8 @@ impl layout::Line for Line {
 }
 
 struct RenderDetail {
+    config_version: usize,
+    
     pango: pango::Context,
     font_mono: pango::Font,
 }
@@ -97,12 +99,16 @@ impl WidgetImpl for ListingWidgetImp {
     }
 
     fn snapshot(&self, widget: &Self::Type, snapshot: &gtk::Snapshot) {
-        let interior = match self.interior.get() {
+        let mut interior = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
         };
 
-        let render = &interior.render;
+        let config = config::get();
+        let render = &mut interior.render;
+        if render.config_version != config.version {
+            *render = ListingWidget::load_fonts(widget.pango_context());
+        }
         
         snapshot.append_color(&config::get().background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
 
@@ -138,16 +144,23 @@ impl ListingWidget {
         glib::Object::new(&[]).expect("failed to create ListingWidget")
     }
 
-    pub fn init(&self, _window: &view::window::CharmWindow, document_host: &sync::Arc<document::DocumentHost>) {
-        let pg = self.create_pango_context();
+    fn load_fonts(pg: pango::Context) -> RenderDetail {
+        let config = config::get();
+        
         let fm = pg.font_map().unwrap();
 
-        let font_mono = fm.load_font(&pg, &config::get().monospace_font).expect("expected to be able to load selected font");
+        let font_mono = fm.load_font(&pg, &config.monospace_font).expect("expected to be able to load selected font");
         
-        let render = RenderDetail {
+        RenderDetail {
+            config_version: config.version,
+            
             pango: pg,
             font_mono,
-        };
+        }
+    }
+    
+    pub fn init(&self, _window: &view::window::CharmWindow, document_host: &sync::Arc<document::DocumentHost>) {
+        let render = Self::load_fonts(self.pango_context());
         
         let interior = Interior {
             document_host: document_host.clone(),
