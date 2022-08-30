@@ -13,14 +13,17 @@ impl<'a> fmt::Display for TokenExampleFormat<'a> {
                 token::PunctuationClass::Empty => "",
                 token::PunctuationClass::Space => " ",
                 token::PunctuationClass::Comma => ", ",
-                token::PunctuationClass::OpenBracket => "{ ",
-                token::PunctuationClass::CloseBracket => " }",
+                token::PunctuationClass::OpenBracket => "{",
+                token::PunctuationClass::CloseBracket => "}",
             }),
             token::TokenClass::Title => write!(f, "{}: ", &self.0.node.name),
             token::TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.name),
             token::TokenClass::Hexdump(extent) => {
                 for i in 0..extent.length().bytes {
-                    write!(f, "{:02x} ", (extent.begin.byte + i) & 0xff)?
+                    write!(f, "{:02x}", (extent.begin.byte + i) & 0xff)?;
+                    if i + 1 < extent.length().bytes {
+                        write!(f, " ")?;
+                    }
                 }
                 Ok(())
             },

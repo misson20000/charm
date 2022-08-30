@@ -7,8 +7,8 @@
 	<node name="y1" size="0x8" offset = "0x8" content="hexstring" /> 
       </node>
       <node name="target" offset="0x20" size="0x10" content="hexdump" children="summary" title="inline">
-	<node name="x1" size="0x8" offset = "0x0" content="hexstring" />
-	<node name="y1" size="0x8" offset = "0x8" content="hexstring" /> 
+	<node name="x2" size="0x8" offset = "0x0" content="hexstring" />
+	<node name="y2" size="0x8" offset = "0x8" content="hexstring" /> 
       </node>
     </node>
   </node>
@@ -16,7 +16,63 @@
     <null node="root" nl="true" />
     <title node="root" nl="true" />
     <indent>
+      <title node="entity" nl="false" />
+      <open node="entity" nl="false" />
+      
+      <summlabel node="type" nl="false" />
+      <indent>
+	<hexdump node="type" begin="0x0" end="0x8" nl="false" />
+      </indent>
+      
+      <comma node="entity" nl="false" />
+
+      <summlabel node="pos" nl="false" />
+      <indent>
+	<open node="pos" nl="false" />
+
+	<summlabel node="x1" nl="false" />
+	<indent>
+	  <hexstring node="x1" begin="0x0" end="0x8" nl="false" />
+	</indent>
+	
+	<comma node="pos" nl="false" />
+	
+	<summlabel node="y1" nl="false" />
+	<indent>
+	  <hexstring node="y1" begin="0x0" end="0x8" nl="false" />
+	</indent>
+
+	<close node="pos" nl="false" />
+      </indent>
+      
+      <comma node="entity" nl="false" />
+
+      <summlabel node="target" nl="false" />
+      <indent>
+	<open node="target" nl="false" />
+
+	<summlabel node="x2" nl="false" />
+	<indent>
+	  <hexstring node="x2" begin="0x0" end="0x8" nl="false" />
+	</indent>
+	
+	<comma node="target" nl="false" />
+	
+	<summlabel node="y2" nl="false" />
+	<indent>
+	  <hexstring node="y2" begin="0x0" end="0x8" nl="false" />
+	</indent>
+
+	<close node="target" nl="false" />
+      </indent>
+
+      <close node="entity" nl="false" />
+      
+      <null node="entity" nl="true" />
     </indent>
+
+    <hexdump node="root" begin="0x30" end="0x40" nl="true" />
+    <hexdump node="root" begin="0x40" end="0x50" nl="true" />
     <null node="root" nl="true" />
   </tokens>
 </testcase>
