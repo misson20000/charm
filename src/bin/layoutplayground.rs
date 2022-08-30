@@ -9,8 +9,15 @@ pub struct TokenExampleFormat<'a>(&'a token::Token);
 impl<'a> fmt::Display for TokenExampleFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.class {
-            token::TokenClass::Null => write!(f, ""),
+            token::TokenClass::Punctuation(punct) => write!(f, "{}", match punct {
+                token::PunctuationClass::Empty => "",
+                token::PunctuationClass::Space => " ",
+                token::PunctuationClass::Comma => ", ",
+                token::PunctuationClass::OpenBracket => "{ ",
+                token::PunctuationClass::CloseBracket => " }",
+            }),
             token::TokenClass::Title => write!(f, "{}: ", &self.0.node.name),
+            token::TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.name),
             token::TokenClass::Hexdump(extent) => {
                 for i in 0..extent.length().bytes {
                     write!(f, "{:02x} ", (extent.begin.byte + i) & 0xff)?

@@ -1,0 +1,22 @@
+<testcase>
+  <node name="root" size="0x50" content="hexdump" children="full">
+    <node name="entity" size="0x30" content="hexdump" children="summary" title="inline">
+      <node name="type" offset="0x0" size="0x8" content="hexdump" title="inline" />
+      <node name="pos" offset="0x10" size="0x10" content="hexdump" children="summary" title="inline">
+	<node name="x1" size="0x8" offset = "0x0" content="hexstring" />
+	<node name="y1" size="0x8" offset = "0x8" content="hexstring" /> 
+      </node>
+      <node name="target" offset="0x20" size="0x10" content="hexdump" children="summary" title="inline">
+	<node name="x1" size="0x8" offset = "0x0" content="hexstring" />
+	<node name="y1" size="0x8" offset = "0x8" content="hexstring" /> 
+      </node>
+    </node>
+  </node>
+  <tokens>
+    <null node="root" nl="true" />
+    <title node="root" nl="true" />
+    <indent>
+    </indent>
+    <null node="root" nl="true" />
+  </tokens>
+</testcase>

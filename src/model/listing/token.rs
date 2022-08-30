@@ -7,13 +7,23 @@ use crate::model::document::structure;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenClass {
     /// An empty token, used to create a blank line via the newline attribute.
-    Null,
+    Punctuation(PunctuationClass),
     /// A title block to show the name of the structure node.
     Title,
+    SummaryLabel,
     /// Formatted two-column hexdump+asciidump. What you expect to see out of a hex editor.
     Hexdump(addr::Extent),
     /// Just a bunch of hex octets stuck together without any extra formatting.
     Hexstring(addr::Extent)
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PunctuationClass {
+    Empty,
+    Space,
+    Comma,
+    OpenBracket,
+    CloseBracket,
 }
 
 /// The smallest unit used to perform listing layout. Picture these as the words
