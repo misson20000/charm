@@ -1,11 +1,12 @@
 use std::rc;
 use std::sync;
 
-use gio::prelude::*;
-use gtk::prelude::*;
-
 use crate::model::document;
 use crate::view::listing::ListingWidget;
+
+use gtk::gio;
+use gtk::glib;
+use gtk::prelude::*;
 
 extern crate byteorder;
 //use byteorder::ByteOrder;

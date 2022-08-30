@@ -2,7 +2,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::view::config;
-use crate::view::listing::component;
+use crate::view::listing::facet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -12,7 +12,7 @@ pub enum Mode {
 }
 
 pub struct CursorView {
-    pub events: component::Events,
+    pub events: facet::Events,
     pub cursor: cursor::Cursor,
     pub mode: Mode,
     pub has_focus: bool,
@@ -24,7 +24,7 @@ pub struct CursorView {
 impl CursorView {
     pub fn new(document: &document::Document) -> CursorView {
         CursorView {
-            events: component::Events::new(),
+            events: facet::Events::new(),
             cursor: cursor::Cursor::place(document, cursor::PlacementHint::default()).expect("should be able to default-place cursor"),
             blink_timer: 0.0,
             bonk_timer: 0.0,

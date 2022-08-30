@@ -1,11 +1,12 @@
 use std::rc;
 use std::sync;
 
-use gtk::prelude::*;
-
 use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::view::listing::ListingWidget;
+
+use gtk::gio;
+use gtk::prelude::*;
 
 struct GoToAction {
     dialog: gtk::Dialog,

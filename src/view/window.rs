@@ -8,20 +8,20 @@ use crate::model::space;
 use crate::model::space::AddressSpace;
 use crate::view;
 
-use glib::prelude::*;
+use gtk::gio;
 use gtk::prelude::*;
 
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
     document_host: sync::Arc<document::DocumentHost>,
-    lw: sync::Arc<parking_lot::RwLock<view::listing::ListingWidget>>,
+    lw: view::listing::ListingWidget,
     datapath: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
 }
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     window: gtk::ApplicationWindow,
-    listing_container: gtk::Container,
+    listing_container: gtk::Box,
     datapath_editor: gtk::TreeView,
     config_editor: gtk::ListBox,
     datapath_editor_frame: gtk::Frame,
@@ -33,9 +33,7 @@ impl CharmWindow {
     pub fn new(charm: &rc::Rc<CharmApplication>) -> rc::Rc<CharmWindow> {
         let window = gtk::ApplicationWindow::new(&charm.application);
 
-        window.set_title("Charm");
-        window.set_border_width(0);
-        window.set_position(gtk::WindowPosition::Center);
+        window.set_title(Some("Charm"));
         window.set_default_size(800, 600);
 
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -81,12 +79,13 @@ impl CharmWindow {
             }
             menu_bar.freeze();
 
-            let menu_bar_widget = gtk::MenuBar::from_model(&menu_bar);
-            main_box.pack_start(&menu_bar_widget, false, false, 0);
+            let menu_bar_widget = gtk::PopoverMenuBar::from_model(Some(&menu_bar));
+            main_box.prepend(&menu_bar_widget);
         }
 
         let listing_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         listing_container.set_homogeneous(true);
+        listing_container.set_vexpand(true);
         
         let hpaned = gtk::Paned::new(gtk::Orientation::Horizontal);
         let datapath_editor = gtk::TreeView::new();
@@ -128,20 +127,26 @@ impl CharmWindow {
         let datapath_editor_frame = gtk::Frame::new(None);
         {
             let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
-            vpaned.pack1(&listing_container, true, false);
+            vpaned.set_resize_start_child(true);
+            listing_container.set_vexpand(true);
+            listing_container.set_valign(gtk::Align::Fill);
+            vpaned.set_start_child(Some(&listing_container));
 
             { // datapath_editor frame
-                datapath_editor_frame.set_shadow_type(gtk::ShadowType::In);
+                // TODO: removed in gtk4, did we need this to look good?
+                //datapath_editor_frame.set_shadow_type(gtk::ShadowType::In);
                 datapath_editor_frame.set_margin_top(10);
                 datapath_editor_frame.set_margin_bottom(10);
                 datapath_editor_frame.set_margin_start(10);
                 datapath_editor_frame.set_margin_end(10);
-                datapath_editor_frame.add(&datapath_editor);
+                datapath_editor_frame.set_child(Some(&datapath_editor));
                 
-                vpaned.pack2(&datapath_editor_frame, false, true);
+                datapath_editor_frame.set_vexpand(false);
+                vpaned.set_end_child(Some(&datapath_editor_frame));
             }
-            
-            hpaned.pack1(&vpaned, true, false);
+
+            vpaned.set_hexpand(true);
+            hpaned.set_start_child(Some(&vpaned));
         }
 
         let config_editor = view::config_editor::build_config_editor();
@@ -149,24 +154,26 @@ impl CharmWindow {
         {
             config_editor.set_size_request(400, -1);
 
-            config_editor_frame.set_shadow_type(gtk::ShadowType::In);
+            // TODO: removed in gtk4, did we need this to look good?
+            //config_editor_frame.set_shadow_type(gtk::ShadowType::In);
             config_editor_frame.set_margin_top(10);
             config_editor_frame.set_margin_bottom(10);
             config_editor_frame.set_margin_start(10);
             config_editor_frame.set_margin_end(10);
-            config_editor_frame.add(&config_editor);
+            config_editor_frame.set_child(Some(&config_editor));
             
-            hpaned.pack2(&config_editor_frame, false, true);
+            hpaned.set_end_child(Some(&config_editor_frame));
         }
+
+        hpaned.set_vexpand(true);
+        main_box.append(&hpaned);                
         
-        main_box.pack_start(&hpaned, true, true, 0);                
-        
-        window.add(&main_box);
+        window.set_child(Some(&main_box));
 
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
             window,
-            listing_container: listing_container.upcast::<gtk::Container>(),
+            listing_container,
             datapath_editor,
             config_editor,
             datapath_editor_frame,
@@ -182,10 +189,13 @@ impl CharmWindow {
             });
         }
 
+        // TODO: figure out how to do this in gtk4?
+        /*
         w.window.connect_key_press_event(|w, ek| {
             /* key events before accelerators, because we have accelerators like "B" and "G" */
             gtk::Inhibit(w.propagate_key_event(ek) || w.activate_key(ek))
-        });
+    });
+        */
 
         /* window actions */
         
@@ -210,43 +220,52 @@ impl CharmWindow {
         w
     }
 
-    pub fn show(&self) {
-        self.window.show_all();
+    pub fn present(&self) {
         self.config_editor_frame.hide();
+        self.window.present();
     }
 
     fn action_open(self: &rc::Rc<Self>) {
-        let dialog = gtk::FileChooserDialog::with_buttons::<gtk::ApplicationWindow>( // TODO: use FileChooserNative
+        let dialog = gtk::FileChooserDialog::new( // TODO (written pre gtk4): use FileChooserNative
             Some("Charm: Open File"),
-            None,
+            Option::<&gtk::ApplicationWindow>::None, // TODO: set this?
             gtk::FileChooserAction::Open,
             &[
                 ("_Cancel", gtk::ResponseType::Cancel),
                 ("_Open", gtk::ResponseType::Accept)
             ]);
         dialog.set_select_multiple(true);
-        match dialog.run() {
-            gtk::ResponseType::Accept => {
-                self.close_file();
-                
-                for file in dialog.files() {
-                    if self.context.borrow().is_some() {
-                        let w = self.application.new_window();
-                        w.open_file(&file);
-                        w.show();
-                    } else {
-                        self.open_file(&file);
-                        self.show();
+
+        let window = self.clone();
+        dialog.connect_response(move |dialog, response_type| {
+            match response_type {
+                gtk::ResponseType::Accept => {
+                    window.close_file();
+                    
+                    for file in dialog.files() {
+                        if window.context.borrow().is_some() {
+                            /* open a new window if this window already has something open in it */
+                            let window = window.application.new_window();
+                            window.open_file(&file.downcast().unwrap());
+                            window.present();
+                        } else {
+                            window.open_file(&file.downcast().unwrap());
+                            window.present();
+                        }
                     }
-                }
-            },
-            _ => {} /* we were cancelled, ignore */
-        }
-        dialog.close();
+                },
+                _ => {} /* we were cancelled, ignore */
+            }
+            dialog.close();
+        });
+        dialog.present();
     }
 
     pub fn close_file(self: &rc::Rc<Self>) {
-        self.listing_container.foreach(|w| self.listing_container.remove(w));
+        while let Some(w) = self.listing_container.first_child() {
+            self.listing_container.remove(&w);
+        }
+        
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.window.insert_action_group("listing", Option::<&gio::ActionGroup>::None);
         *self.context.borrow_mut() = None;
@@ -263,7 +282,7 @@ impl CharmWindow {
                 &dn).unwrap(),
         );
 
-        self.window.set_title(format!("Charm: {}", space.get_label()).as_str());
+        self.window.set_title(Some(format!("Charm: {}", space.get_label()).as_str()));
         WindowContext::new(self, document::Document::new(space)).attach(self);
     }
 }
@@ -271,7 +290,8 @@ impl CharmWindow {
 impl WindowContext {
     fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
-        let lw = view::listing::ListingWidget::new(window, &document_host);
+        let lw = view::listing::ListingWidget::new();
+        lw.init(window, &document_host);
         let datapath = view::datapath::DataPathModel::new(window, &document_host);
         
         WindowContext {
@@ -283,15 +303,13 @@ impl WindowContext {
     }
 
     fn attach(self, window: &CharmWindow) {
-        let lw = self.lw.read();
-        let da = lw.get_drawing_area();
-        window.listing_container.foreach(|w| window.listing_container.remove(w));
-        window.listing_container.add(da);
+        while let Some(w) = window.listing_container.first_child() {
+            window.listing_container.remove(&w);
+        }
+        window.listing_container.prepend(&self.lw);
         window.datapath_editor.set_model(Some(self.datapath.read().get_tree_model()));
-        window.window.insert_action_group("listing", lw.get_action_group());
-        da.grab_focus();
-
-        std::mem::drop(lw);
+        self.lw.grab_focus();
+        
         *window.context.borrow_mut() = Some(self);
     }
 }

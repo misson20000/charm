@@ -1,9 +1,11 @@
 use std::sync;
 
-use glib::prelude::*;
-
 use crate::view::listing::ListingWidget;
 use crate::view::listing::component;
+
+use gtk::gio;
+use gtk::glib;
+use gtk::prelude::*;
 
 pub fn create_mode(rc: &sync::Arc<parking_lot::RwLock<ListingWidget>>, _lw: &ListingWidget) -> gio::SimpleAction {
     let action = gio::SimpleAction::new_stateful("mode", Some(glib::VariantTy::new("s").unwrap()), &"command".to_variant());

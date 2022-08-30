@@ -1,11 +1,11 @@
 use crate::view::config;
 use crate::model::addr;
 use crate::model::listing::window;
-use crate::view::listing::component;
+use crate::view::listing::facet;
 
 #[derive(Debug)]
 pub struct Scroller {
-    pub events: component::Events,
+    pub events: facet::Events,
 
     position: f64,
     velocity: f64,
@@ -18,7 +18,7 @@ pub struct Scroller {
 impl Scroller {
     pub fn new() -> Scroller {
         Scroller {
-            events: component::Events::new(),
+            events: facet::Events::new(),
             position: 0.0,
             velocity: 0.0,
             bonked_top: false,
@@ -43,7 +43,7 @@ impl Scroller {
         self.events.want_animate();
     }
 
-    pub fn animate(&mut self, window: &mut window::FixedWindow, cursor_view: &component::cursor::CursorView, ais: f64) {
+    pub fn animate(&mut self, window: &mut window::FixedWindow, cursor_view: &facet::cursor::CursorView, ais: f64) {
         let cfg = config::get();
         
         {
@@ -132,7 +132,7 @@ impl Scroller {
     pub fn ensure_cursor_is_in_view(
         &mut self,
         window: &mut window::FixedWindow,
-        cursor_view: &component::cursor::CursorView,
+        cursor_view: &facet::cursor::CursorView,
         dir: EnsureCursorInViewDirection) {
         let cfg = config::get();
         

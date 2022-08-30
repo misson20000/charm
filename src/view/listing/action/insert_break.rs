@@ -1,13 +1,14 @@
 use std::rc;
 use std::sync;
 
-use gtk::prelude::*;
-
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::BreakMapExt;
 use crate::model::document::brk;
 use crate::view::listing::ListingWidget;
+
+use gtk::gio;
+use gtk::prelude::*;
 
 struct InsertBreakAction {
     dialog: gtk::Dialog,

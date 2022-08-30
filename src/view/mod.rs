@@ -1,12 +1,4 @@
-extern crate glib;
-extern crate cairo;
-extern crate gio;
-extern crate gtk;
-extern crate gdk;
-extern crate gdk_pixbuf;
-
-use gio::prelude::*;
-use gdk_pixbuf::prelude::*;
+use gtk::gio;
 use gtk::prelude::*;
 
 pub mod config;
@@ -68,12 +60,11 @@ impl CharmApplication {
 
     fn action_new_window(self: &rc::Rc<Self>) {
         let w = self.new_window();
-        w.show();
+        w.present();
     }
     
     fn action_about(self: &rc::Rc<Self>) {
-        self.about_dialog.run();
-        self.about_dialog.hide();
+        self.about_dialog.present();
     }
 
     fn new_window(self: &rc::Rc<Self>) -> rc::Rc<window::CharmWindow> {
@@ -87,7 +78,7 @@ impl CharmApplication {
         about_dialog.set_comments(Some("A listing editor that tries to be at least not bad."));
         about_dialog.set_copyright(Some("Copyright 2020 misson20000"));
         about_dialog.set_license_type(gtk::License::Gpl20Only);
-        about_dialog.set_program_name("Charm");
+        about_dialog.set_program_name(Some("Charm"));
         about_dialog.set_version(Some("0.1.0"));
         about_dialog.set_website(Some("https://charm.xenotoad.net"));
 
@@ -113,17 +104,7 @@ pub fn launch_application() {
     /* startup */
     { let app_model_clone = app_model_for_closures.clone();
       application.connect_startup(move |app| {
-          /* set default icon */
-          let charm_icon = include_bytes!("charm.png");
-          let pixbuf_loader = gdk_pixbuf::PixbufLoader::new();
-          if let Some(pixbuf) = pixbuf_loader.write(charm_icon).ok().and_then(|_| {
-              pixbuf_loader.close().ok()
-          }).and_then(|_| {
-              pixbuf_loader.pixbuf()
-          }) {
-              gtk::Window::set_default_icon(&pixbuf);
-          }
-          
+          // TODO: figure out gtk4 icon hellscape
           *app_model_clone.borrow_mut() = Some(CharmApplication::new(app.clone()));
       });
     }
@@ -154,7 +135,7 @@ pub fn launch_application() {
           for file in files {
               let w = app_model_ptr.new_window();
               w.open_file(file);
-              w.show();
+              w.present();
           }
       });
     }

@@ -6,7 +6,7 @@ use crate::view;
 use crate::model::datapath;
 use crate::model::document;
 
-use gtk::prelude::*;
+use gtk::glib;
 
 pub struct DataPathModel {
     document_host: sync::Arc<document::DocumentHost>,

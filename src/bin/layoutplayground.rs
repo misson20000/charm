@@ -1,4 +1,5 @@
 use std::fmt;
+use std::vec;
 
 use charm::logic::tokenizer;
 use charm::model::listing::layout;
@@ -37,6 +38,26 @@ impl<'a> fmt::Display for TokenExampleFormat<'a> {
     }
 }
 
+struct Line {
+    indent: usize,
+    tokens: vec::Vec<token::Token>
+}
+
+impl layout::Line for Line {
+    type TokenIterator = vec::IntoIter<token::Token>;
+    
+    fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
+        Line {
+            indent: tokens[0].depth,
+            tokens: tokens.into(),
+        }
+    }
+
+    fn to_tokens(self) -> Self::TokenIterator {
+        self.tokens.into_iter()
+    }
+}
+
 fn main() {
     let mut args = std::env::args_os();
     args.next().expect("expected argv[0]");
@@ -49,7 +70,7 @@ fn main() {
         Err(e) => panic!("{}", e)
     };
     let tc = tokenizer::xml::Testcase::from_xml(&document);
-    let mut window = layout::Window::new(&tc.structure);
+    let mut window = layout::Window::<Line>::new(&tc.structure);
 
     window.resize(150);
 
