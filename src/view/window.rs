@@ -145,6 +145,14 @@ impl CharmWindow {
                 vpaned.set_end_child(Some(&datapath_editor_frame));
             }
 
+            /* When window is resized, resize the listing view. */
+            vpaned.set_resize_start_child(true);
+            vpaned.set_resize_end_child(false);
+
+            /* Respect minimum sizes. */
+            vpaned.set_shrink_start_child(false);
+            vpaned.set_shrink_end_child(false);
+            
             vpaned.set_hexpand(true);
             hpaned.set_start_child(Some(&vpaned));
         }
@@ -165,6 +173,11 @@ impl CharmWindow {
             hpaned.set_end_child(Some(&config_editor_frame));
         }
 
+        hpaned.set_resize_start_child(true);
+        hpaned.set_resize_end_child(false);
+        hpaned.set_shrink_start_child(false);
+        hpaned.set_shrink_end_child(false);
+        
         hpaned.set_vexpand(true);
         main_box.append(&hpaned);                
         
