@@ -9,19 +9,29 @@ use crate::model::document::structure;
 
 #[derive(Clone, Debug)]
 enum TokenizerState {
-    PreBlank, //< if going downward, would emit Null token.
-    Title, //< if going downward, would emit Title token.
-    Content(addr::Offset, usize), //< if going downward, would emit either the indexed child, or content starting at the offset.
+    PreBlank,
+    Title,
+    
+    MetaContent(addr::Address, usize),
+    Hexdump(addr::Extent, usize),
+    Hexstring(addr::Extent, usize),
+    
     SummaryOpener,
-    SummaryItem(usize),
+    /// The argument here is an index for which child is being labelled. Does not tolerate one-past-the-end.
+    SummaryLabel(usize),
+    /// The argument here is an index for which child comes before the separator. Does not tolerate one-past-the-end.
+    /// We still go through this state for the last child, even though it doesn't have a separator after it,
+    /// we just suppress that token when it comes time to generate it.
     SummarySeparator(usize),
     SummaryCloser,
+    SummaryNewline,
 
-    SummaryLabel,
-    SummaryValue,
+    SummaryValueBegin,
+    SummaryLeaf,
+    SummaryValueEnd,
 
-    PostBlank, //< if going downward, would emit Null token.
-    End, //< if going downward, we've hit the end of this node's content.
+    PostBlank,
+    End,
 }
 
 #[derive(Clone)]
@@ -44,6 +54,12 @@ pub struct Tokenizer {
     depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,
+}
+
+pub enum TokenGenerationResult {
+    Ok(token::Token),
+    Skip,
+    Boundary,
 }
 
 enum AscendDirection {
@@ -116,410 +132,439 @@ impl Tokenizer {
             node_addr: addr::unit::NULL,
         }
     }
-    
-    /// Yield the token positioned before the seek head, and regress the seek head.
-    pub fn prev(&mut self) -> Option<token::Token> {
-        loop {
-            match self.state {
-                TokenizerState::PreBlank => {
-                    /* try to ascend hierarchy by popping the stack */
-                    if !self.try_ascend(AscendDirection::Prev) {
-                        break None;
-                    }
-                    /* retry using the parent's state. */
-                    continue;
-                },
-                TokenizerState::Title => {
-                    self.state = TokenizerState::PreBlank;
-                    if self.node.title_display.has_blanks() {
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: true,
-                        });
-                    } else {
-                        continue;
-                    }
-                },
-                TokenizerState::Content(offset, index) => {
-                    let prev_child_option = match index {
-                        0 => None,
-                        /* Something is seriously wrong if index was farther than one-past-the-end. */
-                        i => Some(&self.node.children[i-1])
-                    };
 
-                    /* Should we descend? */
-                    if let Some(prev_child) = prev_child_option {
-                        if prev_child.end() >= offset {
-                            self.descend(
-                                prev_child.clone(),
-                                /* If we ascend going backwards, ascend to immediately before this child. */
-                                TokenizerState::Content(prev_child.offset, index - 1),
-                                /* If we ascend going forwards, ascend to immediately after this child. */
-                                TokenizerState::Content(prev_child.end(), index),
-                                /* Descend to the end of the child. */
-                                TokenizerState::End);
-                            /* Re-enter loop */
-                            continue;
-                        }
-                    }
+    fn gen_token(&self) -> TokenGenerationResult {
+        match self.state {
+            TokenizerState::PreBlank => if self.node.title_display.has_blanks() {
+                TokenGenerationResult::Ok(token::Token {
+                    class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                    node: self.node.clone(),
+                    node_addr: self.node_addr,
+                    depth: self.depth,
+                    newline: true,
+                })
+            } else {
+                TokenGenerationResult::Skip
+            },
+            TokenizerState::Title => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Title,
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth,
+                newline: !self.node.title_display.is_inline(),
+            }),
+            
+            TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
+            TokenizerState::Hexdump(extent, _) => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Hexdump(extent),
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth + 1,
+                newline: true,
+            }),
+            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Hexstring(extent),
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth + 1,
+                newline: true,
+            }),
+            
+            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth,
+                newline: false,
+            }),
+            TokenizerState::SummaryLabel(i) => {
+                let ch = &self.node.children[i];
+                TokenGenerationResult::Ok(token::Token {
+                    class: token::TokenClass::SummaryLabel,
+                    node: ch.node.clone(),
+                    node_addr: self.node_addr + ch.offset.to_size(),
+                    depth: self.depth,
+                    newline: false,
+                })
+            },
+            TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
+                TokenGenerationResult::Ok(token::Token {  
+                    class: token::TokenClass::Punctuation(token::PunctuationClass::Comma),
+                    node: self.node.clone(),
+                    node_addr: self.node_addr,
+                    depth: self.depth,
+                    newline: false,
+                })
+            } else {
+                TokenGenerationResult::Skip
+            },
+            TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth,
+                newline: false,
+            }),
+            TokenizerState::SummaryNewline => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                node: self.node.clone(),
+                node_addr: self.node_addr,
+                depth: self.depth,
+                newline: true,
+            }),
+            
+            TokenizerState::SummaryValueBegin => TokenGenerationResult::Skip,
+            TokenizerState::SummaryLeaf => {
+                let limit = std::cmp::min(16.into(), self.node.size);
+                let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
+                
+                TokenGenerationResult::Ok(token::Token {
+                    class: match self.node.content_display {
+                        structure::ContentDisplay::None => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                        structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
+                        structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
+                    },
+                    node: self.node.clone(),
+                    node_addr: self.node_addr,
+                    depth: self.depth,
+                    newline: false,
+                })
+            },
+            TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
 
-                    /* Is there any content left? */
-                    if offset > addr::unit::ZERO {
-                        /* Where would we *like* to begin, as decided by our content's preferred pitch? */
-                        let preferred_begin = self.node.content_display.preferred_pitch().map(|pitch| {
-                            pitch * ((offset - addr::unit::BIT) / pitch)
-                        });
-
-                        /* Where can we not begin before? */
-                        let limit = match prev_child_option {
-                            /* Can't include data from the child, so need to stop after its end. */
-                            Some(prev_child) => prev_child.end(),
-                            /* Can't include data that belongs to the parent, so need to stop before our begin. */
-                            None => addr::unit::ZERO,
-                        };
-
-                        /* Pick a place to begin this line. */
-                        let begin = preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit));
-
-                        let extent = addr::Extent::between(begin.to_addr(), offset.to_addr());
-                        
-                        self.state = TokenizerState::Content(begin, index);
-
-                        break Some(token::Token {
-                            class: match self.node.content_display {
-                                /* Skip this token and try again. */
-                                structure::ContentDisplay::None => continue,
-                                
-                                structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
-                                structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
-                            },
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth + 1,
-                            newline: true,
-                        });
-                    } else {
-                        /* We're pointed at the beginning. Emit the title block. */
-                        self.state = TokenizerState::Title;
-                        break Some(token::Token {
-                            class: token::TokenClass::Title,
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: !self.node.title_display.is_inline(),
-                        });
-                    }
-                },
-                TokenizerState::SummaryOpener => {
-                },
-                TokenizerState::SummaryLabel(i) => {
-                },
-                TokenizerState::SummaryValue => {
-                },
-                TokenizerState::SummarySeparator(i) => {
-                },
-                TokenizerState::SummaryCloser => {
-                    if self.node.children.len() == 0 {
-                        /* No children. */
-                        self.state = TokenizerState::SummaryOpener;
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: false,
-                        });
-                    } else {
-                        self.state = TokenizerState::SummarySeparator(self.node.children.len()-1);
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::Comma),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth+1,
-                            newline: false,
-                        });                        
-                    }
-                },
-                TokenizerState::PostBlank => {
-                    /* Bump state to content and retry. */
-                    match self.node.children_display {
-                        structure::ChildrenDisplay::None => {
-                            self.state = TokenizerState::Content(self.node.size, self.node.children.len());
-                            continue;
-                        },
-                        structure::ChildrenDisplay::Summary => {
-                            self.state = TokenizerState::SummaryCloser;
-                            break Some(token::Token {
-                                class: token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
-                                node: self.node.clone(),
-                                node_addr: self.node_addr,
-                                depth: self.depth,
-                                newline: true,
-                            });
-                        },
-                        structure::ChildrenDisplay::Full => {
-                            self.state = TokenizerState::Content(self.node.size, self.node.children.len());
-                            continue;
-                        },
-                    }
-                },
-                TokenizerState::End => {
-                    self.state = TokenizerState::PostBlank;
-                    if self.node.title_display.has_blanks() {
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: true,
-                        });
-                    } else {
-                        continue;
-                    }
-                },
-            }
+            TokenizerState::PostBlank => if self.node.title_display.has_blanks() {
+                TokenGenerationResult::Ok(token::Token {
+                    class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                    node: self.node.clone(),
+                    node_addr: self.node_addr,
+                    depth: self.depth,
+                    newline: true,
+                })
+            } else {
+                TokenGenerationResult::Skip
+            },
+            TokenizerState::End => TokenGenerationResult::Skip,
         }
     }
 
-    /// Yield the token positioned after the seek head, and advance the seek head.
-    pub fn next(&mut self) -> Option<token::Token> {
-        loop {
-            match self.state {
-                TokenizerState::PreBlank => {
-                    self.state = TokenizerState::Title;
-                    if self.node.title_display.has_blanks() {
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: true,
-                        });
-                    } else {
-                        continue;
+    /// Moves one (potential) token backwards in the stream.
+    /// Returns true when successful, or false if hit the beginning of the token stream.
+    fn move_prev(&mut self) -> bool {
+        match self.state {
+            TokenizerState::PreBlank => {
+                self.try_ascend(AscendDirection::Prev)
+            },
+            TokenizerState::Title => {
+                self.state = TokenizerState::PreBlank;
+                true
+            },
+            
+            TokenizerState::MetaContent(offset, index) => {
+                let prev_child_option = match index {
+                    0 => None,
+                    /* Something is seriously wrong if index was farther than one-past-the-end. */
+                    i => Some(&self.node.children[i-1])
+                };
+
+                /* Descend, if we can. */
+                if let Some(prev_child) = prev_child_option {
+                    if prev_child.end() >= offset {
+                        self.descend(
+                            prev_child.clone(),
+                            /* If we ascend going backwards, ascend to immediately before this child. */
+                            TokenizerState::MetaContent(prev_child.offset, index - 1),
+                            /* If we ascend going forwards, ascend to immediately after this child. */
+                            TokenizerState::MetaContent(prev_child.end(), index),
+                            /* Descend to the end of the child. */
+                            TokenizerState::End);
+
+                        return true;
                     }
-                },
-                TokenizerState::Title => {
-                    let token = token::Token {
-                        class: token::TokenClass::Title,
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth,
-                        newline: !self.node.title_display.is_inline(),
-                    };
-
-                    /* This is an evil prank wherein we descend to ourselves so
-                       that when we get around to SummaryCloser, it can always
-                       ascend regardless of whether it was nested (and needs to
-                       transition to the parent's SummarySeparator) or not (and
-                       needs to transition to its own PostBlank). */
-                    
-                    match self.node.children_display {
-                        structure::ChildrenDisplay::None => {
-                            self.state = TokenizerState::Content(addr::unit::ZERO, 0);
-                        },
-                        structure::ChildrenDisplay::Summary => {
-                            let stack_entry = TokenizerStackEntry {
-                                stack: self.stack.take(),
-                                before_state: 
-                            };
-                            TokenizerState::SummaryOpener,
-                        },
-                        structure::ChildrenDisplay::Full => {
-                            self.state = TokenizerState::Content(addr::unit::ZERO, 0);
-                        }
-                    };
-                    
-                    break Some(token);
-                },
-                TokenizerState::Content(offset, index) => {
-                    let next_child_option = self.node.children.get(index);
-                    
-                    /* Should we descend? */
-                    if let Some(next_child) = next_child_option {
-                        if next_child.offset <= offset {
-                            self.descend(
-                                next_child.clone(),
-                                /* If we ascend going backwards, ascend to before this child. */
-                                TokenizerState::Content(next_child.offset, index),
-                                /* If we ascend going forwards, ascend to after this child. */
-                                TokenizerState::Content(next_child.end(), index + 1),
-                                /* Descend to the beginning of the child. */
-                                TokenizerState::PreBlank);
-                            /* Re-enter loop */
-                            continue;
-                        }
-                    }
-
-                    /* Is there any content left? */
-                    if offset < self.node.size {
-                        /* Where would we *like* to end, as decided by our content's preferred pitch? */
-                        let preferred_end = self.node.content_display.preferred_pitch().map(|pitch| {
-                            pitch * ((offset / pitch) + 1)
-                        });
-
-                        /* Where can we not end beyond? */
-                        let limit = match next_child_option {
-                            /* Can't include data from the child, so need to stop before it begins. */
-                            Some(next_child) => next_child.offset,
-                            /* Can't include data that belongs to the parent, so need to stop before we end. */
-                            None => self.node.size,
-                        };
-
-                        /* Pick a place to end this line. */
-                        let end = preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit));
-
-                        let extent = addr::Extent::between(offset.to_addr(), end.to_addr());
-                        
-                        /* It's ok if this puts us past the end of the data,
-                         * since we'll just go through the End state the next
-                         * time next() is called. */
-                        self.state = TokenizerState::Content(end, index);
-                        
-                        break Some(token::Token {
-                            class: match self.node.content_display {
-                                /* Skip this token and try again. */
-                                structure::ContentDisplay::None => continue,
-
-                                structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
-                                structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
-                            },
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth + 1,
-                            newline: true,
-                        });
-                    } else {
-                        /* We were pointed at (or past!) the end. Fixup state and retry. */
-                        self.state = TokenizerState::PostBlank;
-                        continue;
-                    }
-                },
-                TokenizerState::SummaryOpener => {
-                    self.state = TokenizerState::SummaryLabel(0);
-                    break Some(token::Token {
-                        class: token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth,
-                        newline: true,
-                    });
-                },
-                TokenizerState::SummaryChild(i) => {
-                    if i >= self.node.children.len() {
-                        /* No children left */
-                        self.state = TokenizerState::SummaryCloser;
-                        continue;
-                    }
-
-                    let child = self.node.children[i].clone();
-                    let token = token::Token {
-                        class: token::TokenClass::SummaryLabel,
-                        node: child.node.clone(),
-                        node_addr: self.node
-                    };
-                    
-                    self.descend(
-                        self.node.children[i].clone(),
-                        TokenizerState::SummaryChild(i),
-                        TokenizerState::SummarySeparator(i),
-                        TokenizerState::SummaryLabel);
-
-                    /* Let the child tokenizer emit its own label. */
-                    continue;
-                },
-                TokenizerState::SummaryLabel => {
-                    self.state = TokenizerState::SummaryValue;
-                    break Some(token::Token {
-                        class: token::TokenClass::SummaryLabel,
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth + 1,
-                        newline: false,
-                    });
-                },
-                TokenizerState::SummaryValue => {
-                    if self.node.children.len() > 0 {
-                        /* If this isn't a leaf node, represent it as a nested summary. */
-                        self.state = TokenizerState::SummaryOpener;
-                        continue;
-                    }
-                    
-                    /* This is a leaf node, so figure out how to represent the content. */
-                    let limit = std::cmp::min(16.into(), self.node.size);
-                    let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
-                    
-                    let token = token::Token {
-                        class: match self.node.content_display {
-                            /* Skip this token and try again. */
-                            structure::ContentDisplay::None => continue,
-
-                            structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
-                            structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
-                        },
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth,
-                        newline: false,
-                    };
-
-                    assert!(self.try_ascend(AscendDirection::Next));
-                    
-                    break Some(token);
-                },
-                TokenizerState::SummarySeparator(i) => {
-                    if i+1 >= self.node.children.len() {
-                        /* No children left */
-                        self.state = TokenizerState::SummaryCloser;
-                        continue;
-                    }
-
-                    self.state = TokenizerState::SummaryLabel(i+1);
-                    break Some(token::Token {
-                        class: token::TokenClass::Punctuation(token::PunctuationClass::Comma),
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth + 1,
-                        newline: true,
-                    });
-                },
-                TokenizerState::SummaryCloser => {
-                    self.state = TokenizerState::PostBlank;
-                    break Some(token::Token {
-                        class: token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
-                        node: self.node.clone(),
-                        node_addr: self.node_addr,
-                        depth: self.depth,
-                        newline: false,
-                    });
-                },
-                TokenizerState::PostBlank => {
-                    self.state = TokenizerState::End;
-                    if self.node.title_display.has_blanks() {
-                        break Some(token::Token {
-                            class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                            node: self.node.clone(),
-                            node_addr: self.node_addr,
-                            depth: self.depth,
-                            newline: true,
-                        });
-                    } else {
-                        continue;
-                    }
-                },
-                TokenizerState::End => {
-                    /* try to ascend hierarchy by popping the stack */
-                    if !self.try_ascend(AscendDirection::Next) {
-                        break None;
-                    }
-                    /* retry using the parent's state. */
-                    continue;
                 }
+
+                /* Emit content, if we can. */
+                if offset > addr::unit::NULL {
+                    /* Where would we *like* to begin, as decided by our content's preferred pitch? */
+                    let preferred_begin = self.node.content_display.preferred_pitch().map(|pitch| {
+                        (pitch * ((offset - addr::unit::BIT).to_size() / pitch)).to_addr()
+                    });
+
+                    /* Where can we not begin before? */
+                    let limit = match prev_child_option {
+                        /* Can't include data from the child, so need to stop after its end. */
+                        Some(prev_child) => prev_child.end(),
+                        /* Can't include data that belongs to the parent, so need to stop before our begin. */
+                        None => addr::unit::NULL,
+                    };
+
+                    /* Pick a place to begin this line. */
+                    let begin = preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit));
+
+                    let extent = addr::Extent::between(begin, offset);
+                        
+                    self.state = match self.node.content_display {
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
+                        structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
+                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
+                    };
+                    
+                    return true;
+                }
+                
+                /* We're pointed at the beginning. Emit the title block. */
+                self.state = TokenizerState::Title;
+                true
+            },
+            TokenizerState::Hexstring(extent, index) => {
+                self.state = TokenizerState::MetaContent(extent.begin, index);
+                true
+            },
+            TokenizerState::Hexdump(extent, index) => {
+                self.state = TokenizerState::MetaContent(extent.begin, index);
+                true
+            },
+
+            TokenizerState::SummaryOpener => {
+                self.try_ascend(AscendDirection::Prev)
+            },
+            TokenizerState::SummaryLabel(i) => {
+                if i == 0 {
+                    self.state = TokenizerState::SummaryOpener;
+                } else {
+                    self.state = TokenizerState::SummarySeparator(i-1);
+                }
+                true
+            },
+            TokenizerState::SummarySeparator(i) => {
+                self.descend(
+                    self.node.children[i].clone(),
+                    TokenizerState::SummaryLabel(i),
+                    TokenizerState::SummarySeparator(i),
+                    TokenizerState::SummaryValueEnd);
+                true
+            },
+            TokenizerState::SummaryCloser => {
+                if self.node.children.len() == 0 {
+                    self.state = TokenizerState::SummaryOpener;
+                } else {
+                    self.state = TokenizerState::SummarySeparator(self.node.children.len()-1);
+                }
+                true
+            },
+            TokenizerState::SummaryNewline => {
+                self.descend_self(
+                    TokenizerState::Title,
+                    TokenizerState::SummaryNewline,
+                    TokenizerState::SummaryCloser);
+                true
+            },
+            
+            TokenizerState::SummaryValueBegin => {
+                // should take us to SummaryLabel(i)
+                self.try_ascend(AscendDirection::Prev)
+            },
+            TokenizerState::SummaryLeaf => {
+                self.state = TokenizerState::SummaryValueBegin;
+                true
+            },
+            TokenizerState::SummaryValueEnd => {
+                if self.node.children.len() == 0 {
+                    self.state = TokenizerState::SummaryLeaf;
+                } else {
+                    self.state = TokenizerState::SummaryCloser;
+                }
+                true
+            },
+
+            TokenizerState::PostBlank => {
+                match self.node.children_display {
+                    structure::ChildrenDisplay::None => {
+                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                    },
+                    structure::ChildrenDisplay::Summary => {
+                        self.state = TokenizerState::SummaryNewline;
+                    },
+                    structure::ChildrenDisplay::Full => {
+                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                    },
+                }
+                true
+            },
+            TokenizerState::End => {
+                self.state = TokenizerState::PostBlank;
+                true
+            },
+        }
+    }
+
+    /// Moves one (potential) token forwards in the stream.
+    /// Returns true when successful, or false if hit the end of the token stream.
+    fn move_next(&mut self) -> bool {
+        match self.state {
+            TokenizerState::PreBlank => {
+                self.state = TokenizerState::Title;
+                true
+            },
+            TokenizerState::Title => {
+                match self.node.children_display {
+                    structure::ChildrenDisplay::None => {
+                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
+                    },
+                    structure::ChildrenDisplay::Summary => {
+                        self.descend_self(
+                            TokenizerState::Title,
+                            TokenizerState::SummaryNewline,
+                            TokenizerState::SummaryOpener);
+                    },
+                    structure::ChildrenDisplay::Full => {
+                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
+                    },
+                }
+                true
+            },
+            TokenizerState::MetaContent(offset, index) => {
+                let next_child_option = self.node.children.get(index);
+                
+                /* Descend, if we can. */
+                if let Some(next_child) = next_child_option {
+                    if next_child.offset <= offset {
+                        self.descend(
+                            next_child.clone(),
+                            /* If we ascend going backwards, ascend to before this child. */
+                            TokenizerState::MetaContent(next_child.offset, index),
+                            /* If we ascend going forwards, ascend to after this child. */
+                            TokenizerState::MetaContent(next_child.end(), index + 1),
+                            /* Descend to the beginning of the child. */
+                            TokenizerState::PreBlank);
+
+                        return true;
+                    }
+                }
+
+                /* Emit content, if we can. */
+                if offset < self.node.size.to_addr() {
+                    /* Where would we *like* to end, as decided by our content's preferred pitch? */
+                    let preferred_end = self.node.content_display.preferred_pitch().map(|pitch| {
+                        (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
+                    });
+
+                    /* Where can we not end beyond? */
+                    let limit = match next_child_option {
+                        /* Can't include data from the child, so need to stop before it begins. */
+                        Some(next_child) => next_child.offset,
+                        /* Can't include data that belongs to the parent, so need to stop before we end. */
+                        None => self.node.size.to_addr(),
+                    };
+
+                    /* Pick a place to end this line. */
+                    let end = preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit));
+
+                    let extent = addr::Extent::between(offset, end);
+
+                    self.state = match self.node.content_display {
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
+                        structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
+                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
+                    };
+
+                    return true;
+                }
+
+                /* We were pointed at (or past!) the end. */
+                self.state = TokenizerState::PostBlank;
+                true
+            },
+            TokenizerState::Hexstring(extent, index) => {
+                self.state = TokenizerState::MetaContent(extent.end, index);
+                true
+            },
+            TokenizerState::Hexdump(extent, index) => {
+                self.state = TokenizerState::MetaContent(extent.end, index);
+                true
+            },
+
+            TokenizerState::SummaryOpener => {
+                if self.node.children.len() == 0 {
+                    self.state = TokenizerState::SummaryCloser;
+                } else {
+                    self.state = TokenizerState::SummaryLabel(0);
+                }
+                true
+            },
+            TokenizerState::SummaryLabel(i) => {
+                self.descend(
+                    self.node.children[i].clone(),
+                    TokenizerState::SummaryLabel(i),
+                    TokenizerState::SummarySeparator(i),
+                    TokenizerState::SummaryValueBegin);
+                true
+            },
+            TokenizerState::SummarySeparator(i) => {
+                if self.node.children.len() == i + 1 {
+                    self.state = TokenizerState::SummaryCloser;
+                } else {
+                    self.state = TokenizerState::SummaryLabel(i+1);
+                }
+                true
+            },
+            TokenizerState::SummaryCloser => {
+                self.try_ascend(AscendDirection::Next)
+            },
+            TokenizerState::SummaryNewline => {
+                self.state = TokenizerState::PostBlank;
+                true
+            },
+
+            TokenizerState::SummaryValueBegin => {
+                if self.node.children.len() == 0 {
+                    self.state = TokenizerState::SummaryLeaf;
+                } else {
+                    self.state = TokenizerState::SummaryOpener;
+                }
+                true
+            },
+            TokenizerState::SummaryLeaf => {
+                self.state = TokenizerState::SummaryValueEnd;
+                true
+            },
+            TokenizerState::SummaryValueEnd => {
+                self.try_ascend(AscendDirection::Next)
+            },
+
+            TokenizerState::PostBlank => {
+                self.state = TokenizerState::End;
+                true
+            },
+            TokenizerState::End => {
+                self.try_ascend(AscendDirection::Next)
+            },
+        }
+    }
+    
+    pub fn prev(&mut self) -> Option<token::Token> {
+        while self.move_prev() {
+            match self.gen_token() {
+                TokenGenerationResult::Ok(token) => return Some(token),
+                TokenGenerationResult::Skip => continue,
+                TokenGenerationResult::Boundary => return None,
             }
         }
+        None
+    }
+
+    pub fn next(&mut self) -> Option<token::Token> {
+        let mut token;
+        while {
+            token = self.gen_token();
+            self.move_next()
+        } {
+            match token {
+                TokenGenerationResult::Ok(token) => return Some(token),
+                TokenGenerationResult::Skip => continue,
+                TokenGenerationResult::Boundary => return None,
+            }
+        }
+        None
     }
 
     /// Pushes an entry onto the tokenizer stack and sets up for traversing
@@ -552,8 +597,24 @@ impl Tokenizer {
         self.depth+= 1;
         self.stack = Some(sync::Arc::new(parent_entry));
         self.state = state_within;
-        self.node_addr+= into_child.offset;
+        self.node_addr+= into_child.offset.to_size();
     }
+
+    fn descend_self(
+        &mut self,
+        state_before: TokenizerState,
+        state_after: TokenizerState,
+        state_within: TokenizerState) {
+        self.stack = Some(sync::Arc::new(TokenizerStackEntry {
+            stack: self.stack.take(),
+            before_state: state_before,
+            after_state: state_after,
+            depth: self.depth,
+            node: self.node.clone(),
+            node_addr: self.node_addr,
+        }));
+        self.state = state_within;
+    }        
     
     /// Replaces our context with the parent's context, returning false if there
     /// was no parent.
@@ -662,7 +723,11 @@ pub mod xml {
                 collection.push(TokenDef {
                     class: match c.tag_name().name() {
                         "null" => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                        "open" => token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
+                        "comma" => token::TokenClass::Punctuation(token::PunctuationClass::Comma),
+                        "close" => token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
                         "title" => token::TokenClass::Title,
+                        "summlabel" => token::TokenClass::SummaryLabel,
                         "hexdump" => token::TokenClass::Hexdump(inflate_extent(&c)),
                         "hexstring" => token::TokenClass::Hexstring(inflate_extent(&c)),
                         tn => panic!("invalid token def: '{}'", tn)
@@ -684,11 +749,11 @@ pub mod xml {
         
     fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> structure::Childhood {
         let offset = match xml.attribute("offset") {
-            Some(addr) => addr::Address::parse(addr).unwrap().to_size(),
-            None => addr::unit::ZERO
+            Some(addr) => addr::Address::parse(addr).unwrap(),
+            None => addr::unit::NULL
         };
         structure::Childhood {
-            node: inflate_structure(xml, parent_addr + offset, map),
+            node: inflate_structure(xml, parent_addr + offset.to_size(), map),
             offset,
         }
     }
@@ -841,6 +906,13 @@ pub mod tests {
     }
 
     #[test]
+    fn summary() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/summary.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
+    }
+    
+    #[test]
     fn hardcoded() {
         let mut root = structure::Node {
             name: "root".to_string(),
@@ -864,7 +936,7 @@ pub mod tests {
         
         root.children.push(structure::Childhood {
             node: child.clone(),
-            offset: addr::Size::from(0x32)
+            offset: addr::Address::from(0x32)
         });
 
         let root = sync::Arc::new(root);

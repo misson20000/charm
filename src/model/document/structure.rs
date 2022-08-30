@@ -28,11 +28,11 @@ pub enum ContentDisplay {
 #[derive(Debug, Clone)]
 pub struct Childhood {
     pub node: sync::Arc<Node>,
-    pub offset: addr::Offset,
+    pub offset: addr::Address,
 }
 
 impl Childhood {
-    pub fn end(&self) -> addr::Offset {
+    pub fn end(&self) -> addr::Address {
         self.offset + self.node.size
     }
 }
