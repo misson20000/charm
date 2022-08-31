@@ -4,8 +4,8 @@ use std::sync;
 
 use crate::view::CharmApplication;
 use crate::model::document;
-use crate::model::space;
-use crate::model::space::AddressSpace;
+//use crate::model::space;
+//use crate::model::space::AddressSpace;
 use crate::view;
 
 use gtk::gio;
@@ -288,15 +288,18 @@ impl CharmWindow {
         let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
         let dn = attributes.attribute_as_string("standard::display-name").unwrap();
 
+        /*
         let space = std::sync::Arc::new(
             space::file::FileAddressSpace::open(
                 self.application.rt.handle().clone(),
                 &file.path().unwrap(),
                 &dn).unwrap(),
-        );
+    );
+        */
 
-        self.window.set_title(Some(format!("Charm: {}", space.get_label()).as_str()));
-        WindowContext::new(self, document::Document::new(space)).attach(self);
+        self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
+        // TODO: error handling
+        WindowContext::new(self, document::Document::load_from_testing_structure(file.path().unwrap()).unwrap()).attach(self);
     }
 }
 

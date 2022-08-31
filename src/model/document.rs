@@ -171,7 +171,25 @@ impl DocumentHost {
 }
     */
 }
-    
+
+#[derive(Debug)]
+pub enum LoadForTestingError {
+    IoError(std::io::Error),
+    XmlError(roxmltree::Error),
+}
+
+impl From<std::io::Error> for LoadForTestingError {
+    fn from(e: std::io::Error) -> LoadForTestingError {
+        LoadForTestingError::IoError(e)
+    }
+}
+
+impl From<roxmltree::Error> for LoadForTestingError {
+    fn from(e: roxmltree::Error) -> LoadForTestingError {
+        LoadForTestingError::XmlError(e)
+    }
+}
+
 impl Document {
     pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Document {
         let mut datapath = datapath::DataPath::new();
@@ -194,6 +212,20 @@ impl Document {
         }
     }
 
+    pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
+        let xml = std::fs::read_to_string(path)?;
+        let xml = roxmltree::Document::parse(&xml)?;
+        let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
+
+        Ok(Document {
+            root: tc.structure,
+            datapath: datapath::DataPath::new(),
+            id: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
+            layout_generation: 0,
+            datapath_generation: 0,
+        })
+    }
+    
     pub fn invalid() -> Document {
         Document {
             root: sync::Arc::new(structure::Node {
