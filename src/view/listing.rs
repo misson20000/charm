@@ -47,14 +47,14 @@ impl layout::Line for Line {
     fn to_tokens(self) -> Self::TokenIterator {
         self.tokens.into_iter()
     }
-
 }
 
 struct RenderDetail {
-    config_version: usize,
+    config: sync::Arc<config::Config>,
     
     pango: pango::Context,
     font_mono: pango::Font,
+    metrics: pango::FontMetrics,
 }
 
 struct Interior {
@@ -98,19 +98,24 @@ impl WidgetImpl for ListingWidgetImp {
         }
     }
 
+    fn size_allocate(&self, widget: &Self::Type, width: i32, height: i32, baseline: i32) {
+        let mut interior = match self.interior.get() {
+            Some(interior) => interior.write(),
+            None => return,
+        };
+
+        interior.size_allocate(widget, width, height, baseline);
+    }
+    
     fn snapshot(&self, widget: &Self::Type, snapshot: &gtk::Snapshot) {
         let mut interior = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
         };
 
-        let config = config::get();
-        let render = &mut interior.render;
-        if render.config_version != config.version {
-            *render = ListingWidget::load_fonts(widget.pango_context());
-        }
+        let render = interior.refresh_render_detail(widget);
         
-        snapshot.append_color(&config::get().background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
+        snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
 
         render.pango.set_font_description(&render.font_mono.describe().unwrap());
         let items = pango::itemize(&render.pango, "foo", 0, 3, &pango::AttrList::new(), None);
@@ -121,7 +126,7 @@ impl WidgetImpl for ListingWidgetImp {
         let mut gs = pango::GlyphString::new();
         pango::shape("foo", &items[0].analysis(), &mut gs);
 
-        snapshot.append_node(gsk::TextNode::new(&render.font_mono, &mut gs, &config::get().text_color, &graphene::Point::new(50.0, 50.0)).unwrap());
+        snapshot.append_node(gsk::TextNode::new(&render.font_mono, &mut gs, &render.config.text_color, &graphene::Point::new(50.0, 50.0)).unwrap());
     }
 }
 
@@ -143,34 +148,65 @@ impl ListingWidget {
     pub fn new() -> ListingWidget {
         glib::Object::new(&[]).expect("failed to create ListingWidget")
     }
-
-    fn load_fonts(pg: pango::Context) -> RenderDetail {
-        let config = config::get();
-        
-        let fm = pg.font_map().unwrap();
-
-        let font_mono = fm.load_font(&pg, &config.monospace_font).expect("expected to be able to load selected font");
-        
-        RenderDetail {
-            config_version: config.version,
-            
-            pango: pg,
-            font_mono,
-        }
-    }
     
     pub fn init(&self, _window: &view::window::CharmWindow, document_host: &sync::Arc<document::DocumentHost>) {
-        let render = Self::load_fonts(self.pango_context());
+        let render = RenderDetail::new(config::copy(), self.pango_context());
         
-        let interior = Interior {
+        let mut interior = Interior {
             document_host: document_host.clone(),
             window: layout::Window::new(&document_host.get_document().root),
 
             render,
         };
 
+        /* Set the initial size. */
+        interior.size_allocate(
+            self,
+            self.allocated_width(),
+            self.allocated_height(),
+            self.allocated_baseline());
+
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
 
         self.imp().init(interior);
+    }
+}
+
+impl RenderDetail {
+    fn new(config: config::Copy, pg: pango::Context) -> RenderDetail {
+        let fm = pg.font_map().unwrap();
+
+        let font_mono = fm.load_font(&pg, &config.monospace_font).expect("expected to be able to load selected font");
+        let metrics = font_mono.metrics(Option::<&pango::Language>::None).unwrap();
+        
+        RenderDetail {
+            config,
+            pango: pg,
+            font_mono,
+            metrics,
+        }
+    }
+}
+
+impl Interior {
+    fn refresh_render_detail(&mut self, widget: &ListingWidget) -> &RenderDetail {
+        let config = config::borrow();
+        if !sync::Arc::ptr_eq(&self.render.config, &*config) {
+            self.render = RenderDetail::new(config.clone(), widget.pango_context());
+        }
+        &self.render
+    }
+    
+    /// Resize the underlying window.
+    fn size_allocate(&mut self, widget: &ListingWidget, _width: i32, height: i32, _baseline: i32) {
+        let render = self.refresh_render_detail(widget);
+        let line_height = render.metrics.height();
+
+        // TODO: replace with div_ceil when it gets stabilized
+        // https://github.com/rust-lang/rust/issues/88581
+        //let line_count = height.div_ceil(line_height) as usize;
+        let line_count = ((height + line_height - 1) / line_height) as usize;
+
+        self.window.resize(line_count);
     }
 }

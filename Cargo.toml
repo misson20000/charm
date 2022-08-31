@@ -26,6 +26,7 @@ take_mut = "0.2.2"
 itertools = "0.10.3"
 roxmltree = "0.15.0"
 once_cell = "1.13.0"
+arc-swap = "1.5.1"
 
 [[bin]]
 name = "gtk"

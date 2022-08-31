@@ -7,9 +7,9 @@ use conv::ApproxInto;
 
 fn update_config<F: 'static, T>(cb: &F, val: T) where
     F: Fn(&mut config::Config, T) {
-    let mut cfg = config::set();
+    let mut cfg: config::Config = (**config::borrow()).clone();
     cb(&mut cfg, val);
-    cfg.version+= 1;
+    config::update(cfg);
 }
 
 fn edit_spinbutton_integer<T, F: 'static>(label: &str, default: T, setter: F) -> gtk::ListBoxRow where
@@ -113,7 +113,7 @@ fn edit_font<F: 'static>(label: &str, default: &pango::FontDescription, setter: 
 pub fn build_config_editor() -> gtk::ListBox {
     let lb = gtk::ListBox::new();
 
-    let current = config::get();
+    let current = config::borrow();
 
     lb.append(&edit_spinbutton_integer("File Access Delay", current.file_access_delay, |cfg, v| { cfg.file_access_delay = v; }));
     

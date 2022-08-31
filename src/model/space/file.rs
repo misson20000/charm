@@ -69,7 +69,7 @@ impl futures::Future for FetchFuture {
 
 #[cfg(feature = "gtk")]
 fn get_file_access_delay() -> u64 {
-    config::get().file_access_delay
+    config::borrow().file_access_delay
 }
 
 #[cfg(not(feature = "gtk"))]
