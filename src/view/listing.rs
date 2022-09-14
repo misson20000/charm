@@ -1,4 +1,4 @@
-//use std::iter;
+use std::iter;
 use std::sync;
 //use std::task;
 use std::vec;
@@ -20,7 +20,7 @@ use crate::view;
 use crate::view::gsc;
 //use crate::view::ext::CairoExt;
 
-use gtk::gdk;
+//use gtk::gdk;
 use gtk::glib;
 use gtk::graphene;
 use gtk::gsk;
@@ -29,35 +29,37 @@ use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
 //mod facet;
-//mod token;
+mod token_view;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
 
 struct Line {
-    tokens: vec::Vec<token::Token>,
+    tokens: vec::Vec<token_view::TokenView>,
     render_serial: u64,
     render_node: Option<gsk::RenderNode>,
 }
 
 impl layout::Line for Line {
-    //type TokenIterator = iter::Map<vec::IntoIter<token::TokenView>, fn(token::TokenView) -> token_model::Token>;
-    type TokenIterator = vec::IntoIter<token::Token>;
+    type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
     
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
         Line {
-            tokens,
+            tokens: tokens.into_iter().map(|t| token_view::TokenView::from(t)).collect(),
             render_serial: 0,
             render_node: None,
         }
     }
 
     fn to_tokens(self) -> Self::TokenIterator {
-        self.tokens.into_iter()
+        self.tokens.into_iter().map(|t| t.to_token())
     }
 }
 
-struct RenderDetail {
+// TODO: see if we can reduce visibility on this.
+// https://github.com/rust-lang/rust/issues/34537
+// I can't read that right now because I'm on an airplane.
+pub struct RenderDetail {
     config: sync::Arc<config::Config>,
     serial: u64,
     
@@ -138,22 +140,6 @@ impl WidgetImpl for ListingWidgetImp {
             }
             snapshot.translate(&graphene::Point::new(0.0, render.metrics.height() as f32 / pango::SCALE as f32));
         }
-
-        /*
-        render.pango.set_font_description(&render.font_bold.describe().unwrap());
-        let items = pango::itemize(&render.pango, "foo", 0, 3, &pango::AttrList::new(), None);
-        if items.len() != 1 {
-            panic!("expected exactly one pango::Item");
-        }
-
-        let mut gs = pango::GlyphString::new();
-        pango::shape("foo", &items[0].analysis(), &mut gs);
-
-        for i in 0..3 {
-            snapshot.append_node(gsk::TextNode::new(&items[0].analysis().font(), &mut gs, &render.config.text_color, &graphene::Point::new(50.0, 50.0)).unwrap());
-            snapshot.translate(&graphene::Point::new(gs.width() as f32 / pango::SCALE as f32, 0.0));
-        }
-        */
     }
 }
 
@@ -259,23 +245,6 @@ impl Line {
         self.render_node = None;
     }
 
-    fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str) {
-        let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
-
-        for item in items {
-            let mut gs = pango::GlyphString::new();
-            pango::shape(text, item.analysis(), &mut gs);
-            snapshot.append_node(
-                gsk::TextNode::new(
-                    font,
-                    &mut gs,
-                    color,
-                    &graphene::Point::zero())
-                    .unwrap());
-            snapshot.translate(&graphene::Point::new(gs.width() as f32 / pango::SCALE as f32, 0.0));
-        }
-    }
-
     fn render(&mut self, _widget: &ListingWidget, render: &RenderDetail) -> Option<gsk::RenderNode> {
         if let Some(rn) = self.render_node.as_ref() {
             if self.render_serial == render.serial {
@@ -284,59 +253,21 @@ impl Line {
         }
 
         let snapshot = gtk::Snapshot::new();
-        let lh = render.metrics.height() as f32 / pango::SCALE as f32;
-        snapshot.translate(&graphene::Point::new(0.0, lh));
+        let mut position = graphene::Point::zero();
 
         if let Some(first) = self.tokens.get(0) {
-            snapshot.translate(&graphene::Point::new(
+            position.set_x(
                 render.config.indentation_width *
                     render.gsc_mono.space_width() as f32 /
                     pango::SCALE as f32 *
-                    first.depth as f32, 0.0));
+                    first.get_indentation() as f32);
         }
         
-        for token in &self.tokens {
-            match token.class {
-                token::TokenClass::Punctuation(punct) => {
-                    render.gsc_mono.print(&snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color);
-                },
-                token::TokenClass::Title => {
-                    Self::render_text(
-                        &snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config.text_color,
-                        &token.node.name);
-                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color);
-                },
-                token::TokenClass::SummaryLabel => {
-                    Self::render_text(
-                        &snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config.text_color,
-                        &token.node.name);
-                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color);
-                },
-                token::TokenClass::Hexdump(extent) => {
-                    for i in 0..extent.length().bytes {
-                        let j = i as u8;
-                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0xf0 >> 4), &render.config.text_color);
-                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0x0f >> 0), &render.config.text_color);
-
-                        if i + 1 < extent.length().bytes {
-                            render.gsc_mono.print(&snapshot, gsc::Entry::Space, &render.config.text_color);
-                        }
-                    }
-                },
-                token::TokenClass::Hexstring(extent) => {
-                    for i in 0..extent.length().bytes {
-                        let j = i as u8;
-                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0xf0 >> 4), &render.config.text_color);
-                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0x0f >> 0), &render.config.text_color);
-                    }
-                },
-            }
+        for token in &mut self.tokens {
+            snapshot.save();
+            let advance = token.render(&snapshot, render, &position);
+            snapshot.restore();
+            position.set_x(position.x() + advance.x());
         }
 
         self.render_serial = render.serial;

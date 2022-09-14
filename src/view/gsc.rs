@@ -80,17 +80,38 @@ impl Cache {
         }
     }
 
-    pub fn print(&self, snapshot: &gtk::Snapshot, entry: Entry, color: &gdk::RGBA) {
+    pub fn print(&self, snapshot: &gtk::Snapshot, entry: Entry, color: &gdk::RGBA, pos: &mut graphene::Point) {
         if let Some(gs) = self.get(entry) {
             let mut gs = gs.clone();
             if let Some(tn) = gsk::TextNode::new(
                 &self.font,
                 &mut gs,
                 color,
-                &graphene::Point::zero()) {
+                pos) {
                 snapshot.append_node(tn);
             }
-            snapshot.translate(&graphene::Point::new(gs.width() as f32 / pango::SCALE as f32, 0.0));
+
+            let advance = gs.width() as f32 / pango::SCALE as f32;
+            pos.set_x(pos.x() + advance);
         }
+    }
+}
+
+pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str, pos: &mut graphene::Point) {
+    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
+
+    for item in items {
+        let mut gs = pango::GlyphString::new();
+        pango::shape(text, item.analysis(), &mut gs);
+        snapshot.append_node(
+            gsk::TextNode::new(
+                font,
+                &mut gs,
+                color,
+                pos)
+                .unwrap());
+
+        let advance = gs.width() as f32 / pango::SCALE as f32;
+        pos.set_x(pos.x() + advance);
     }
 }
