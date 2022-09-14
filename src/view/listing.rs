@@ -17,6 +17,7 @@ use crate::model::document;
 use crate::model::listing::layout;
 use crate::model::listing::token;
 use crate::view;
+use crate::view::gsc;
 //use crate::view::ext::CairoExt;
 
 use gtk::gdk;
@@ -56,26 +57,6 @@ impl layout::Line for Line {
     }
 }
 
-enum GlyphStringEntry {
-    Punctuation(token::PunctuationClass),
-    Digit(u8),
-    Colon,
-    Space,
-}
-
-struct GlyphStringCache {
-    font: pango::Font,
-    
-    gs_space: pango::GlyphString, // " "
-    gs_comma: pango::GlyphString, // ", "
-    gs_open: pango::GlyphString, // "{"
-    gs_close: pango::GlyphString, // "}"
-    gs_digit: [pango::GlyphString; 16], // "0", "1", ..., "f"
-    gs_colon: pango::GlyphString, // ": "
-
-    space_width: i32,
-}
-
 struct RenderDetail {
     config: sync::Arc<config::Config>,
     serial: u64,
@@ -85,8 +66,8 @@ struct RenderDetail {
     font_bold: pango::Font,
     metrics: pango::FontMetrics,
 
-    gsc_mono: GlyphStringCache,
-    gsc_bold: GlyphStringCache,
+    gsc_mono: gsc::Cache,
+    gsc_bold: gsc::Cache,
 }
 
 struct Interior {
@@ -234,8 +215,8 @@ impl RenderDetail {
             config,
             serial,
             
-            gsc_mono: GlyphStringCache::new(&pg, &font_mono),
-            gsc_bold: GlyphStringCache::new(&pg, &font_bold),
+            gsc_mono: gsc::Cache::new(&pg, &font_mono),
+            gsc_bold: gsc::Cache::new(&pg, &font_bold),
 
             pango: pg,
             font_mono,
@@ -317,7 +298,7 @@ impl Line {
         for token in &self.tokens {
             match token.class {
                 token::TokenClass::Punctuation(punct) => {
-                    render.gsc_mono.print(&snapshot, GlyphStringEntry::Punctuation(punct), &render.config.text_color);
+                    render.gsc_mono.print(&snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color);
                 },
                 token::TokenClass::Title => {
                     Self::render_text(
@@ -326,7 +307,7 @@ impl Line {
                         &render.font_bold,
                         &render.config.text_color,
                         &token.node.name);
-                    render.gsc_bold.print(&snapshot, GlyphStringEntry::Colon, &render.config.text_color);
+                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color);
                 },
                 token::TokenClass::SummaryLabel => {
                     Self::render_text(
@@ -335,24 +316,24 @@ impl Line {
                         &render.font_bold,
                         &render.config.text_color,
                         &token.node.name);
-                    render.gsc_bold.print(&snapshot, GlyphStringEntry::Colon, &render.config.text_color);
+                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color);
                 },
                 token::TokenClass::Hexdump(extent) => {
                     for i in 0..extent.length().bytes {
                         let j = i as u8;
-                        render.gsc_mono.print(&snapshot, GlyphStringEntry::Digit(j & 0xf0 >> 4), &render.config.text_color);
-                        render.gsc_mono.print(&snapshot, GlyphStringEntry::Digit(j & 0x0f >> 0), &render.config.text_color);
+                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0xf0 >> 4), &render.config.text_color);
+                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0x0f >> 0), &render.config.text_color);
 
                         if i + 1 < extent.length().bytes {
-                            render.gsc_mono.print(&snapshot, GlyphStringEntry::Space, &render.config.text_color);
+                            render.gsc_mono.print(&snapshot, gsc::Entry::Space, &render.config.text_color);
                         }
                     }
                 },
                 token::TokenClass::Hexstring(extent) => {
                     for i in 0..extent.length().bytes {
                         let j = i as u8;
-                        render.gsc_mono.print(&snapshot, GlyphStringEntry::Digit(j & 0xf0 >> 4), &render.config.text_color);
-                        render.gsc_mono.print(&snapshot, GlyphStringEntry::Digit(j & 0x0f >> 0), &render.config.text_color);
+                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0xf0 >> 4), &render.config.text_color);
+                        render.gsc_mono.print(&snapshot, gsc::Entry::Digit(j & 0x0f >> 0), &render.config.text_color);
                     }
                 },
             }
@@ -362,74 +343,5 @@ impl Line {
         self.render_node = snapshot.to_node();
 
         self.render_node.clone()
-    }
-}
-
-const DIGIT_STRINGS: [&'static str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
-
-impl GlyphStringCache {
-    fn new(pg: &pango::Context, font: &pango::Font) -> GlyphStringCache {
-        pg.set_font_description(&font.describe().unwrap());
-
-        let mut gs_space = Self::shape(pg, " ");
-        let space_width = gs_space.width();
-        
-        GlyphStringCache {
-            font: font.clone(),
-            
-            gs_space,
-            gs_comma: Self::shape(pg, ", "),
-            gs_open: Self::shape(pg, "{"),
-            gs_close: Self::shape(pg, "}"),
-            gs_digit: DIGIT_STRINGS.map(|d| Self::shape(pg, d)),
-            gs_colon: Self::shape(pg, ": "),
-
-            space_width,
-        }
-    }
-
-    fn space_width(&self) -> i32 {
-        self.space_width
-    }
-    
-    fn shape(pg: &pango::Context, text: &str) -> pango::GlyphString {
-        let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
-        if items.len() != 1 {
-            panic!("itemized '{}' into multiple items?", text);
-        }
-
-        let mut gs = pango::GlyphString::new();
-        pango::shape(text, &items[0].analysis(), &mut gs);
-
-        gs
-    }
-
-    fn get(&self, entry: GlyphStringEntry) -> Option<&pango::GlyphString> {
-        match entry {
-            GlyphStringEntry::Punctuation(punct) => match punct {
-                token::PunctuationClass::Empty => None,
-                token::PunctuationClass::Space => Some(&self.gs_space),
-                token::PunctuationClass::Comma => Some(&self.gs_comma),
-                token::PunctuationClass::OpenBracket => Some(&self.gs_open),
-                token::PunctuationClass::CloseBracket => Some(&self.gs_close),
-            },
-            GlyphStringEntry::Digit(digit) => self.gs_digit.get(digit as usize),
-            GlyphStringEntry::Colon => Some(&self.gs_colon),
-            GlyphStringEntry::Space => Some(&self.gs_space),
-        }
-    }
-
-    fn print(&self, snapshot: &gtk::Snapshot, entry: GlyphStringEntry, color: &gdk::RGBA) {
-        if let Some(gs) = self.get(entry) {
-            let mut gs = gs.clone();
-            if let Some(tn) = gsk::TextNode::new(
-                &self.font,
-                &mut gs,
-                color,
-                &graphene::Point::zero()) {
-                snapshot.append_node(tn);
-            }
-            snapshot.translate(&graphene::Point::new(gs.width() as f32 / pango::SCALE as f32, 0.0));
-        }
     }
 }

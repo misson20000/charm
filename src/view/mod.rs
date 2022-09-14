@@ -5,6 +5,7 @@ pub mod config;
 pub mod ext;
 pub mod window;
 pub mod helpers;
+pub mod gsc;
 
 pub mod config_editor;
 pub mod datapath;
