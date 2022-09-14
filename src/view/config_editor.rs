@@ -129,6 +129,7 @@ pub fn build_config_editor() -> gtk::ListBox {
 
     lb.append(&edit_spinbutton_f64("Padding", current.padding, |cfg, v| { cfg.padding = v; }));
     lb.append(&edit_spinbutton_f64("Font Size", current.font_size, |cfg, v| { cfg.font_size = v; }));
+    lb.append(&edit_spinbutton_f64("Indentation Width", current.indentation_width.into(), |cfg, v| { cfg.indentation_width = v as f32; }));
 
     lb.append(&edit_color("Background Color", current.background_color, |cfg, v| { cfg.background_color = v; }));
     lb.append(&edit_color("Address Pane Color", current.addr_pane_color, |cfg, v| { cfg.addr_pane_color = v; }));

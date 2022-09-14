@@ -29,6 +29,8 @@ pub struct Config {
     pub mode_line_padding: f64, /* pixels */
     pub font_size: f64, /* pixels */
 
+    pub indentation_width: f32, /* characters */
+
     pub background_color: gdk::RGBA,
     pub addr_pane_color: gdk::RGBA,
     pub ridge_color: gdk::RGBA,
@@ -75,6 +77,8 @@ impl Default for Config {
             padding: 15.0,
             mode_line_padding: 8.0,
             font_size: 14.0,
+
+            indentation_width: 2.0,
 
             background_color: gdk::RGBA::bytes(hex!("090909ff")),
             addr_pane_color: gdk::RGBA::bytes(hex!("ffffff12")),
