@@ -9,6 +9,7 @@ pub mod gsc;
 
 pub mod config_editor;
 pub mod datapath;
+pub mod hierarchy;
 pub mod listing;
 
 use std::rc;

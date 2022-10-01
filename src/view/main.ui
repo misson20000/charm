@@ -1,0 +1,9 @@
+<interface>
+  <object class="GtkApplicationWindow" id="toplevel">
+    <child>
+      <object class="GtkBox" id="main_box">
+	<property name="orientation">vertical</property>
+      </object>
+    </child>
+  </object>
+</interface>

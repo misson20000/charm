@@ -1,0 +1,148 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.10.3 -->
+<interface>
+  <requires lib="gtk" version="4.6"/>
+  <object class="GtkGrid">
+    <property name="column-spacing">30</property>
+    <property name="halign">start</property>
+    <property name="row-spacing">10</property>
+    <property name="valign">start</property>
+    <property name="width-request">500</property>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Name</property>
+        <layout>
+          <property name="column">0</property>
+          <property name="column-span">1</property>
+          <property name="row">0</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkEntry">
+        <layout>
+          <property name="column">1</property>
+          <property name="column-span">1</property>
+          <property name="row">0</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Size</property>
+        <layout>
+          <property name="column">0</property>
+          <property name="column-span">1</property>
+          <property name="row">1</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Locked</property>
+        <layout>
+          <property name="column">0</property>
+          <property name="column-span">1</property>
+          <property name="row">2</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Title</property>
+        <layout>
+          <property name="column">2</property>
+          <property name="column-span">1</property>
+          <property name="row">0</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkComboBox">
+        <property name="hexpand">True</property>
+        <layout>
+          <property name="column">3</property>
+          <property name="column-span">1</property>
+          <property name="row">0</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkEntry">
+        <layout>
+          <property name="column">1</property>
+          <property name="column-span">1</property>
+          <property name="row">1</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Children</property>
+        <layout>
+          <property name="column">2</property>
+          <property name="column-span">1</property>
+          <property name="row">1</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkCheckButton">
+        <property name="halign">center</property>
+        <layout>
+          <property name="column">1</property>
+          <property name="column-span">1</property>
+          <property name="row">2</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkComboBox">
+        <property name="hexpand">True</property>
+        <layout>
+          <property name="column">3</property>
+          <property name="column-span">1</property>
+          <property name="row">1</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Content</property>
+        <layout>
+          <property name="column">2</property>
+          <property name="column-span">1</property>
+          <property name="row">2</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="GtkComboBox">
+        <property name="hexpand">True</property>
+        <layout>
+          <property name="column">3</property>
+          <property name="column-span">1</property>
+          <property name="row">2</property>
+          <property name="row-span">1</property>
+        </layout>
+      </object>
+    </child>
+  </object>
+</interface>

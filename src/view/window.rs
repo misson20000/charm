@@ -9,20 +9,22 @@ use crate::model::document;
 use crate::view;
 
 use gtk::gio;
+use gtk::glib;
 use gtk::prelude::*;
 
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
     document_host: sync::Arc<document::DocumentHost>,
     lw: view::listing::ListingWidget,
-    datapath: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
+    datapath_model: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
 }
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     window: gtk::ApplicationWindow,
-    listing_container: gtk::Box,
+    listing_frame: gtk::Frame,
     datapath_editor: gtk::TreeView,
+    hierarchy_editor: gtk::ColumnView,
     config_editor: gtk::ListBox,
     datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
@@ -31,13 +33,11 @@ pub struct CharmWindow {
 
 impl CharmWindow {
     pub fn new(charm: &rc::Rc<CharmApplication>) -> rc::Rc<CharmWindow> {
-        let window = gtk::ApplicationWindow::new(&charm.application);
+        let builder = gtk::Builder::from_string(include_str!("charm.ui"));
 
-        window.set_title(Some("Charm"));
-        window.set_default_size(800, 600);
+        let window: gtk::ApplicationWindow = builder.object("toplevel").unwrap();
+        window.set_application(Some(&charm.application));
 
-        let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        
         {
             let menu_bar = gio::Menu::new();
             {
@@ -79,16 +79,11 @@ impl CharmWindow {
             }
             menu_bar.freeze();
 
-            let menu_bar_widget = gtk::PopoverMenuBar::from_model(Some(&menu_bar));
-            main_box.prepend(&menu_bar_widget);
+            let menu_bar_widget: gtk::PopoverMenuBar = builder.object("menu_bar").unwrap();
+            menu_bar_widget.set_menu_model(Some(&menu_bar));
         }
 
-        let listing_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        listing_container.set_homogeneous(true);
-        listing_container.set_vexpand(true);
-        
-        let hpaned = gtk::Paned::new(gtk::Orientation::Horizontal);
-        let datapath_editor = gtk::TreeView::new();
+        let datapath_editor: gtk::TreeView = builder.object("datapath_editor").unwrap();
         {
             {
                 let crt = gtk::CellRendererText::new();
@@ -124,72 +119,34 @@ impl CharmWindow {
             }
         }
 
-        let datapath_editor_frame = gtk::Frame::new(None);
+        let hierarchy_editor: gtk::ColumnView = builder.object("hierarchy_editor").unwrap();
         {
-            let vpaned = gtk::Paned::new(gtk::Orientation::Vertical);
-            vpaned.set_resize_start_child(true);
-            listing_container.set_vexpand(true);
-            listing_container.set_valign(gtk::Align::Fill);
-            vpaned.set_start_child(Some(&listing_container));
-
-            { // datapath_editor frame
-                // TODO: removed in gtk4, did we need this to look good?
-                //datapath_editor_frame.set_shadow_type(gtk::ShadowType::In);
-                datapath_editor_frame.set_margin_top(10);
-                datapath_editor_frame.set_margin_bottom(10);
-                datapath_editor_frame.set_margin_start(10);
-                datapath_editor_frame.set_margin_end(10);
-                datapath_editor_frame.set_child(Some(&datapath_editor));
-                
-                datapath_editor_frame.set_vexpand(false);
-                vpaned.set_end_child(Some(&datapath_editor_frame));
+            for (title, ui) in [
+                ("Name",    &include_bytes!("column_name.ui")[..]),
+                ("Address", &include_bytes!("column_addr.ui")[..]),
+                ("Size",    &include_bytes!("column_size.ui")[..])] {
+                hierarchy_editor.append_column(
+                    &gtk::ColumnViewColumn::builder()
+                        .expand(true)
+                        .resizable(true)
+                        .title(title)
+                        .factory(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(ui)))
+                        .build());
             }
-
-            /* When window is resized, resize the listing view. */
-            vpaned.set_resize_start_child(true);
-            vpaned.set_resize_end_child(false);
-
-            /* Respect minimum sizes. */
-            vpaned.set_shrink_start_child(false);
-            vpaned.set_shrink_end_child(false);
-            
-            vpaned.set_hexpand(true);
-            hpaned.set_start_child(Some(&vpaned));
         }
-
+        
         let config_editor = view::config_editor::build_config_editor();
-        let config_editor_frame = gtk::Frame::new(None);
-        {
-            config_editor.set_size_request(400, -1);
-
-            // TODO: removed in gtk4, did we need this to look good?
-            //config_editor_frame.set_shadow_type(gtk::ShadowType::In);
-            config_editor_frame.set_margin_top(10);
-            config_editor_frame.set_margin_bottom(10);
-            config_editor_frame.set_margin_start(10);
-            config_editor_frame.set_margin_end(10);
-            config_editor_frame.set_child(Some(&config_editor));
-            
-            hpaned.set_end_child(Some(&config_editor_frame));
-        }
-
-        hpaned.set_resize_start_child(true);
-        hpaned.set_resize_end_child(false);
-        hpaned.set_shrink_start_child(false);
-        hpaned.set_shrink_end_child(false);
-        
-        hpaned.set_vexpand(true);
-        main_box.append(&hpaned);                
-        
-        window.set_child(Some(&main_box));
+        let config_editor_frame: gtk::Frame = builder.object("config_editor_frame").unwrap();
+        config_editor_frame.set_child(Some(&config_editor));
 
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
             window,
-            listing_container,
+            listing_frame: builder.object("listing_frame").unwrap(),
             datapath_editor,
+            hierarchy_editor,
             config_editor,
-            datapath_editor_frame,
+            datapath_editor_frame: builder.object("datapath_editor_frame").unwrap(),
             config_editor_frame,
             context: cell::RefCell::new(None),
         });
@@ -275,11 +232,9 @@ impl CharmWindow {
     }
 
     pub fn close_file(self: &rc::Rc<Self>) {
-        while let Some(w) = self.listing_container.first_child() {
-            self.listing_container.remove(&w);
-        }
-        
+        self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
+        self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
         self.window.insert_action_group("listing", Option::<&gio::ActionGroup>::None);
         *self.context.borrow_mut() = None;
     }
@@ -308,22 +263,20 @@ impl WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         let lw = view::listing::ListingWidget::new();
         lw.init(window, &document_host);
-        let datapath = view::datapath::DataPathModel::new(window, &document_host);
+        let datapath_model = view::datapath::DataPathModel::new(window, &document_host);
         
         WindowContext {
             window: rc::Rc::downgrade(window),
             document_host,
             lw,
-            datapath,
+            datapath_model,
         }
     }
 
     fn attach(self, window: &CharmWindow) {
-        while let Some(w) = window.listing_container.first_child() {
-            window.listing_container.remove(&w);
-        }
-        window.listing_container.prepend(&self.lw);
-        window.datapath_editor.set_model(Some(self.datapath.read().get_tree_model()));
+        window.listing_frame.set_child(Some(&self.lw));
+        window.datapath_editor.set_model(Some(self.datapath_model.read().get_tree_model()));
+        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.get_document().root.clone())));
         self.lw.grab_focus();
         
         *window.context.borrow_mut() = Some(self);
