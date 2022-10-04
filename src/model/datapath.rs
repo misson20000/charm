@@ -264,11 +264,16 @@ struct SpaceCache {
 
 impl LoadSpaceFilter {
     pub fn new(space: sync::Arc<dyn space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
+        // TODO: make this const when const unwrap gets stabilized
+        //       https://github.com/rust-lang/rust/issues/67441
+        //const block_count: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1024).unwrap();
+        let block_count = std::num::NonZeroUsize::new(1024).unwrap();
+        
         LoadSpaceFilter {
             load_offset,
             space_offset,
             size: None,
-            cache: sync::Arc::new(SpaceCache::new(space, 0x1000, 1024)), // 4 MiB cache is plenty
+            cache: sync::Arc::new(SpaceCache::new(space, 0x1000, block_count)), // 4 MiB cache is plenty
         }
     }
     
@@ -527,7 +532,7 @@ impl InsertFilter {
 }
 
 impl SpaceCache {
-    fn new(space: sync::Arc<dyn space::AddressSpace>, block_size: u64, block_count: usize) -> SpaceCache {
+    fn new(space: sync::Arc<dyn space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
         SpaceCache {
             block_size,
             space,
