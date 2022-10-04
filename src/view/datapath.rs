@@ -10,7 +10,7 @@ use gtk::glib;
 
 pub struct DataPathModel {
     document_host: sync::Arc<document::DocumentHost>,
-    document: document::Document,
+    document: sync::Arc<document::Document>,
     update_task: Option<tokio::task::JoinHandle<()>>,
     update_notifier: util::Notifier,
     store: send_wrapper::SendWrapper<gtk::ListStore>,
@@ -20,7 +20,7 @@ impl DataPathModel {
     pub fn new(cw: &view::window::CharmWindow, document_host: &sync::Arc<document::DocumentHost>) -> sync::Arc<parking_lot::RwLock<DataPathModel>> {
         let mut dpm = DataPathModel {
             document_host: document_host.clone(),
-            document: document::Document::invalid(),
+            document: sync::Arc::new(document::Document::invalid()),
             update_task: None,
             update_notifier: util::Notifier::new(),
 
@@ -47,7 +47,7 @@ impl DataPathModel {
     }
     
     fn update_store(&mut self) {
-        let upstream = self.document_host.get_document().clone();
+        let upstream = self.document_host.get().clone();
         self.store.clear();
 
         // TODO: only adjust difference
@@ -72,11 +72,11 @@ impl DataPathModel {
     fn update(dpm_arc: &sync::Arc<parking_lot::RwLock<DataPathModel>>, cx: &mut task::Context) {
         let dpm = dpm_arc.read();
         
-        let document = dpm.document_host.get_document();
+        let document = dpm.document_host.borrow();
         dpm.document_host.wait(cx);
         dpm.update_notifier.enroll(cx);
 
-        if document.is_datapath_outdated(&dpm.document) {
+        if document.is_outdated(&dpm.document) {
             let dpm_weak = sync::Arc::downgrade(dpm_arc);
             glib::idle_add(move || {
                 match dpm_weak.upgrade() {

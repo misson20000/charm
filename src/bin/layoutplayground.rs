@@ -17,8 +17,8 @@ impl<'a> fmt::Display for TokenExampleFormat<'a> {
                 token::PunctuationClass::OpenBracket => "{",
                 token::PunctuationClass::CloseBracket => "}",
             }),
-            token::TokenClass::Title => write!(f, "{}: ", &self.0.node.name),
-            token::TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.name),
+            token::TokenClass::Title => write!(f, "{}: ", &self.0.node.props.name),
+            token::TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.props.name),
             token::TokenClass::Hexdump(extent) => {
                 for i in 0..extent.length().bytes {
                     write!(f, "{:02x}", (extent.begin.byte + i) & 0xff)?;

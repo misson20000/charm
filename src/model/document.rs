@@ -1,6 +1,5 @@
 pub mod structure;
 
-use std::string;
 use std::sync;
 use std::task;
 use std::vec;
@@ -10,49 +9,30 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
 
-extern crate imbl;
-//use imbl::ordmap;
-
-pub type DocumentRef<'a> = parking_lot::MappedRwLockReadGuard<'a, Document>;
-
-#[derive(Clone)]
-enum UndoOp {
-    //ModifyBreak,
-    //DeleteBreak,
-    AddFilter(datapath::Filter),
-}
+mod change;
 
 #[derive(Clone)]
 pub struct Document {
+    pub previous: Option<(sync::Arc<Document>, change::Change)>,
     pub root: sync::Arc<structure::Node>,
     pub datapath: datapath::DataPath,
-    id: u64,
-    layout_generation: u64,
-    datapath_generation: u64,
+    uid: u64, //< unique ID
+    generation: u64,
 }
 
 static NEXT_DOCUMENT_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
-static NEXT_LAYOUT_GENERATION: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
-static NEXT_DATAPATH_GENERATION: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
-
-pub struct DocumentHostInterior { // implementation detail...
-    current: Document,
-    undo: vec::Vec<(UndoOp, Document)>,
-}
+static NEXT_GENERATION: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
 
 pub struct DocumentHost {
     notifier: util::Notifier,
-    interior: parking_lot::RwLock<DocumentHostInterior>,
+    current: arc_swap::ArcSwap<Document>,
 }
 
 impl DocumentHost {
     pub fn new(doc: Document) -> DocumentHost {
         DocumentHost {
             notifier: util::Notifier::new(),
-            interior: parking_lot::RwLock::new(DocumentHostInterior {
-                current: doc,
-                undo: vec::Vec::new(),
-            })
+            current: arc_swap::ArcSwap::from(sync::Arc::new(doc)),
         }
     }
 
@@ -60,34 +40,15 @@ impl DocumentHost {
         self.notifier.enroll(cx);
     }
     
-    pub fn get_document(&self) -> DocumentRef {
-        parking_lot::RwLockReadGuard::map(self.interior.read(), |r| &r.current)
+    pub fn borrow(&self) -> arc_swap::Guard<sync::Arc<Document>> {
+        self.current.load()
+    }
+
+    pub fn get(&self) -> sync::Arc<Document> {
+        self.current.load_full()
     }
 
     /*
-    /// Inserts a break or replaces an existing one.
-    pub fn insert_break(&self, brk: brk::Break) {
-        self.modify_breaks(UndoOp::ModifyBreak, |doc| {
-            doc.breaks.insert(brk.addr, sync::Arc::new(brk));
-            Result::<(), ()>::Ok(())
-        }).expect("insert break has no failure case");
-    }
-    
-    /// Removes a break.
-    pub fn delete_break(&self, addr: &addr::Address) -> Result<(), BreakDeletionError> {
-        if *addr == addr::unit::NULL {
-            return Err(BreakDeletionError::IsZeroBreak);
-        }
-        
-        self.modify_breaks(UndoOp::DeleteBreak, |doc| {
-            match doc.breaks.remove(addr) {
-                Some(_) => Ok(()),
-                None => Err(BreakDeletionError::NotFound)
-            }
-        })
-}
-    */
-
     pub fn patch_byte(&self, location: u64, patch: u8) {
         self.apply_filter(datapath::OverwriteFilter {
             offset: location,
@@ -135,41 +96,22 @@ impl DocumentHost {
         interior.current.datapath_generation = NEXT_DATAPATH_GENERATION.fetch_add(1, sync::atomic::Ordering::SeqCst);
         
         self.notifier.notify();
-    }
-
-    /*
-    fn modify_breaks<E, T, F>(&self, op: UndoOp, cb: F) -> Result<T, E>
-    where F: FnOnce(&mut Document) -> Result<T, E> {
-        let mut interior = self.interior.write().unwrap();
-        let interior_ref = &mut *interior; // rustc can't see splitting borrow through MutexGuard
-        
-        match match interior_ref.undo.last_mut() {
-            Some((old_op, _)) => match old_op.stack_with(&op) {
-                Some(new_op) => Some((old_op, new_op)),
-                None => None,
-            },
-            None => None,
-        } {
-            Some((op_target, op_value)) => {
-                cb(&mut interior_ref.current).map(|v| {
-                    *op_target = op_value;
-                    v
-                })
-            }
-            None => {
-                let undo = interior_ref.current.clone();
-                cb(&mut interior_ref.current).map(|v| {
-                    interior_ref.undo.push((op, undo));
-                    v
-                })
-            }
-        }.map(|v| {
-            interior_ref.current.layout_generation = NEXT_LAYOUT_GENERATION.fetch_add(1, sync::atomic::Ordering::SeqCst);
-            self.notifier.notify();
-            v
-        })
 }
-    */
+     */
+
+    pub fn change(&self, change: change::Change) -> Result<(), change::UpdateError> {
+        let old = self.current.load();
+        let new = sync::Arc::new(change::apply_structural_change(&old, change)?);
+        let swapped = self.current.compare_and_swap(&*old, new.clone());
+            
+        if !sync::Arc::ptr_eq(&*old, &swapped) {
+            /* very sad, another thread updated the document. need to fish the change back out of our fake new document and try again. */
+            return self.change((*new).clone().previous.unwrap().1)
+        }
+        
+        self.notifier.notify();
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -196,19 +138,21 @@ impl Document {
         datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
         
         Document {
+            previous: None,
             root: sync::Arc::new(structure::Node {
-                name: "root".to_string(),
                 size: addr::unit::REAL_MAX,
-                title_display: structure::TitleDisplay::Major,
-                children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16.into()),
-                locked: true,
+                props: structure::Properties {
+                    name: "root".to_string(),
+                    title_display: structure::TitleDisplay::Major,
+                    children_display: structure::ChildrenDisplay::Full,
+                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    locked: true,
+                },
                 children: vec::Vec::new()
             }),
             datapath,
-            id: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
-            layout_generation: 0,
-            datapath_generation: 0,
+            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
+            generation: 0,
         }
     }
 
@@ -218,68 +162,40 @@ impl Document {
         let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
 
         Ok(Document {
+            previous: None,
             root: tc.structure,
             datapath: datapath::DataPath::new(),
-            id: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::SeqCst),
-            layout_generation: 0,
-            datapath_generation: 0,
+            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
+            generation: NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
         })
     }
     
     pub fn invalid() -> Document {
         Document {
+            previous: None,
             root: sync::Arc::new(structure::Node {
-                name: "root".to_string(),
                 size: addr::unit::REAL_MAX,
-                title_display: structure::TitleDisplay::Major,
-                children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16.into()),
-                locked: true,
+                props: structure::Properties {
+                    name: "root".to_string(),
+                    title_display: structure::TitleDisplay::Major,
+                    children_display: structure::ChildrenDisplay::Full,
+                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    locked: true,
+                },
                 children: vec::Vec::new()
             }),
             datapath: datapath::DataPath::new(),
-            id: 0,
-            layout_generation: 0,
-            datapath_generation: 0,
+            uid: 0,
+            generation: 0,
         }
     }
 
     pub fn is_outdated(&self, other: &Self) -> bool {
-        self.id != other.id ||
-            self.layout_generation != other.layout_generation ||
-            self.datapath_generation != other.datapath_generation
+        self.uid != other.uid ||
+            self.generation != other.generation
     }
 
-    pub fn is_layout_outdated(&self, other: &Self) -> bool {
-        self.id != other.id ||
-            self.layout_generation != other.layout_generation
-    }
-
-    pub fn is_datapath_outdated(&self, other: &Self) -> bool {
-        self.id != other.id ||
-            self.datapath_generation != other.datapath_generation
-    }
-
-    pub fn get_layout_generation_for_debug(&self) -> u64 {
-        self.layout_generation
-    }
-
-    pub fn get_datapath_generation_for_debug(&self) -> u64 {
-        self.datapath_generation
-    }
-}
-
-impl UndoOp {
-    fn stack_with(&self, op: &UndoOp) -> Option<UndoOp> {
-        match (self, op) {
-            /* AddFilter is handled separately */
-            (_, _) => None,
-        }
-    }
-
-    fn describe(&self) -> string::String {
-        match self {
-            UndoOp::AddFilter(filter) => format!("add filter: {}", filter.human_details()), // TODO
-        }
+    pub fn get_generation_for_debug(&self) -> u64 {
+        self.generation
     }
 }

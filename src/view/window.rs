@@ -276,7 +276,7 @@ impl WindowContext {
     fn attach(self, window: &CharmWindow) {
         window.listing_frame.set_child(Some(&self.lw));
         window.datapath_editor.set_model(Some(self.datapath_model.read().get_tree_model()));
-        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.get_document().root.clone())));
+        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.get().root.clone())));
         self.lw.grab_focus();
         
         *window.context.borrow_mut() = Some(self);

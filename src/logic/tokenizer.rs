@@ -72,7 +72,7 @@ impl std::fmt::Debug for Tokenizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Tokenizer")
             .field("state", &self.state)
-            .field("node", &self.node.name)
+            .field("node", &self.node.props.name)
             .field("stack", &TokenizerStackDebugHelper(&self.stack))
             .finish_non_exhaustive()
     }
@@ -97,7 +97,7 @@ impl std::fmt::Debug for TokenizerStackEntry {
         f.debug_struct("Entry")
             .field("before_state", &self.before_state)
             .field("after_state", &self.after_state)
-            .field("node", &self.node.name)
+            .field("node", &self.node.props.name)
             .finish_non_exhaustive()
     }
 }
@@ -135,7 +135,7 @@ impl Tokenizer {
 
     fn gen_token(&self) -> TokenGenerationResult {
         match self.state {
-            TokenizerState::PreBlank => if self.node.title_display.has_blanks() {
+            TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
                     class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                     node: self.node.clone(),
@@ -151,7 +151,7 @@ impl Tokenizer {
                 node: self.node.clone(),
                 node_addr: self.node_addr,
                 depth: self.depth,
-                newline: !self.node.title_display.is_inline(),
+                newline: !self.node.props.title_display.is_inline(),
             }),
             
             TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
@@ -219,7 +219,7 @@ impl Tokenizer {
                 let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
                 
                 TokenGenerationResult::Ok(token::Token {
-                    class: match self.node.content_display {
+                    class: match self.node.props.content_display {
                         structure::ContentDisplay::None => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                         structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
                         structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
@@ -232,7 +232,7 @@ impl Tokenizer {
             },
             TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
 
-            TokenizerState::PostBlank => if self.node.title_display.has_blanks() {
+            TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
                     class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                     node: self.node.clone(),
@@ -285,7 +285,7 @@ impl Tokenizer {
                 /* Emit content, if we can. */
                 if offset > addr::unit::NULL {
                     /* Where would we *like* to begin, as decided by our content's preferred pitch? */
-                    let preferred_begin = self.node.content_display.preferred_pitch().map(|pitch| {
+                    let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
                         (pitch * ((offset - addr::unit::BIT).to_size() / pitch)).to_addr()
                     });
 
@@ -302,7 +302,7 @@ impl Tokenizer {
 
                     let extent = addr::Extent::between(begin, offset);
                         
-                    self.state = match self.node.content_display {
+                    self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
                         structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
@@ -377,7 +377,7 @@ impl Tokenizer {
             },
 
             TokenizerState::PostBlank => {
-                match self.node.children_display {
+                match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
                         self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
                     },
@@ -406,7 +406,7 @@ impl Tokenizer {
                 true
             },
             TokenizerState::Title => {
-                match self.node.children_display {
+                match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
                         self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
                     },
@@ -444,7 +444,7 @@ impl Tokenizer {
                 /* Emit content, if we can. */
                 if offset < self.node.size.to_addr() {
                     /* Where would we *like* to end, as decided by our content's preferred pitch? */
-                    let preferred_end = self.node.content_display.preferred_pitch().map(|pitch| {
+                    let preferred_end = self.node.props.content_display.preferred_pitch().map(|pitch| {
                         (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
                     });
 
@@ -461,7 +461,7 @@ impl Tokenizer {
 
                     let extent = addr::Extent::between(offset, end);
 
-                    self.state = match self.node.content_display {
+                    self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
                         structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
@@ -760,39 +760,41 @@ pub mod xml {
         
     pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
         let node = structure::Node {
-            name: xml.attribute("name").unwrap().to_string(),
             size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
-            title_display: match xml.attribute("title") {
-                None => structure::TitleDisplay::Major,
-                Some("major") => structure::TitleDisplay::Major,
-                Some("minor") => structure::TitleDisplay::Minor,
-                Some("inline") => structure::TitleDisplay::Inline,
-                Some(invalid) => panic!("invalid title attribute: {}", invalid)
+            props: structure::Properties {
+                name: xml.attribute("name").unwrap().to_string(),
+                title_display: match xml.attribute("title") {
+                    None => structure::TitleDisplay::Major,
+                    Some("major") => structure::TitleDisplay::Major,
+                    Some("minor") => structure::TitleDisplay::Minor,
+                    Some("inline") => structure::TitleDisplay::Inline,
+                    Some(invalid) => panic!("invalid title attribute: {}", invalid)
+                },
+                children_display: match xml.attribute("children") {
+                    None => structure::ChildrenDisplay::Full,
+                    Some("none") => structure::ChildrenDisplay::None,
+                    Some("summary") => structure::ChildrenDisplay::Summary,
+                    Some("full") => structure::ChildrenDisplay::Full,
+                    Some(invalid) => panic!("invalid children attribute: {}", invalid)
+                },
+                content_display: match xml.attribute("content") {
+                    None => structure::ContentDisplay::Hexdump(16.into()),
+                    Some("hexstring") => structure::ContentDisplay::Hexstring,
+                    Some("hexdump") => structure::ContentDisplay::Hexdump(
+                        xml.attribute("pitch").map_or(
+                            16.into(),
+                            |p| addr::Address::parse(p).map_or_else(                                
+                                |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                                |a| a.to_size()))),
+                    Some("none") => structure::ContentDisplay::None,
+                    Some(invalid) => panic!("invalid content attribute: {}", invalid)
+                },
+                locked: true,
             },
-            children_display: match xml.attribute("children") {
-                None => structure::ChildrenDisplay::Full,
-                Some("none") => structure::ChildrenDisplay::None,
-                Some("summary") => structure::ChildrenDisplay::Summary,
-                Some("full") => structure::ChildrenDisplay::Full,
-                Some(invalid) => panic!("invalid children attribute: {}", invalid)
-            },
-            content_display: match xml.attribute("content") {
-                None => structure::ContentDisplay::Hexdump(16.into()),
-                Some("hexstring") => structure::ContentDisplay::Hexstring,
-                Some("hexdump") => structure::ContentDisplay::Hexdump(
-                    xml.attribute("pitch").map_or(
-                        16.into(),
-                        |p| addr::Address::parse(p).map_or_else(                                
-                            |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                            |a| a.to_size()))),
-                Some("none") => structure::ContentDisplay::None,
-                Some(invalid) => panic!("invalid content attribute: {}", invalid)
-            },
-            locked: true,
             children: xml.children().filter(|c| c.is_element()).map(|c| inflate_childhood(c, node_addr, map)).collect()
         };
         let arc = sync::Arc::new(node);
-        map.insert(arc.name.clone(), (node_addr, arc.clone()));
+        map.insert(arc.props.name.clone(), (node_addr, arc.clone()));
         arc
     }
 

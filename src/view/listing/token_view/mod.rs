@@ -47,7 +47,7 @@ impl TokenView {
                     &render.pango,
                     &render.font_bold,
                     &render.config.text_color,
-                    &self.token.node.name,
+                    &self.token.node.props.name,
                     &mut pos);
                 render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
             },
@@ -57,7 +57,7 @@ impl TokenView {
                     &render.pango,
                     &render.font_bold,
                     &render.config.text_color,
-                    &self.token.node.name,
+                    &self.token.node.props.name,
                     &mut pos);
                 render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
             },

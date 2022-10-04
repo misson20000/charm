@@ -3,14 +3,14 @@ use std::vec;
 
 use crate::model::addr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TitleDisplay {
     Inline,
     Major,
     Minor,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ChildrenDisplay {
     None, //< fully collapsed
     Summary,
@@ -18,12 +18,15 @@ pub enum ChildrenDisplay {
     Full
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ContentDisplay {
     None,
     Hexdump(addr::Size),
     Hexstring
 }
+
+pub type Path = vec::Vec<usize>;
+pub type PathIter<'a> = std::vec::IntoIter<usize>;
 
 #[derive(Debug, Clone)]
 pub struct Childhood {
@@ -37,16 +40,21 @@ impl Childhood {
     }
 }
 
-#[derive(Debug)]
-pub struct Node {
-    /* reference to parent causes a lot of problems */
+#[derive(Debug, Clone)]
+pub struct Properties {
     pub name: String,
-    pub size: addr::Size,
     pub title_display: TitleDisplay,
     pub children_display: ChildrenDisplay,
     pub content_display: ContentDisplay,
-    pub locked: bool,
+    pub locked: bool,    
+}
 
+#[derive(Debug, Clone)]
+pub struct Node {
+    /* reference to parent causes a lot of problems, so we don't have one and
+       opt to refer to nodes by path when necessary. */
+    pub props: Properties,
+    pub size: addr::Size,
     pub children: vec::Vec<Childhood>
 }
 
@@ -96,15 +104,23 @@ impl Default for ContentDisplay {
     }
 }
 
-impl Default for Node {
-    fn default() -> Node {
-        Node {
+impl Default for Properties {
+    fn default() -> Properties {
+        Properties {
             name: "default".to_string(),
-            size: addr::unit::REAL_MAX,
             title_display: TitleDisplay::default(),
             children_display: ChildrenDisplay::default(),
             content_display: ContentDisplay::default(),
             locked: true,
+        }
+    }
+}
+
+impl Default for Node {
+    fn default() -> Node {
+        Node {
+            props: Properties::default(),
+            size: addr::unit::REAL_MAX,
             children: vec::Vec::new(),
         }
     }

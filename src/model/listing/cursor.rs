@@ -115,7 +115,7 @@ impl Cursor {
         /* if we're using an outdated structure hierarchy root, make a
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
-        if self.document.is_layout_outdated(document) {
+        if self.document.is_outdated(document) {
             let tokenizer_backup = tokenizer::Tokenizer::port(&self.tokenizer, &document.root);
             let mut tokenizer = tokenizer_backup.clone();
 

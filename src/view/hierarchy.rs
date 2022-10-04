@@ -30,7 +30,7 @@ pub fn create_widget(object: &glib::Object) -> gtk::Widget {
         .interior
         .get()
         .unwrap();
-    row.set_child(Some(&gtk::Label::new(Some(&ch.node.name))));
+    row.set_child(Some(&gtk::Label::new(Some(&ch.node.props.name))));
     row.upcast()
 }
 
@@ -131,7 +131,7 @@ mod imp {
 
         fn property(&self, _obj: &Self::Type, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
             match pspec.name() {
-                "name" => glib::ToValue::to_value(&self.interior.get().unwrap().node.name),
+                "name" => glib::ToValue::to_value(&self.interior.get().unwrap().node.props.name),
                 "addr" => glib::ToValue::to_value(&format!("{}", self.interior.get().unwrap().address)),
                 "size" => glib::ToValue::to_value(&format!("{}", self.interior.get().unwrap().node.size)),
                 _ => unimplemented!(),

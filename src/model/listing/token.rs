@@ -45,7 +45,7 @@ impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Token")
             .field("class", &self.class)
-            .field("node", &self.node.name)
+            .field("node", &self.node.props.name)
             .field("depth", &self.depth)
             .field("newline", &self.newline)
             .finish()

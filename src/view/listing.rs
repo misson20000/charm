@@ -167,7 +167,7 @@ impl ListingWidget {
         
         let mut interior = Interior {
             document_host: document_host.clone(),
-            window: layout::Window::new(&document_host.get_document().root),
+            window: layout::Window::new(&document_host.get().root),
 
             render: sync::Arc::new(render),
         };
