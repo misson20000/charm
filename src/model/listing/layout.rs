@@ -4,11 +4,10 @@
 use std::collections;
 use std::iter;
 use std::sync;
-use std::task;
 use std::vec;
 
 use crate::model::addr;
-use crate::model::document::structure;
+use crate::model::document;
 use crate::model::listing::token;
 use crate::logic::tokenizer;
 
@@ -22,7 +21,7 @@ pub trait Line {
 /// A listing window with a fixed height. Useful for scrolling by lines.
 /// It is up to the user to make sure that this gets properly notified with structure invalidation events.
 pub struct Window<L: Line> {
-    current_root: sync::Arc<structure::Node>,
+    current_document: sync::Arc<document::Document>,
     top: tokenizer::Tokenizer,
     bottom: tokenizer::Tokenizer,
 
@@ -35,13 +34,13 @@ pub struct Window<L: Line> {
 }
 
 impl<L: Line> Window<L> {
-    pub fn new(root: &sync::Arc<structure::Node>) -> Window<L> {
+    pub fn new(doc: sync::Arc<document::Document>) -> Window<L> {
         Window {
-            top: tokenizer::Tokenizer::at_beginning(root),
-            bottom: tokenizer::Tokenizer::at_beginning(root),
+            top: tokenizer::Tokenizer::at_beginning(doc.root.clone()),
+            bottom: tokenizer::Tokenizer::at_beginning(doc.root.clone()),
             top_buffer: None,
             
-            current_root: root.clone(),
+            current_document: doc,
             
             lines: std::collections::VecDeque::<L>::new(),
             window_height: 0,
@@ -53,12 +52,14 @@ impl<L: Line> Window<L> {
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
     pub fn seek(&mut self, target: addr::Address) -> usize {
-        self.repopulate_window(tokenizer::Tokenizer::at_address(&self.current_root, target))
+        let root = self.current_document.root.clone();
+        self.repopulate_window(move |tok, _| *tok = tokenizer::Tokenizer::at_address(root, target))
     }
 
-    fn repopulate_window(&mut self, pos: tokenizer::Tokenizer) -> usize {
-        self.top = pos.clone();
-        self.bottom = pos;
+    fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
+        F: FnOnce(&mut tokenizer::Tokenizer, &mut sync::Arc<document::Document>) {
+        tokenizer_provider(&mut self.top, &mut self.current_document);
+        self.bottom = self.top.clone();
         self.top_buffer = None;
         self.lines.clear();
         
@@ -201,22 +202,16 @@ impl<L: Line> Window<L> {
     
     /* state bookkeeping */
 
-    pub fn is_outdated(&self, root: &sync::Arc<structure::Node>) -> bool {
-        !sync::Arc::ptr_eq(&self.current_root, root)
-    }
-    
-    pub fn update(&mut self, root: &sync::Arc<structure::Node>, _cx: &mut task::Context) -> bool {
+    pub fn update(&mut self, document: &sync::Arc<document::Document>) -> bool {
         let mut updated = false;
         
-        if self.is_outdated(root) {
-            self.current_root = root.clone();
-            self.repopulate_window(tokenizer::Tokenizer::port(&self.top, &self.current_root));
+        if self.current_document.is_outdated(document) {
+            self.repopulate_window(|tok, current_doc| {
+                tok.port_doc(current_doc, document);
+                *current_doc = document.clone()
+            });
             updated = true;
         }
-
-        //for line in self.lines.iter_mut() {
-        //    updated = line.update(document, cx) || updated;
-        //}
 
         updated
     }

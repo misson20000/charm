@@ -10,7 +10,7 @@
 	  <object class="GtkLabel">
             <property name="xalign">0</property>
             <binding name="label">
-	      <lookup name="name" type="CharmStructureChildhoodItem">
+	      <lookup name="name" type="CharmNodeItem">
 		<lookup name="item">expander</lookup>
 	      </lookup>
             </binding>

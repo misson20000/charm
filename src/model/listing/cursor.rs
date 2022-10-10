@@ -1,3 +1,4 @@
+use std::sync;
 use std::task;
 
 use crate::model::addr;
@@ -67,7 +68,7 @@ pub enum CursorClass {
 pub struct Cursor {
     tokenizer: tokenizer::Tokenizer,
     pub class: CursorClass,
-    document: document::Document,
+    document: sync::Arc<document::Document>,
 }
 
 impl CursorClass {
@@ -99,30 +100,30 @@ impl CursorClass {
 }
 
 impl Cursor {
-    pub fn place(document: &document::Document, addr: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
-        let mut tokenizer = tokenizer::Tokenizer::at_address(&document.root, addr);
+    pub fn place(document: sync::Arc<document::Document>, addr: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
+        let mut tokenizer = tokenizer::Tokenizer::at_address(document.root.clone(), addr);
         
         Ok(Cursor {
             class: CursorClass::place_forward(&mut tokenizer, addr, &hint)?,
             tokenizer,
-            document: document.clone(),
+            document,
         })
     }
 
-    pub fn update(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+    pub fn update(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) -> bool {
         let mut updated = false;
 
         /* if we're using an outdated structure hierarchy root, make a
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
         if self.document.is_outdated(document) {
-            let tokenizer_backup = tokenizer::Tokenizer::port(&self.tokenizer, &document.root);
-            let mut tokenizer = tokenizer_backup.clone();
+            self.tokenizer.port_doc(&self.document, document);
+            let mut tokenizer = self.tokenizer.clone();
 
             let class = match CursorClass::place_forward(&mut tokenizer, self.class.get_addr(), &self.class.get_placement_hint()) {
                 Ok(cc) => cc,
                 Err(PlacementFailure::HitBottomOfAddressSpace) => {
-                    tokenizer = tokenizer_backup;
+                    tokenizer = self.tokenizer.clone();
                     match CursorClass::place_backward(&mut tokenizer, self.class.get_addr(), &self.class.get_placement_hint()) {
                         Ok(cc) => cc,
                         Err(PlacementFailure::HitTopOfAddressSpace) => panic!("expected to be able to place cursor somewhere"),
@@ -147,7 +148,7 @@ impl Cursor {
     }
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
-        Self::place(&self.document, addr, PlacementHint::Unused).map(|new| { *self = new; })
+        Self::place(self.document.clone(), addr, PlacementHint::Unused).map(|new| { *self = new; })
     }
     
     fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {

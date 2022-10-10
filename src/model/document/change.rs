@@ -11,8 +11,8 @@ pub enum ChangeType {
 
 #[derive(Debug, Clone)]
 pub struct Change {
-    ty: ChangeType,
-    generation: u64,
+    pub ty: ChangeType,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone)]

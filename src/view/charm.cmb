@@ -3,8 +3,7 @@
 <cambalache-project version="0.10.3" target_tk="gtk-4.0">
   <ui>
 	(1,None,"charm.ui","charm.ui",None,None,None,None,None,None),
-	(2,None,None,"display-editor.ui",None,None,None,None,None,None),
-	(3,None,None,"column_name.ui",None,None,None,None,None,None)
+	(2,None,None,"display-editor.ui",None,None,None,None,None,None)
   </ui>
   <object>
 	(1,1,"GtkApplicationWindow","toplevel",None,None,None,None,None),
@@ -23,9 +22,9 @@
 	(1,17,"GtkFrame","hierarchy_frame",15,None,None,None,None),
 	(1,18,"GtkTreeView","datapath_editor",11,None,None,None,None),
 	(1,19,"GtkColumnView","hierarchy_editor",17,None,None,None,None),
-	(2,1,"GtkGrid",None,None,None,None,None,None),
+	(2,1,"GtkGrid","toplevel",None,None,None,None,None),
 	(2,2,"GtkLabel",None,1,None,None,None,None),
-	(2,3,"GtkEntry",None,1,None,None,None,None),
+	(2,3,"GtkEntry","name_entry",1,None,None,None,None),
 	(2,4,"GtkLabel",None,1,None,None,None,None),
 	(2,5,"GtkEntry",None,1,None,None,None,1),
 	(2,6,"GtkLabel",None,1,None,None,None,None),
@@ -35,8 +34,7 @@
 	(2,10,"GtkCheckButton",None,1,None,None,None,2),
 	(2,12,"GtkComboBox",None,1,None,None,None,3),
 	(2,13,"GtkComboBox",None,1,None,None,None,6),
-	(2,14,"GtkComboBox",None,1,None,None,None,None),
-	(3,1,"GtkLabel",None,None,None,None,None,None)
+	(2,14,"GtkComboBox",None,1,None,None,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","height-request","800",None,None,None,None,None),

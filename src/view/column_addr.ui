@@ -5,7 +5,7 @@
       <object class="GtkLabel">
         <property name="xalign">0</property>
         <binding name="label">
-	  <lookup name="addr" type="CharmStructureChildhoodItem">
+	  <lookup name="addr" type="CharmNodeItem">
 	    <lookup name="item" type="GtkTreeListRow">
 	      <lookup name="item">GtkListItem</lookup>
 	    </lookup>

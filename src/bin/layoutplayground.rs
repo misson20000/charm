@@ -1,7 +1,8 @@
 use std::fmt;
+use std::sync;
 use std::vec;
 
-use charm::logic::tokenizer;
+use charm::model::document;
 use charm::model::listing::layout;
 use charm::model::listing::token;
 
@@ -63,14 +64,9 @@ fn main() {
     args.next().expect("expected argv[0]");
     
     let xml_path = args.next().expect("expected path to xml");
-    
-    let xml = std::fs::read_to_string(xml_path.clone()).unwrap_or_else(|e| panic!("could not read file {:?}: {}", xml_path, e));
-    let document = match roxmltree::Document::parse(&xml) {
-        Ok(document) => document,
-        Err(e) => panic!("{}", e)
-    };
-    let tc = tokenizer::xml::Testcase::from_xml(&document);
-    let mut window = layout::Window::<Line>::new(&tc.structure);
+
+    let document = sync::Arc::new(document::Document::load_from_testing_structure(xml_path).unwrap());
+    let mut window = layout::Window::<Line>::new(document);
 
     window.resize(150);
 

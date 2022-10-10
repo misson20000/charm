@@ -1,5 +1,7 @@
 pub mod structure;
 
+use std::future;
+use std::pin;
 use std::sync;
 use std::task;
 use std::vec;
@@ -9,9 +11,9 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
 
-mod change;
+pub mod change;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Document {
     pub previous: Option<(sync::Arc<Document>, change::Change)>,
     pub root: sync::Arc<structure::Node>,
@@ -36,8 +38,15 @@ impl DocumentHost {
         }
     }
 
-    pub fn wait(&self, cx: &task::Context) {
+    pub fn enroll(&self, cx: &task::Context) {
         self.notifier.enroll(cx);
+    }
+
+    pub fn wait_for_update<'a>(&'a self, current: &'_ Document) -> DocumentUpdateFuture<'a> {
+        DocumentUpdateFuture {
+            host: self,
+            generation: current.generation,
+        }
     }
     
     pub fn borrow(&self) -> arc_swap::Guard<sync::Arc<Document>> {
@@ -111,6 +120,54 @@ impl DocumentHost {
         
         self.notifier.notify();
         Ok(())
+    }
+
+    pub fn alter_node(&self, doc: &Document, path: structure::Path, props: structure::Properties) -> Result<(), change::UpdateError> {
+        let change = change::Change {
+            ty: change::ChangeType::AlterNode(path, props),
+            generation: doc.generation,
+        };
+
+        self.change(change)
+    }
+}
+
+pub struct DocumentUpdateFuture<'a> {
+    host: &'a DocumentHost,
+    generation: u64,
+}
+
+impl<'a> future::Future for DocumentUpdateFuture<'a> {
+    type Output = sync::Arc<Document>;
+
+    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+        let guard = self.host.current.load();
+        if guard.generation != self.generation {
+            /* fast path */
+            task::Poll::Ready(arc_swap::Guard::into_inner(guard))
+        } else {
+            /* slow path. need to enroll for change notifications... */
+            std::mem::drop(guard);
+            self.host.enroll(cx);
+
+            /* check whether the document was updated while we were enrolling */
+            let guard = self.host.current.load();
+            if guard.generation != self.generation {
+                /* document was updated while we were enrolling */
+                task::Poll::Ready(arc_swap::Guard::into_inner(guard))
+            } else {
+                /* still no change... we'll pick it up when our task gets woken again. */
+                task::Poll::Pending
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for DocumentHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DocumentHost")
+            .field("generation", &self.borrow().generation)
+            .finish_non_exhaustive()
     }
 }
 

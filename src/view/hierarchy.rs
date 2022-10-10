@@ -1,66 +1,99 @@
+use std::cell;
 use std::sync;
 use std::vec;
 
 use gtk::gio;
 use gtk::glib;
-use gtk::subclass::prelude::*;
 use gtk::prelude::*;
+use gtk::subclass::prelude::*;
 
 use crate::model::addr;
+use crate::model::document;
 use crate::model::document::structure;
+use crate::view::helpers;
 
-pub fn create_tree_list_model(root: sync::Arc<structure::Node>, autoexpand: bool) -> gtk::TreeListModel {
-    let list_model = StructureListModel::wrap_root(root);
-    gtk::TreeListModel::new(&list_model, false, autoexpand, |obj| {
-        Some(StructureListModel::from_childhood(obj.clone().downcast::<StructureChildhoodItem>().unwrap().imp().interior.get().unwrap()).upcast())
-    })
+pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, autoexpand: bool) -> gtk::TreeListModel {
+    let document = document_host.get();
+    
+    let root_model = gio::ListStore::new(NodeItem::static_type());
+
+    let root_item = NodeItem::new(NodeInfo {
+        path: vec![],
+        node: document.root.clone(),
+        props: document.root.props.clone(),
+        offset: addr::unit::NULL,
+        address: addr::unit::NULL,
+        document_host: document_host.clone(),
+        document: document.clone(),
+    });
+    
+    root_model.append(&root_item);
+    
+    let model = gtk::TreeListModel::new(&root_model, false, autoexpand, |obj| {
+        Some(StructureListModel::from_node_info(
+            &obj.downcast_ref::<NodeItem>().unwrap().imp().info.get().unwrap().borrow()
+        ).upcast())
+    });
+
+    helpers::subscribe_to_document_updates(model.downgrade(), document_host.clone(), document, move |_, new_document| {
+        root_item.update(NodeInfo {
+            path: vec![],
+            node: new_document.root.clone(),
+            props: new_document.root.props.clone(),
+            offset: addr::unit::NULL,
+            address: addr::unit::NULL,
+            document: new_document.clone(),
+            document_host: document_host.clone(),
+        });
+        //model.model().downcast::<StructureListModel>().unwrap().update(new_document);
+    });
+    
+    model
 }
 
-pub fn create_widget(object: &glib::Object) -> gtk::Widget {
-    let row = gtk::ListBoxRow::new();
-    println!("creating widget for {:?}", object);
-    let sci = object.downcast_ref::<gtk::TreeListRow>()
-        .unwrap()
-        .item()
-        .unwrap()
-        .downcast::<StructureChildhoodItem>()
-        .unwrap();
-    let ch = sci
-        .imp()
-        .interior
-        .get()
-        .unwrap();
-    row.set_child(Some(&gtk::Label::new(Some(&ch.node.props.name))));
-    row.upcast()
-}
-
-pub fn create_selection_model(root: sync::Arc<structure::Node>) -> gtk::SelectionModel {
-    //StructureListModel::wrap_root(root).upcast()
+pub fn create_selection_model(document_host: sync::Arc<document::DocumentHost>) -> gtk::SelectionModel {
     gtk::builders::SingleSelectionBuilder::new()
-        .model(&create_tree_list_model(root, true))
+        .model(&create_tree_list_model(document_host, true))
         .build()
         .upcast()
 }
 
-#[derive(Debug)]
-pub struct AbsoluteChildhood {
-    node: sync::Arc<structure::Node>,
-    offset: addr::Address,
-    address: addr::Address,
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node: sync::Arc<structure::Node>,
+    
+    /* when we update a gobject property, it needs to be reflected immediately,
+     * before document update happens. */
+    pub props: structure::Properties,
+    
+    pub path: structure::Path,
+    pub offset: addr::Address,
+    pub address: addr::Address,
+    pub document_host: sync::Arc<document::DocumentHost>,
+    pub document: sync::Arc<document::Document>,
 }
 
 mod imp {
+    use std::cell;
+    use std::sync;
     use std::vec;
+    
     use gtk::gio;
     use gtk::glib;
     use gtk::subclass::prelude::*;
     use gtk::prelude::{Cast, StaticType};
-    use crate::model::{addr, document::structure};
+    
+    use crate::model::addr;
+    use crate::model::document;
+    use crate::model::document::structure;
 
     #[derive(Debug)]
     pub struct StructureListModelInterior {
+        pub path: structure::Path,
         pub children: vec::Vec<structure::Childhood>,
         pub address: addr::Address,
+        pub document_host: sync::Arc<document::DocumentHost>,
+        pub document: sync::Arc<document::Document>,
     }
 
     #[derive(Default)]
@@ -80,7 +113,7 @@ mod imp {
 
     impl ListModelImpl for StructureListModel {
         fn item_type(&self, _: &Self::Type) -> glib::Type {
-            super::StructureChildhoodItem::static_type()
+            super::NodeItem::static_type()
         }
 
         fn n_items(&self, _: &Self::Type) -> u32 {
@@ -90,29 +123,35 @@ mod imp {
         fn item(&self, _: &Self::Type, position: u32) -> Option<glib::Object> {
             self.interior.get().and_then(|i| {
                 i.children.get(position as usize).map(|ch| {
-                    super::StructureChildhoodItem::new(super::AbsoluteChildhood {
+                    let mut path = i.path.clone();
+                    path.push(position as usize);
+                    super::NodeItem::new(super::NodeInfo {
+                        path,
                         node: ch.node.clone(),
+                        props: ch.node.props.clone(),
                         offset: ch.offset,
-                        address: i.address + ch.offset.to_size()
+                        address: i.address + ch.offset.to_size(),
+                        document_host: i.document_host.clone(),
+                        document: i.document.clone()
                     }).upcast()
                 })
             })
         }
     }
-
+    
     #[derive(Default)]
-    pub struct StructureChildhoodItem {
-        pub interior: once_cell::unsync::OnceCell<super::AbsoluteChildhood>,
+    pub struct NodeItem {
+        pub info: once_cell::unsync::OnceCell<cell::RefCell<super::NodeInfo>>,
     }
 
     #[glib::object_subclass]
-    impl ObjectSubclass for StructureChildhoodItem {
-        const NAME: &'static str = "CharmStructureChildhoodItem";
-        type Type = super::StructureChildhoodItem;
+    impl ObjectSubclass for NodeItem {
+        const NAME: &'static str = "CharmNodeItem";
+        type Type = super::NodeItem;
         type ParentType = glib::Object;
     }
 
-    impl ObjectImpl for StructureChildhoodItem {
+    impl ObjectImpl for NodeItem {
         fn properties() -> &'static [glib::ParamSpec] {
             static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
                 once_cell::sync::Lazy::new(|| vec![
@@ -123,17 +162,36 @@ mod imp {
             PROPERTIES.as_ref()
         }
 
-        fn set_property(&self, _obj: &Self::Type, _id: usize, _value: &glib::Value, pspec: &glib::ParamSpec) {
+        fn set_property(&self, obj: &Self::Type, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+            /* we update our local copy of properties immediately. when the
+               document update goes through, it will notify us, but we'll see
+               that the new properties already match our local properties and we
+               won't notify the properties as changed again. */
+
+            println!("property {} is being set", pspec.name());
+            
+            let mut info = self.info.get().unwrap().borrow_mut();
+            let old_info = info.clone();
+            
             match pspec.name() {
+                "name" => info.props.name = value.get().unwrap(),
                 _ => unimplemented!(),
+            };
+
+            if let Err(e) = info.document_host.alter_node(&info.document, info.path.clone(), info.props.clone()) {
+                /* roll back */
+                println!("failed to alter node: {:?}", e);
+                std::mem::drop(info);
+                obj.update(old_info);
             }
         }
 
         fn property(&self, _obj: &Self::Type, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+            let info = self.info.get().unwrap().borrow();
             match pspec.name() {
-                "name" => glib::ToValue::to_value(&self.interior.get().unwrap().node.props.name),
-                "addr" => glib::ToValue::to_value(&format!("{}", self.interior.get().unwrap().address)),
-                "size" => glib::ToValue::to_value(&format!("{}", self.interior.get().unwrap().node.size)),
+                "name" => glib::ToValue::to_value(&info.props.name),
+                "addr" => glib::ToValue::to_value(&format!("{}", info.address)),
+                "size" => glib::ToValue::to_value(&format!("{}", info.node.size)),
                 _ => unimplemented!(),
             }
         }
@@ -146,37 +204,50 @@ glib::wrapper! {
 }
 
 glib::wrapper! {
-    pub struct StructureChildhoodItem(ObjectSubclass<imp::StructureChildhoodItem>)
+    pub struct NodeItem(ObjectSubclass<imp::NodeItem>)
         ;
 }
 
 impl StructureListModel {
-    fn wrap_root(root: sync::Arc<structure::Node>) -> Self {
+    fn from_node_info(info: &NodeInfo) -> Self {
         let model: Self = glib::Object::new(&[]).unwrap();
         model.imp().interior.set(imp::StructureListModelInterior {
-            children: vec![structure::Childhood {
-                node: root,
-                offset: addr::unit::NULL,
-            }],
-            address: addr::unit::NULL,
+            path: info.path.clone(),
+            children: info.node.children.clone(),
+            address: info.address,
+            document_host: info.document_host.clone(),
+            document: info.document.clone(),
         }).unwrap();
         model
     }
 
-    fn from_childhood(ch: &AbsoluteChildhood) -> Self {
-        let model: Self = glib::Object::new(&[]).unwrap();
-        model.imp().interior.set(imp::StructureListModelInterior {
-            children: ch.node.children.clone(),
-            address: ch.address,
-        }).unwrap();
-        model
+    fn update(&self, _new: &sync::Arc<structure::Node>) {
     }
 }
 
-impl StructureChildhoodItem {
-    fn new(ch: AbsoluteChildhood) -> Self {
+impl NodeItem {
+    fn new(info: NodeInfo) -> Self {
         let item: Self = glib::Object::new(&[]).unwrap();
-        item.imp().interior.set(ch).unwrap();
+        item.imp().info.set(cell::RefCell::new(info)).unwrap();
         item
+    }
+
+    fn update(&self, new_info: NodeInfo) {
+        let mut info = self.imp().info.get().unwrap().borrow_mut();
+        
+        let changed_name = info.props.name != new_info.props.name;
+        let changed_offset = info.offset != new_info.offset;
+        let changed_address = info.address != new_info.address;
+
+        *info = new_info;
+
+        /* as soon as we start notifying, callbacks are allowed to try to
+         * retrieve the new properties, requiring a reference to our
+         * interior. */
+        std::mem::drop(info);
+
+        if changed_name { self.notify("name"); }
+        if changed_offset { self.notify("offset"); }
+        if changed_address { self.notify("address"); }
     }
 }

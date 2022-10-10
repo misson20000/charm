@@ -73,7 +73,7 @@ impl DataPathModel {
         let dpm = dpm_arc.read();
         
         let document = dpm.document_host.borrow();
-        dpm.document_host.wait(cx);
+        dpm.document_host.enroll(cx);
         dpm.update_notifier.enroll(cx);
 
         if document.is_outdated(&dpm.document) {

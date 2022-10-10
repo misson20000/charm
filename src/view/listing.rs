@@ -1,6 +1,5 @@
 use std::iter;
 use std::sync;
-//use std::task;
 use std::vec;
 //use std::time;
 //use std::collections::HashMap;
@@ -18,6 +17,7 @@ use crate::model::listing::layout;
 use crate::model::listing::token;
 use crate::view;
 use crate::view::gsc;
+use crate::view::helpers;
 //use crate::view::ext::CairoExt;
 
 //use gtk::gdk;
@@ -74,6 +74,7 @@ pub struct RenderDetail {
 
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
+    document: sync::Arc<document::Document>,
     window: layout::Window<Line>,
 
     render: sync::Arc<RenderDetail>,
@@ -149,6 +150,15 @@ impl ListingWidgetImp {
             panic!("ListingWidget should only be initialized once");
         }
     }
+
+    fn document_updated(&self, widget: &ListingWidget, new_document: &sync::Arc<document::Document>) {
+        let mut interior = self.interior.get().unwrap().write();
+
+        interior.window.update(new_document);
+        interior.document = new_document.clone();
+        
+        widget.queue_draw();
+    }
 }
 
 glib::wrapper! {
@@ -162,12 +172,14 @@ impl ListingWidget {
         glib::Object::new(&[]).expect("failed to create ListingWidget")
     }
     
-    pub fn init(&self, _window: &view::window::CharmWindow, document_host: &sync::Arc<document::DocumentHost>) {
+    pub fn init(&self, _window: &view::window::CharmWindow, document_host: sync::Arc<document::DocumentHost>) {
         let render = RenderDetail::new(config::copy(), self.pango_context(), 0);
+        let document = document_host.get();
         
         let mut interior = Interior {
             document_host: document_host.clone(),
-            window: layout::Window::new(&document_host.get().root),
+            window: layout::Window::new(document.clone()),
+            document: document.clone(),
 
             render: sync::Arc::new(render),
         };
@@ -182,6 +194,31 @@ impl ListingWidget {
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
 
         self.imp().init(interior);
+
+        /*
+        {
+            let self_weak = self.downgrade();
+            let dh = document_host.clone();
+            glib::MainContext::default().spawn_local(async move {
+                let mut document = document;
+                
+                loop {
+                    let new_document = dh.wait_for_update(&document).await;
+
+                    let s = match self_weak.upgrade() {
+                        Some(s) => s,
+                        None => return
+                    };
+
+                    document = new_document.clone();
+                    s.imp().document_updated(&s, new_document);
+                }
+            });
+    }*/
+
+        helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+            lw.imp().document_updated(&lw, new_doc);
+        });
     }
 }
 

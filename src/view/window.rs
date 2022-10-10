@@ -7,10 +7,12 @@ use crate::model::document;
 //use crate::model::space;
 //use crate::model::space::AddressSpace;
 use crate::view;
+use crate::view::hierarchy;
 
 use gtk::gio;
 use gtk::glib;
 use gtk::prelude::*;
+use gtk::subclass::prelude::*;
 
 pub struct WindowContext {
     window: rc::Weak<CharmWindow>,
@@ -52,6 +54,7 @@ impl CharmWindow {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Go to..."), Some("listing.goto"));
                 edit_menu.append(Some("Insert or edit break..."), Some("listing.insert_break"));
+                edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
                 {
                     let mode_menu = gio::Menu::new();
                     mode_menu.append(Some("Command mode"), Some("listing.mode::command"));
@@ -173,6 +176,10 @@ impl CharmWindow {
             w.action_open();
         });
 
+        view::helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| {
+            w.action_edit_properties();
+        });
+        
         view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
@@ -231,6 +238,46 @@ impl CharmWindow {
         dialog.present();
     }
 
+    pub fn action_edit_properties(self: &rc::Rc<Self>) {
+        if let Some(item) = self.hierarchy_editor.model().and_then(|model| {
+            let selection = model.selection();
+            if selection.size() == 0 {
+                None
+            } else {
+                model.item(selection.nth(0))
+            }
+        }).map(|object| {
+            object.downcast::<gtk::TreeListRow>().unwrap().item().unwrap().downcast::<hierarchy::NodeItem>().unwrap()
+        }) {
+            let node_info = item.imp().info.get().unwrap().borrow();
+
+            let builder = gtk::Builder::from_string(include_str!("display-editor.ui"));
+
+            let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
+            
+            let dialog = gtk::Dialog::builder()
+                .application(&self.application.application)
+                .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+                .resizable(true)
+                .title(&format!("Editing properties for '{}'", node_info.props.name))
+                .transient_for(&self.window)
+                .build();
+
+            std::mem::drop(node_info);
+            
+            let name_binding = item.bind_property("name", &name_entry.buffer(), "text").flags(glib::BindingFlags::BIDIRECTIONAL | glib::BindingFlags::SYNC_CREATE).build();
+            
+            dialog.show();
+
+            /* extend lifetimes of binding and refernce until window closes */
+            dialog.connect_destroy(move |_| {
+                println!("destroying binding");
+                let _ = item;
+                let _ = name_binding;
+            });
+        }
+    }
+    
     pub fn close_file(self: &rc::Rc<Self>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
@@ -262,7 +309,7 @@ impl WindowContext {
     fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         let lw = view::listing::ListingWidget::new();
-        lw.init(window, &document_host);
+        lw.init(window, document_host.clone());
         let datapath_model = view::datapath::DataPathModel::new(window, &document_host);
         
         WindowContext {
@@ -276,7 +323,7 @@ impl WindowContext {
     fn attach(self, window: &CharmWindow) {
         window.listing_frame.set_child(Some(&self.lw));
         window.datapath_editor.set_model(Some(self.datapath_model.read().get_tree_model()));
-        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.get().root.clone())));
+        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.clone())));
         self.lw.grab_focus();
         
         *window.context.borrow_mut() = Some(self);

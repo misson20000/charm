@@ -2,7 +2,7 @@
 <!-- Created with Cambalache 0.10.3 -->
 <interface>
   <requires lib="gtk" version="4.6"/>
-  <object class="GtkGrid">
+  <object class="GtkGrid" id="toplevel">
     <property name="column-spacing">30</property>
     <property name="halign">start</property>
     <property name="row-spacing">10</property>
@@ -21,7 +21,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkEntry">
+      <object class="GtkEntry" id="name_entry">
         <layout>
           <property name="column">1</property>
           <property name="column-span">1</property>

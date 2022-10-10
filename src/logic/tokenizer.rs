@@ -5,7 +5,9 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::listing::token;
+use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::change;
 
 #[derive(Clone, Debug)]
 enum TokenizerState {
@@ -104,22 +106,76 @@ impl std::fmt::Debug for TokenizerStackEntry {
 
 impl Tokenizer {
     /// Creates a new tokenizer seeked to the root of the structure hierarchy and the beginning of the token stream.
-    pub fn at_beginning(root: &sync::Arc<structure::Node>) -> Tokenizer {
+    pub fn at_beginning(root: sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
             stack: None,
             state: TokenizerState::PreBlank,
             depth: 0,
-            node: root.clone(),
+            node: root,
             node_addr: addr::unit::NULL,
         }
     }
 
-    pub fn at_address(_root: &sync::Arc<structure::Node>, _addr: addr::Address) -> Tokenizer {
+    pub fn at_address(_root: sync::Arc<structure::Node>, _addr: addr::Address) -> Tokenizer {
         todo!();
     }
 
-    pub fn port(_old: &Tokenizer, _new_root: &sync::Arc<structure::Node>) -> Tokenizer {
-        todo!();
+    pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
+        if old_doc.is_outdated(new_doc) {
+            match &new_doc.previous {
+                Some((prev_doc, change)) => {
+                    self.port_doc(old_doc, prev_doc);
+                    self.port_change(&new_doc.root, change);
+                },
+                None => panic!("no common ancestor")
+            }
+        }
+    }
+    
+    fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change) {
+        let (new_stack, node) = match &self.stack {
+            Some(parent) => {
+                let (s, n) = Self::port_descend(&parent, new_root, change);
+                (Some(sync::Arc::new(s)), n)
+            },
+            None => (None, new_root.clone())
+        };
+            
+        /* create Tokenizer from (new_stack, node) */
+        *self = Tokenizer {
+            stack: new_stack,
+            state: std::mem::replace(&mut self.state, TokenizerState::PreBlank),
+            depth: self.depth,
+            node: node,
+            node_addr: self.node_addr,
+        }
+    }
+
+    fn port_node(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, new_node: sync::Arc<structure::Node>, _change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>) {
+        (TokenizerStackEntry {
+            stack: new_stack,
+            before_state: old_tok.before_state.clone(),
+            after_state: old_tok.after_state.clone(),
+            depth: old_tok.depth,
+            node: new_node.clone(),
+            node_addr: old_tok.node_addr,
+        }, match old_tok.before_state {
+            TokenizerState::MetaContent(_, i) => new_node.children[i].node.clone(),
+            _ => todo!(),
+        })
+    }
+    
+    fn port_descend(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>) {
+        match &tok.stack {
+            Some(parent) => {
+                let (new_stack, new_node) = Self::port_descend(&parent, new_root, change);
+                Self::port_node(tok, Some(sync::Arc::new(new_stack)), new_node, change)
+            },
+            None => {
+                /* reached root */
+                Self::port_node(tok, None, new_root.clone(), change)
+            }
+        }
     }
 
     /// Creates a new tokenizer seeked to the end of the token stream.

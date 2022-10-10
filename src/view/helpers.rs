@@ -1,7 +1,10 @@
 use std::rc;
+use std::sync;
 
 use gtk::gio;
 use gtk::glib;
+
+use crate::model::document;
 
 pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
@@ -38,4 +41,24 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
     map.add_action(&action);
 
     action
+}
+
+pub fn subscribe_to_document_updates<Object, F>(obj_weak: glib::object::WeakRef<Object>, document_host: sync::Arc<document::DocumentHost>, initial_document: sync::Arc<document::Document>, callback: F) where
+    Object: glib::object::ObjectType,
+    F: Fn(Object, &sync::Arc<document::Document>) + 'static {
+    glib::MainContext::default().spawn_local(async move {
+        let mut document = initial_document;
+
+        loop {
+            let new_document = document_host.wait_for_update(&document).await;
+
+            let obj = match obj_weak.upgrade() {
+                Some(obj) => obj,
+                None => return
+            };
+
+            document = new_document.clone();
+            callback(obj, &document);
+        };
+    });
 }
