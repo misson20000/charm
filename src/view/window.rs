@@ -11,6 +11,7 @@ use crate::view::hierarchy;
 
 use gtk::gio;
 use gtk::glib;
+use gtk::glib::clone;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
@@ -154,13 +155,10 @@ impl CharmWindow {
             context: cell::RefCell::new(None),
         });
 
-        {
-            // extend our lifetime until the window closes
-            let w_clone = Some(w.clone());
-            w.window.connect_destroy(move |_| {
-                let _ = &w_clone;
-            });
-        }
+        // extend our lifetime until the window closes
+        w.window.connect_destroy(clone!(@strong w => move |_| {
+            let _: &rc::Rc<CharmWindow> = &w;
+        }));
 
         // TODO: figure out how to do this in gtk4?
         /*
@@ -213,8 +211,7 @@ impl CharmWindow {
             ]);
         dialog.set_select_multiple(true);
 
-        let window = self.clone();
-        dialog.connect_response(move |dialog, response_type| {
+        dialog.connect_response(clone!(@strong self as window => move |dialog, response_type| {
             match response_type {
                 gtk::ResponseType::Accept => {
                     window.close_file();
@@ -234,7 +231,7 @@ impl CharmWindow {
                 _ => {} /* we were cancelled, ignore */
             }
             dialog.close();
-        });
+        }));
         dialog.present();
     }
 
@@ -269,9 +266,8 @@ impl CharmWindow {
             
             dialog.show();
 
-            /* extend lifetimes of binding and refernce until window closes */
+            /* extend lifetimes of binding and reference until window closes */
             dialog.connect_destroy(move |_| {
-                println!("destroying binding");
                 let _ = item;
                 let _ = name_binding;
             });
