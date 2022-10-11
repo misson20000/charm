@@ -1,3 +1,4 @@
+use crate::model::addr;
 use crate::model::listing::token;
 use crate::view::gsc;
 use crate::view::listing;
@@ -26,6 +27,15 @@ impl TokenView {
         self.token.depth
     }
 
+    pub fn visible_address(&self) -> Option<addr::Address> {
+        match self.token.class {
+            token::TokenClass::Title => Some(self.token.node_addr),
+            token::TokenClass::Hexdump(e) => Some(self.token.node_addr + e.begin.to_size()),
+            token::TokenClass::Hexstring(e) => Some(self.token.node_addr + e.begin.to_size()),
+            _ => None,
+        }
+    }
+    
     pub fn contains(&self, point: &graphene::Point) -> bool {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }

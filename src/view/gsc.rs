@@ -115,3 +115,23 @@ pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::
         pos.set_x(pos.x() + advance);
     }
 }
+
+pub fn render_text_align_right(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str, pos: &mut graphene::Point) {
+    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
+
+    for item in items {
+        let mut gs = pango::GlyphString::new();
+        pango::shape(text, item.analysis(), &mut gs);
+
+        let advance = gs.width() as f32 / pango::SCALE as f32;
+        pos.set_x(pos.x() - advance);
+        
+        snapshot.append_node(
+            gsk::TextNode::new(
+                font,
+                &mut gs,
+                color,
+                pos)
+                .unwrap());
+    }
+}

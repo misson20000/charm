@@ -33,6 +33,7 @@ mod token_view;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
+const NATURAL_ADDRESS_STRING_LENGTH: i32 = 2 + (2*8);
 
 struct Line {
     tokens: vec::Vec<token_view::TokenView>,
@@ -70,6 +71,8 @@ pub struct RenderDetail {
 
     gsc_mono: gsc::Cache,
     gsc_bold: gsc::Cache,
+
+    addr_pane_width: f32,
 }
 
 struct Interior {
@@ -134,6 +137,9 @@ impl WidgetImpl for ListingWidgetImp {
         /* fill in background */
         snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
 
+        /* fill in address pane */
+        snapshot.append_color(&render.config.addr_pane_color, &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
+        
         /* render lines */
         for line in interior.window.lines.iter_mut() {
             if let Some(node) = line.render(widget, &*render) {
@@ -195,27 +201,6 @@ impl ListingWidget {
 
         self.imp().init(interior);
 
-        /*
-        {
-            let self_weak = self.downgrade();
-            let dh = document_host.clone();
-            glib::MainContext::default().spawn_local(async move {
-                let mut document = document;
-                
-                loop {
-                    let new_document = dh.wait_for_update(&document).await;
-
-                    let s = match self_weak.upgrade() {
-                        Some(s) => s,
-                        None => return
-                    };
-
-                    document = new_document.clone();
-                    s.imp().document_updated(&s, new_document);
-                }
-            });
-    }*/
-
         helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.imp().document_updated(&lw, new_doc);
         });
@@ -233,18 +218,26 @@ impl RenderDetail {
         let font_bold = fm.load_font(&pg, &desc_bold).expect("expected to be able to load bold variant of selected font");
         
         let metrics = font_mono.metrics(Option::<&pango::Language>::None).unwrap();
+
+        let gsc_mono = gsc::Cache::new(&pg, &font_mono);
+        let gsc_bold = gsc::Cache::new(&pg, &font_bold);
+
+        let addr_pane_width = (gsc_bold.space_width() * NATURAL_ADDRESS_STRING_LENGTH) as f32 / pango::SCALE as f32
+            + (2.0 * config.padding as f32);
         
         RenderDetail {
             config,
             serial,
-            
-            gsc_mono: gsc::Cache::new(&pg, &font_mono),
-            gsc_bold: gsc::Cache::new(&pg, &font_bold),
+
+            gsc_mono,
+            gsc_bold,
 
             pango: pg,
             font_mono,
             font_bold,
             metrics,
+
+            addr_pane_width,
         }
     }
 }
@@ -292,19 +285,33 @@ impl Line {
         let snapshot = gtk::Snapshot::new();
         let mut position = graphene::Point::zero();
 
+        position.set_x(render.addr_pane_width + render.config.padding as f32);
+        
         if let Some(first) = self.tokens.get(0) {
             position.set_x(
+                position.x() +
                 render.config.indentation_width *
                     render.gsc_mono.space_width() as f32 /
                     pango::SCALE as f32 *
                     first.get_indentation() as f32);
         }
+
+        let mut visible_address = None;
         
         for token in &mut self.tokens {
             snapshot.save();
             let advance = token.render(&snapshot, render, &position);
             snapshot.restore();
             position.set_x(position.x() + advance.x());
+
+            if visible_address.is_none() {
+                visible_address = token.visible_address();
+            }
+        }
+
+        if let Some(addr) = visible_address {
+            let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, render.metrics.height() as f32 / pango::SCALE as f32);
+            gsc::render_text_align_right(&snapshot, &render.pango, &render.font_bold, &render.config.addr_color, &format!("{}", addr), &mut pos);
         }
 
         self.render_serial = render.serial;
