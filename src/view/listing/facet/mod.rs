@@ -1,44 +1,31 @@
-pub mod scroll;
+//pub mod scroll;
 pub mod cursor;
 
-use gtk::prelude::WidgetExt;
+use std::task;
 
-#[derive(Debug)]
-pub struct Events {
-    wants_draw: bool,
-    wants_animate: bool,
-    wants_update: bool,
+pub trait Facet {
+    fn wants_draw(&mut self) -> &mut Event;
+    fn wants_work(&mut self) -> &mut Event;
+    fn work(&mut self, cx: &mut task::Context);
 }
 
-impl Events {
-    pub fn new() -> Events {
-        Events {
-            wants_draw: false,
-            wants_animate: false,
-            wants_update: false,
+#[derive(Debug)]
+pub struct Event {
+    wanted: bool,
+}
+
+impl Event {
+    pub fn new() -> Event {
+        Event {
+            wanted: false,
         }
     }
 
-    pub fn want_draw(&mut self) {
-        self.wants_draw = true;
+    pub fn want(&mut self) {
+        self.wanted = true;
     }
 
-    pub fn want_animate(&mut self) {
-        self.wants_animate = true;
-    }
-
-    pub fn want_update(&mut self) {
-        self.wants_update = true;
-    }
-
-    pub fn collect_draw(&mut self, da: &gtk::DrawingArea) {
-        // TODO: wants_animate
-        if std::mem::replace(&mut self.wants_draw, false) {
-            da.queue_draw();
-        }
-    }
-
-    pub fn collect_update(&mut self) -> bool {
-        std::mem::replace(&mut self.wants_update, false)
+    pub fn collect(&mut self) -> bool {
+        std::mem::replace(&mut self.wanted, false)
     }
 }

@@ -44,6 +44,7 @@ pub trait CursorClassExt {
         false
     }
 
+    fn is_over(&self, token: &token::Token) -> bool;
     fn get_addr(&self) -> addr::Address;
     fn get_placement_hint(&self) -> PlacementHint;
     fn get_transition_hint(&self) -> TransitionHintClass;
@@ -64,7 +65,7 @@ pub enum CursorClass {
     Hexdump(hexdump::Cursor),
 }
 
-//#[derive(Debug)]
+#[derive(Debug)]
 pub struct Cursor {
     tokenizer: tokenizer::Tokenizer,
     pub class: CursorClass,
@@ -100,6 +101,16 @@ impl CursorClass {
 }
 
 impl Cursor {
+    pub fn new(document: sync::Arc<document::Document>) -> Result<Cursor, PlacementFailure> {
+        let mut tokenizer = tokenizer::Tokenizer::at_beginning(document.root.clone());
+        
+        Ok(Cursor {
+            class: CursorClass::place_forward(&mut tokenizer, addr::unit::NULL, &PlacementHint::default())?,
+            tokenizer,
+            document,
+        })
+    }
+
     pub fn place(document: sync::Arc<document::Document>, addr: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
         let mut tokenizer = tokenizer::Tokenizer::at_address(document.root.clone(), addr);
         
@@ -149,6 +160,10 @@ impl Cursor {
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
         Self::place(self.document.clone(), addr, PlacementHint::Unused).map(|new| { *self = new; })
+    }
+
+    pub fn is_over(&self, token: &token::Token) -> bool {
+        self.class.is_over(token)
     }
     
     fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {

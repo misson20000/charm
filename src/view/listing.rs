@@ -20,7 +20,7 @@ use crate::view::gsc;
 use crate::view::helpers;
 //use crate::view::ext::CairoExt;
 
-//use gtk::gdk;
+use gtk::gdk;
 use gtk::glib;
 use gtk::graphene;
 use gtk::gsk;
@@ -28,8 +28,10 @@ use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
-//mod facet;
+mod facet;
 mod token_view;
+
+use facet::Facet;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
@@ -78,8 +80,11 @@ pub struct RenderDetail {
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
     document: sync::Arc<document::Document>,
+    
     window: layout::Window<Line>,
+    cursor: facet::cursor::CursorView,
 
+    last_frame: i64,
     render: sync::Arc<RenderDetail>,
 }
 
@@ -127,10 +132,11 @@ impl WidgetImpl for ListingWidgetImp {
     }
     
     fn snapshot(&self, widget: &Self::Type, snapshot: &gtk::Snapshot) {
-        let mut interior = match self.interior.get() {
+        let mut interior_guard = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
         };
+        let interior = &mut *interior_guard;
 
         let render = interior.refresh_render_detail(widget).clone();
 
@@ -141,11 +147,26 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.append_color(&render.config.addr_pane_color, &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
         
         /* render lines */
+        snapshot.save();
         for line in interior.window.lines.iter_mut() {
-            if let Some(node) = line.render(widget, &*render) {
+            if let Some(node) = line.render(&interior.cursor, &*render) {
                 snapshot.append_node(node);
             }
+            
             snapshot.translate(&graphene::Point::new(0.0, render.metrics.height() as f32 / pango::SCALE as f32));
+        }
+        snapshot.restore();
+
+        /* render debug text */
+        {
+            let mut pos = graphene::Point::new(1000.0, 100.0);
+            gsc::render_text(
+                &snapshot,
+                &render.pango,
+                &render.font_mono,
+                &render.config.text_color,
+                &format!("last_frame: {:?}", interior.last_frame),
+                &mut pos);
         }
     }
 }
@@ -155,15 +176,6 @@ impl ListingWidgetImp {
         if self.interior.set(interior).is_err() {
             panic!("ListingWidget should only be initialized once");
         }
-    }
-
-    fn document_updated(&self, widget: &ListingWidget, new_document: &sync::Arc<document::Document>) {
-        let mut interior = self.interior.get().unwrap().write();
-
-        interior.window.update(new_document);
-        interior.document = new_document.clone();
-        
-        widget.queue_draw();
     }
 }
 
@@ -184,9 +196,15 @@ impl ListingWidget {
         
         let mut interior = Interior {
             document_host: document_host.clone(),
-            window: layout::Window::new(document.clone()),
             document: document.clone(),
+            
+            window: layout::Window::new(document.clone()),
+            cursor: facet::cursor::CursorView::new(document.clone()),
 
+            last_frame: match self.frame_clock() {
+                Some(fc) => fc.frame_time(),
+                None => 0
+            },
             render: sync::Arc::new(render),
         };
 
@@ -201,9 +219,22 @@ impl ListingWidget {
 
         self.imp().init(interior);
 
-        helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
-            lw.imp().document_updated(&lw, new_doc);
+        self.add_tick_callback(|lw, frame_clock| {
+            lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
+        
+        helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+            lw.document_updated(new_doc);
+        });
+    }
+
+    fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+
+        interior.window.update(new_document);
+        interior.document = new_document.clone();
+        
+        self.queue_draw();
     }
 }
 
@@ -268,6 +299,27 @@ impl Interior {
 
         self.window.resize(line_count);
     }
+
+    fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::Continue {
+        let frame_time = frame_clock.frame_time(); // in microseconds
+
+        if frame_time - self.last_frame > (MICROSECONDS_PER_SECOND as i64) {
+            /* if we fall too far behind, just drop frames */
+            self.last_frame = frame_time;
+        }
+
+        let delta = (frame_time - self.last_frame) as f64 / MICROSECONDS_PER_SECOND as f64;
+
+        self.cursor.animate(delta);
+
+        if self.cursor.wants_draw().collect() {
+            widget.queue_draw();
+        }
+        
+        self.last_frame = frame_time;
+        
+        glib::Continue(true)
+    }
 }
 
 impl Line {
@@ -275,18 +327,24 @@ impl Line {
         self.render_node = None;
     }
 
-    fn render(&mut self, _widget: &ListingWidget, render: &RenderDetail) -> Option<gsk::RenderNode> {
+    fn render(&mut self, cursor: &facet::cursor::CursorView, render: &RenderDetail) -> Option<gsk::RenderNode> {
+        /* if we rendered this line earlier and the render hasn't been invalidated, just reuse the previous snapshot. */
         if let Some(rn) = self.render_node.as_ref() {
             if self.render_serial == render.serial {
-                return Some(rn.clone());
+                /* if the cursor is on any of our tokens, we need to render fresh every time. */
+                if !self.tokens.iter().any(|t| t.contains_cursor(&cursor.cursor)) {
+                    return Some(rn.clone());
+                }
             }
         }
 
         let snapshot = gtk::Snapshot::new();
         let mut position = graphene::Point::zero();
 
+        /* begin rendering to the right of the address pane */
         position.set_x(render.addr_pane_width + render.config.padding as f32);
-        
+
+        /* indent by first token */
         if let Some(first) = self.tokens.get(0) {
             position.set_x(
                 position.x() +
@@ -297,23 +355,27 @@ impl Line {
         }
 
         let mut visible_address = None;
-        
+
+        /* render tokens */
         for token in &mut self.tokens {
             snapshot.save();
-            let advance = token.render(&snapshot, render, &position);
+            let advance = token.render(&snapshot, cursor, render, &position);
             snapshot.restore();
             position.set_x(position.x() + advance.x());
 
+            /* pick the address from the first token that should display an address */
             if visible_address.is_none() {
                 visible_address = token.visible_address();
             }
         }
 
+        /* if any of our tokens wanted to show an address, render the first one into the address pane */
         if let Some(addr) = visible_address {
             let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, render.metrics.height() as f32 / pango::SCALE as f32);
-            gsc::render_text_align_right(&snapshot, &render.pango, &render.font_bold, &render.config.addr_color, &format!("{}", addr), &mut pos);
+            gsc::render_text_align_right(&snapshot, &render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos);
         }
 
+        /* update our stored snapshot so we can reuse it later */
         self.render_serial = render.serial;
         self.render_node = snapshot.to_node();
 

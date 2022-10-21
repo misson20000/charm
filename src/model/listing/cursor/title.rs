@@ -32,6 +32,10 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
+    fn is_over(&self, token: &token::Token) -> bool {
+        &self.token == token
+    }
+    
     fn get_addr(&self) -> addr::Address {
         self.token.node_addr
     }

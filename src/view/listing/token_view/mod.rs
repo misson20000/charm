@@ -1,7 +1,9 @@
 use crate::model::addr;
+use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::view::gsc;
 use crate::view::listing;
+use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::graphene;
 use gtk::pango;
@@ -35,23 +37,33 @@ impl TokenView {
             _ => None,
         }
     }
+
+    pub fn contains_cursor(&self, cursor: &cursor::Cursor) -> bool {
+        cursor.is_over(&self.token)
+    }
     
     pub fn contains(&self, point: &graphene::Point) -> bool {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }
 
-    pub fn render(&mut self, snapshot: &gtk::Snapshot, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
+    pub fn render(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
         let lh = render.metrics.height() as f32 / pango::SCALE as f32;
         
         snapshot.translate(origin);
 
         let mut pos = graphene::Point::new(0.0, lh);
         
+        let has_cursor = cursor.cursor.is_over(&self.token) && cursor.get_blink();
+        
         match self.token.class {
             token::TokenClass::Punctuation(punct) => {
                 render.gsc_mono.print(&snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos);
             },
             token::TokenClass::Title => {
+                if has_cursor {
+                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(0.0, 0.0, 10.0, render.metrics.height() as f32 / pango::SCALE as f32));
+                }
+                
                 gsc::render_text(
                     &snapshot,
                     &render.pango,
@@ -72,13 +84,34 @@ impl TokenView {
                 render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
             },
             token::TokenClass::Hexdump(extent) => {
+                let hex_cursor = match &cursor.cursor.class {
+                    cursor::CursorClass::Hexdump(hxc) if has_cursor => Some(hxc),
+                    _ => None,
+                };
+                
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
-                    render.gsc_mono.print(&snapshot, gsc::Entry::Digit((j & 0xf0) >> 4), &render.config.text_color, &mut pos);
-                    render.gsc_mono.print(&snapshot, gsc::Entry::Digit((j & 0x0f) >> 0), &render.config.text_color, &mut pos);
 
-                    if i + 1 < extent.length().bytes {
-                        render.gsc_mono.print(&snapshot, gsc::Entry::Space, &render.config.text_color, &mut pos);
+                    /* high nybble */
+                    {
+                        let digit = gsc::Entry::Digit((j & 0xf0) >> 4);
+                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && !hxc.low_nybble) {
+                            snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(pos.x(), pos.y()-lh, render.gsc_mono.width(digit), lh));
+                            render.gsc_mono.print(&snapshot, digit, &render.config.cursor_fg_color, &mut pos);
+                        } else {
+                            render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
+                        }
+                    }
+
+                    /* low nybble */
+                    {
+                        let digit = gsc::Entry::Digit((j & 0x0f) >> 0);
+                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble) {
+                            snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(pos.x(), pos.y()-lh, render.gsc_mono.width(digit), lh));
+                            render.gsc_mono.print(&snapshot, digit, &render.config.cursor_fg_color, &mut pos);
+                        } else {
+                            render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
+                        }
                     }
                 }
             },

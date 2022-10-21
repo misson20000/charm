@@ -8,6 +8,7 @@ use gtk::gsk;
 use gtk::pango;
 use gtk::prelude::*;
 
+#[derive(Clone, Copy)]
 pub enum Entry {
     Punctuation(token::PunctuationClass),
     Digit(u8),
@@ -94,6 +95,10 @@ impl Cache {
             let advance = gs.width() as f32 / pango::SCALE as f32;
             pos.set_x(pos.x() + advance);
         }
+    }
+
+    pub fn width(&self, entry: Entry) -> f32 {
+        self.get(entry).map_or(0.0, |e| e.clone().width() as f32 / pango::SCALE as f32)
     }
 }
 

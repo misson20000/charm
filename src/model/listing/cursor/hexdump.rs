@@ -4,8 +4,8 @@ use crate::model::listing::token;
 
 #[derive(Debug)]
 pub struct Cursor {
-    token: token::Token,
-    extent: addr::Extent,
+    pub token: token::Token,
+    pub extent: addr::Extent,
     pub offset: addr::Size,
     pub low_nybble: bool,
 }
@@ -77,6 +77,10 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
+    fn is_over(&self, token: &token::Token) -> bool {
+        &self.token == token
+    }
+
     fn get_addr(&self) -> addr::Address {
         self.token.hexdump_extent().begin + self.offset
     }
