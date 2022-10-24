@@ -22,6 +22,7 @@ use crate::view::helpers;
 
 use gtk::gdk;
 use gtk::glib;
+use gtk::glib::clone;
 use gtk::graphene;
 use gtk::gsk;
 use gtk::pango;
@@ -165,7 +166,7 @@ impl WidgetImpl for ListingWidgetImp {
                 &render.pango,
                 &render.font_mono,
                 &render.config.text_color,
-                &format!("last_frame: {:?}", interior.last_frame),
+                &format!("cursor: {:?}", interior.cursor.cursor),
                 &mut pos);
         }
     }
@@ -187,7 +188,9 @@ glib::wrapper! {
 
 impl ListingWidget {
     pub fn new() -> ListingWidget {
-        glib::Object::new(&[]).expect("failed to create ListingWidget")
+        let lw: ListingWidget = glib::Object::new(&[]).expect("failed to create ListingWidget");
+        lw.set_focusable(true);
+        lw
     }
     
     pub fn init(&self, _window: &view::window::CharmWindow, document_host: sync::Arc<document::DocumentHost>) {
@@ -226,6 +229,13 @@ impl ListingWidget {
         helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.document_updated(new_doc);
         });
+
+        let ec_key = gtk::EventControllerKey::new();
+        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_eck, keyval, keycode, modifier| {
+            let inhibit = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
+            inhibit
+        }));
+        self.add_controller(&ec_key);
     }
 
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
@@ -300,6 +310,12 @@ impl Interior {
         self.window.resize(line_count);
     }
 
+    fn collect_events(&mut self, widget: &ListingWidget) {
+        if self.cursor.wants_draw().collect() {
+            widget.queue_draw();
+        }
+    }
+    
     fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::Continue {
         let frame_time = frame_clock.frame_time(); // in microseconds
 
@@ -312,14 +328,59 @@ impl Interior {
 
         self.cursor.animate(delta);
 
-        if self.cursor.wants_draw().collect() {
-            widget.queue_draw();
-        }
+        self.collect_events(widget);
         
         self.last_frame = frame_time;
         
         glib::Continue(true)
     }
+
+    // TODO: bring back ensure cursor in view
+    fn cursor_transaction<F>(&mut self, cb: F/*, dir: component::scroll::EnsureCursorInViewDirection*/) -> gtk::Inhibit
+    where F: FnOnce(&mut facet::cursor::CursorView) {
+        cb(&mut self.cursor);
+        println!("cursor: {:?}", self.cursor);
+        //self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
+        gtk::Inhibit(true)
+    }
+
+    // TODO: bring back ensure cursor in view
+    fn cursor_transaction_fallible<F>(&mut self, cb: F/*, dir: component::scroll::EnsureCursorInViewDirection*/) -> gtk::Inhibit
+    where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
+        if cb(&mut self.cursor) {
+            //self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
+            gtk::Inhibit(true)
+        } else {
+            gtk::Inhibit(false)
+        }
+    }
+    
+    fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> gtk::Inhibit {
+        let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
+            /* basic cursor   key    shift  ctrl  */
+            (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left()/*,  component::scroll::EnsureCursorInViewDirection::Up*/),
+            (gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right()/*, component::scroll::EnsureCursorInViewDirection::Down*/),
+            //(gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    component::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  component::scroll::EnsureCursorInViewDirection::Down),
+
+            /* fast cursor    key    shift  ctrl  */
+            //(gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    component::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   component::scroll::EnsureCursorInViewDirection::Down),
+            //(gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   component::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), component::scroll::EnsureCursorInViewDirection::Down),
+
+            /* basic scroll   key         shift  ctrl  */
+            //(gdk::keys::constants::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
+            //(gdk::keys::constants::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
+            
+            //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), component::scroll::EnsureCursorInViewDirection::Any),
+            _ => gtk::Inhibit(false),
+        };
+
+        self.collect_events(widget);
+
+        r
+    }    
 }
 
 impl Line {
@@ -328,13 +389,14 @@ impl Line {
     }
 
     fn render(&mut self, cursor: &facet::cursor::CursorView, render: &RenderDetail) -> Option<gsk::RenderNode> {
-        /* if we rendered this line earlier and the render hasn't been invalidated, just reuse the previous snapshot. */
+        /* check if the cursor is on any of the tokens on this line */
+        let has_cursor = self.tokens.iter().any(|t| t.contains_cursor(&cursor.cursor));
+        
+        /* if we rendered this line earlier, the parameters haven't been invalidated, and the cursor isn't on this line, just reuse the previous snapshot. */
         if let Some(rn) = self.render_node.as_ref() {
-            if self.render_serial == render.serial {
-                /* if the cursor is on any of our tokens, we need to render fresh every time. */
-                if !self.tokens.iter().any(|t| t.contains_cursor(&cursor.cursor)) {
-                    return Some(rn.clone());
-                }
+            /* if the cursor is on the line, we need to redraw it every time the cursor animates, which is hard to tell when that happens so we just redraw it every frame. */
+            if self.render_serial == render.serial && !has_cursor {
+                return Some(rn.clone());
             }
         }
 
@@ -375,10 +437,15 @@ impl Line {
             gsc::render_text_align_right(&snapshot, &render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos);
         }
 
-        /* update our stored snapshot so we can reuse it later */
-        self.render_serial = render.serial;
-        self.render_node = snapshot.to_node();
-
-        self.render_node.clone()
+        if !has_cursor {
+            self.render_serial = render.serial;
+            self.render_node = snapshot.to_node();
+            self.render_node.clone()
+        } else {
+            /* don't store render snapshots when the cursor was on one of our
+             * tokens, otherwise the appearance of the cursor will linger when
+             * it moves off this line. */
+            snapshot.to_node()
+        }
     }
 }

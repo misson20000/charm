@@ -7,7 +7,7 @@ use crate::view::listing::facet;
 use std::sync;
 use std::task;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Command,
     Entry,
@@ -27,6 +27,21 @@ pub struct CursorView {
     
     blink_timer: f64,
     bonk_timer: f64,
+}
+
+impl std::fmt::Debug for CursorView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CursorView")
+            .field("cursor", &self.cursor)
+            .field("mode", &self.mode)
+            .field("has_focus", &self.has_focus)
+            .field("insert", &self.insert)
+            .field("ev_draw", &self.ev_draw)
+            .field("ev_work", &self.ev_work)
+            .field("blink_timer", &self.blink_timer)
+            .field("bonk_timer", &self.bonk_timer)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CursorView {
@@ -101,7 +116,10 @@ impl CursorView {
         self.ev_draw.want();
         self.blink();
 
-        match mov(&mut self.cursor) {
+        let result = mov(&mut self.cursor);
+        println!("move result: {:?}", result);
+        
+        match result {
             cursor::MovementResult::Ok => (),
             _ => self.bonk(),
         }
