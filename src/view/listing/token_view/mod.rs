@@ -6,7 +6,6 @@ use crate::view::listing;
 use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::graphene;
-use gtk::pango;
 
 pub struct TokenView {
     token: token::Token,
@@ -47,7 +46,7 @@ impl TokenView {
     }
 
     pub fn render(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
-        let lh = render.metrics.height() as f32 / pango::SCALE as f32;
+        let lh = helpers::pango_unscale(render.metrics.height());
         
         snapshot.translate(origin);
 
@@ -61,7 +60,7 @@ impl TokenView {
             },
             token::TokenClass::Title => {
                 if has_cursor {
-                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(0.0, 0.0, 10.0, render.metrics.height() as f32 / pango::SCALE as f32));
+                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(0.0, 0.0, 10.0, helpers::pango_unscale(render.metrics.height())));
                 }
                 
                 gsc::render_text(

@@ -154,7 +154,7 @@ impl WidgetImpl for ListingWidgetImp {
                 snapshot.append_node(node);
             }
             
-            snapshot.translate(&graphene::Point::new(0.0, render.metrics.height() as f32 / pango::SCALE as f32));
+            snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
         }
         snapshot.restore();
 
@@ -263,7 +263,7 @@ impl RenderDetail {
         let gsc_mono = gsc::Cache::new(&pg, &font_mono);
         let gsc_bold = gsc::Cache::new(&pg, &font_bold);
 
-        let addr_pane_width = (gsc_bold.space_width() * NATURAL_ADDRESS_STRING_LENGTH) as f32 / pango::SCALE as f32
+        let addr_pane_width = helpers::pango_unscale(gsc_bold.space_width() * NATURAL_ADDRESS_STRING_LENGTH)
             + (2.0 * config.padding as f32);
         
         RenderDetail {
@@ -410,8 +410,7 @@ impl Line {
             position.set_x(
                 position.x() +
                 render.config.indentation_width *
-                    render.gsc_mono.space_width() as f32 /
-                    pango::SCALE as f32 *
+                    helpers::pango_unscale(render.gsc_mono.space_width()) *
                     first.get_indentation() as f32);
         }
 
@@ -432,7 +431,7 @@ impl Line {
 
         /* if any of our tokens wanted to show an address, render the first one into the address pane */
         if let Some(addr) = visible_address {
-            let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, render.metrics.height() as f32 / pango::SCALE as f32);
+            let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, helpers::pango_unscale(render.metrics.height()));
             gsc::render_text_align_right(&snapshot, &render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos);
         }
 

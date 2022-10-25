@@ -4,6 +4,7 @@ use std::sync;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::pango;
 
 use crate::model::document;
 
@@ -52,4 +53,8 @@ pub fn subscribe_to_document_updates<Object, F>(obj_weak: glib::object::WeakRef<
             callback(obj, &document);
         };
     });
+}
+
+pub fn pango_unscale(value: i32) -> f32 {
+    value as f32 / pango::SCALE as f32
 }

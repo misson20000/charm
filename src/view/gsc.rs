@@ -1,6 +1,7 @@
 const DIGIT_STRINGS: [&'static str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 use crate::model::listing::token;
+use crate::view::helpers;
 
 use gtk::gdk;
 use gtk::graphene;
@@ -92,7 +93,7 @@ impl Cache {
                 snapshot.append_node(tn);
             }
 
-            let advance = gs.width() as f32 / pango::SCALE as f32;
+            let advance = helpers::pango_unscale(gs.width());
             pos.set_x(pos.x() + advance);
         }
     }
@@ -116,7 +117,7 @@ pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::
                 pos)
                 .unwrap());
 
-        let advance = gs.width() as f32 / pango::SCALE as f32;
+        let advance = helpers::pango_unscale(gs.width());
         pos.set_x(pos.x() + advance);
     }
 }
@@ -128,7 +129,7 @@ pub fn render_text_align_right(snapshot: &gtk::Snapshot, pg: &pango::Context, fo
         let mut gs = pango::GlyphString::new();
         pango::shape(text, item.analysis(), &mut gs);
 
-        let advance = gs.width() as f32 / pango::SCALE as f32;
+        let advance = helpers::pango_unscale(gs.width());
         pos.set_x(pos.x() - advance);
         
         snapshot.append_node(
