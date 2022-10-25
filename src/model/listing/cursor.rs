@@ -7,6 +7,7 @@ use crate::model::listing::token;
 use crate::logic::tokenizer;
 
 use enum_dispatch::enum_dispatch;
+use tracing::{Level, event, instrument};
 
 pub mod key;
 
@@ -229,14 +230,17 @@ impl CursorClass {
     }
 
     /// Attempts to transition a cursor onto the token.
+    #[instrument]
     fn new_transition(token: token::Token, hint: &TransitionHint) -> Result<CursorClass, token::Token> {
+        event!(Level::DEBUG, "making cursor class from transition onto {:?}", token);
         match token.class {
             token::TokenClass::Title => title::Cursor::new_transition(token, &hint).map(|cc| CursorClass::Title(cc)),
             token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, &hint).map(|cc| CursorClass::Hexdump(cc)),
             _ => Err(token)
         }
     }
-    
+
+    #[instrument]
     fn try_move_prev_token(&self, mut tokenizer: tokenizer::Tokenizer, op: TransitionOp) -> Option<(CursorClass, tokenizer::Tokenizer)> {
         let hint = TransitionHint {
             op,
@@ -246,20 +250,25 @@ impl CursorClass {
         loop {
             match tokenizer.prev() {
                 None => {
+                    event!(Level::DEBUG, "hit beginning of token stream");
                     return None
                 },
-                Some(token) => match Self::new_transition(token, &hint) {
-                    Ok(cc) => {
-                        return Some((cc, tokenizer));
-                    },
-                    Err(_token) => {
-                        /* skip this token and try the one before it */
+                Some(token) => {
+                    event!(Level::DEBUG, "got token {:?}", token);
+                    match Self::new_transition(token, &hint) {
+                        Ok(cc) => {
+                            return Some((cc, tokenizer));
+                        },
+                        Err(_token) => {
+                            /* skip this token and try the one before it */
+                        }
                     }
                 },
             }
         }
     }
-    
+
+    #[instrument]
     fn try_move_next_token(&self, mut tokenizer: tokenizer::Tokenizer, op: TransitionOp) -> Option<(CursorClass, tokenizer::Tokenizer)> {
         let hint = TransitionHint {
             op,
@@ -269,14 +278,18 @@ impl CursorClass {
         loop {
             match tokenizer.next() {
                 None => {
+                    event!(Level::DEBUG, "hit end of token stream");
                     return None
                 },
-                Some(token) => match Self::new_transition(token, &hint) {
-                    Ok(cc) => {
-                        return Some((cc, tokenizer));
-                    },
-                    Err(_) => {
-                        /* skip this token and try the one after it */
+                Some(token) => {
+                    event!(Level::DEBUG, "got token {:?}", token);
+                    match Self::new_transition(token, &hint) {
+                        Ok(cc) => {
+                            return Some((cc, tokenizer));
+                        },
+                        Err(_) => {
+                            /* skip this token and try the one after it */
+                        }
                     }
                 },
             }

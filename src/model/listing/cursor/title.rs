@@ -2,6 +2,8 @@ use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 
+use tracing::instrument;
+
 #[derive(Debug)]
 pub struct Cursor {
     token: token::Token,
@@ -48,10 +50,12 @@ impl cursor::CursorClassExt for Cursor {
         cursor::TransitionHintClass::Unused
     }
 
+    #[instrument]
     fn move_left(&mut self) -> cursor::MovementResult {
         cursor::MovementResult::HitStart
     }
 
+    #[instrument]
     fn move_right(&mut self) -> cursor::MovementResult {
         cursor::MovementResult::HitEnd
     }

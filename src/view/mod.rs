@@ -87,7 +87,18 @@ impl CharmApplication {
     }
 }
 
+fn setup_tracing() {
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .pretty()
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+}
+
 pub fn launch_application() {
+    setup_tracing();
+    
     /* we defer initializing CharmApplication until the startup signal */
     let app_model_for_closures: rc::Rc<once_cell::unsync::OnceCell<rc::Rc<CharmApplication>>> =
         rc::Rc::new(once_cell::unsync::OnceCell::new());
