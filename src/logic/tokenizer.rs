@@ -189,7 +189,7 @@ impl Tokenizer {
         }
     }
 
-    fn gen_token(&self) -> TokenGenerationResult {
+    pub fn gen_token(&self) -> TokenGenerationResult {
         match self.state {
             TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
@@ -607,8 +607,22 @@ impl Tokenizer {
         }
         None
     }
-
-    pub fn next(&mut self) -> Option<token::Token> {
+    /// Use this when you're trying to have the tokenizer's position represent an element.
+    pub fn next_preincrement(&mut self) -> Option<token::Token> {
+        while {
+            self.move_next()
+        } {
+            match self.gen_token() {
+                TokenGenerationResult::Ok(token) => return Some(token),
+                TokenGenerationResult::Skip => continue,
+                TokenGenerationResult::Boundary => return None,
+            }
+        }
+        None
+    }
+    
+    /// Use this when you're trying to have the tokenizer's position represent a border between tokens.
+    pub fn next_postincrement(&mut self) -> Option<token::Token> {
         let mut token;
         while {
             token = self.gen_token();

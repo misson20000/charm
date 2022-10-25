@@ -75,12 +75,14 @@ pub struct Cursor {
 
 impl CursorClass {
     fn place_forward(tokenizer: &mut tokenizer::Tokenizer, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+        tokenizer.next_preincrement();
+        let mut option = tokenizer.prev();
         loop {
-            match tokenizer.next() {
+            match option {
                 Some(token) => match CursorClass::new_placement(token, addr, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
-                    Err(_) => continue,
+                    Err(_) => option = tokenizer.next_preincrement(),
                 },
                 None => return Err(PlacementFailure::HitBottomOfAddressSpace)
             }
@@ -166,7 +168,7 @@ impl Cursor {
     pub fn is_over(&self, token: &token::Token) -> bool {
         self.class.is_over(token)
     }
-    
+
     fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
         match mov(&mut self.class) {
             /* If the movement hit a token boundary, try moving the cursor to another token. */
@@ -276,7 +278,7 @@ impl CursorClass {
         };
         
         loop {
-            match tokenizer.next() {
+            match tokenizer.next_preincrement() {
                 None => {
                     event!(Level::DEBUG, "hit end of token stream");
                     return None

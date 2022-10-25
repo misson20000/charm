@@ -354,7 +354,7 @@ impl Interior {
             gtk::Inhibit(false)
         }
     }
-    
+
     fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> gtk::Inhibit {
         let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */

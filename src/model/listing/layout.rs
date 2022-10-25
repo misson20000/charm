@@ -106,7 +106,7 @@ impl<L: Line> Window<L> {
     fn grow_bottom(&mut self) {
         let mut tokens = vec::Vec::new();
 
-        while let Some(token) = self.bottom.next() {
+        while let Some(token) = self.bottom.next_postincrement() {
             let nl = token.newline;
             
             tokens.push(token);
@@ -127,7 +127,7 @@ impl<L: Line> Window<L> {
         let line = self.lines.pop_front().unwrap();
 
         for token in line.to_tokens() {
-            assert_eq!(token, self.top.next().unwrap());
+            assert_eq!(token, self.top.next_postincrement().unwrap());
             self.top_buffer = Some(token);
         }
     }
