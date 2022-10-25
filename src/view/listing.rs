@@ -29,7 +29,7 @@ use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
-mod facet;
+pub mod facet;
 mod token_view;
 
 use facet::Facet;

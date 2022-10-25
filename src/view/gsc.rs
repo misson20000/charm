@@ -1,7 +1,9 @@
 const DIGIT_STRINGS: [&'static str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 use crate::model::listing::token;
+use crate::view::config;
 use crate::view::helpers;
+use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::gdk;
 use gtk::graphene;
@@ -97,6 +99,36 @@ impl Cache {
             pos.set_x(pos.x() + advance);
         }
     }
+
+    pub fn print_with_cursor(&self, snapshot: &gtk::Snapshot, entry: Entry, config: &config::Config, cursor: &CursorView, pos: &mut graphene::Point) {
+        if let Some(gs) = self.get(entry) {
+            let mut gs = gs.clone();
+
+            let color = if cursor.get_blink() {
+                let (_ink, logical) = gs.clone().extents(&self.font);
+                snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
+                    pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                    pos.y() + helpers::pango_unscale(logical.y()),
+                    helpers::pango_unscale(logical.width()),
+                    helpers::pango_unscale(logical.height())));
+
+                &config.cursor_fg_color
+            } else {
+                &config.text_color
+            };
+            
+            if let Some(tn) = gsk::TextNode::new(
+                &self.font,
+                &mut gs,
+                color,
+                pos) {
+                snapshot.append_node(tn);
+            }
+
+            let advance = helpers::pango_unscale(gs.width());
+            pos.set_x(pos.x() + advance);
+        }
+    }
 }
 
 pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str, pos: &mut graphene::Point) {
@@ -105,6 +137,39 @@ pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::
     for item in items {
         let mut gs = pango::GlyphString::new();
         pango::shape(text, item.analysis(), &mut gs);
+        snapshot.append_node(
+            gsk::TextNode::new(
+                font,
+                &mut gs,
+                color,
+                pos)
+                .unwrap());
+
+        let advance = helpers::pango_unscale(gs.width());
+        pos.set_x(pos.x() + advance);
+    }
+}
+
+pub fn render_text_with_cursor(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, config: &config::Config, cursor: &CursorView, text: &str, pos: &mut graphene::Point) {
+    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
+
+    for item in items {
+        let mut gs = pango::GlyphString::new();
+        pango::shape(text, item.analysis(), &mut gs);
+
+        let color = if cursor.get_blink() {
+            let (_ink, logical) = gs.clone().extents(font);
+            snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
+                pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                pos.y() + helpers::pango_unscale(logical.y()),
+                helpers::pango_unscale(logical.width()),
+                helpers::pango_unscale(logical.height())));
+
+            &config.cursor_fg_color
+        } else {
+            &config.text_color
+        };
+        
         snapshot.append_node(
             gsk::TextNode::new(
                 font,

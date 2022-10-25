@@ -8,8 +8,6 @@ use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::graphene;
 
-use tracing::{event, Level};
-
 pub struct TokenView {
     token: token::Token,
     logical_bounds: Option<graphene::Rect>,
@@ -55,7 +53,7 @@ impl TokenView {
 
         let mut pos = graphene::Point::new(0.0, lh);
         
-        let has_cursor = cursor.cursor.is_over(&self.token) && cursor.get_blink();
+        let has_cursor = cursor.cursor.is_over(&self.token);
         
         match self.token.class {
             token::TokenClass::Punctuation(punct) => {
@@ -63,27 +61,46 @@ impl TokenView {
             },
             token::TokenClass::Title => {
                 if has_cursor {
-                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(0.0, 0.0, 10.0, helpers::pango_unscale(render.metrics.height())));
+                    gsc::render_text_with_cursor(
+                        &snapshot,
+                        &render.pango,
+                        &render.font_bold,
+                        &render.config,
+                        cursor,
+                        &self.token.node.props.name,
+                        &mut pos);
+                } else {
+                    gsc::render_text(
+                        &snapshot,
+                        &render.pango,
+                        &render.font_bold,
+                        &render.config.text_color,
+                        &self.token.node.props.name,
+                        &mut pos);
                 }
-                
-                gsc::render_text(
-                    &snapshot,
-                    &render.pango,
-                    &render.font_bold,
-                    &render.config.text_color,
-                    &self.token.node.props.name,
-                    &mut pos);
                 render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
             },
             token::TokenClass::SummaryLabel => {
-                gsc::render_text(
-                    &snapshot,
-                    &render.pango,
-                    &render.font_bold,
-                    &render.config.text_color,
-                    &self.token.node.props.name,
-                    &mut pos);
-                render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
+                if has_cursor {
+                    gsc::render_text_with_cursor(
+                        &snapshot,
+                        &render.pango,
+                        &render.font_bold,
+                        &render.config,
+                        cursor,
+                        &self.token.node.props.name,
+                        &mut pos);
+                    render.gsc_bold.print_with_cursor(&snapshot, gsc::Entry::Colon, &render.config, cursor, &mut pos);
+                } else {
+                    gsc::render_text(
+                        &snapshot,
+                        &render.pango,
+                        &render.font_bold,
+                        &render.config.text_color,
+                        &self.token.node.props.name,
+                        &mut pos);
+                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
+                }
             },
             token::TokenClass::Hexdump(extent) => {
                 let hex_cursor = match &cursor.cursor.class {
@@ -101,17 +118,7 @@ impl TokenView {
                         
                         if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble) {
                             /* the cursor is over this nybble */
-                            if let Some(gs) = render.gsc_mono.get(digit) {
-                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
-                                snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(
-                                    pos.x() + helpers::pango_unscale(logical.x()),
-                                    pos.y() + helpers::pango_unscale(logical.y()),
-                                    helpers::pango_unscale(logical.width()),
-                                    helpers::pango_unscale(logical.height())));
-                            } else {
-                                event!(Level::WARN, "missing glyph string cache entry for {:?}", digit);
-                            }
-                            render.gsc_mono.print(&snapshot, digit, &render.config.cursor_fg_color, &mut pos);
+                            render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, &mut pos);
                         } else {
                             /* the cursor is not over this nybble */
                             render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);

@@ -26,7 +26,7 @@ pub struct CursorView {
     ev_work: facet::Event,
     
     blink_timer: f64,
-    bonk_timer: f64,
+    bonk_timer: f32,
 }
 
 impl std::fmt::Debug for CursorView {
@@ -61,8 +61,8 @@ impl CursorView {
         }
     }
 
-    pub fn get_bonk(&self) -> f64 {
-        (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f64::consts::PI).cos()
+    pub fn get_bonk(&self) -> f32 {
+        (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f32::consts::PI).cos()
     }
 
     pub fn get_blink(&self) -> bool {
@@ -79,7 +79,7 @@ impl CursorView {
         }
 
         if self.bonk_timer > 0.0 {
-            self.bonk_timer-= f64::min(delta, self.bonk_timer);
+            self.bonk_timer-= f32::min(delta as f32, self.bonk_timer);
             self.ev_draw.want();
         } else {
             self.bonk_timer = 0.0;
