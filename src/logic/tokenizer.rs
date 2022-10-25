@@ -1,6 +1,13 @@
 //! This module includes the logic that converts from a document structure
 //! hierarchy into a seekable stream of tokens.
 
+// TODO: rework the concept of a tokenizer into a TokenCursor or
+// something like it.  also, to reconcile the two different
+// interpretations of movement (re: turning around directions, whether
+// a position is on an token or on a border), we should expose two
+// wrapper unit types that you have to do all movement through to
+// specify which type of movement you want.
+
 use std::sync;
 
 use crate::model::addr;
