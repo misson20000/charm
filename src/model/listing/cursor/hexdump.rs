@@ -32,24 +32,24 @@ impl Cursor {
         Ok(Cursor {
             token,
             extent,
-            offset: match &hint.class {
-                cursor::TransitionHintClass::Hexdump(hth) => std::cmp::min(hth.offset, limit),
-                _ => match hint.op {
-                    cursor::TransitionOp::MoveLeftLarge => addr::Size::from(limit.bytes & !7),
-                    op if op.is_left() => limit,
-                    op if op.is_right() => addr::unit::ZERO,
+            offset: match hint.op {
+                cursor::TransitionOp::MoveLeftLarge => addr::Size::from(limit.bytes & !7),
+                op if op.is_left() => limit,
+                op if op.is_right() => addr::unit::ZERO,
+                _ => match &hint.class {
+                    cursor::TransitionHintClass::Hexdump(hth) => std::cmp::min(hth.offset, limit),
                     _ => addr::unit::ZERO,
                 },
             },
             low_nybble: match (&hint.class, hint.op) {
-                /* if we have an intended offset and had to truncate it, we should place at the end of the line */
-                (cursor::TransitionHintClass::Hexdump(hth), _) if hth.offset > limit => true,
-                /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
-                (cursor::TransitionHintClass::Hexdump(hth), _) => hth.low_nybble,
                 /* decide from op */
                 (_, cursor::TransitionOp::MoveLeftLarge) => false,
                 (_, op) if op.is_left() => true,
                 (_, op) if op.is_right() => false,
+                /* if we have an intended offset and had to truncate it, we should place at the end of the line */
+                (cursor::TransitionHintClass::Hexdump(hth), _) if hth.offset > limit => true,
+                /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
+                (cursor::TransitionHintClass::Hexdump(hth), _) => hth.low_nybble,
                 /* last resort, if the op is seriously misbehaving and is neither left nor right */
                 _ => false,
             },
