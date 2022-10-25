@@ -159,7 +159,7 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.restore();
 
         /* render debug text */
-        {
+        if false {
             let mut pos = graphene::Point::new(1000.0, 100.0);
             gsc::render_text(
                 &snapshot,
@@ -339,7 +339,6 @@ impl Interior {
     fn cursor_transaction<F>(&mut self, cb: F/*, dir: component::scroll::EnsureCursorInViewDirection*/) -> gtk::Inhibit
     where F: FnOnce(&mut facet::cursor::CursorView) {
         cb(&mut self.cursor);
-        println!("cursor: {:?}", self.cursor);
         //self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
         gtk::Inhibit(true)
     }

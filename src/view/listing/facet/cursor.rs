@@ -117,7 +117,6 @@ impl CursorView {
         self.blink();
 
         let result = mov(&mut self.cursor);
-        println!("move result: {:?}", result);
         
         match result {
             cursor::MovementResult::Ok => (),
