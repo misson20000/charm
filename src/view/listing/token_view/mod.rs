@@ -1,11 +1,14 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::view::helpers;
 use crate::view::gsc;
 use crate::view::listing;
 use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::graphene;
+
+use tracing::{event, Level};
 
 pub struct TokenView {
     token: token::Token,
@@ -91,24 +94,26 @@ impl TokenView {
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
 
-                    /* high nybble */
-                    {
-                        let digit = gsc::Entry::Digit((j & 0xf0) >> 4);
-                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && !hxc.low_nybble) {
-                            snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(pos.x(), pos.y()-lh, render.gsc_mono.width(digit), lh));
-                            render.gsc_mono.print(&snapshot, digit, &render.config.cursor_fg_color, &mut pos);
-                        } else {
-                            render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
-                        }
-                    }
+                    for low_nybble in [false, true] {
+                        let nybble = if low_nybble { j & 0xf } else { j >> 4 };
 
-                    /* low nybble */
-                    {
-                        let digit = gsc::Entry::Digit((j & 0x0f) >> 0);
-                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble) {
-                            snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(pos.x(), pos.y()-lh, render.gsc_mono.width(digit), lh));
+                        let digit = gsc::Entry::Digit(nybble);
+                        
+                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble) {
+                            /* the cursor is over this nybble */
+                            if let Some(gs) = render.gsc_mono.get(digit) {
+                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
+                                snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(
+                                    pos.x() + helpers::pango_unscale(logical.x()),
+                                    pos.y() + helpers::pango_unscale(logical.y()),
+                                    helpers::pango_unscale(logical.width()),
+                                    helpers::pango_unscale(logical.height())));
+                            } else {
+                                event!(Level::WARN, "missing glyph string cache entry for {:?}", digit);
+                            }
                             render.gsc_mono.print(&snapshot, digit, &render.config.cursor_fg_color, &mut pos);
                         } else {
+                            /* the cursor is not over this nybble */
                             render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
                         }
                     }

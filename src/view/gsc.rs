@@ -9,7 +9,7 @@ use gtk::gsk;
 use gtk::pango;
 use gtk::prelude::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Entry {
     Punctuation(token::PunctuationClass),
     Digit(u8),
@@ -67,7 +67,7 @@ impl Cache {
         gs
     }
 
-    fn get(&self, entry: Entry) -> Option<&pango::GlyphString> {
+    pub fn get(&self, entry: Entry) -> Option<&pango::GlyphString> {
         match entry {
             Entry::Punctuation(punct) => match punct {
                 token::PunctuationClass::Empty => None,
@@ -96,10 +96,6 @@ impl Cache {
             let advance = helpers::pango_unscale(gs.width());
             pos.set_x(pos.x() + advance);
         }
-    }
-
-    pub fn width(&self, entry: Entry) -> f32 {
-        self.get(entry).map_or(0.0, |e| e.clone().width() as f32 / pango::SCALE as f32)
     }
 }
 
