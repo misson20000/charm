@@ -905,14 +905,14 @@ pub mod tests {
         type Item = token::Token;
         
         fn next(&mut self) -> Option<token::Token> {
-            let a = self.0.next();
+            let a = self.0.next_postincrement();
             if a.is_some() {
-                let b = self.0.next();
+                let b = self.0.next_postincrement();
                 if b.is_some() {
                     assert_eq!(b, self.0.prev());
                 }
                 assert_eq!(a, self.0.prev());
-                assert_eq!(a, self.0.next());
+                assert_eq!(a, self.0.next_postincrement());
             }
             a
         }
@@ -926,9 +926,9 @@ pub mod tests {
             if a.is_some() {
                 let b = self.0.prev();
                 if b.is_some() {
-                    assert_eq!(b, self.0.next());
+                    assert_eq!(b, self.0.next_postincrement());
                 }
-                assert_eq!(a, self.0.next());
+                assert_eq!(a, self.0.next_postincrement());
                 assert_eq!(a, self.0.prev());
             }
             a
@@ -947,7 +947,7 @@ pub mod tests {
     fn test_forward(tc: &xml::Testcase) {
         itertools::assert_equal(
             tc.expected_tokens.iter().map(|x| x.clone()),
-            &mut DownwardTokenizerIterator(Tokenizer::at_beginning(&tc.structure)));
+            &mut DownwardTokenizerIterator(Tokenizer::at_beginning(tc.structure.clone())));
     }
 
     fn test_backward(tc: &xml::Testcase) {
@@ -994,22 +994,26 @@ pub mod tests {
     #[test]
     fn hardcoded() {
         let mut root = structure::Node {
-            name: "root".to_string(),
             size: addr::Size::from(0x70),
-            title_display: structure::TitleDisplay::Major,
-            children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16.into()),
-            locked: true,
+            props: structure::Properties {
+                name: "root".to_string(),
+                title_display: structure::TitleDisplay::Major,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(16.into()),
+                locked: true,
+            },
             children: vec::Vec::new()
         };
 
         let child = sync::Arc::new(structure::Node {
-            name: "child".to_string(),
             size: addr::Size::from(0x18),
-            title_display: structure::TitleDisplay::Major,
-            children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(16.into()),
-            locked: true,
+            props: structure::Properties {
+                name: "child".to_string(),
+                title_display: structure::TitleDisplay::Major,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(16.into()),
+                locked: true,
+            },
             children: vec::Vec::new()
         });
         
