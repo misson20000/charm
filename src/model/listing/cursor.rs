@@ -41,8 +41,7 @@ pub enum EntryError {
 
 #[enum_dispatch]
 pub trait CursorClassExt {
-    fn update(&mut self, _document: &document::Document, _cx: &mut task::Context) -> bool {
-        false
+    fn update(&mut self, _document: &document::Document) {
     }
 
     fn is_over(&self, token: &token::Token) -> bool;
@@ -124,9 +123,8 @@ impl Cursor {
         })
     }
 
-    pub fn update(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) -> bool {
-        let mut updated = false;
-
+    /// Notify cursor that the underlying document has changed and it needs to renogitiate its position.
+    pub fn update(&mut self, document: &sync::Arc<document::Document>) {
         /* if we're using an outdated structure hierarchy root, make a
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
@@ -152,13 +150,9 @@ impl Cursor {
                 class,
                 document: document.clone()
             };
-
-            updated = true;
         }
 
-        updated = self.class.update(&document, cx) || updated;
-
-        updated
+        self.class.update(&document);
     }
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {

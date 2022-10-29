@@ -242,6 +242,7 @@ impl ListingWidget {
         let mut interior = self.imp().interior.get().unwrap().write();
 
         interior.window.update(new_document);
+        interior.cursor.cursor.update(new_document);
         interior.document = new_document.clone();
         
         self.queue_draw();
