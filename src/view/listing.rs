@@ -6,11 +6,11 @@ use std::vec;
 
 use crate::view::config;
 //use crate::util;
-//use crate::model::addr;
+use crate::model::addr;
 //use crate::model::datapath;
 //use crate::model::datapath::DataPathExt;
 use crate::model::document;
-//use crate::model::document::structure;
+use crate::model::document::structure;
 //use crate::model::listing;
 //use crate::model::listing::cursor;
 use crate::model::listing::layout;
@@ -28,6 +28,7 @@ use gtk::gsk;
 use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
+use tracing::{event, Level};
 
 pub mod facet;
 mod token_view;
@@ -248,6 +249,24 @@ impl ListingWidget {
         interior.document = new_document.clone();
         
         self.queue_draw();
+    }
+
+    pub fn action_insert_empty_node(&self) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+
+        match interior.cursor.cursor.insert_node(&interior.document_host, structure::Properties {
+            name: "empty".to_string(),
+            title_display: structure::TitleDisplay::Minor,
+            children_display: structure::ChildrenDisplay::Full,
+            content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+            locked: false,
+        }) {
+            Ok(()) => {},
+            Err(e) => {
+                event!(Level::ERROR, "failed to insert empty node at cursor: {:?}", e);
+                interior.cursor.bonk()
+            },
+        }
     }
 }
 

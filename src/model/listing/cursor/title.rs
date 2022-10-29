@@ -41,6 +41,10 @@ impl cursor::CursorClassExt for Cursor {
     fn get_addr(&self) -> addr::Address {
         self.token.node_addr
     }
+
+    fn get_offset(&self) -> addr::Size {
+        addr::unit::ZERO
+    }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {
         cursor::PlacementHint::Title

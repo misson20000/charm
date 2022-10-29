@@ -1,8 +1,8 @@
 use std::sync;
-use std::task;
 
 use crate::model::addr;
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::listing::token;
 use crate::logic::tokenizer;
 
@@ -46,6 +46,7 @@ pub trait CursorClassExt {
 
     fn is_over(&self, token: &token::Token) -> bool;
     fn get_addr(&self) -> addr::Address;
+    fn get_offset(&self) -> addr::Size;
     fn get_placement_hint(&self) -> PlacementHint;
     fn get_transition_hint(&self) -> TransitionHintClass;
 
@@ -206,7 +207,16 @@ impl Cursor {
     pub fn enter_utf8(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError> {
         self.class.enter_utf8(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
     }
-    */
+     */
+
+    pub fn insert_node(&self, host: &document::DocumentHost, props: structure::Properties) -> Result<(), document::change::ApplyError> {
+        host.insert_node(
+            &self.document,
+            self.tokenizer.structure_path(),
+            self.tokenizer.structure_position_child(),
+            self.tokenizer.structure_position_offset() + self.class.get_offset(),
+            props)
+    }
 }
 
 impl CursorClass {

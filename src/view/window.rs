@@ -69,6 +69,12 @@ impl CharmWindow {
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
             {
+                let struct_menu = gio::Menu::new();
+                struct_menu.append(Some("Insert empty node"), Some("win.listing.structure.insert_empty"));
+                struct_menu.freeze();
+                menu_bar.append_submenu(Some("Structure"), &struct_menu);
+            }
+            {
                 let view_menu = gio::Menu::new();
                 view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
                 view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
@@ -176,6 +182,12 @@ impl CharmWindow {
 
         view::helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| {
             w.action_edit_properties();
+        });
+
+        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_empty", |w| {
+            if let Some(ctx) = &*w.context.borrow() {
+                ctx.lw.action_insert_empty_node();
+            }
         });
         
         view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {

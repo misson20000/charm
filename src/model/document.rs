@@ -108,7 +108,7 @@ impl DocumentHost {
 }
      */
 
-    pub fn change(&self, change: change::Change) -> Result<(), change::UpdateError> {
+    pub fn change(&self, change: change::Change) -> Result<(), change::ApplyError> {
         let old = self.current.load();
         let new = sync::Arc::new(change::apply_structural_change(&old, change)?);
         let swapped = self.current.compare_and_swap(&*old, new.clone());
@@ -122,9 +122,18 @@ impl DocumentHost {
         Ok(())
     }
 
-    pub fn alter_node(&self, doc: &Document, path: structure::Path, props: structure::Properties) -> Result<(), change::UpdateError> {
+    pub fn alter_node(&self, doc: &Document, path: structure::Path, props: structure::Properties) -> Result<(), change::ApplyError> {
         let change = change::Change {
             ty: change::ChangeType::AlterNode(path, props),
+            generation: doc.generation,
+        };
+
+        self.change(change)
+    }
+
+    pub fn insert_node(&self, doc: &Document, path: structure::Path, after_child: usize, offset: addr::Address, props: structure::Properties) -> Result<(), change::ApplyError> {
+        let change = change::Change {
+            ty: change::ChangeType::InsertNode(path, after_child, offset, props),
             generation: doc.generation,
         };
 

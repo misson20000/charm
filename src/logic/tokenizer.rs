@@ -48,6 +48,7 @@ pub struct TokenizerStackEntry {
     stack: Option<sync::Arc<TokenizerStackEntry>>,
     before_state: TokenizerState,
     after_state: TokenizerState,
+    child_index: Option<usize>,
     depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,    
@@ -162,6 +163,7 @@ impl Tokenizer {
         (TokenizerStackEntry {
             stack: new_stack,
             before_state: old_tok.before_state.clone(),
+            child_index: old_tok.child_index,
             after_state: old_tok.after_state.clone(),
             depth: old_tok.depth,
             node: new_node.clone(),
@@ -326,14 +328,14 @@ impl Tokenizer {
                 let prev_child_option = match index {
                     0 => None,
                     /* Something is seriously wrong if index was farther than one-past-the-end. */
-                    i => Some(&self.node.children[i-1])
+                    i => Some((i-1, &self.node.children[i-1]))
                 };
 
                 /* Descend, if we can. */
-                if let Some(prev_child) = prev_child_option {
+                if let Some((prev_child_index, prev_child)) = prev_child_option {
                     if prev_child.end() >= offset {
                         self.descend(
-                            prev_child.clone(),
+                            prev_child_index,
                             /* If we ascend going backwards, ascend to immediately before this child. */
                             TokenizerState::MetaContent(prev_child.offset, index - 1),
                             /* If we ascend going forwards, ascend to immediately after this child. */
@@ -355,7 +357,7 @@ impl Tokenizer {
                     /* Where can we not begin before? */
                     let limit = match prev_child_option {
                         /* Can't include data from the child, so need to stop after its end. */
-                        Some(prev_child) => prev_child.end(),
+                        Some((_, prev_child)) => prev_child.end(),
                         /* Can't include data that belongs to the parent, so need to stop before our begin. */
                         None => addr::unit::NULL,
                     };
@@ -400,7 +402,7 @@ impl Tokenizer {
             },
             TokenizerState::SummarySeparator(i) => {
                 self.descend(
-                    self.node.children[i].clone(),
+                    i,
                     TokenizerState::SummaryLabel(i),
                     TokenizerState::SummarySeparator(i),
                     TokenizerState::SummaryValueEnd);
@@ -486,13 +488,13 @@ impl Tokenizer {
                 true
             },
             TokenizerState::MetaContent(offset, index) => {
-                let next_child_option = self.node.children.get(index);
+                let next_child_option = self.node.children.get(index).map(|child| (index, child));
                 
                 /* Descend, if we can. */
-                if let Some(next_child) = next_child_option {
+                if let Some((next_child_index, next_child)) = next_child_option {
                     if next_child.offset <= offset {
                         self.descend(
-                            next_child.clone(),
+                            next_child_index,
                             /* If we ascend going backwards, ascend to before this child. */
                             TokenizerState::MetaContent(next_child.offset, index),
                             /* If we ascend going forwards, ascend to after this child. */
@@ -514,7 +516,7 @@ impl Tokenizer {
                     /* Where can we not end beyond? */
                     let limit = match next_child_option {
                         /* Can't include data from the child, so need to stop before it begins. */
-                        Some(next_child) => next_child.offset,
+                        Some((_, next_child)) => next_child.offset,
                         /* Can't include data that belongs to the parent, so need to stop before we end. */
                         None => self.node.size.to_addr(),
                     };
@@ -556,7 +558,7 @@ impl Tokenizer {
             },
             TokenizerState::SummaryLabel(i) => {
                 self.descend(
-                    self.node.children[i].clone(),
+                    i,
                     TokenizerState::SummaryLabel(i),
                     TokenizerState::SummarySeparator(i),
                     TokenizerState::SummaryValueBegin);
@@ -649,22 +651,25 @@ impl Tokenizer {
     ///
     /// # Arguments
     ///
-    /// * `into_child` - The child to descend into.
+    /// * `into_child` - The index of the child to descend into.
     /// * `state_before` - A TokenizerState positioned immediately before the child from the parent's perspective.
     /// * `state_after` - A TokenizerState positioned immediately after the child from the parent's perspective.
     /// * `state_within` - Where within the child to descend to.
     ///
     fn descend(
         &mut self,
-        into_child: structure::Childhood,
+        into_child: usize,
         state_before: TokenizerState,
         state_after: TokenizerState,
         state_within: TokenizerState) {
-        let parent_node = std::mem::replace(&mut self.node, into_child.node);
+        let childhood = self.node.children[into_child].clone();
+        
+        let parent_node = std::mem::replace(&mut self.node, childhood.node);
         
         let parent_entry = TokenizerStackEntry {
             stack: self.stack.take(),
             before_state: state_before,
+            child_index: Some(into_child),
             after_state: state_after,
             depth: self.depth,
             node: parent_node,
@@ -674,7 +679,7 @@ impl Tokenizer {
         self.depth+= 1;
         self.stack = Some(sync::Arc::new(parent_entry));
         self.state = state_within;
-        self.node_addr+= into_child.offset.to_size();
+        self.node_addr+= childhood.offset.to_size();
     }
 
     fn descend_self(
@@ -685,6 +690,7 @@ impl Tokenizer {
         self.stack = Some(sync::Arc::new(TokenizerStackEntry {
             stack: self.stack.take(),
             before_state: state_before,
+            child_index: None,
             after_state: state_after,
             depth: self.depth,
             node: self.node.clone(),
@@ -728,6 +734,49 @@ impl Tokenizer {
         match self.state {
             TokenizerState::PreBlank => self.stack.is_none(),
             _ => false
+        }
+    }
+    
+    pub fn structure_path(&self) -> structure::Path {
+        let mut path = Vec::new();
+
+        TokenizerStackEntry::build_path(&self.stack, &mut path);
+        
+        path
+    }
+
+    pub fn structure_position_child(&self) -> usize {
+        match self.state {
+            TokenizerState::MetaContent(_, ch) => ch,
+            TokenizerState::Hexdump(_, ch) => ch,
+            TokenizerState::Hexstring(_, ch) => ch,
+            TokenizerState::SummaryLabel(ch) => ch,
+            TokenizerState::SummarySeparator(ch) => ch,
+            TokenizerState::SummaryCloser => self.node.children.len(),
+            TokenizerState::PostBlank => self.node.children.len(),
+            TokenizerState::End => self.node.children.len(),
+            _ => 0,
+        }
+    }
+
+    pub fn structure_position_offset(&self) -> addr::Address {
+        match self.state {
+            TokenizerState::MetaContent(offset, _) => offset,
+            TokenizerState::Hexdump(extent, _) => extent.begin,
+            TokenizerState::Hexstring(extent, _) => extent.begin,
+            // TODO: probably some missing here, need to figure out what is intuitive to the user.
+            _ => addr::unit::NULL
+        }
+    }
+}
+
+impl TokenizerStackEntry {
+    fn build_path(entry: &Option<sync::Arc<TokenizerStackEntry>>, path: &mut structure::Path) {
+        if let Some(tse) = entry {
+            Self::build_path(&tse.stack, path);
+            if let Some(child_index) = tse.child_index {
+                path.push(child_index);
+            }
         }
     }
 }
