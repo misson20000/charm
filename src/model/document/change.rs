@@ -1,5 +1,4 @@
 use std::sync;
-use std::vec;
 
 use crate::model::addr;
 use crate::model::document;
@@ -10,8 +9,8 @@ pub enum ChangeType {
     /// Modifies the properties of a node, but doesn't affect its children.
     AlterNode(structure::Path, structure::Properties),
 
-    /// Inserts an empty node with the given properties into the node referred to by the given path.
-    InsertNode(structure::Path, usize, addr::Address, structure::Properties),
+    /// Inserts the node as a child of the node referred to by the given path.
+    InsertNode(structure::Path, usize, addr::Address, sync::Arc<structure::Node>),
 }
 
 #[derive(Debug, Clone)]
@@ -97,7 +96,7 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             target.props = props;
             Ok(())
         })?),
-        ChangeType::InsertNode(path, after_child, offset, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
+        ChangeType::InsertNode(path, after_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
             /* Check after_child to make sure it's not farther than one-past the end. */
             if after_child > target.children.len() {
                 return Err(ApplyError::InvalidParameters);
@@ -106,6 +105,12 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             /* Check offset to make sure it's within bounds. */
             // TODO: automatically grow parents?
             if offset > target.size.to_addr() {
+                return Err(ApplyError::InvalidParameters);
+            }
+
+            /* Check child size to make sure it's within bounds. */
+            // TODO: automatically grow parents?
+            if offset + node.size > target.size.to_addr() {
                 return Err(ApplyError::InvalidParameters);
             }
             
@@ -118,11 +123,7 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
 
             /* Preconditions passed; do the deed. */
             target.children.insert(after_child, structure::Childhood {
-                node: sync::Arc::new(structure::Node {
-                    props,
-                    size: addr::unit::ZERO,
-                    children: vec::Vec::new(),
-                }),
+                node,
                 offset,
             });
 

@@ -254,13 +254,17 @@ impl ListingWidget {
     pub fn action_insert_empty_node(&self) {
         let mut interior = self.imp().interior.get().unwrap().write();
 
-        match interior.cursor.cursor.insert_node(&interior.document_host, structure::Properties {
-            name: "empty".to_string(),
-            title_display: structure::TitleDisplay::Minor,
-            children_display: structure::ChildrenDisplay::Full,
-            content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
-            locked: false,
-        }) {
+        match interior.cursor.cursor.insert_node(&interior.document_host, sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "empty".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(4),
+        })) {
             Ok(()) => {},
             Err(e) => {
                 event!(Level::ERROR, "failed to insert empty node at cursor: {:?}", e);

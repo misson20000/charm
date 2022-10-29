@@ -209,13 +209,13 @@ impl Cursor {
     }
      */
 
-    pub fn insert_node(&self, host: &document::DocumentHost, props: structure::Properties) -> Result<(), document::change::ApplyError> {
+    pub fn insert_node(&self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
         host.insert_node(
             &self.document,
             self.tokenizer.structure_path(),
             self.tokenizer.structure_position_child(),
             self.tokenizer.structure_position_offset() + self.class.get_offset(),
-            props)
+            node)
     }
 }
 

@@ -40,6 +40,10 @@ impl Childhood {
     }
 }
 
+/// These are separated from the rest of the Node because they can be changed
+/// without rearranging nodes, which makes it easier to port paths across
+/// Changes if we can use a different ChangeType when only properties are
+/// affected.
 #[derive(Debug, Clone)]
 pub struct Properties {
     pub name: String,

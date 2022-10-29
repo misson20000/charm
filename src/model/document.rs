@@ -131,9 +131,9 @@ impl DocumentHost {
         self.change(change)
     }
 
-    pub fn insert_node(&self, doc: &Document, path: structure::Path, after_child: usize, offset: addr::Address, props: structure::Properties) -> Result<(), change::ApplyError> {
+    pub fn insert_node(&self, doc: &Document, path: structure::Path, after_child: usize, offset: addr::Address, node: sync::Arc<structure::Node>) -> Result<(), change::ApplyError> {
         let change = change::Change {
-            ty: change::ChangeType::InsertNode(path, after_child, offset, props),
+            ty: change::ChangeType::InsertNode(path, after_child, offset, node),
             generation: doc.generation,
         };
 
