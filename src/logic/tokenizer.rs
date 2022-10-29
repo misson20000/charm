@@ -16,6 +16,8 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::document::change;
 
+use tracing::{event, Level, instrument};
+
 #[derive(Clone, Debug)]
 enum TokenizerState {
     PreBlank,
@@ -132,6 +134,7 @@ impl Tokenizer {
         todo!();
     }
 
+    #[instrument]
     pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
         if old_doc.is_outdated(new_doc) {
             match &new_doc.previous {
@@ -143,20 +146,61 @@ impl Tokenizer {
             }
         }
     }
-    
+
+    #[instrument]
     fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change) {
-        let (new_stack, node, _path) = match &self.stack {
+        event!(Level::DEBUG, "porting a tokenizer across {:?}", change);
+        
+        let (new_stack, node, new_path) = match &self.stack {
             Some(parent) => {
                 let (s, n, p) = Self::port_recurse(&parent, new_root, change);
                 (Some(sync::Arc::new(s)), n, p)
             },
             None => (None, new_root.clone(), structure::Path::new())
         };
-            
+
+        let mut new_state = std::mem::replace(&mut self.state, TokenizerState::PreBlank);
+
+        /* Normalize states like Hexdump and Hexstring back to MetaContent to make them easier to deal with. */
+        new_state = match new_state {
+            TokenizerState::Hexdump(extent, index) => TokenizerState::MetaContent(extent.begin, index),
+            TokenizerState::Hexstring(extent, index) => TokenizerState::MetaContent(extent.begin, index),
+            other => other
+        };
+        
+        match &change.ty {
+            change::ChangeType::AlterNode(_, _) => {},
+            change::ChangeType::InsertNode(affected_path, index, offset, _node) if affected_path == &new_path => {
+                event!(Level::DEBUG, "InsertNode affected our path");
+                /* A new child was added to the node we're on. */
+                match new_state {
+                    /* We were on content that begins within the new node. */
+                    TokenizerState::MetaContent(ref mut s_offset, ref mut s_index) if addr::Extent::sized(*offset, node.size).includes(*s_offset) => {
+                        event!(Level::DEBUG, "metacontent on new node");
+                        /* Set up MetaContent state to immediately descend into the new child. */
+                        *s_offset = *offset;
+                        *s_index = *index;
+                    },
+                    /* We were on content that begins after the new node. */
+                    TokenizerState::MetaContent(s_offset, ref mut s_index) if (*offset + node.size) < s_offset && *s_index >= *index => {
+                        event!(Level::DEBUG, "metacontent after new node");
+                        *s_index+= 1;
+                    },
+                    TokenizerState::SummaryLabel(ref mut s_index) | TokenizerState::SummarySeparator(ref mut s_index) if *s_index > *index => {
+                        *s_index+= 1;
+                    },
+                    _ => {}
+                }
+            },
+            change::ChangeType::InsertNode(_, _, _, _) => {},
+        };
+
+        event!(Level::DEBUG, "new state: {:?}", new_state);
+        
         /* create Tokenizer from (new_stack, node) */
         *self = Tokenizer {
             stack: new_stack,
-            state: std::mem::replace(&mut self.state, TokenizerState::PreBlank),
+            state: new_state,
             depth: self.depth,
             node: node,
             node_addr: self.node_addr,
@@ -164,6 +208,7 @@ impl Tokenizer {
     }
 
     /* Used to recurse to the top of the tokenizer stack so we can start porting from the top down */
+    #[instrument]
     fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
         match &tok.stack {
             Some(parent) => {
@@ -176,16 +221,21 @@ impl Tokenizer {
             }
         }
     }
-    
+
+    #[instrument]
     fn port_stack_entry(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, mut current_path: structure::Path, new_node: sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
+        event!(Level::DEBUG, "porting a tokenizer stack entry");
         let mut descent = old_tok.descent.clone();
 
         match descent {
             TokenizerDescent::Child(ref mut child_index) | TokenizerDescent::ChildSummary(ref mut child_index) => {
                 match &change.ty {
                     change::ChangeType::InsertNode(path, after_child, _offset, _node) => {
+                        event!(Level::DEBUG, "porting across an InsertNode change");
                         if path == &current_path {
+                            event!(Level::DEBUG, "the path points towards the current node! we may be affected!");
                             if *child_index >= *after_child {
+                                event!(Level::DEBUG, "indeed, we had to bump the child index.");
                                 *child_index+= 1;
                             }
                         }

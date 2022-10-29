@@ -125,11 +125,13 @@ impl Cursor {
     }
 
     /// Notify cursor that the underlying document has changed and it needs to renogitiate its position.
+    #[instrument]
     pub fn update(&mut self, document: &sync::Arc<document::Document>) {
         /* if we're using an outdated structure hierarchy root, make a
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
         if self.document.is_outdated(document) {
+            tracing::event!(Level::DEBUG, "porting the cursor tokenizer");
             self.tokenizer.port_doc(&self.document, document);
             let mut tokenizer = self.tokenizer.clone();
 
