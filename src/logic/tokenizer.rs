@@ -43,12 +43,17 @@ enum TokenizerState {
     End,
 }
 
+#[derive(Clone, Debug)]
+enum TokenizerDescent {
+    Child(usize),
+    ChildSummary(usize),
+    MySummary,
+}
+
 #[derive(Clone)]
 pub struct TokenizerStackEntry {
     stack: Option<sync::Arc<TokenizerStackEntry>>,
-    before_state: TokenizerState,
-    after_state: TokenizerState,
-    child_index: Option<usize>,
+    descent: TokenizerDescent,
     depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,    
@@ -105,8 +110,7 @@ impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
 impl std::fmt::Debug for TokenizerStackEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Entry")
-            .field("before_state", &self.before_state)
-            .field("after_state", &self.after_state)
+            .field("descent", &self.descent)
             .field("node", &self.node.props.name)
             .finish_non_exhaustive()
     }
@@ -141,12 +145,12 @@ impl Tokenizer {
     }
     
     fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change) {
-        let (new_stack, node) = match &self.stack {
+        let (new_stack, node, _path) = match &self.stack {
             Some(parent) => {
-                let (s, n) = Self::port_descend(&parent, new_root, change);
-                (Some(sync::Arc::new(s)), n)
+                let (s, n, p) = Self::port_recurse(&parent, new_root, change);
+                (Some(sync::Arc::new(s)), n, p)
             },
-            None => (None, new_root.clone())
+            None => (None, new_root.clone(), structure::Path::new())
         };
             
         /* create Tokenizer from (new_stack, node) */
@@ -159,34 +163,52 @@ impl Tokenizer {
         }
     }
 
-    fn port_node(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, new_node: sync::Arc<structure::Node>, _change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>) {
-        (TokenizerStackEntry {
-            stack: new_stack,
-            before_state: old_tok.before_state.clone(),
-            child_index: old_tok.child_index,
-            after_state: old_tok.after_state.clone(),
-            depth: old_tok.depth,
-            node: new_node.clone(),
-            node_addr: old_tok.node_addr,
-        }, match old_tok.before_state {
-            TokenizerState::MetaContent(_, i) => new_node.children[i].node.clone(),
-            _ => todo!(),
-        })
-    }
-    
-    fn port_descend(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>) {
+    /* Used to recurse to the top of the tokenizer stack so we can start porting from the top down */
+    fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
         match &tok.stack {
             Some(parent) => {
-                let (new_stack, new_node) = Self::port_descend(&parent, new_root, change);
-                Self::port_node(tok, Some(sync::Arc::new(new_stack)), new_node, change)
+                let (new_stack, new_node, path) = Self::port_recurse(&parent, new_root, change);
+                Self::port_stack_entry(tok, Some(sync::Arc::new(new_stack)), path, new_node, change)
             },
             None => {
                 /* reached root */
-                Self::port_node(tok, None, new_root.clone(), change)
+                Self::port_stack_entry(tok, None, structure::Path::new(), new_root.clone(), change)
             }
         }
     }
+    
+    fn port_stack_entry(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, mut current_path: structure::Path, new_node: sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
+        let mut descent = old_tok.descent.clone();
 
+        match descent {
+            TokenizerDescent::Child(ref mut child_index) | TokenizerDescent::ChildSummary(ref mut child_index) => {
+                match &change.ty {
+                    change::ChangeType::InsertNode(path, after_child, _offset, _node) => {
+                        if path == &current_path {
+                            if *child_index >= *after_child {
+                                *child_index+= 1;
+                            }
+                        }
+                    },
+                    _ => {},
+                }
+            },
+            TokenizerDescent::MySummary => {},
+        };
+
+        descent.build_path(&mut current_path);
+
+        let node = descent.childhood(&new_node).node;
+        
+        (TokenizerStackEntry {
+            stack: new_stack,
+            descent,
+            depth: old_tok.depth,
+            node: new_node.clone(),
+            node_addr: old_tok.node_addr,
+        }, node, current_path)
+    }
+    
     /// Creates a new tokenizer seeked to the end of the token stream.
     pub fn at_end(root: &sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
@@ -335,12 +357,8 @@ impl Tokenizer {
                 if let Some((prev_child_index, prev_child)) = prev_child_option {
                     if prev_child.end() >= offset {
                         self.descend(
-                            prev_child_index,
-                            /* If we ascend going backwards, ascend to immediately before this child. */
-                            TokenizerState::MetaContent(prev_child.offset, index - 1),
-                            /* If we ascend going forwards, ascend to immediately after this child. */
-                            TokenizerState::MetaContent(prev_child.end(), index),
-                            /* Descend to the end of the child. */
+                            TokenizerDescent::Child(prev_child_index),
+                            /* Descend to thse end of the child. */
                             TokenizerState::End);
 
                         return true;
@@ -402,9 +420,7 @@ impl Tokenizer {
             },
             TokenizerState::SummarySeparator(i) => {
                 self.descend(
-                    i,
-                    TokenizerState::SummaryLabel(i),
-                    TokenizerState::SummarySeparator(i),
+                    TokenizerDescent::ChildSummary(i),
                     TokenizerState::SummaryValueEnd);
                 true
             },
@@ -417,9 +433,8 @@ impl Tokenizer {
                 true
             },
             TokenizerState::SummaryNewline => {
-                self.descend_self(
-                    TokenizerState::Title,
-                    TokenizerState::SummaryNewline,
+                self.descend(
+                    TokenizerDescent::MySummary,
                     TokenizerState::SummaryCloser);
                 true
             },
@@ -476,9 +491,8 @@ impl Tokenizer {
                         self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
                     },
                     structure::ChildrenDisplay::Summary => {
-                        self.descend_self(
-                            TokenizerState::Title,
-                            TokenizerState::SummaryNewline,
+                        self.descend(
+                            TokenizerDescent::MySummary,
                             TokenizerState::SummaryOpener);
                     },
                     structure::ChildrenDisplay::Full => {
@@ -494,11 +508,7 @@ impl Tokenizer {
                 if let Some((next_child_index, next_child)) = next_child_option {
                     if next_child.offset <= offset {
                         self.descend(
-                            next_child_index,
-                            /* If we ascend going backwards, ascend to before this child. */
-                            TokenizerState::MetaContent(next_child.offset, index),
-                            /* If we ascend going forwards, ascend to after this child. */
-                            TokenizerState::MetaContent(next_child.end(), index + 1),
+                            TokenizerDescent::Child(next_child_index),
                             /* Descend to the beginning of the child. */
                             TokenizerState::PreBlank);
 
@@ -558,9 +568,7 @@ impl Tokenizer {
             },
             TokenizerState::SummaryLabel(i) => {
                 self.descend(
-                    i,
-                    TokenizerState::SummaryLabel(i),
-                    TokenizerState::SummarySeparator(i),
+                    TokenizerDescent::ChildSummary(i),
                     TokenizerState::SummaryValueBegin);
                 true
             },
@@ -651,71 +659,48 @@ impl Tokenizer {
     ///
     /// # Arguments
     ///
-    /// * `into_child` - The index of the child to descend into.
-    /// * `state_before` - A TokenizerState positioned immediately before the child from the parent's perspective.
-    /// * `state_after` - A TokenizerState positioned immediately after the child from the parent's perspective.
+    /// * `descent` - The type of descent being performed.
     /// * `state_within` - Where within the child to descend to.
     ///
     fn descend(
         &mut self,
-        into_child: usize,
-        state_before: TokenizerState,
-        state_after: TokenizerState,
+        descent: TokenizerDescent,
         state_within: TokenizerState) {
-        let childhood = self.node.children[into_child].clone();
-        
+        let childhood = descent.childhood(&self.node);
         let parent_node = std::mem::replace(&mut self.node, childhood.node);
+        let depth_change = descent.depth_change();
         
         let parent_entry = TokenizerStackEntry {
             stack: self.stack.take(),
-            before_state: state_before,
-            child_index: Some(into_child),
-            after_state: state_after,
+            descent,
             depth: self.depth,
             node: parent_node,
             node_addr: self.node_addr,
         };
 
-        self.depth+= 1;
+        self.depth+= depth_change;
         self.stack = Some(sync::Arc::new(parent_entry));
         self.state = state_within;
         self.node_addr+= childhood.offset.to_size();
     }
-
-    fn descend_self(
-        &mut self,
-        state_before: TokenizerState,
-        state_after: TokenizerState,
-        state_within: TokenizerState) {
-        self.stack = Some(sync::Arc::new(TokenizerStackEntry {
-            stack: self.stack.take(),
-            before_state: state_before,
-            child_index: None,
-            after_state: state_after,
-            depth: self.depth,
-            node: self.node.clone(),
-            node_addr: self.node_addr,
-        }));
-        self.state = state_within;
-    }        
     
     /// Replaces our context with the parent's context, returning false if there
     /// was no parent.
     fn try_ascend(&mut self, dir: AscendDirection) -> bool {
         match std::mem::replace(&mut self.stack, None) {
-            Some(replacement) => {
+            Some(stack_entry) => {
                 // TODO: replace this with unwrap_or_clone when it gets stabilized
                 //       https://github.com/rust-lang/rust/issues/93610
-                let replacement = sync::Arc::try_unwrap(replacement).unwrap_or_else(|arc| (*arc).clone());
+                let stack_entry = sync::Arc::try_unwrap(stack_entry).unwrap_or_else(|arc| (*arc).clone());
                 *self = Tokenizer {
-                    stack: replacement.stack,
                     state: match dir {
-                        AscendDirection::Prev => replacement.before_state,
-                        AscendDirection::Next => replacement.after_state
+                        AscendDirection::Prev => stack_entry.descent.before_state(&stack_entry),
+                        AscendDirection::Next => stack_entry.descent.after_state(&stack_entry)
                     },
-                    depth: replacement.depth,
-                    node: replacement.node.clone(),
-                    node_addr: replacement.node_addr,
+                    stack: stack_entry.stack,
+                    depth: stack_entry.depth,
+                    node: stack_entry.node,
+                    node_addr: stack_entry.node_addr,
                 };
                 true
             },
@@ -770,13 +755,54 @@ impl Tokenizer {
     }
 }
 
+impl TokenizerDescent {
+    fn childhood(&self, node: &sync::Arc<structure::Node>) -> structure::Childhood {
+        match self {
+            TokenizerDescent::Child(i) => node.children[*i].clone(),
+            TokenizerDescent::ChildSummary(i) => node.children[*i].clone(),
+            TokenizerDescent::MySummary => structure::Childhood {
+                node: node.clone(),
+                offset: addr::unit::NULL,
+            },
+        }
+    }
+
+    fn depth_change(&self) -> usize {
+        match self {
+            TokenizerDescent::Child(_) | TokenizerDescent::ChildSummary(_) => 1,
+            TokenizerDescent::MySummary => 0,
+        }
+    }
+
+    fn before_state(&self, stack_entry: &TokenizerStackEntry) -> TokenizerState {
+        match self {
+            TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].offset, *i),
+            TokenizerDescent::ChildSummary(i) => TokenizerState::SummaryLabel(*i),
+            TokenizerDescent::MySummary => TokenizerState::Title,
+        }
+    }
+
+    fn after_state(&self, stack_entry: &TokenizerStackEntry) -> TokenizerState {
+        match self {
+            TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
+            TokenizerDescent::ChildSummary(i) => TokenizerState::SummarySeparator(*i),
+            TokenizerDescent::MySummary => TokenizerState::SummaryNewline,
+        }
+    }
+
+    fn build_path(&self, path: &mut structure::Path) {
+        match self {
+            TokenizerDescent::Child(i) | TokenizerDescent::ChildSummary(i) => path.push(*i),
+            TokenizerDescent::MySummary => {},
+        }        
+    }
+}
+
 impl TokenizerStackEntry {
     fn build_path(entry: &Option<sync::Arc<TokenizerStackEntry>>, path: &mut structure::Path) {
         if let Some(tse) = entry {
             Self::build_path(&tse.stack, path);
-            if let Some(child_index) = tse.child_index {
-                path.push(child_index);
-            }
+            tse.descent.build_path(path);
         }
     }
 }
