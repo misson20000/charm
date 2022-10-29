@@ -189,7 +189,9 @@ glib::wrapper! {
 impl ListingWidget {
     pub fn new() -> ListingWidget {
         let lw: ListingWidget = glib::Object::new(&[]).expect("failed to create ListingWidget");
+        lw.set_can_focus(true);
         lw.set_focusable(true);
+        lw.set_focus_on_click(true);
         lw
     }
     
