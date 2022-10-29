@@ -13,7 +13,7 @@ use crate::model::space::AddressSpace;
 
 pub mod change;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Document {
     pub previous: Option<(sync::Arc<Document>, change::Change)>,
     pub root: sync::Arc<structure::Node>,
@@ -263,5 +263,14 @@ impl Document {
 
     pub fn get_generation_for_debug(&self) -> u64 {
         self.generation
+    }
+}
+
+impl std::fmt::Debug for Document {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Document")
+            .field("uid", &self.uid)
+            .field("generation", &self.generation)
+            .finish_non_exhaustive()
     }
 }
