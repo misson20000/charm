@@ -38,6 +38,10 @@ impl Childhood {
     pub fn end(&self) -> addr::Address {
         self.offset + self.node.size
     }
+
+    pub fn extent(&self) -> addr::Extent {
+        addr::Extent::sized(self.offset, self.node.size)
+    }
 }
 
 /// These are separated from the rest of the Node because they can be changed
