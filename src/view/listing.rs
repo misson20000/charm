@@ -88,6 +88,8 @@ struct Interior {
 
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
+
+    document_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
 }
 
 #[derive(Default)]
@@ -212,6 +214,8 @@ impl ListingWidget {
                 None => 0
             },
             render: sync::Arc::new(render),
+
+            document_update_event_source: once_cell::sync::OnceCell::new(),
         };
 
         /* Set the initial size. */
@@ -221,17 +225,15 @@ impl ListingWidget {
             self.allocated_height(),
             self.allocated_baseline());
 
-        let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
-
-        self.imp().init(interior);
-
         self.add_tick_callback(|lw, frame_clock| {
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
         
-        helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+        if interior.document_update_event_source.set(helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.document_updated(new_doc);
-        });
+        })).is_err() {
+            panic!("double-initialized document_update_event_source");
+        }
 
         let ec_key = gtk::EventControllerKey::new();
         ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_eck, keyval, keycode, modifier| {
@@ -239,6 +241,9 @@ impl ListingWidget {
             inhibit
         }));
         self.add_controller(&ec_key);
+
+        let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
+        self.imp().init(interior);
     }
 
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
