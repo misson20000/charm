@@ -14,6 +14,8 @@ use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::graphene;
 
+mod hexdump;
+
 pub struct TokenView {
     token: token::Token,
     
@@ -117,52 +119,7 @@ impl TokenView {
                 }
             },
             token::TokenClass::Hexdump(extent) => {
-                let hex_cursor = match &cursor.cursor.class {
-                    cursor::CursorClass::Hexdump(hxc) if has_cursor => Some(hxc),
-                    _ => None,
-                };
-                
-                for i in 0..extent.length().bytes {
-                    let byte_record = self.data_cache.get(i as usize).copied().unwrap_or(datapath::ByteRecord::default());
-
-                    for low_nybble in [false, true] {
-                        let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
-                        let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
-
-                        let digit = gsc::Entry::Digit(nybble);
-
-                        if !byte_record.pending && byte_record.loaded {
-                            if has_cursor {
-                                /* the cursor is over this nybble */
-                                render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, &mut pos);
-                            } else {
-                                /* the cursor is not over this nybble */
-                                render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
-                            }
-                        } else {
-                            /* Draw a placeholder, instead. */
-                            if let Some(gs) = render.gsc_mono.get(digit) {
-                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
-                                
-                                snapshot.append_color(&render.config.placeholder_color, &graphene::Rect::new(
-                                    pos.x() + helpers::pango_unscale(logical.x()),
-                                    pos.y() + helpers::pango_unscale(logical.y()),
-                                    helpers::pango_unscale(logical.width()),
-                                    helpers::pango_unscale(logical.height())));
-
-                                if has_cursor {
-                                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(
-                                        pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
-                                        pos.y() + helpers::pango_unscale(logical.y()),
-                                        helpers::pango_unscale(logical.width()),
-                                        helpers::pango_unscale(logical.height())));                                    
-                                }
-
-                                pos.set_x(pos.x() + helpers::pango_unscale(logical.width()));
-                            }
-                        }
-                    }
-                }
+                hexdump::render(self, extent, snapshot, cursor, has_cursor, render, &mut pos);
             },
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {
