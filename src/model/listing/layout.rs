@@ -36,7 +36,6 @@ pub trait WindowTokenizer: Clone {
 #[derive(Clone)]
 pub struct Window<L: Line, Tokenizer: WindowTokenizer = tokenizer::Tokenizer> {
     current_document: sync::Arc<document::Document>,
-    top_buffer: Option<token::Token>,
     top: Tokenizer,
     bottom: Tokenizer,
     
@@ -49,7 +48,6 @@ pub struct Window<L: Line, Tokenizer: WindowTokenizer = tokenizer::Tokenizer> {
 impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
     pub fn new(doc: sync::Arc<document::Document>) -> Window<L, Tokenizer> {
         Window {
-            top_buffer: None,
             top: Tokenizer::at_beginning(doc.root.clone()),
             bottom: Tokenizer::at_beginning(doc.root.clone()),
             
@@ -73,7 +71,6 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
         F: FnOnce(&mut Tokenizer, &mut sync::Arc<document::Document>) {
         tokenizer_provider(&mut self.top, &mut self.current_document);
         self.bottom = self.top.clone();
-        self.top_buffer = None;
         self.lines.clear();
         
         let mut offset = 0;
@@ -97,26 +94,38 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
     }
 
     fn grow_top(&mut self) {
-        let mut tokens = collections::VecDeque::new();
-        
-        while {
-            if let Some(token) = std::mem::replace(&mut self.top_buffer, self.top.prev()) {
-                tokens.push_front(token);
-            }
-            match &self.top_buffer {
-                Some(token) => !token.newline,
-                None => false /* hit top */
-            }
-        } { }
-
         if self.top.hit_top() {
             return;
+        }
+
+        let mut tokens = collections::VecDeque::new();
+
+        let mut first = true;
+        
+        while {
+            match self.top.prev() {
+                Some(token) if !first && token.newline => {
+                    assert_eq!(self.top.next_postincrement(), Some(token));
+                    false
+                },
+                Some(token) => {
+                    tokens.push_front(token);
+                    true
+                },
+                None => false /* hit top */
+            }
+        } {
+            first = false;
         }
         
         self.lines.push_front(L::from_tokens(tokens.into()));
     }
 
     fn grow_bottom(&mut self) {
+        if self.bottom.hit_bottom() {
+            return;
+        }
+
         let mut tokens = vec::Vec::new();
 
         while let Some(token) = self.bottom.next_postincrement() {
@@ -128,10 +137,6 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
                 break;
             }
         }
-
-        if self.bottom.hit_bottom() {
-            return;
-        }
         
         self.lines.push_back(L::from_tokens(tokens));
     }
@@ -141,7 +146,6 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
 
         for token in line.to_tokens() {
             assert_eq!(token, self.top.next_postincrement().unwrap());
-            self.top_buffer = Some(token);
         }
     }
 
