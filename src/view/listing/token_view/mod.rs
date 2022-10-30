@@ -127,39 +127,39 @@ impl TokenView {
 
                     for low_nybble in [false, true] {
                         let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
+                        let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
 
                         let digit = gsc::Entry::Digit(nybble);
 
-                        // TODO: TEMPORARY: byte record status display as colored backgrounds
-                        if !byte_record.pending {
+                        if !byte_record.pending && byte_record.loaded {
+                            if has_cursor {
+                                /* the cursor is over this nybble */
+                                render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, &mut pos);
+                            } else {
+                                /* the cursor is not over this nybble */
+                                render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
+                            }
+                        } else {
+                            /* Draw a placeholder, instead. */
                             if let Some(gs) = render.gsc_mono.get(digit) {
                                 let (_ink, logical) = gs.clone().extents(&render.font_mono);
-                                snapshot.append_color(&gtk::gdk::RGBA::GREEN, &graphene::Rect::new(
+                                
+                                snapshot.append_color(&render.config.placeholder_color, &graphene::Rect::new(
                                     pos.x() + helpers::pango_unscale(logical.x()),
                                     pos.y() + helpers::pango_unscale(logical.y()),
                                     helpers::pango_unscale(logical.width()),
-                                    helpers::pango_unscale(logical.height()/2)));
-                            }
-                        }
+                                    helpers::pango_unscale(logical.height())));
 
-                        // TODO: TEMPORARY: byte record status display as colored backgrounds
-                        if !byte_record.loaded {
-                            if let Some(gs) = render.gsc_mono.get(digit) {
-                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
-                                snapshot.append_color(&gtk::gdk::RGBA::RED, &graphene::Rect::new(
-                                    pos.x() + helpers::pango_unscale(logical.x()),
-                                    pos.y() + helpers::pango_unscale(logical.y()+logical.height()/2),
-                                    helpers::pango_unscale(logical.width()),
-                                    helpers::pango_unscale(logical.height()/2)));
-                            }
-                        }
+                                if has_cursor {
+                                    snapshot.append_color(&render.config.cursor_bg_color, &graphene::Rect::new(
+                                        pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                                        pos.y() + helpers::pango_unscale(logical.y()),
+                                        helpers::pango_unscale(logical.width()),
+                                        helpers::pango_unscale(logical.height())));                                    
+                                }
 
-                        if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble) {
-                            /* the cursor is over this nybble */
-                            render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, &mut pos);
-                        } else {
-                            /* the cursor is not over this nybble */
-                            render.gsc_mono.print(&snapshot, digit, &render.config.text_color, &mut pos);
+                                pos.set_x(pos.x() + helpers::pango_unscale(logical.width()));
+                            }
                         }
                     }
                 }
