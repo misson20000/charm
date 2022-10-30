@@ -72,3 +72,36 @@ impl PartialEq for Token {
 
 impl Eq for Token {
 }
+
+pub struct TokenTestFormat<'a>(pub &'a Token);
+
+impl<'a> fmt::Display for TokenTestFormat<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0.class {
+            TokenClass::Punctuation(punct) => write!(f, "{}", match punct {
+                PunctuationClass::Empty => "",
+                PunctuationClass::Space => " ",
+                PunctuationClass::Comma => ", ",
+                PunctuationClass::OpenBracket => "{",
+                PunctuationClass::CloseBracket => "}",
+            }),
+            TokenClass::Title => write!(f, "{}: ", &self.0.node.props.name),
+            TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.props.name),
+            TokenClass::Hexdump(extent) => {
+                for i in 0..extent.length().bytes {
+                    write!(f, "{:02x}", (extent.begin.byte + i) & 0xff)?;
+                    if i + 1 < extent.length().bytes {
+                        write!(f, " ")?;
+                    }
+                }
+                Ok(())
+            },
+            TokenClass::Hexstring(extent) => {
+                for i in 0..extent.length().bytes {
+                    write!(f, "{:02x}", (extent.begin.byte + i) & 0xff)?
+                }
+                Ok(())
+            }
+        }
+    }
+}
