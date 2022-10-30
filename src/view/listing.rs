@@ -64,6 +64,7 @@ struct Interior {
     
     window: layout::Window<line::Line>,
     cursor: facet::cursor::CursorView,
+    scroll: facet::scroll::Scroller,
 
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -133,6 +134,7 @@ impl WidgetImpl for ListingWidgetImp {
         
         /* render lines */
         snapshot.save();
+        snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
         for line in interior.window.lines.iter_mut() {
             if let Some(node) = line.render(&interior.cursor, &*render) {
                 snapshot.append_node(node);
@@ -191,6 +193,7 @@ impl ListingWidget {
             
             window: layout::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone()),
+            scroll: facet::scroll::Scroller::new(),
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -231,6 +234,13 @@ impl ListingWidget {
         }));
         self.add_controller(&ec_key);
 
+        let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_ecs, dx, dy| {
+            let inhibit = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
+            inhibit
+        }));
+        self.add_controller(&ec_scroll);
+        
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
     }
@@ -329,7 +339,7 @@ impl Interior {
         let line_count = (((height * pango::SCALE) + line_height - 1) / line_height) as usize;
         println!("height: {}, line height: {}, line count: {}", height, line_height, line_count);
 
-        self.window.resize(line_count);
+        self.window.resize(line_count + 2 + (2 * self.scroll.get_lookahead()));
         self.work_notifier.notify();
     }
 
@@ -354,15 +364,10 @@ impl Interior {
             widget.queue_draw();
         }
     }
-    
+
     fn collect_events(&mut self, widget: &ListingWidget) {
-        if self.cursor.wants_work().collect() {
-            self.work_notifier.notify();
-        }
-        
-        if self.cursor.wants_draw().collect() {
-            widget.queue_draw();
-        }
+        self.cursor.collect_events(widget, &self.work_notifier);
+        self.scroll.collect_events(widget, &self.work_notifier);
     }
     
     fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::Continue {
@@ -376,6 +381,7 @@ impl Interior {
         let delta = (frame_time - self.last_frame) as f64 / MICROSECONDS_PER_SECOND as f64;
 
         self.cursor.animate(delta);
+        self.scroll.animate(&mut self.window, &self.cursor, delta);
 
         self.collect_events(widget);
         
@@ -428,6 +434,14 @@ impl Interior {
         self.collect_events(widget);
 
         r
+    }
+
+    fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> gtk::Inhibit {
+        self.scroll.scroll_wheel_impulse(dy);
+        
+        self.collect_events(widget);
+        
+        gtk::Inhibit(true)
     }
 }
 

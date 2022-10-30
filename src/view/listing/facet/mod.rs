@@ -1,15 +1,29 @@
-use crate::model::document;
-
-//pub mod scroll;
-pub mod cursor;
-
 use std::sync;
 use std::task;
+
+use crate::model::document;
+use crate::util;
+
+use gtk::prelude::*;
+
+pub mod scroll;
+pub mod cursor;
 
 pub trait Facet {
     fn wants_draw(&mut self) -> &mut Event;
     fn wants_work(&mut self) -> &mut Event;
-    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context);
+    fn work(&mut self, _document: &sync::Arc<document::Document>, _cx: &mut task::Context) {
+    }
+
+    fn collect_events(&mut self, widget: &super::ListingWidget, work_notifier: &util::Notifier) {
+        if self.wants_draw().collect() {
+            widget.queue_draw();
+        }
+
+        if self.wants_work().collect() {
+            work_notifier.notify();
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -62,7 +62,7 @@ impl Default for Config {
         Config {
             file_access_delay: 0,
             
-            lookahead: 25,
+            lookahead: 0,
             scroll_wheel_impulse: 60.0,
             scroll_deceleration: 620.0,
             scroll_spring: 240.0,
