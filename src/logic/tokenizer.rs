@@ -170,19 +170,19 @@ impl Tokenizer {
         
         match &change.ty {
             change::ChangeType::AlterNode(_, _) => {},
-            change::ChangeType::InsertNode(affected_path, index, offset, _node) if affected_path == &new_path => {
+            change::ChangeType::InsertNode(affected_path, index, offset, new_node) if affected_path == &new_path => {
                 event!(Level::DEBUG, "InsertNode affected our path");
                 /* A new child was added to the node we're on. */
                 match new_state {
                     /* We were on content that begins within the new node. */
-                    TokenizerState::MetaContent(ref mut s_offset, ref mut s_index) if addr::Extent::sized(*offset, node.size).includes(*s_offset) => {
+                    TokenizerState::MetaContent(ref mut s_offset, ref mut s_index) if addr::Extent::sized(*offset, new_node.size).includes(*s_offset) => {
                         event!(Level::DEBUG, "metacontent on new node");
                         /* Set up MetaContent state to immediately descend into the new child. */
                         *s_offset = *offset;
                         *s_index = *index;
                     },
                     /* We were on content that begins after the new node. */
-                    TokenizerState::MetaContent(s_offset, ref mut s_index) if (*offset + node.size) < s_offset && *s_index >= *index => {
+                    TokenizerState::MetaContent(s_offset, ref mut s_index) if (*offset + new_node.size) < s_offset && *s_index >= *index => {
                         event!(Level::DEBUG, "metacontent after new node");
                         *s_index+= 1;
                     },
