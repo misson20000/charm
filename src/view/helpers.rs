@@ -1,3 +1,4 @@
+use std::future;
 use std::rc;
 use std::sync;
 
@@ -44,7 +45,7 @@ pub fn subscribe_to_document_updates<Object, F>(
     callback: F) -> AsyncSubscriber where
     Object: glib::object::ObjectType,
     F: Fn(Object, &sync::Arc<document::Document>) + 'static {
-    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(async move {
+    spawn_on_main_context(async move {
         let mut document = initial_document;
 
         loop {
@@ -58,7 +59,11 @@ pub fn subscribe_to_document_updates<Object, F>(
             document = new_document.clone();
             callback(obj, &document);
         };
-    })))
+    })
+}
+
+pub fn spawn_on_main_context<F: future::Future<Output = ()> + 'static>(task: F) -> AsyncSubscriber {
+    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task)))
 }
 
 impl Drop for AsyncSubscriber {

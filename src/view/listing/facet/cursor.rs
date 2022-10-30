@@ -170,6 +170,6 @@ impl facet::Facet for CursorView {
         &mut self.ev_work
     }
 
-    fn work(&mut self, _cx: &mut task::Context) {
+    fn work(&mut self, _doc: &sync::Arc<document::Document>, _cx: &mut task::Context) {
     }
 }

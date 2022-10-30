@@ -1,20 +1,21 @@
-use std::iter;
+use std::future;
+use std::pin;
 use std::sync;
+use std::task;
 use std::vec;
 //use std::time;
 //use std::collections::HashMap;
 
 use crate::view::config;
-//use crate::util;
+use crate::util;
 use crate::model::addr;
 //use crate::model::datapath;
-//use crate::model::datapath::DataPathExt;
+use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 //use crate::model::listing;
 //use crate::model::listing::cursor;
 use crate::model::listing::layout;
-use crate::model::listing::token;
 use crate::view;
 use crate::view::gsc;
 use crate::view::helpers;
@@ -24,7 +25,6 @@ use gtk::gdk;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::graphene;
-use gtk::gsk;
 use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
@@ -32,34 +32,13 @@ use tracing::{event, Level};
 
 pub mod facet;
 mod token_view;
+mod line;
 
 use facet::Facet;
 
 const MICROSECONDS_PER_SECOND: f64 = 1000000.0;
 const MICROSECONDS_PER_SECOND_INT: i64 = 1000000;
 const NATURAL_ADDRESS_STRING_LENGTH: i32 = 2 + (2*8);
-
-struct Line {
-    tokens: vec::Vec<token_view::TokenView>,
-    render_serial: u64,
-    render_node: Option<gsk::RenderNode>,
-}
-
-impl layout::Line for Line {
-    type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
-    
-    fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
-        Line {
-            tokens: tokens.into_iter().map(|t| token_view::TokenView::from(t)).collect(),
-            render_serial: 0,
-            render_node: None,
-        }
-    }
-
-    fn to_tokens(self) -> Self::TokenIterator {
-        self.tokens.into_iter().map(|t| t.to_token())
-    }
-}
 
 // TODO: see if we can reduce visibility on this.
 // https://github.com/rust-lang/rust/issues/34537
@@ -83,13 +62,15 @@ struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
     document: sync::Arc<document::Document>,
     
-    window: layout::Window<Line>,
+    window: layout::Window<line::Line>,
     cursor: facet::cursor::CursorView,
 
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
 
     document_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
+    work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
+    work_notifier: util::Notifier,
 }
 
 #[derive(Default)]
@@ -189,6 +170,8 @@ glib::wrapper! {
         @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
+struct ListingWidgetWorkFuture(<ListingWidget as glib::clone::Downgrade>::Weak);
+
 impl ListingWidget {
     pub fn new() -> ListingWidget {
         let lw: ListingWidget = glib::Object::new(&[]).expect("failed to create ListingWidget");
@@ -216,6 +199,8 @@ impl ListingWidget {
             render: sync::Arc::new(render),
 
             document_update_event_source: once_cell::sync::OnceCell::new(),
+            work_event_source: once_cell::sync::OnceCell::new(),
+            work_notifier: util::Notifier::new(),
         };
 
         /* Set the initial size. */
@@ -235,6 +220,10 @@ impl ListingWidget {
             panic!("double-initialized document_update_event_source");
         }
 
+        if interior.work_event_source.set(helpers::spawn_on_main_context(ListingWidgetWorkFuture(self.downgrade()))).is_err() {
+            panic!("double-initialized work_event_source");
+        }
+
         let ec_key = gtk::EventControllerKey::new();
         ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_eck, keyval, keycode, modifier| {
             let inhibit = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
@@ -252,6 +241,8 @@ impl ListingWidget {
         interior.window.update(new_document);
         interior.cursor.cursor.update(new_document);
         interior.document = new_document.clone();
+
+        interior.work_notifier.notify();
         
         self.queue_draw();
     }
@@ -339,9 +330,36 @@ impl Interior {
         println!("height: {}, line height: {}, line count: {}", height, line_height, line_count);
 
         self.window.resize(line_count);
+        self.work_notifier.notify();
     }
 
+    fn work(&mut self, widget: &ListingWidget, cx: &mut task::Context) {
+        self.work_notifier.enroll(cx);
+
+        self.document.datapath.poll(cx);
+        
+        for line in self.window.lines.iter_mut() {
+            line.work(&self.document, cx);
+
+            if line.wants_draw().collect() {
+                widget.queue_draw();
+            }
+        }
+
+        if self.cursor.wants_work().collect() {
+            self.cursor.work(&self.document, cx);
+        }
+        
+        if self.cursor.wants_draw().collect() {
+            widget.queue_draw();
+        }
+    }
+    
     fn collect_events(&mut self, widget: &ListingWidget) {
+        if self.cursor.wants_work().collect() {
+            self.work_notifier.notify();
+        }
+        
         if self.cursor.wants_draw().collect() {
             widget.queue_draw();
         }
@@ -410,71 +428,18 @@ impl Interior {
         self.collect_events(widget);
 
         r
-    }    
+    }
 }
 
-impl Line {
-    fn invalidate(&mut self) {
-        self.render_node = None;
-    }
+impl future::Future for ListingWidgetWorkFuture {
+    type Output = ();
 
-    fn render(&mut self, cursor: &facet::cursor::CursorView, render: &RenderDetail) -> Option<gsk::RenderNode> {
-        /* check if the cursor is on any of the tokens on this line */
-        let has_cursor = self.tokens.iter().any(|t| t.contains_cursor(&cursor.cursor));
-        
-        /* if we rendered this line earlier, the parameters haven't been invalidated, and the cursor isn't on this line, just reuse the previous snapshot. */
-        if let Some(rn) = self.render_node.as_ref() {
-            /* if the cursor is on the line, we need to redraw it every time the cursor animates, which is hard to tell when that happens so we just redraw it every frame. */
-            if self.render_serial == render.serial && !has_cursor {
-                return Some(rn.clone());
-            }
-        }
-
-        let snapshot = gtk::Snapshot::new();
-        let mut position = graphene::Point::zero();
-
-        /* begin rendering to the right of the address pane */
-        position.set_x(render.addr_pane_width + render.config.padding as f32);
-
-        /* indent by first token */
-        if let Some(first) = self.tokens.get(0) {
-            position.set_x(
-                position.x() +
-                render.config.indentation_width *
-                    helpers::pango_unscale(render.gsc_mono.space_width()) *
-                    first.get_indentation() as f32);
-        }
-
-        let mut visible_address = None;
-
-        /* render tokens */
-        for token in &mut self.tokens {
-            snapshot.save();
-            let advance = token.render(&snapshot, cursor, render, &position);
-            snapshot.restore();
-            position.set_x(position.x() + advance.x());
-
-            /* pick the address from the first token that should display an address */
-            if visible_address.is_none() {
-                visible_address = token.visible_address();
-            }
-        }
-
-        /* if any of our tokens wanted to show an address, render the first one into the address pane */
-        if let Some(addr) = visible_address {
-            let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, helpers::pango_unscale(render.metrics.height()));
-            gsc::render_text_align_right(&snapshot, &render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos);
-        }
-
-        if !has_cursor {
-            self.render_serial = render.serial;
-            self.render_node = snapshot.to_node();
-            self.render_node.clone()
+    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
+        if let Some(lw) = self.0.upgrade() {
+            lw.imp().interior.get().unwrap().write().work(&lw, cx);
+            task::Poll::Pending
         } else {
-            /* don't store render snapshots when the cursor was on one of our
-             * tokens, otherwise the appearance of the cursor will linger when
-             * it moves off this line. */
-            snapshot.to_node()
+            task::Poll::Ready(())
         }
     }
 }

@@ -35,7 +35,7 @@ pub struct ExtentTriplet {
 }
 
 pub mod unit {
-    use super::{Address, Size};
+    use super::{Address, Size, Extent};
 
     pub const NULL: Address = Address { byte: 0, bit: 0 };
     pub const REAL_END: Address = Address { byte: u64::MAX, bit: 8 }; // TODO: change this back to END
@@ -47,6 +47,8 @@ pub mod unit {
     pub const BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
     pub const QWORD: Size = Size { bytes: 8, bits: 0 };
     pub const REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
+
+    pub const EMPTY: Extent = Extent { begin: NULL, end: NULL };
 }
 
 #[derive(Debug)]

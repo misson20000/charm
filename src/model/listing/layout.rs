@@ -202,17 +202,12 @@ impl<L: Line> Window<L> {
     
     /* state bookkeeping */
 
-    pub fn update(&mut self, document: &sync::Arc<document::Document>) -> bool {
-        let mut updated = false;
-        
+    pub fn update(&mut self, document: &sync::Arc<document::Document>) {
         if self.current_document.is_outdated(document) {
             self.repopulate_window(|tok, current_doc| {
                 tok.port_doc(current_doc, document);
                 *current_doc = document.clone()
             });
-            updated = true;
         }
-
-        updated
     }
 }

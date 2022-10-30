@@ -1,4 +1,10 @@
+use std::task;
+use std::vec;
+
 use crate::model::addr;
+use crate::model::datapath;
+use crate::model::datapath::DataPathExt;
+use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::view::helpers;
@@ -10,6 +16,10 @@ use gtk::graphene;
 
 pub struct TokenView {
     token: token::Token,
+    
+    data_cache: vec::Vec<datapath::ByteRecord>,
+    data_pending: bool,
+    
     logical_bounds: Option<graphene::Rect>,
 }
 
@@ -17,6 +27,10 @@ impl TokenView {
     pub fn from(token: token::Token) -> TokenView {
         TokenView {
             token,
+
+            data_cache: vec::Vec::new(),
+            data_pending: true,
+            
             logical_bounds: None,
         }
     }
@@ -109,13 +123,37 @@ impl TokenView {
                 };
                 
                 for i in 0..extent.length().bytes {
-                    let j = i as u8;
+                    let byte_record = self.data_cache.get(i as usize).copied().unwrap_or(datapath::ByteRecord::default());
 
                     for low_nybble in [false, true] {
-                        let nybble = if low_nybble { j & 0xf } else { j >> 4 };
+                        let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
 
                         let digit = gsc::Entry::Digit(nybble);
-                        
+
+                        // TODO: TEMPORARY: byte record status display as colored backgrounds
+                        if !byte_record.pending {
+                            if let Some(gs) = render.gsc_mono.get(digit) {
+                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
+                                snapshot.append_color(&gtk::gdk::RGBA::GREEN, &graphene::Rect::new(
+                                    pos.x() + helpers::pango_unscale(logical.x()),
+                                    pos.y() + helpers::pango_unscale(logical.y()),
+                                    helpers::pango_unscale(logical.width()),
+                                    helpers::pango_unscale(logical.height()/2)));
+                            }
+                        }
+
+                        // TODO: TEMPORARY: byte record status display as colored backgrounds
+                        if !byte_record.loaded {
+                            if let Some(gs) = render.gsc_mono.get(digit) {
+                                let (_ink, logical) = gs.clone().extents(&render.font_mono);
+                                snapshot.append_color(&gtk::gdk::RGBA::RED, &graphene::Rect::new(
+                                    pos.x() + helpers::pango_unscale(logical.x()),
+                                    pos.y() + helpers::pango_unscale(logical.y()+logical.height()/2),
+                                    helpers::pango_unscale(logical.width()),
+                                    helpers::pango_unscale(logical.height()/2)));
+                            }
+                        }
+
                         if hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble) {
                             /* the cursor is over this nybble */
                             render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, &mut pos);
@@ -138,5 +176,25 @@ impl TokenView {
         self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y(), pos.x(), pos.y()));
 
         pos
+    }
+
+    pub fn invalidate_data(&mut self) {
+        self.data_cache.clear();
+        self.data_pending = true;
+    }
+    
+    pub fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+        if self.data_pending {
+            let (begin_byte, size) = self.token.absolute_extent().round_out();
+            
+            self.data_cache.resize(size as usize, datapath::ByteRecord::default());
+            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
+            
+            self.data_pending = self.data_cache.iter().any(|b| b.pending);
+
+            true
+        } else {
+            false
+        }
     }
 }

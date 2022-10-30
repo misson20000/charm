@@ -309,7 +309,7 @@ impl LoadSpaceFilter {
                     Some((addr, block)) if addr == required_block_addr => block,
                     _ => self.cache.fetch_block_with_guard(required_block_addr, &mut lru_guard, cx),
                 };
-
+                
                 br.loaded = true;
                 
                 match &*block {

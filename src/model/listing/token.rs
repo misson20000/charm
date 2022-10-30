@@ -41,6 +41,16 @@ pub struct Token {
     pub newline: bool, // after this token
 }
 
+impl Token {
+    pub fn absolute_extent(&self) -> addr::Extent {
+        match self.class {
+            TokenClass::Hexdump(extent) => extent.rebase(self.node_addr),
+            TokenClass::Hexstring(extent) => extent.rebase(self.node_addr),
+            _ => addr::unit::EMPTY
+        }
+    }
+}
+
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Token")

@@ -1,12 +1,15 @@
+use crate::model::document;
+
 //pub mod scroll;
 pub mod cursor;
 
+use std::sync;
 use std::task;
 
 pub trait Facet {
     fn wants_draw(&mut self) -> &mut Event;
     fn wants_work(&mut self) -> &mut Event;
-    fn work(&mut self, cx: &mut task::Context);
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context);
 }
 
 #[derive(Debug)]
@@ -18,6 +21,12 @@ impl Event {
     pub fn new() -> Event {
         Event {
             wanted: false,
+        }
+    }
+
+    pub fn new_wanted() -> Event {
+        Event {
+            wanted: true,
         }
     }
 
