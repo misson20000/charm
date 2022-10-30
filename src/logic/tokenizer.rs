@@ -1015,10 +1015,8 @@ pub mod xml {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
-
-    extern crate roxmltree;
 
     use std::iter;
     use std::vec;
