@@ -64,8 +64,6 @@ impl Scroller {
                     if window.scroll_down() {
                         self.position-= 1.0;
                         amt-= 1;
-
-                        println!("scroll down a line");
                         
                         /* request work on behalf of the new lines that need to load their content. */
                         self.ev_work.want();
