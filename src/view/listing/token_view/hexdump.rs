@@ -18,6 +18,16 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
     for i in 0..extent.length().bytes {
         let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or(datapath::ByteRecord::default());
 
+        if i != 0 {
+            /* insert a gutter between every byte */
+            pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
+            
+            if i % 8 == 0 && i != 0 {
+                /* insert an additional gutter every 8 bytes */
+                pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
+            }
+        }
+        
         for low_nybble in [false, true] {
             let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
             let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
