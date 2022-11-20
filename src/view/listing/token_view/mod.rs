@@ -12,6 +12,7 @@ use crate::view::gsc;
 use crate::view::listing;
 use crate::view::listing::facet::cursor::CursorView;
 
+use gtk::prelude::*;
 use gtk::graphene;
 
 mod hexdump;

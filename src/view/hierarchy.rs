@@ -112,15 +112,15 @@ mod imp {
     }
 
     impl ListModelImpl for StructureListModel {
-        fn item_type(&self, _: &Self::Type) -> glib::Type {
+        fn item_type(&self) -> glib::Type {
             super::NodeItem::static_type()
         }
 
-        fn n_items(&self, _: &Self::Type) -> u32 {
+        fn n_items(&self) -> u32 {
             self.interior.get().map_or(0, |i| i.children.len() as u32)
         }
 
-        fn item(&self, _: &Self::Type, position: u32) -> Option<glib::Object> {
+        fn item(&self, position: u32) -> Option<glib::Object> {
             self.interior.get().and_then(|i| {
                 i.children.get(position as usize).map(|ch| {
                     let mut path = i.path.clone();
@@ -162,7 +162,7 @@ mod imp {
             PROPERTIES.as_ref()
         }
 
-        fn set_property(&self, obj: &Self::Type, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+        fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
             /* we update our local copy of properties immediately. when the
                document update goes through, it will notify us, but we'll see
                that the new properties already match our local properties and we
@@ -182,11 +182,11 @@ mod imp {
                 /* roll back */
                 println!("failed to alter node: {:?}", e);
                 std::mem::drop(info);
-                obj.update(old_info);
+                self.obj().update(old_info);
             }
         }
 
-        fn property(&self, _obj: &Self::Type, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
             let info = self.info.get().unwrap().borrow();
             match pspec.name() {
                 "name" => glib::ToValue::to_value(&info.props.name),
@@ -210,7 +210,7 @@ glib::wrapper! {
 
 impl StructureListModel {
     fn from_node_info(info: &NodeInfo) -> Self {
-        let model: Self = glib::Object::new(&[]).unwrap();
+        let model: Self = glib::Object::builder().build();
         model.imp().interior.set(imp::StructureListModelInterior {
             path: info.path.clone(),
             children: info.node.children.clone(),
@@ -227,7 +227,7 @@ impl StructureListModel {
 
 impl NodeItem {
     fn new(info: NodeInfo) -> Self {
-        let item: Self = glib::Object::new(&[]).unwrap();
+        let item: Self = glib::Object::builder().build();
         item.imp().info.set(cell::RefCell::new(info)).unwrap();
         item
     }

@@ -12,6 +12,7 @@ use crate::view::listing;
 use crate::view::listing::facet;
 use crate::view::listing::token_view;
 
+use gtk::prelude::*;
 use gtk::graphene;
 use gtk::gsk;
 

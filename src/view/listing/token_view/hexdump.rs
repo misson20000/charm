@@ -7,6 +7,7 @@ use crate::view::listing;
 use crate::view::listing::token_view::TokenView;
 use crate::view::listing::facet::cursor::CursorView;
 
+use gtk::prelude::*;
 use gtk::graphene;
 
 pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, cursor: &CursorView, has_cursor: bool, render: &listing::RenderDetail, pos: &mut graphene::Point) {

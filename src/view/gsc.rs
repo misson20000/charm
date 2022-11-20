@@ -34,9 +34,9 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(pg: &pango::Context, font: &pango::Font) -> Cache {
-        pg.set_font_description(&font.describe().unwrap());
+        pg.set_font_description(Some(&font.describe()));
 
-        let mut gs_space = Self::shape(pg, " ");
+        let gs_space = Self::shape(pg, " ");
         let space_width = gs_space.width();
         
         Cache {

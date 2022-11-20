@@ -227,7 +227,9 @@ impl CharmWindow {
                 gtk::ResponseType::Accept => {
                     window.close_file();
                     
-                    for file in dialog.files() {
+                    for file in &dialog.files() {
+                        let file = file.expect("list model should not be modified during iteration");
+                        
                         if window.context.borrow().is_some() {
                             /* open a new window if this window already has something open in it */
                             let window = window.application.new_window();

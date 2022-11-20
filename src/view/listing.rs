@@ -87,16 +87,16 @@ impl ObjectSubclass for ListingWidgetImp {
 }
 
 impl ObjectImpl for ListingWidgetImp {
-    fn constructed(&self, obj: &Self::Type) {
-        self.parent_constructed(obj);
+    fn constructed(&self) {
+        self.parent_constructed();
 
-        obj.set_vexpand(true);
-        obj.set_hexpand(true);
+        self.obj().set_vexpand(true);
+        self.obj().set_hexpand(true);
     }
 }
 
 impl WidgetImpl for ListingWidgetImp {
-    fn measure(&self, _widget: &Self::Type, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+    fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
         match orientation {
             gtk::Orientation::Horizontal => {
                 (100, 200, -1, -1)
@@ -108,23 +108,24 @@ impl WidgetImpl for ListingWidgetImp {
         }
     }
 
-    fn size_allocate(&self, widget: &Self::Type, width: i32, height: i32, baseline: i32) {
+    fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
         let mut interior = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
         };
 
-        interior.size_allocate(widget, width, height, baseline);
+        interior.size_allocate(&self.obj(), width, height, baseline);
     }
     
-    fn snapshot(&self, widget: &Self::Type, snapshot: &gtk::Snapshot) {
+    fn snapshot(&self, snapshot: &gtk::Snapshot) {
+        let widget = self.obj();
         let mut interior_guard = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
         };
         let interior = &mut *interior_guard;
-
-        let render = interior.refresh_render_detail(widget).clone();
+        
+        let render = interior.refresh_render_detail(&self.obj()).clone();
 
         /* fill in background */
         snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
@@ -176,7 +177,7 @@ struct ListingWidgetWorkFuture(<ListingWidget as glib::clone::Downgrade>::Weak);
 
 impl ListingWidget {
     pub fn new() -> ListingWidget {
-        let lw: ListingWidget = glib::Object::new(&[]).expect("failed to create ListingWidget");
+        let lw: ListingWidget = glib::Object::builder().build();
         lw.set_can_focus(true);
         lw.set_focusable(true);
         lw.set_focus_on_click(true);
@@ -290,7 +291,7 @@ impl RenderDetail {
         desc_bold.set_weight(pango::Weight::Bold);
         let font_bold = fm.load_font(&pg, &desc_bold).expect("expected to be able to load bold variant of selected font");
         
-        let metrics = font_mono.metrics(Option::<&pango::Language>::None).unwrap();
+        let metrics = font_mono.metrics(Option::<&pango::Language>::None);
 
         let gsc_mono = gsc::Cache::new(&pg, &font_mono);
         let gsc_bold = gsc::Cache::new(&pg, &font_bold);
