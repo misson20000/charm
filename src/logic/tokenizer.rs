@@ -69,10 +69,11 @@ pub struct Tokenizer {
     stack: Option<sync::Arc<TokenizerStackEntry>>,
     state: TokenizerState,
     depth: usize,
-    node: sync::Arc<structure::Node>,
+    pub node: sync::Arc<structure::Node>,
     node_addr: addr::Address,
 }
 
+#[derive(Debug)]
 pub enum TokenGenerationResult {
     Ok(token::Token),
     Skip,

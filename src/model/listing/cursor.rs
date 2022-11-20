@@ -47,6 +47,7 @@ pub trait CursorClassExt {
     fn is_over(&self, token: &token::Token) -> bool;
     fn get_addr(&self) -> addr::Address;
     fn get_offset(&self) -> addr::Size;
+    fn get_token(&self) -> &token::Token;
     fn get_placement_hint(&self) -> PlacementHint;
     fn get_transition_hint(&self) -> TransitionHintClass;
 
@@ -372,4 +373,114 @@ pub struct TransitionHint {
 pub enum TransitionHintClass {
     Hexdump(hexdump::HexdumpTransitionHint),
     Unused
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::vec;
+    
+    use assert_matches::assert_matches;
+    
+    #[test]
+    fn node_insertion() {
+        let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::invalid()));
+        let mut document = document_host.get();
+        let mut cursor = Cursor::new(document.clone()).unwrap();
+
+        /* when the cursor is first created, it should be placed on the first hexdump token. */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            node: document.root.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 0,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+
+        /* insert a node */
+        let child_1 = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child_1".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(4),
+        });
+        cursor.insert_node(&document_host, child_1.clone()).unwrap();
+        document = document_host.get();
+
+        /* port the cursor over */
+        cursor.update(&document);
+
+        /* make sure it winds up on the new node */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
+            node: child_1.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 1,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+
+        /* move the cursor off the first child */
+        for _ in 0..8 {
+            cursor.move_right();
+        }
+
+        /* make sure it winds up immediately after the first child */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(4.into(), 12.into())),
+            node: document.root.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 0,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+
+        /* insert another node */
+        let child_2 = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child_2".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(4),
+        });
+        cursor.insert_node(&document_host, child_2.clone()).unwrap();
+        document = document_host.get();
+
+        let old_tokenizer = cursor.tokenizer.clone();
+        let mut new_tokenizer = old_tokenizer.clone();
+        new_tokenizer.port_doc(&cursor.document, &document);
+
+        println!("{:?}", new_tokenizer);
+        println!("{:?}", new_tokenizer.gen_token());
+        println!("{:#?}", new_tokenizer.node);
+        assert!(sync::Arc::ptr_eq(&new_tokenizer.node, &document.root));
+        println!("ok, where is this bogus token coming from??");
+        println!("{:?}", new_tokenizer.next_postincrement());
+        println!("{:?}", new_tokenizer.next_postincrement());
+        println!("{:?}", new_tokenizer.next_postincrement());
+        
+        /* port the cursor over */
+        cursor.update(&document);
+        
+        /* make sure it winds up on the second new node */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
+            node: child_2.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 1,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+    }
 }

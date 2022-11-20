@@ -88,6 +88,10 @@ impl cursor::CursorClassExt for Cursor {
     fn get_offset(&self) -> addr::Size {
         self.offset
     }
+
+    fn get_token(&self) -> &token::Token {
+        &self.token
+    }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {
         cursor::PlacementHint::Hexdump(HexdumpPlacementHint {

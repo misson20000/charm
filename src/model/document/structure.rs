@@ -133,3 +133,13 @@ impl Default for Node {
         }
     }
 }
+
+impl Node {
+    pub fn default_sized(size: addr::Size) -> Node {
+        Node {
+            props: Properties::default(),
+            size,
+            children: vec::Vec::new(),
+        }
+    }
+}
