@@ -36,6 +36,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
     action
 }
 
+#[derive(Debug)]
 pub struct AsyncSubscriber(Option<glib::SourceId>);
 
 pub fn subscribe_to_document_updates<Object, F>(
@@ -50,10 +51,12 @@ pub fn subscribe_to_document_updates<Object, F>(
 
         loop {
             let new_document = document_host.wait_for_update(&document).await;
-
+            
             let obj = match obj_weak.upgrade() {
                 Some(obj) => obj,
-                None => return
+                None => {
+                    return
+                }
             };
 
             document = new_document.clone();

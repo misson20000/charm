@@ -9,6 +9,7 @@ use gtk::subclass::prelude::*;
 
 use crate::model::addr;
 use crate::model::document;
+use crate::model::document::change;
 use crate::model::document::structure;
 use crate::view::helpers;
 
@@ -35,8 +36,8 @@ pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, 
         ).upcast())
     });
 
-    helpers::subscribe_to_document_updates(model.downgrade(), document_host.clone(), document, move |_, new_document| {
-        root_item.update(NodeInfo {
+    let subscriber = helpers::subscribe_to_document_updates(root_item.downgrade(), document_host.clone(), document, move |root_item, new_document| {
+        root_item.stage(NodeInfo {
             path: vec![],
             node: new_document.root.clone(),
             props: new_document.root.props.clone(),
@@ -45,8 +46,11 @@ pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, 
             document: new_document.clone(),
             document_host: document_host.clone(),
         });
-        //model.model().downcast::<StructureListModel>().unwrap().update(new_document);
+        root_item.update();
     });
+
+    /* The root item lasts forever. */
+    std::mem::forget(subscriber);
     
     model
 }
@@ -86,19 +90,21 @@ mod imp {
     use crate::model::addr;
     use crate::model::document;
     use crate::model::document::structure;
+    use crate::view::helpers;
 
     #[derive(Debug)]
     pub struct StructureListModelInterior {
         pub path: structure::Path,
-        pub children: vec::Vec<structure::Childhood>,
+        pub children: vec::Vec<super::NodeItem>,
         pub address: addr::Address,
         pub document_host: sync::Arc<document::DocumentHost>,
         pub document: sync::Arc<document::Document>,
+        pub subscriber: helpers::AsyncSubscriber,
     }
 
     #[derive(Default)]
     pub struct StructureListModel {
-        pub interior: once_cell::unsync::OnceCell<StructureListModelInterior>,
+        pub interior: once_cell::unsync::OnceCell<cell::RefCell<StructureListModelInterior>>,
     }
 
     #[glib::object_subclass]
@@ -117,24 +123,13 @@ mod imp {
         }
 
         fn n_items(&self) -> u32 {
-            self.interior.get().map_or(0, |i| i.children.len() as u32)
+            self.interior.get().map_or(0, |i| i.borrow().children.len() as u32)
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
             self.interior.get().and_then(|i| {
-                i.children.get(position as usize).map(|ch| {
-                    let mut path = i.path.clone();
-                    path.push(position as usize);
-                    super::NodeItem::new(super::NodeInfo {
-                        path,
-                        node: ch.node.clone(),
-                        props: ch.node.props.clone(),
-                        offset: ch.offset,
-                        address: i.address + ch.offset.to_size(),
-                        document_host: i.document_host.clone(),
-                        document: i.document.clone()
-                    }).upcast()
-                })
+                let i = i.borrow();
+                i.children.get(position as usize).map(|ch| ch.clone().upcast())
             })
         }
     }
@@ -142,6 +137,7 @@ mod imp {
     #[derive(Default)]
     pub struct NodeItem {
         pub info: once_cell::unsync::OnceCell<cell::RefCell<super::NodeInfo>>,
+        pub staged_info: cell::RefCell<Option<super::NodeInfo>>,
     }
 
     #[glib::object_subclass]
@@ -182,7 +178,8 @@ mod imp {
                 /* roll back */
                 println!("failed to alter node: {:?}", e);
                 std::mem::drop(info);
-                self.obj().update(old_info);
+                self.obj().stage(old_info);
+                self.obj().update();
             }
         }
 
@@ -211,17 +208,121 @@ glib::wrapper! {
 impl StructureListModel {
     fn from_node_info(info: &NodeInfo) -> Self {
         let model: Self = glib::Object::builder().build();
-        model.imp().interior.set(imp::StructureListModelInterior {
+
+        let subscriber = helpers::subscribe_to_document_updates(model.downgrade(), info.document_host.clone(), info.document.clone(), move |model, new_document| {
+            model.update(new_document);
+        });
+
+        model.imp().interior.set(cell::RefCell::new(imp::StructureListModelInterior {
             path: info.path.clone(),
-            children: info.node.children.clone(),
+            children: (&info.node.children[..]).iter().enumerate().map(|tuple| {
+                let (i, ch) = tuple;
+                
+                let mut path = info.path.clone();
+                path.push(i);
+
+                NodeItem::new(NodeInfo {
+                    path,
+                    node: ch.node.clone(),
+                    props: ch.node.props.clone(),
+                    offset: ch.offset,
+                    address: info.address + ch.offset.to_size(),
+                    document_host: info.document_host.clone(),
+                    document: info.document.clone()
+                })                
+            }).collect(),
             address: info.address,
             document_host: info.document_host.clone(),
             document: info.document.clone(),
-        }).unwrap();
+            subscriber,
+        })).unwrap();
+        
         model
     }
 
-    fn update(&self, _new: &sync::Arc<structure::Node>) {
+    fn port_doc(&self, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) {
+        if old_doc.is_outdated(new_doc) {
+            match &new_doc.previous {
+                Some((prev_doc, change)) => {
+                    self.port_doc(old_doc, prev_doc);
+                    self.port_change(new_doc, change);
+                },
+                None => panic!("no common ancestor")
+            }
+        }
+    }
+
+    fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
+        let mut i = self.imp().interior.get().unwrap().borrow_mut();
+        i.document = new_doc.clone();
+        
+        let (new_node, addr) = new_doc.lookup_node(&i.path);
+
+        i.address = addr;
+        
+        match &change.ty {
+            /* Was one of our children altered? */
+            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && &path[0..i.path.len()] == &i.path[..]=> {
+                let index = path[i.path.len()];
+                let child_item = i.children[index].clone();
+                let childhood = &new_node.children[index];
+                let document_host = i.document_host.clone();
+
+                std::mem::drop(i);
+                
+                child_item.stage(NodeInfo {
+                    path: path.clone(),
+                    node: childhood.node.clone(),
+                    props: new_props.clone(),
+                    offset: childhood.offset,
+                    address: addr + childhood.offset.to_size(),
+                    document: new_doc.clone(),
+                    document_host,
+                });
+            },
+            change::ChangeType::AlterNode(_, _) => {},
+
+            /* Did we get a new child? */
+            change::ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) if &affected_path[..] == &i.path[..] => {
+                let childhood = &new_node.children[*affected_index];
+                let mut path = affected_path.clone();
+                path.push(*affected_index);
+
+                let document_host = i.document_host.clone();
+                
+                i.children.insert(*affected_index, NodeItem::new(NodeInfo {
+                    path: path,
+                    node: childhood.node.clone(),
+                    props: childhood.node.props.clone(),
+                    offset: childhood.offset,
+                    address: addr + childhood.offset.to_size(),
+                    document: new_doc.clone(),
+                    document_host,
+                }));
+                
+                std::mem::drop(i);
+                self.items_changed(*affected_index as u32, 0, 1);
+            },
+            change::ChangeType::InsertNode(_, _, _, _) => {},
+        }
+    }
+    
+    fn update(&self, new_doc: &sync::Arc<document::Document>) {
+        if let Some(i) = self.imp().interior.get().map(|i| i.borrow()) {
+            let old_doc = i.document.clone();
+            std::mem::drop(i);
+            
+            self.port_doc(&old_doc, new_doc);
+
+            /* We need to avoid notifying gtk of its own property updates. Our system to do this works by filtering out
+             * updates that match what GTK thinks the properties already are. Unfortunately, there are some cases where
+             * GTK updates a property twice in quick succession, which breaks this filtering, so we need to coalesce
+             * updates before deciding whether to filter them out or not. */
+            
+            for item in &self.imp().interior.get().unwrap().borrow().children {
+                item.update();
+            }
+        }
     }
 }
 
@@ -232,22 +333,30 @@ impl NodeItem {
         item
     }
 
-    fn update(&self, new_info: NodeInfo) {
-        let mut info = self.imp().info.get().unwrap().borrow_mut();
+    fn stage(&self, info: NodeInfo) {
+        *self.imp().staged_info.borrow_mut() = Some(info);
+    }
+    
+    fn update(&self) {
+        if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
+            let mut info = self.imp().info.get().unwrap().borrow_mut();
+
+            println!("updating nodeinfo {} -> {}", info.props.name, new_info.props.name);
         
-        let changed_name = info.props.name != new_info.props.name;
-        let changed_offset = info.offset != new_info.offset;
-        let changed_address = info.address != new_info.address;
+            let changed_name = info.props.name != new_info.props.name;
+            let changed_offset = info.offset != new_info.offset;
+            let changed_address = info.address != new_info.address;
 
-        *info = new_info;
+            *info = new_info;
 
-        /* as soon as we start notifying, callbacks are allowed to try to
-         * retrieve the new properties, requiring a reference to our
-         * interior. */
-        std::mem::drop(info);
+            /* as soon as we start notifying, callbacks are allowed to try to
+             * retrieve the new properties, requiring a reference to our
+             * interior. */
+            std::mem::drop(info);
 
-        if changed_name { self.notify("name"); }
-        if changed_offset { self.notify("offset"); }
-        if changed_address { self.notify("address"); }
+            if changed_name { self.notify("name"); }
+            if changed_offset { self.notify("offset"); }
+            if changed_address { self.notify("address"); }
+        }
     }
 }

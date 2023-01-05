@@ -264,6 +264,19 @@ impl Document {
     pub fn get_generation_for_debug(&self) -> u64 {
         self.generation
     }
+
+    pub fn lookup_node(&self, path: &structure::Path) -> (&sync::Arc<structure::Node>, addr::Address) {
+        let mut current_node = &self.root;
+        let mut node_addr = addr::unit::NULL;
+
+        for i in path {
+            let childhood = &current_node.children[*i];
+            node_addr+= childhood.offset.to_size();
+            current_node = &childhood.node;
+        }
+
+        (current_node, node_addr)
+    }
 }
 
 impl std::fmt::Debug for Document {
