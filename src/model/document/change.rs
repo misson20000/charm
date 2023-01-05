@@ -31,10 +31,22 @@ pub enum ApplyError {
     InvalidParameters,
 }
 
-pub fn update_path(path: structure::Path, through: &Change) -> Result<structure::Path, UpdateError> {
-    match through.ty {
+pub fn update_path(mut path: structure::Path, through: &Change) -> Result<structure::Path, UpdateError> {
+    match &through.ty {
         ChangeType::AlterNode(_, _) => Ok(path),
-        _ => todo!(),
+        ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) => {
+            if path.len() > affected_path.len() {
+                if &path[0..affected_path.len()] == &affected_path[..] {
+                    let path_index = &mut path[affected_path.len()];
+                    
+                    if *path_index >= *affected_index {
+                        *path_index+= 1;
+                    }
+                }
+            }
+
+            Ok(path)
+        },
     }
 }
 
