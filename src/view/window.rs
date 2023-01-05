@@ -264,6 +264,7 @@ impl CharmWindow {
             let builder = gtk::Builder::from_string(include_str!("display-editor.ui"));
 
             let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
+            let children_display: gtk::Entry = builder.object("children_display").unwrap();
             
             let dialog = gtk::Dialog::builder()
                 .application(&self.application.application)
@@ -276,6 +277,7 @@ impl CharmWindow {
             std::mem::drop(node_info);
             
             let name_binding = item.bind_property("name", &name_entry.buffer(), "text").flags(glib::BindingFlags::BIDIRECTIONAL | glib::BindingFlags::SYNC_CREATE).build();
+            let children_display_binding = item.bind_property("children-display", &children_display.buffer(), "text").flags(glib::BindingFlags::BIDIRECTIONAL | glib::BindingFlags::SYNC_CREATE).build();
             
             dialog.show();
 
@@ -283,6 +285,7 @@ impl CharmWindow {
             dialog.connect_destroy(move |_| {
                 let _ = item;
                 let _ = name_binding;
+                let _ = children_display_binding;
             });
         }
     }

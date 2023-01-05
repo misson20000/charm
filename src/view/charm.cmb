@@ -32,9 +32,9 @@
 	(2,8,"GtkLabel",None,1,None,None,None,2),
 	(2,9,"GtkLabel",None,1,None,None,None,4),
 	(2,10,"GtkCheckButton",None,1,None,None,None,2),
-	(2,12,"GtkComboBox",None,1,None,None,None,3),
-	(2,13,"GtkComboBox",None,1,None,None,None,6),
-	(2,14,"GtkComboBox",None,1,None,None,None,None)
+	(2,12,"GtkComboBox","children_display",1,None,None,None,3),
+	(2,13,"GtkComboBox","content_display",1,None,None,None,6),
+	(2,14,"GtkComboBox","title_display",1,None,None,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","height-request","800",None,None,None,None,None),

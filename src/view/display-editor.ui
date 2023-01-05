@@ -67,7 +67,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkComboBox">
+      <object class="GtkComboBox" id="title_display">
         <property name="hexpand">True</property>
         <layout>
           <property name="column">3</property>
@@ -111,7 +111,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkComboBox">
+      <object class="GtkEntry" id="children_display">
         <property name="hexpand">True</property>
         <layout>
           <property name="column">3</property>
@@ -134,7 +134,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkComboBox">
+      <object class="GtkComboBox" id="content_display">
         <property name="hexpand">True</property>
         <layout>
           <property name="column">3</property>

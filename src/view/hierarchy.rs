@@ -154,6 +154,7 @@ mod imp {
                     glib::ParamSpecString::builder("name").build(),
                     glib::ParamSpecString::builder("addr").build(),
                     glib::ParamSpecString::builder("size").build(),
+                    glib::ParamSpecString::builder("children-display").build(),
                 ]);
             PROPERTIES.as_ref()
         }
@@ -171,6 +172,12 @@ mod imp {
             
             match pspec.name() {
                 "name" => info.props.name = value.get().unwrap(),
+                "children-display" => info.props.children_display = match value.get().unwrap() {
+                    "n" => structure::ChildrenDisplay::None,
+                    "s" => structure::ChildrenDisplay::Summary,
+                    "f" => structure::ChildrenDisplay::Full,
+                    _ => structure::ChildrenDisplay::Full,
+                },
                 _ => unimplemented!(),
             };
 
@@ -189,6 +196,11 @@ mod imp {
                 "name" => glib::ToValue::to_value(&info.props.name),
                 "addr" => glib::ToValue::to_value(&format!("{}", info.address)),
                 "size" => glib::ToValue::to_value(&format!("{}", info.node.size)),
+                "children-display" => glib::ToValue::to_value(match info.props.children_display {
+                    structure::ChildrenDisplay::None => "n",
+                    structure::ChildrenDisplay::Summary => "s",
+                    structure::ChildrenDisplay::Full => "f",
+                }),
                 _ => unimplemented!(),
             }
         }
