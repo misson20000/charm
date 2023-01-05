@@ -251,7 +251,7 @@ impl WindowTokenizer for tokenizer::Tokenizer {
     }
 
     fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
-        self.port_doc(old_doc, new_doc);
+        self.port_doc(old_doc, new_doc, &tokenizer::PortOptions::default());
     }
     
     fn hit_top(&self) -> bool {

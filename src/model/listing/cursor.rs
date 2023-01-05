@@ -133,7 +133,11 @@ impl Cursor {
          * hierarchy. */
         if self.document.is_outdated(document) {
             tracing::event!(Level::DEBUG, "porting the cursor tokenizer");
-            self.tokenizer.port_doc(&self.document, document);
+            self.tokenizer.port_doc(
+                &self.document,
+                document,
+                &tokenizer::PortOptionsBuilder::new().additional_offset(self.class.get_offset()).build());
+            
             let mut tokenizer = self.tokenizer.clone();
 
             let class = match CursorClass::place_forward(&mut tokenizer, self.class.get_addr(), &self.class.get_placement_hint()) {
@@ -457,19 +461,6 @@ mod tests {
         cursor.insert_node(&document_host, child_2.clone()).unwrap();
         document = document_host.get();
 
-        let old_tokenizer = cursor.tokenizer.clone();
-        let mut new_tokenizer = old_tokenizer.clone();
-        new_tokenizer.port_doc(&cursor.document, &document);
-
-        println!("{:?}", new_tokenizer);
-        println!("{:?}", new_tokenizer.gen_token());
-        println!("{:#?}", new_tokenizer.node);
-        assert!(sync::Arc::ptr_eq(&new_tokenizer.node, &document.root));
-        println!("ok, where is this bogus token coming from??");
-        println!("{:?}", new_tokenizer.next_postincrement());
-        println!("{:?}", new_tokenizer.next_postincrement());
-        println!("{:?}", new_tokenizer.next_postincrement());
-        
         /* port the cursor over */
         cursor.update(&document);
         
@@ -477,6 +468,66 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
             node: child_2.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 1,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+    }
+
+    #[test]
+    fn node_insertion_simpler() {
+        let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::invalid()));
+        let mut document = document_host.get();
+        let mut cursor = Cursor::new(document.clone()).unwrap();
+
+        /* when the cursor is first created, it should be placed on the first hexdump token. */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            node: document.root.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 0,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+
+        /* move the cursor to offset 4 (8 nybbles) */
+        for _ in 0..8 {
+            cursor.move_right();
+        }
+
+        /* make sure it winds up in the correct position on the correct token */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            node: document.root.clone(),
+            node_addr: addr::unit::NULL,
+            depth: 0,
+            newline: true,
+        });
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Size::from(4) && hxc.low_nybble == false);
+
+        /* insert a node */
+        let child = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(4),
+        });
+        cursor.insert_node(&document_host, child.clone()).unwrap();
+        document = document_host.get();
+        
+        /* port the cursor over */
+        cursor.update(&document);
+        
+        /* make sure it winds up on the new node */
+        assert_eq!(cursor.class.get_token(), &token::Token {
+            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
+            node: child.clone(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,

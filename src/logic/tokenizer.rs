@@ -45,7 +45,7 @@ enum TokenizerState {
     End,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 enum TokenizerDescent {
     Child(usize),
     ChildSummary(usize),
@@ -119,6 +119,54 @@ impl std::fmt::Debug for TokenizerStackEntry {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct PortOptions {
+    additional_offset: addr::Size,
+}
+
+pub struct PortOptionsBuilder {
+    options: PortOptions,
+}
+
+#[derive(Clone, Debug)]
+enum PortStackResult {
+    Normal(TokenizerStackEntry, sync::Arc<structure::Node>),
+    ForceSummary(TokenizerStackEntry, sync::Arc<structure::Node>),
+    Stop,
+}
+
+enum SummaryPortMapping {
+    Beginning,
+    Child(usize),
+    Content(addr::Address),
+    End,
+}
+
+enum IntermediatePortState {
+    Finished(TokenizerState),
+    SummaryFixup(TokenizerState, SummaryPortMapping),
+    
+    Content(addr::Address, usize),
+    Child(usize),
+}
+
+impl PortOptionsBuilder {
+    pub fn new() -> PortOptionsBuilder {
+        PortOptionsBuilder {
+            options: PortOptions::default()
+        }
+    }
+
+    pub fn additional_offset(mut self, offset: addr::Size) -> PortOptionsBuilder {
+        self.options.additional_offset = offset;
+        self
+    }
+
+    pub fn build(self) -> PortOptions {
+        self.options
+    }
+}
+
 impl Tokenizer {
     /// Creates a new tokenizer seeked to the root of the structure hierarchy and the beginning of the token stream.
     pub fn at_beginning(root: sync::Arc<structure::Node>) -> Tokenizer {
@@ -135,129 +183,220 @@ impl Tokenizer {
         todo!();
     }
 
+    /// Applies all changes between old_doc and new_doc to the tokenizer state.
     #[instrument]
-    pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
+    pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document, options: &PortOptions) {
         if old_doc.is_outdated(new_doc) {
             match &new_doc.previous {
                 Some((prev_doc, change)) => {
-                    self.port_doc(old_doc, prev_doc);
-                    self.port_change(&new_doc.root, change);
+                    self.port_doc(old_doc, prev_doc, options);
+                    self.port_change(&new_doc.root, change, options);
                 },
                 None => panic!("no common ancestor")
             }
         }
     }
-
+    
+    /// Applies a single change to the tokenizer state.
     #[instrument]
-    fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change) {
+    fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
         event!(Level::DEBUG, "porting a tokenizer across {:?}", change);
-        
-        let (new_stack, node, new_path) = match &self.stack {
-            Some(parent) => {
-                let (s, n, p) = Self::port_recurse(&parent, new_root, change);
-                (Some(sync::Arc::new(s)), n, p)
+
+        /* Update all of the stack entries */
+        let (new_stack, new_node, new_path, force_summary) = match &self.stack {
+            Some(parent) => match Self::port_recurse(&parent, new_root, change) {
+                (PortStackResult::Normal(tse, node), path) => (Some(tse), node, path, false),
+                (PortStackResult::ForceSummary(tse, node), path) => (Some(tse), node, path, true),
+                (PortStackResult::Stop, path) => (None, new_root.clone(), path, false),
             },
-            None => (None, new_root.clone(), structure::Path::new())
-        };
-
-        let mut new_state = std::mem::replace(&mut self.state, TokenizerState::PreBlank);
-
-        /* Normalize states like Hexdump and Hexstring back to MetaContent to make them easier to deal with. */
-        new_state = match new_state {
-            TokenizerState::Hexdump(extent, index) => TokenizerState::MetaContent(extent.begin, index),
-            TokenizerState::Hexstring(extent, index) => TokenizerState::MetaContent(extent.begin, index),
-            other => other
+            None => (None, new_root.clone(), structure::Path::new(), false)
         };
         
+        /* Take a first whack at figuring out vaguely where we should be. */
+        let intermediate_state = match &self.state {
+            TokenizerState::PreBlank =>
+                IntermediatePortState::Finished(TokenizerState::PreBlank),
+            TokenizerState::Title =>
+                IntermediatePortState::Finished(TokenizerState::Title),
+            
+            TokenizerState::MetaContent(offset, index) =>
+                IntermediatePortState::Content(*offset, *index),
+            TokenizerState::Hexdump(extent, index) =>
+                IntermediatePortState::Content(extent.begin, *index),
+            TokenizerState::Hexstring(extent, index) =>
+                IntermediatePortState::Content(extent.begin, *index),
+
+            TokenizerState::SummaryOpener =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryOpener, SummaryPortMapping::Beginning),
+            TokenizerState::SummaryLabel(i) =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryLabel(*i), SummaryPortMapping::Child(*i)),
+            TokenizerState::SummarySeparator(i) =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummarySeparator(*i), SummaryPortMapping::Child(*i)),
+            TokenizerState::SummaryCloser =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryCloser, SummaryPortMapping::End),
+            TokenizerState::SummaryNewline =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryNewline, SummaryPortMapping::End),
+            TokenizerState::SummaryValueBegin =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryValueBegin, SummaryPortMapping::Beginning),
+            TokenizerState::SummaryLeaf =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryLeaf, SummaryPortMapping::Content(addr::unit::NULL)),
+            TokenizerState::SummaryValueEnd =>
+                IntermediatePortState::SummaryFixup(TokenizerState::SummaryValueEnd, SummaryPortMapping::End),
+
+            TokenizerState::PostBlank =>
+                IntermediatePortState::Finished(TokenizerState::PostBlank),
+            TokenizerState::End =>
+                IntermediatePortState::Finished(TokenizerState::End),
+        };
+
+        /* Check summary states. If we used to be part of a summary and we're not anymore, we have some cleanup to do. Also move the stack onto the heap here if we're not popping it. If we are popping it, it's already on the heap. */
+        let (intermediate_state, new_stack) = match intermediate_state {
+            IntermediatePortState::SummaryFixup(suggested_state, _) if force_summary =>
+                (IntermediatePortState::Finished(suggested_state), new_stack.map(|s| sync::Arc::new(s))),
+            IntermediatePortState::SummaryFixup(_, mapping) if !force_summary => {
+                /* Need to pop away the MySummary descent if it exists. */
+                let unwrapped = new_stack.expect("was in summary state without a parent");
+
+                (match mapping {
+                    SummaryPortMapping::Beginning => IntermediatePortState::Finished(TokenizerState::Title),
+                    SummaryPortMapping::Content(addr) => IntermediatePortState::Content(addr, 0), // leaf has no children
+                    SummaryPortMapping::Child(i) => IntermediatePortState::Child(i),
+                    SummaryPortMapping::End => IntermediatePortState::Finished(TokenizerState::End),
+                }, match unwrapped.descent {
+                    TokenizerDescent::MySummary => {
+                        unwrapped.stack
+                    },
+                    _ => Some(sync::Arc::new(unwrapped)),
+                })
+            },
+            other => (other, new_stack.map(|s| sync::Arc::new(s))),
+        };
+
+        /* Update most of our fields. */
+        *self = Tokenizer {
+            stack: new_stack,
+            state: TokenizerState::End, /* this is a placeholder while we finalize details. */
+            depth: self.depth,
+            node: new_node,
+            node_addr: self.node_addr,
+        };
+        
+        /* If intermediate state if Finished, go ahead and finish up. Otherwise extract our remaining hints. */
+        let (mut offset, mut index) = match intermediate_state {
+            IntermediatePortState::Finished(finalized_state) => {
+                self.state = finalized_state;
+                return;
+            },
+            IntermediatePortState::SummaryFixup(_, _) => panic!("summary fixups should've been handled already!"),
+            
+            IntermediatePortState::Content(offset, index) => (offset + options.additional_offset, index),
+            IntermediatePortState::Child(index) => (addr::unit::NULL + options.additional_offset, index),
+        };
+        
+        /* Ugh, we were somewhere in the middle. Check if InsertNode affects us. */
         match &change.ty {
-            change::ChangeType::AlterNode(_, _) => {},
-            change::ChangeType::InsertNode(affected_path, index, offset, new_node) if affected_path == &new_path => {
-                event!(Level::DEBUG, "InsertNode affected our path");
+            change::ChangeType::AlterNode(_path, _new_props) => {},
+            change::ChangeType::InsertNode(affected_path, affected_index, new_node_offset, new_node) if affected_path == &new_path => {
                 /* A new child was added to the node we're on. */
-                match new_state {
-                    /* We were on content that begins within the new node. */
-                    TokenizerState::MetaContent(ref mut s_offset, ref mut s_index) if addr::Extent::sized(*offset, new_node.size).includes(*s_offset) => {
-                        event!(Level::DEBUG, "metacontent on new node");
-                        /* Set up MetaContent state to immediately descend into the new child. */
-                        *s_offset = *offset;
-                        *s_index = *index;
-                    },
-                    /* We were on content that begins after the new node. */
-                    TokenizerState::MetaContent(s_offset, ref mut s_index) if (*offset + new_node.size) < s_offset && *s_index >= *index => {
-                        event!(Level::DEBUG, "metacontent after new node");
-                        *s_index+= 1;
-                    },
-                    TokenizerState::SummaryLabel(ref mut s_index) | TokenizerState::SummarySeparator(ref mut s_index) if *s_index > *index => {
-                        *s_index+= 1;
-                    },
-                    _ => {}
+                event!(Level::DEBUG, "InsertNode affected our path");
+
+                if addr::Extent::sized(*new_node_offset, new_node.size).includes(offset) {
+                    /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
+                    self.descend(if force_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
+
+                    index = 0;
+                    offset-= new_node_offset.to_size();
+                } else if index >= *affected_index {
+                    /* If the new node was inserted before the child we were on, need to bump our child index unless we already descended into the inserted child. */
+                    index+= 1;
                 }
             },
             change::ChangeType::InsertNode(_, _, _, _) => {},
         };
 
-        event!(Level::DEBUG, "new state: {:?}", new_state);
-        
-        /* create Tokenizer from (new_stack, node) */
-        *self = Tokenizer {
-            stack: new_stack,
-            state: new_state,
-            depth: self.depth,
-            node: node,
-            node_addr: self.node_addr,
-        }
+        self.seek_in_node(offset, index);
     }
 
-    /* Used to recurse to the top of the tokenizer stack so we can start porting from the top down */
+    /* Used to recurse to the base of the tokenizer stack so we can start porting from the top down */
     #[instrument]
-    fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
+    fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (PortStackResult, structure::Path) {
         match &tok.stack {
             Some(parent) => {
-                let (new_stack, new_node, path) = Self::port_recurse(&parent, new_root, change);
-                Self::port_stack_entry(tok, Some(sync::Arc::new(new_stack)), path, new_node, change)
+                let (new_stack, new_node, path, force_summary) = match Self::port_recurse(&parent, new_root, change) {
+                    (PortStackResult::Normal(tse, node), path) => (tse, node, path, false),
+                    (PortStackResult::ForceSummary(tse, node), path) => (tse, node, path, true),
+                    (PortStackResult::Stop, path) => return (PortStackResult::Stop, path)
+                };
+                Self::port_stack_entry(tok, Some(sync::Arc::new(new_stack)), path, new_node, change, force_summary)
             },
             None => {
                 /* reached root */
-                Self::port_stack_entry(tok, None, structure::Path::new(), new_root.clone(), change)
+                Self::port_stack_entry(tok, None, structure::Path::new(), new_root.clone(), change, false)
             }
         }
     }
 
+    /// Applies a change to a single item in the tokenizer stack.
     #[instrument]
-    fn port_stack_entry(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, mut current_path: structure::Path, new_node: sync::Arc<structure::Node>, change: &change::Change) -> (TokenizerStackEntry, sync::Arc<structure::Node>, structure::Path) {
+    fn port_stack_entry(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, mut current_path: structure::Path, new_node: sync::Arc<structure::Node>, change: &change::Change, force_summary: bool) -> (PortStackResult, structure::Path) {
         event!(Level::DEBUG, "porting a tokenizer stack entry");
-        let mut descent = old_tok.descent.clone();
 
-        match descent {
-            TokenizerDescent::Child(ref mut child_index) | TokenizerDescent::ChildSummary(ref mut child_index) => {
+        let (descent, summary) = match old_tok.descent {
+            TokenizerDescent::Child(mut child_index) | TokenizerDescent::ChildSummary(mut child_index) => {
                 match &change.ty {
                     change::ChangeType::InsertNode(path, after_child, _offset, _node) => {
                         event!(Level::DEBUG, "porting across an InsertNode change");
                         if path == &current_path {
                             event!(Level::DEBUG, "the path points towards the current node! we may be affected!");
-                            if *child_index >= *after_child {
+                            if child_index >= *after_child {
                                 event!(Level::DEBUG, "indeed, we had to bump the child index.");
-                                *child_index+= 1;
+                                child_index+= 1;
                             }
                         }
+
+                        match new_node.props.children_display {
+                            structure::ChildrenDisplay::None => return (PortStackResult::Stop, current_path),
+                            _ if force_summary => (TokenizerDescent::ChildSummary(child_index), true),
+                            structure::ChildrenDisplay::Summary => (TokenizerDescent::ChildSummary(child_index), true),
+                            structure::ChildrenDisplay::Full => (TokenizerDescent::Child(child_index), false)
+                        }
                     },
-                    _ => {},
+                    _ => match new_node.props.children_display {
+                        structure::ChildrenDisplay::None => return (PortStackResult::Stop, current_path),
+                        _ if force_summary => (TokenizerDescent::ChildSummary(child_index), true),
+                        structure::ChildrenDisplay::Summary => (TokenizerDescent::ChildSummary(child_index), true),
+                        structure::ChildrenDisplay::Full => (TokenizerDescent::Child(child_index), false)
+                    },
                 }
             },
-            TokenizerDescent::MySummary => {},
+            TokenizerDescent::MySummary => (TokenizerDescent::MySummary, true)
         };
 
         descent.build_path(&mut current_path);
 
         let node = descent.childhood(&new_node).node;
         
-        (TokenizerStackEntry {
+        let tse = TokenizerStackEntry {
             stack: new_stack,
             descent,
             depth: old_tok.depth,
             node: new_node.clone(),
             node_addr: old_tok.node_addr,
-        }, node, current_path)
+        };
+
+        (if summary {
+            PortStackResult::ForceSummary(tse, node)
+        } else {
+            PortStackResult::Normal(tse, node)
+        }, current_path)
+    }
+
+    fn seek_in_node(&mut self, offset: addr::Address, index: usize) {
+        let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
+            (pitch * (offset.to_size() / pitch)).to_addr()
+        });
+
+        self.state = TokenizerState::MetaContent(preferred_begin.unwrap_or(offset), index);
     }
     
     /// Creates a new tokenizer seeked to the end of the token stream.
