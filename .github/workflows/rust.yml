@@ -9,12 +9,10 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install gtk deps
         run: sudo apt update && sudo apt install -y libatk1.0-dev libpango1.0-dev libgtk-3-dev
-      - name: Install latest nightly
-        uses: actions-rs/toolchain@v1
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
             toolchain: stable
-            override: true
-            profile: minimal
       - uses: Swatinem/rust-cache@v2
         with:
           # An explicit cache key that is used instead of the automatic `job`-based
