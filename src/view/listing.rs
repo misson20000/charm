@@ -424,8 +424,8 @@ impl Interior {
             //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), component::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
-            //(gdk::keys::constants::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
-            //(gdk::keys::constants::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
+            (gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
+            (gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
             //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), component::scroll::EnsureCursorInViewDirection::Any),
             _ => gtk::Inhibit(false),
