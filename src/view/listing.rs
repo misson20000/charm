@@ -338,7 +338,6 @@ impl Interior {
         // https://github.com/rust-lang/rust/issues/88581
         //let line_count = height.div_ceil(line_height) as usize;
         let line_count = (((height * pango::SCALE) + line_height - 1) / line_height) as usize;
-        println!("height: {}, line height: {}, line count: {}", height, line_height, line_count);
 
         self.window.resize(line_count + 2 + (2 * self.scroll.get_lookahead()));
         self.work_notifier.notify();
