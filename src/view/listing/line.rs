@@ -66,15 +66,19 @@ impl Line {
         }
 
         let snapshot = gtk::Snapshot::new();
-        let mut position = graphene::Point::zero();
+        let mut main_position = graphene::Point::zero();
+        let mut ascii_position = graphene::Point::zero();
 
-        /* begin rendering to the right of the address pane */
-        position.set_x(render.addr_pane_width + render.config.padding as f32);
+        /* begin rendering main content to the right of the address pane */
+        main_position.set_x(render.addr_pane_width + render.config.padding as f32);
+
+        /* begin rendering asciidump content wherever configured */
+        ascii_position.set_x(render.ascii_pane_position + render.config.padding as f32);
 
         /* indent by first token */
         if let Some(first) = self.tokens.get(0) {
-            position.set_x(
-                position.x() +
+            main_position.set_x(
+                main_position.x() +
                 render.config.indentation_width *
                     helpers::pango_unscale(render.gsc_mono.space_width()) *
                     first.get_indentation() as f32);
@@ -85,9 +89,14 @@ impl Line {
         /* render tokens */
         for token in &mut self.tokens {
             snapshot.save();
-            let advance = token.render(&snapshot, cursor, render, &position);
+            let main_advance = token.render(&snapshot, cursor, render, &main_position);
             snapshot.restore();
-            position.set_x(position.x() + advance.x());
+            snapshot.save();
+            let ascii_advance = token.render_asciidump(&snapshot, cursor, render, &ascii_position);
+            snapshot.restore();
+            
+            main_position.set_x(main_position.x() + main_advance.x());
+            ascii_position.set_x(ascii_position.x() + ascii_advance.x());
 
             /* pick the address from the first token that should display an address */
             if visible_address.is_none() {

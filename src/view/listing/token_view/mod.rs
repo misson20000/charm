@@ -24,6 +24,7 @@ pub struct TokenView {
     data_pending: bool,
     
     logical_bounds: Option<graphene::Rect>,
+    logical_bounds_asciidump: Option<graphene::Rect>,
 }
 
 impl TokenView {
@@ -35,6 +36,7 @@ impl TokenView {
             data_pending: true,
             
             logical_bounds: None,
+            logical_bounds_asciidump: None,
         }
     }
 
@@ -136,6 +138,30 @@ impl TokenView {
         pos
     }
 
+    pub fn render_asciidump(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
+        let lh = helpers::pango_unscale(render.metrics.height());
+        
+        snapshot.translate(origin);
+
+        let mut pos = graphene::Point::new(0.0, lh);
+        
+        let has_cursor = cursor.cursor.is_over(&self.token);
+        
+        match self.token.class {
+            token::TokenClass::Punctuation(_) => { },
+            token::TokenClass::Title => { },
+            token::TokenClass::SummaryLabel => { },
+            token::TokenClass::Hexdump(extent) => {
+                hexdump::render_asciidump(self, extent, snapshot, cursor, has_cursor, render, &mut pos);
+            },
+            token::TokenClass::Hexstring(_) => { },
+        }
+        
+        self.logical_bounds_asciidump = Some(graphene::Rect::new(origin.x(), origin.y(), pos.x(), pos.y()));
+
+        pos
+    }
+    
     pub fn invalidate_data(&mut self) {
         self.data_cache.clear();
         self.data_pending = true;

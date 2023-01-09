@@ -15,6 +15,8 @@ use gtk::prelude::*;
 pub enum Entry {
     Punctuation(token::PunctuationClass),
     Digit(u8),
+    PrintableAscii(u8),
+    Dot,
     Colon,
     Space,
 }
@@ -27,6 +29,8 @@ pub struct Cache {
     gs_open: pango::GlyphString, // "{"
     gs_close: pango::GlyphString, // "}"
     gs_digit: [pango::GlyphString; 16], // "0", "1", ..., "f"
+    gs_ascii: [pango::GlyphString; 0x7f-0x20], // ' ', '!', '"', ..., 'y', 'z', '{', '|', '}', '~'
+    gs_dot: pango::GlyphString, // "."
     gs_colon: pango::GlyphString, // ": "
 
     space_width: i32,
@@ -47,6 +51,8 @@ impl Cache {
             gs_open: Self::shape(pg, "{"),
             gs_close: Self::shape(pg, "}"),
             gs_digit: DIGIT_STRINGS.map(|d| Self::shape(pg, d)),
+            gs_ascii: std::array::from_fn(|i| Self::shape(pg, std::str::from_utf8(&[0x20 + i as u8]).unwrap())),
+            gs_dot: Self::shape(pg, "."),
             gs_colon: Self::shape(pg, ": "),
 
             space_width,
@@ -79,6 +85,9 @@ impl Cache {
                 token::PunctuationClass::CloseBracket => Some(&self.gs_close),
             },
             Entry::Digit(digit) => self.gs_digit.get(digit as usize),
+            Entry::PrintableAscii(ord) if ord >= 0x20 && ord < 0x7f => Some(&self.gs_ascii[ord as usize - 0x20]),
+            Entry::PrintableAscii(_) => Some(&self.gs_dot),
+            Entry::Dot => Some(&self.gs_dot),
             Entry::Colon => Some(&self.gs_colon),
             Entry::Space => Some(&self.gs_space),
         }
