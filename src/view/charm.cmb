@@ -73,6 +73,7 @@
 	(1,15,"GtkWidget","height-request","500",None,None,None,None,None),
 	(1,15,"GtkWidget","hexpand","True",None,None,None,None,None),
 	(1,15,"GtkWidget","vexpand","True",None,None,None,None,None),
+	(1,15,"GtkWidget","vexpand-set","True",None,None,None,None,None),
 	(1,16,"GtkWidget","hexpand","True",None,None,None,None,None),
 	(1,16,"GtkWidget","vexpand","True",None,None,None,None,None),
 	(1,16,"GtkWidget","width-request","300",None,None,None,None,None),
