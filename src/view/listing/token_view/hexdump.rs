@@ -1,5 +1,4 @@
 use crate::model::addr;
-use crate::model::datapath;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::view::helpers;
@@ -41,7 +40,7 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
             continue;
         }
         
-        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or(datapath::ByteRecord::default());
+        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
         
         for low_nybble in [false, true] {
             let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
@@ -52,10 +51,10 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
             if !byte_record.pending && byte_record.loaded {
                 if has_cursor {
                     /* the cursor is over this nybble */
-                    render.gsc_mono.print_with_cursor(&snapshot, digit, &render.config, cursor, pos);
+                    render.gsc_mono.print_with_cursor(snapshot, digit, &render.config, cursor, pos);
                 } else {
                     /* the cursor is not over this nybble */
-                    render.gsc_mono.print(&snapshot, digit, &render.config.text_color, pos);
+                    render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
                 }
             } else {
                 /* Draw a placeholder, instead. */
@@ -99,7 +98,7 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
     pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width() * offset_in_line));
 
     for i in 0..extent.length().bytes as i64 {
-        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or(datapath::ByteRecord::default());
+        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
         
         let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i as u64);
 
@@ -108,7 +107,7 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
         if !byte_record.pending && byte_record.loaded {
             /* we don't really care about cursor right now. */
             let _ = has_cursor;
-            render.gsc_mono.print(&snapshot, digit, &render.config.text_color, pos);
+            render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
         } else {
             /* Draw a placeholder, instead. */
             if let Some(gs) = render.gsc_mono.get(digit) {

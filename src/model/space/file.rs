@@ -49,7 +49,7 @@ impl FileAddressSpace {
                         out.truncate(i);
                         space::FetchResult::Partial(out)
                     }
-                }}).unwrap_or_else(|e| space::FetchResult::IoError(e))
+                }}).unwrap_or_else(space::FetchResult::IoError)
    }
 }
 
@@ -79,7 +79,7 @@ fn get_file_access_delay() -> u64 {
 
 impl space::AddressSpace for FileAddressSpace {
     fn get_label(&self) -> &str {
-        return &self.label;
+        &self.label
     }
     
     fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {

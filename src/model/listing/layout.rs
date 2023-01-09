@@ -359,7 +359,7 @@ mod tests {
             for t in l {
                 print!("{}", token::TokenTestFormat(t));
             }
-            println!("");
+            println!();
         }        
     }
     

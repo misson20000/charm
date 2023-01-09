@@ -227,7 +227,7 @@ impl StructureListModel {
 
         model.imp().interior.set(cell::RefCell::new(imp::StructureListModelInterior {
             path: info.path.clone(),
-            children: (&info.node.children[..]).iter().enumerate().map(|tuple| {
+            children: info.node.children[..].iter().enumerate().map(|tuple| {
                 let (i, ch) = tuple;
                 
                 let mut path = info.path.clone();
@@ -274,7 +274,7 @@ impl StructureListModel {
         
         match &change.ty {
             /* Was one of our children altered? */
-            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && &path[0..i.path.len()] == &i.path[..]=> {
+            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..]=> {
                 let index = path[i.path.len()];
                 let child_item = i.children[index].clone();
                 let childhood = &new_node.children[index];
@@ -295,7 +295,7 @@ impl StructureListModel {
             change::ChangeType::AlterNode(_, _) => {},
 
             /* Did we get a new child? */
-            change::ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) if &affected_path[..] == &i.path[..] => {
+            change::ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) if affected_path[..] == i.path[..] => {
                 let childhood = &new_node.children[*affected_index];
                 let mut path = affected_path.clone();
                 path.push(*affected_index);
@@ -303,7 +303,7 @@ impl StructureListModel {
                 let document_host = i.document_host.clone();
                 
                 i.children.insert(*affected_index, NodeItem::new(NodeInfo {
-                    path: path,
+                    path,
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
                     offset: childhood.offset,

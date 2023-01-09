@@ -167,6 +167,12 @@ impl PortOptionsBuilder {
     }
 }
 
+impl Default for PortOptionsBuilder {
+    fn default() -> PortOptionsBuilder {
+        Self::new()
+    }
+}
+
 impl Tokenizer {
     /// Creates a new tokenizer seeked to the root of the structure hierarchy and the beginning of the token stream.
     pub fn at_beginning(root: sync::Arc<structure::Node>) -> Tokenizer {
@@ -204,7 +210,7 @@ impl Tokenizer {
 
         /* Update all of the stack entries */
         let (new_stack, new_node, new_path, force_summary) = match &self.stack {
-            Some(parent) => match Self::port_recurse(&parent, new_root, change) {
+            Some(parent) => match Self::port_recurse(parent, new_root, change) {
                 (PortStackResult::Normal(tse, node), path) => (Some(tse), node, path, false),
                 (PortStackResult::ForceSummary(tse, node), path) => (Some(tse), node, path, true),
                 (PortStackResult::Stop, path) => (None, new_root.clone(), path, false),
@@ -252,7 +258,7 @@ impl Tokenizer {
         /* Check summary states. If we used to be part of a summary and we're not anymore, we have some cleanup to do. Also move the stack onto the heap here if we're not popping it. If we are popping it, it's already on the heap. */
         let (intermediate_state, new_stack) = match intermediate_state {
             IntermediatePortState::SummaryFixup(suggested_state, _) if force_summary =>
-                (IntermediatePortState::Finished(suggested_state), new_stack.map(|s| sync::Arc::new(s))),
+                (IntermediatePortState::Finished(suggested_state), new_stack.map(sync::Arc::new)),
             IntermediatePortState::SummaryFixup(_, mapping) if !force_summary => {
                 /* Need to pop away the MySummary descent if it exists. */
                 let unwrapped = new_stack.expect("was in summary state without a parent");
@@ -269,7 +275,7 @@ impl Tokenizer {
                     _ => Some(sync::Arc::new(unwrapped)),
                 })
             },
-            other => (other, new_stack.map(|s| sync::Arc::new(s))),
+            other => (other, new_stack.map(sync::Arc::new)),
         };
 
         /* Update most of our fields. */
@@ -322,7 +328,7 @@ impl Tokenizer {
     fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> (PortStackResult, structure::Path) {
         match &tok.stack {
             Some(parent) => {
-                let (new_stack, new_node, path, force_summary) = match Self::port_recurse(&parent, new_root, change) {
+                let (new_stack, new_node, path, force_summary) = match Self::port_recurse(parent, new_root, change) {
                     (PortStackResult::Normal(tse, node), path) => (tse, node, path, false),
                     (PortStackResult::ForceSummary(tse, node), path) => (tse, node, path, true),
                     (PortStackResult::Stop, path) => return (PortStackResult::Stop, path)
@@ -380,7 +386,7 @@ impl Tokenizer {
             stack: new_stack,
             descent,
             depth: old_tok.depth,
-            node: new_node.clone(),
+            node: new_node,
             node_addr: old_tok.node_addr,
         };
 
@@ -615,7 +621,7 @@ impl Tokenizer {
                 true
             },
             TokenizerState::SummaryCloser => {
-                if self.node.children.len() == 0 {
+                if self.node.children.is_empty() {
                     self.state = TokenizerState::SummaryOpener;
                 } else {
                     self.state = TokenizerState::SummarySeparator(self.node.children.len()-1);
@@ -638,7 +644,7 @@ impl Tokenizer {
                 true
             },
             TokenizerState::SummaryValueEnd => {
-                if self.node.children.len() == 0 {
+                if self.node.children.is_empty() {
                     self.state = TokenizerState::SummaryLeaf;
                 } else {
                     self.state = TokenizerState::SummaryCloser;
@@ -749,7 +755,7 @@ impl Tokenizer {
             },
 
             TokenizerState::SummaryOpener => {
-                if self.node.children.len() == 0 {
+                if self.node.children.is_empty() {
                     self.state = TokenizerState::SummaryCloser;
                 } else {
                     self.state = TokenizerState::SummaryLabel(0);
@@ -779,7 +785,7 @@ impl Tokenizer {
             },
 
             TokenizerState::SummaryValueBegin => {
-                if self.node.children.len() == 0 {
+                if self.node.children.is_empty() {
                     self.state = TokenizerState::SummaryLeaf;
                 } else {
                     self.state = TokenizerState::SummaryOpener;
@@ -1052,7 +1058,7 @@ pub mod xml {
 
             Testcase {
                 structure: structure.expect("should've had a structure definition"),
-                expected_tokens: expected_tokens.expect("should've had expected tokens").into_iter().map(|c| c.to_token(&lookup)).collect(),
+                expected_tokens: expected_tokens.expect("should've had expected tokens").into_iter().map(|c| c.into_token(&lookup)).collect(),
             }
         }
     }
@@ -1141,8 +1147,8 @@ pub mod xml {
     }
 
     impl TokenDef {
-        fn to_token(self, lookup: &collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> token::Token {
-            let lookup_result = lookup.get(&self.node_name).expect(&format!("expected a node named '{}'", self.node_name));
+        fn into_token(self, lookup: &collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> token::Token {
+            let lookup_result = lookup.get(&self.node_name).unwrap_or_else(|| panic!("expected a node named '{}'", self.node_name));
             token::Token {
                 class: self.class,
                 node: lookup_result.1.clone(),

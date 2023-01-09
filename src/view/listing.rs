@@ -150,7 +150,7 @@ impl WidgetImpl for ListingWidgetImp {
         if false {
             let mut pos = graphene::Point::new(1000.0, 100.0);
             gsc::render_text(
-                &snapshot,
+                snapshot,
                 &render.pango,
                 &render.font_mono,
                 &render.config.text_color,
@@ -218,10 +218,12 @@ impl ListingWidget {
         self.add_tick_callback(|lw, frame_clock| {
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
-        
-        if interior.document_update_event_source.set(helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+
+        let update_subscriber = helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.document_updated(new_doc);
-        })).is_err() {
+        });
+        
+        if interior.document_update_event_source.set(update_subscriber).is_err() {
             panic!("double-initialized document_update_event_source");
         }
 

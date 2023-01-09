@@ -37,14 +37,14 @@ impl layout::Line for Line {
 
             current_document: None,
             
-            tokens: tokens.into_iter().map(|t| token_view::TokenView::from(t)).collect(),
+            tokens: tokens.into_iter().map(token_view::TokenView::from).collect(),
             render_serial: 0,
             render_node: None,
         }
     }
 
     fn to_tokens(self) -> Self::TokenIterator {
-        self.tokens.into_iter().map(|t| t.to_token())
+        self.tokens.into_iter().map(|t| t.into_token())
     }
 }
 
@@ -133,7 +133,7 @@ impl facet::Facet for Line {
     }
 
     fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) {
-        let invalidate = self.current_document.as_ref().map_or(true, |current| !sync::Arc::ptr_eq(&current, document));
+        let invalidate = self.current_document.as_ref().map_or(true, |current| !sync::Arc::ptr_eq(current, document));
         let mut updated = false;
         
         for token in &mut self.tokens {
@@ -141,7 +141,7 @@ impl facet::Facet for Line {
                 token.invalidate_data();
             }
             
-            if token.work(&*document, cx) {
+            if token.work(document, cx) {
                 updated = true;
             }
         }

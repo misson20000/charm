@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#![allow(clippy::single_match)]
+#![allow(clippy::new_without_default)]
 
 extern crate futures;
 extern crate tokio;

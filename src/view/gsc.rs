@@ -1,4 +1,4 @@
-const DIGIT_STRINGS: [&'static str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
+const DIGIT_STRINGS: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 use crate::model::listing::token;
 use crate::view::config;
@@ -70,7 +70,7 @@ impl Cache {
         }
 
         let mut gs = pango::GlyphString::new();
-        pango::shape(text, &items[0].analysis(), &mut gs);
+        pango::shape(text, items[0].analysis(), &mut gs);
 
         gs
     }
@@ -85,7 +85,7 @@ impl Cache {
                 token::PunctuationClass::CloseBracket => Some(&self.gs_close),
             },
             Entry::Digit(digit) => self.gs_digit.get(digit as usize),
-            Entry::PrintableAscii(ord) if ord >= 0x20 && ord < 0x7f => Some(&self.gs_ascii[ord as usize - 0x20]),
+            Entry::PrintableAscii(ord) if (0x20..0x7f).contains(&ord) => Some(&self.gs_ascii[ord as usize - 0x20]),
             Entry::PrintableAscii(_) => Some(&self.gs_dot),
             Entry::Dot => Some(&self.gs_dot),
             Entry::Colon => Some(&self.gs_colon),
@@ -95,10 +95,9 @@ impl Cache {
 
     pub fn print(&self, snapshot: &gtk::Snapshot, entry: Entry, color: &gdk::RGBA, pos: &mut graphene::Point) {
         if let Some(gs) = self.get(entry) {
-            let mut gs = gs.clone();
             if let Some(tn) = gsk::TextNode::new(
                 &self.font,
-                &mut gs,
+                gs,
                 color,
                 pos) {
                 snapshot.append_node(tn);
@@ -111,8 +110,6 @@ impl Cache {
 
     pub fn print_with_cursor(&self, snapshot: &gtk::Snapshot, entry: Entry, config: &config::Config, cursor: &CursorView, pos: &mut graphene::Point) {
         if let Some(gs) = self.get(entry) {
-            let mut gs = gs.clone();
-
             let color = if cursor.get_blink() {
                 let (_ink, logical) = gs.clone().extents(&self.font);
                 snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
@@ -128,7 +125,7 @@ impl Cache {
             
             if let Some(tn) = gsk::TextNode::new(
                 &self.font,
-                &mut gs,
+                gs,
                 color,
                 pos) {
                 snapshot.append_node(tn);
@@ -149,7 +146,7 @@ pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::
         snapshot.append_node(
             gsk::TextNode::new(
                 font,
-                &mut gs,
+                &gs,
                 color,
                 pos)
                 .unwrap());
@@ -182,7 +179,7 @@ pub fn render_text_with_cursor(snapshot: &gtk::Snapshot, pg: &pango::Context, fo
         snapshot.append_node(
             gsk::TextNode::new(
                 font,
-                &mut gs,
+                &gs,
                 color,
                 pos)
                 .unwrap());
@@ -205,7 +202,7 @@ pub fn render_text_align_right(snapshot: &gtk::Snapshot, pg: &pango::Context, fo
         snapshot.append_node(
             gsk::TextNode::new(
                 font,
-                &mut gs,
+                &gs,
                 color,
                 pos)
                 .unwrap());

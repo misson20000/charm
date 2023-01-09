@@ -160,7 +160,7 @@ impl Cursor {
             };
         }
 
-        self.class.update(&document);
+        self.class.update(document);
     }
 
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
@@ -236,8 +236,8 @@ impl CursorClass {
     /// one.
     fn new_placement(token: token::Token, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
         match token.class {
-            token::TokenClass::Title => title::Cursor::new_placement(token, addr, &hint).map(|cc| CursorClass::Title(cc)),
-            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, addr, &hint).map(|cc| CursorClass::Hexdump(cc)),
+            token::TokenClass::Title => title::Cursor::new_placement(token, addr, hint).map(CursorClass::Title),
+            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, addr, hint).map(CursorClass::Hexdump),
             _ => Err(token)
         }
     }
@@ -247,8 +247,8 @@ impl CursorClass {
     fn new_transition(token: token::Token, hint: &TransitionHint) -> Result<CursorClass, token::Token> {
         event!(Level::DEBUG, "making cursor class from transition onto {:?}", token);
         match token.class {
-            token::TokenClass::Title => title::Cursor::new_transition(token, &hint).map(|cc| CursorClass::Title(cc)),
-            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, &hint).map(|cc| CursorClass::Hexdump(cc)),
+            token::TokenClass::Title => title::Cursor::new_transition(token, hint).map(CursorClass::Title),
+            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump),
             _ => Err(token)
         }
     }

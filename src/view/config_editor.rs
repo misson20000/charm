@@ -143,5 +143,5 @@ pub fn build_config_editor() -> gtk::ListBox {
 
     lb.append(&edit_font("Monospace Font", &current.monospace_font, |cfg, v| { cfg.monospace_font = v; }));
     
-    return lb;
+    lb
 }

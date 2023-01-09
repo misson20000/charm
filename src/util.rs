@@ -7,13 +7,13 @@ use std::fmt::Write;
 
 pub fn nybble_to_hex(nyb: u8) -> char {
     (if nyb < 10 {
-        '0' as u8 + nyb
+        b'0' + nyb
     } else {
-        'a' as u8 + (nyb - 10)
+        b'a' + (nyb - 10)
     }) as char
 }
 
-pub fn fmt_hex_vec(vec: &vec::Vec<u8>) -> Result<std::string::String, fmt::Error> {
+pub fn fmt_hex_slice(vec: &[u8]) -> Result<std::string::String, fmt::Error> {
     let mut acc = std::string::String::new();
     for (i, b) in vec.iter().enumerate() {
         if i % 8 == 0 {
@@ -54,5 +54,11 @@ impl Notifier {
 impl std::ops::Drop for Notifier {
     fn drop(&mut self) {
         self.notify();
+    }
+}
+
+impl Default for Notifier {
+    fn default() -> Notifier {
+        Self::new()
     }
 }

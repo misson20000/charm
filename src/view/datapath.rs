@@ -47,7 +47,7 @@ impl DataPathModel {
     }
     
     fn update_store(&mut self) {
-        let upstream = self.document_host.get().clone();
+        let upstream = self.document_host.get();
         self.store.clear();
 
         // TODO: only adjust difference
@@ -61,7 +61,7 @@ impl DataPathModel {
                     datapath::Filter::Insert(_) => &"Insert Bytes",
                 }),
                 (1, &format!("0x{:x}", filter.human_affects_addr())),
-                (2, &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or("Infinite".to_string())),
+                (2, &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or_else(|| "Infinite".to_string())),
                 (3, &filter.human_details())
             ]);
         }

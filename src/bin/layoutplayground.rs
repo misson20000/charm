@@ -16,7 +16,7 @@ impl layout::Line for Line {
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
         Line {
             indent: tokens[0].depth,
-            tokens: tokens.into(),
+            tokens,
         }
     }
 

@@ -61,10 +61,10 @@ impl Filter {
     pub fn stack(a: &Filter, b: &Filter) -> Option<Filter> {
         match (a, b) {
             (Filter::LoadSpace(_), Filter::LoadSpace(_)) => None,
-            (Filter::Overwrite(ai), Filter::Overwrite(bi)) => OverwriteFilter::stack(ai, bi).map(|oe| Filter::Overwrite(oe)),
-            (Filter::Move(ai), Filter::Move(bi)) => MoveFilter::stack(ai, bi).map(|me| Filter::Move(me)),
-            (Filter::Insert(ai), Filter::Insert(bi)) => InsertFilter::stack(ai, bi).map(|ie| Filter::Insert(ie)),
-            (Filter::Insert(ai), Filter::Overwrite(bi)) => InsertFilter::stack_overwrite(ai, bi).map(|ie| Filter::Insert(ie)),
+            (Filter::Overwrite(ai), Filter::Overwrite(bi)) => OverwriteFilter::stack(ai, bi).map(Filter::Overwrite),
+            (Filter::Move(ai), Filter::Move(bi)) => MoveFilter::stack(ai, bi).map(Filter::Move),
+            (Filter::Insert(ai), Filter::Insert(bi)) => InsertFilter::stack(ai, bi).map(Filter::Insert),
+            (Filter::Insert(ai), Filter::Overwrite(bi)) => InsertFilter::stack_overwrite(ai, bi).map(Filter::Insert),
             _ => None,
         }
     }
@@ -154,7 +154,7 @@ impl<'a> ByteRecordRange<'a> {
         self.out.is_empty()
     }
 
-    fn split2<'b>(&'b mut self, addr: u64) -> (ByteRecordRange<'b>, ByteRecordRange<'b>) {
+    fn split2(&mut self, addr: u64) -> (ByteRecordRange<'_>, ByteRecordRange<'_>) {
         if self.addr >= addr {
             /* if we are entirely after the split point */
             (ByteRecordRange::default(), ByteRecordRange {
@@ -169,7 +169,7 @@ impl<'a> ByteRecordRange<'a> {
                 addr: self.addr,
                 out: a,
             }, ByteRecordRange {
-                addr: addr,
+                addr,
                 out: b
             })
         } else if self.addr < addr && self.addr + self.out.len() as u64 <= addr {
@@ -198,7 +198,7 @@ impl<'a> ByteRecordRange<'a> {
                 addr: self.addr,
                 out: a,
             }, ByteRecordRange {
-                addr: addr,
+                addr,
                 out: b
             })
         } else if self.addr < addr && self.addr + self.out.len() as u64 <= addr {
@@ -212,7 +212,7 @@ impl<'a> ByteRecordRange<'a> {
         }
     }
     
-    fn split3<'b>(&'b mut self, (addr, size): (u64, Option<u64>)) -> (ByteRecordRange<'b>, ByteRecordRange<'b>, ByteRecordRange<'b>) {
+    fn split3(&mut self, (addr, size): (u64, Option<u64>)) -> (ByteRecordRange<'_>, ByteRecordRange<'_>, ByteRecordRange<'_>) {
         let (before, b) = self.split2(addr);
         let (overlap, after) = match size {
             Some(size) => b.split2_owning(addr + size),
@@ -293,7 +293,7 @@ impl LoadSpaceFilter {
         }
 
         if !after.is_empty() {
-            Filter::fetch_next(iter.clone(), &mut after, cx);
+            Filter::fetch_next(iter, &mut after, cx);
         }
 
         if !overlap.is_empty() {
@@ -406,7 +406,7 @@ impl OverwriteFilter {
     }
 
     fn human_details(&self) -> string::String {
-        util::fmt_hex_vec(&self.bytes).unwrap_or("error".to_string())
+        util::fmt_hex_slice(&self.bytes).unwrap_or_else(|_| "error".to_string())
     }
 
     fn human_affects_addr(&self) -> u64 {
@@ -515,7 +515,7 @@ impl InsertFilter {
     }
 
     fn human_details(&self) -> string::String {
-        util::fmt_hex_vec(&self.bytes).unwrap_or("error".to_string())
+        util::fmt_hex_slice(&self.bytes).unwrap_or_else(|_| "error".to_string())
     }
 
     fn human_affects_addr(&self) -> u64 {
@@ -544,7 +544,7 @@ impl SpaceCache {
         parking_lot::MutexGuard::map(self.lock(), |lru_guard| self.fetch_block_with_guard(addr, lru_guard, cx))
     }
 
-    fn lock<'a>(&'a self) -> parking_lot::MutexGuard<'a, lru::LruCache<u64, SpaceCacheEntry>> {
+    fn lock(&self) -> parking_lot::MutexGuard<'_, lru::LruCache<u64, SpaceCacheEntry>> {
         self.lru.lock()
     }
     

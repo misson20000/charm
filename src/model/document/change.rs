@@ -35,13 +35,11 @@ pub fn update_path(mut path: structure::Path, through: &Change) -> Result<struct
     match &through.ty {
         ChangeType::AlterNode(_, _) => Ok(path),
         ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) => {
-            if path.len() > affected_path.len() {
-                if &path[0..affected_path.len()] == &affected_path[..] {
-                    let path_index = &mut path[affected_path.len()];
+            if path.len() > affected_path.len() && path[0..affected_path.len()] == affected_path[..] {
+                let path_index = &mut path[affected_path.len()];
                     
-                    if *path_index >= *affected_index {
-                        *path_index+= 1;
-                    }
+                if *path_index >= *affected_index {
+                    *path_index+= 1;
                 }
             }
 
@@ -59,7 +57,7 @@ pub fn update_change(change: Change, to: &document::Document) -> Result<Change, 
     
     match &to.previous {
         Some((prev_document, doc_change)) => {
-            let change = update_change(change, &prev_document)?;
+            let change = update_change(change, prev_document)?;
 
             Ok(Change {
                 ty: match change.ty {
@@ -91,7 +89,7 @@ fn rebuild_node_tree<F>(target: &structure::Node, mut path_segment: structure::P
 }
 
 pub fn apply_structural_change(document: &sync::Arc<document::Document>, change: Change) -> Result<document::Document, ApplyError> {
-    let change = update_change(change, document).map_err(|e| ApplyError::UpdateFailed(e))?;
+    let change = update_change(change, document).map_err(ApplyError::UpdateFailed)?;
 
     assert_eq!(change.generation, document.generation);
 
@@ -127,10 +125,8 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             }
             
             /* Keep child offsets monotonic. */
-            if after_child > 0 {
-                if target.children[after_child-1].offset > offset {
-                    return Err(ApplyError::InvalidParameters);
-                }
+            if after_child > 0 && target.children[after_child-1].offset > offset {
+                return Err(ApplyError::InvalidParameters);
             }
 
             /* Preconditions passed; do the deed. */

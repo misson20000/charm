@@ -40,7 +40,7 @@ impl TokenView {
         }
     }
 
-    pub fn to_token(self) -> token::Token {
+    pub fn into_token(self) -> token::Token {
         self.token
     }
 
@@ -76,12 +76,12 @@ impl TokenView {
         
         match self.token.class {
             token::TokenClass::Punctuation(punct) => {
-                render.gsc_mono.print(&snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos);
+                render.gsc_mono.print(snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos);
             },
             token::TokenClass::Title => {
                 if has_cursor {
                     gsc::render_text_with_cursor(
-                        &snapshot,
+                        snapshot,
                         &render.pango,
                         &render.font_bold,
                         &render.config,
@@ -90,35 +90,35 @@ impl TokenView {
                         &mut pos);
                 } else {
                     gsc::render_text(
-                        &snapshot,
+                        snapshot,
                         &render.pango,
                         &render.font_bold,
                         &render.config.text_color,
                         &self.token.node.props.name,
                         &mut pos);
                 }
-                render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
+                render.gsc_bold.print(snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
             },
             token::TokenClass::SummaryLabel => {
                 if has_cursor {
                     gsc::render_text_with_cursor(
-                        &snapshot,
+                        snapshot,
                         &render.pango,
                         &render.font_bold,
                         &render.config,
                         cursor,
                         &self.token.node.props.name,
                         &mut pos);
-                    render.gsc_bold.print_with_cursor(&snapshot, gsc::Entry::Colon, &render.config, cursor, &mut pos);
+                    render.gsc_bold.print_with_cursor(snapshot, gsc::Entry::Colon, &render.config, cursor, &mut pos);
                 } else {
                     gsc::render_text(
-                        &snapshot,
+                        snapshot,
                         &render.pango,
                         &render.font_bold,
                         &render.config.text_color,
                         &self.token.node.props.name,
                         &mut pos);
-                    render.gsc_bold.print(&snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
+                    render.gsc_bold.print(snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
                 }
             },
             token::TokenClass::Hexdump(extent) => {
@@ -127,8 +127,8 @@ impl TokenView {
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
-                    render.gsc_mono.print(&snapshot, gsc::Entry::Digit((j & 0xf0) >> 4), &render.config.text_color, &mut pos);
-                    render.gsc_mono.print(&snapshot, gsc::Entry::Digit((j & 0x0f) >> 0), &render.config.text_color, &mut pos);
+                    render.gsc_mono.print(snapshot, gsc::Entry::Digit((j & 0xf0) >> 4), &render.config.text_color, &mut pos);
+                    render.gsc_mono.print(snapshot, gsc::Entry::Digit( j & 0x0f      ), &render.config.text_color, &mut pos);
                 }
             },
         }

@@ -111,14 +111,12 @@ impl cursor::CursorClassExt for Cursor {
         if self.low_nybble {
             self.low_nybble = false;
             cursor::MovementResult::Ok
+        } else if self.offset >= addr::unit::BYTE {
+            self.offset-= addr::unit::BYTE;
+            self.low_nybble = true;
+            cursor::MovementResult::Ok
         } else {
-            if self.offset >= addr::unit::BYTE {
-                self.offset-= addr::unit::BYTE;
-                self.low_nybble = true;
-                cursor::MovementResult::Ok
-            } else {
-                cursor::MovementResult::HitStart
-            }
+            cursor::MovementResult::HitStart
         }
     }
 

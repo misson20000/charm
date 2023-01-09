@@ -85,14 +85,14 @@ impl Address {
     }
 
     pub fn parse(string: &str) -> Result<Address, AddressParseError> {
-        let mut i = string.splitn(2, ".");
+        let mut i = string.splitn(2, '.');
 
         Ok(Address {
             byte: i.next().ok_or(AddressParseError::MissingBytes)
                 .map(|s| s.trim_start_matches("0x"))
-                .and_then(|s| u64::from_str_radix(s, 16).map_err(|e| AddressParseError::MalformedBytes(e)))?,
+                .and_then(|s| u64::from_str_radix(s, 16).map_err(AddressParseError::MalformedBytes))?,
             bit: i.next().map(|s| u8::from_str(s)
-                              .map_err(|e| AddressParseError::MalformedBits(e))
+                              .map_err(AddressParseError::MalformedBits)
                               .and_then(|v| if v < 8 { Ok(v) } else { Err(AddressParseError::TooManyBits) }))
                 .unwrap_or(Ok(0))?
         })
