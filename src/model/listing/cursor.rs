@@ -7,7 +7,7 @@ use crate::model::listing::token;
 use crate::logic::tokenizer;
 
 use enum_dispatch::enum_dispatch;
-use tracing::{Level, event, instrument};
+use tracing::instrument;
 
 pub mod key;
 
@@ -132,7 +132,6 @@ impl Cursor {
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
         if self.document.is_outdated(document) {
-            tracing::event!(Level::DEBUG, "porting the cursor tokenizer");
             self.tokenizer.port_doc(
                 &self.document,
                 document,
@@ -245,7 +244,6 @@ impl CursorClass {
     /// Attempts to transition a cursor onto the token.
     #[instrument]
     fn new_transition(token: token::Token, hint: &TransitionHint) -> Result<CursorClass, token::Token> {
-        event!(Level::DEBUG, "making cursor class from transition onto {:?}", token);
         match token.class {
             token::TokenClass::Title => title::Cursor::new_transition(token, hint).map(CursorClass::Title),
             token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump),
@@ -263,11 +261,9 @@ impl CursorClass {
         loop {
             match tokenizer.prev() {
                 None => {
-                    event!(Level::DEBUG, "hit beginning of token stream");
                     return None
                 },
                 Some(token) => {
-                    event!(Level::DEBUG, "got token {:?}", token);
                     match Self::new_transition(token, &hint) {
                         Ok(cc) => {
                             return Some((cc, tokenizer));
@@ -291,11 +287,9 @@ impl CursorClass {
         loop {
             match tokenizer.next_preincrement() {
                 None => {
-                    event!(Level::DEBUG, "hit end of token stream");
                     return None
                 },
                 Some(token) => {
-                    event!(Level::DEBUG, "got token {:?}", token);
                     match Self::new_transition(token, &hint) {
                         Ok(cc) => {
                             return Some((cc, tokenizer));

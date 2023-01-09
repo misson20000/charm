@@ -16,7 +16,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::document::change;
 
-use tracing::{event, Level, instrument};
+use tracing::instrument;
 
 #[derive(Clone, Debug)]
 enum TokenizerState {
@@ -206,8 +206,6 @@ impl Tokenizer {
     /// Applies a single change to the tokenizer state.
     #[instrument]
     fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
-        event!(Level::DEBUG, "porting a tokenizer across {:?}", change);
-
         /* Update all of the stack entries */
         let (new_stack, new_node, new_path, force_summary) = match &self.stack {
             Some(parent) => match Self::port_recurse(parent, new_root, change) {
@@ -304,8 +302,6 @@ impl Tokenizer {
             change::ChangeType::AlterNode(_path, _new_props) => {},
             change::ChangeType::InsertNode(affected_path, affected_index, new_node_offset, new_node) if affected_path == &new_path => {
                 /* A new child was added to the node we're on. */
-                event!(Level::DEBUG, "InsertNode affected our path");
-
                 if addr::Extent::sized(*new_node_offset, new_node.size).includes(offset) {
                     /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
                     self.descend(if force_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
@@ -345,17 +341,12 @@ impl Tokenizer {
     /// Applies a change to a single item in the tokenizer stack.
     #[instrument]
     fn port_stack_entry(old_tok: &TokenizerStackEntry, new_stack: Option<sync::Arc<TokenizerStackEntry>>, mut current_path: structure::Path, new_node: sync::Arc<structure::Node>, change: &change::Change, force_summary: bool) -> (PortStackResult, structure::Path) {
-        event!(Level::DEBUG, "porting a tokenizer stack entry");
-
         let (descent, summary) = match old_tok.descent {
             TokenizerDescent::Child(mut child_index) | TokenizerDescent::ChildSummary(mut child_index) => {
                 match &change.ty {
                     change::ChangeType::InsertNode(path, after_child, _offset, _node) => {
-                        event!(Level::DEBUG, "porting across an InsertNode change");
                         if path == &current_path {
-                            event!(Level::DEBUG, "the path points towards the current node! we may be affected!");
                             if child_index >= *after_child {
-                                event!(Level::DEBUG, "indeed, we had to bump the child index.");
                                 child_index+= 1;
                             }
                         }
