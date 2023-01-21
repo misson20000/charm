@@ -74,6 +74,15 @@ pub struct Cursor {
     document: sync::Arc<document::Document>,
 }
 
+#[derive(Debug)]
+enum UpdateMode {
+    /* Try to maintain the current cursor position. */
+    Default,
+
+    /* If the cursor is affected by an InsertNode, try to put the cursor after the new node. */
+    AfterNewNode,
+}
+
 impl CursorClass {
     fn place_forward(tokenizer: &mut tokenizer::Tokenizer, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         tokenizer.next_preincrement();
@@ -127,15 +136,25 @@ impl Cursor {
 
     /// Notify cursor that the underlying document has changed and it needs to renogitiate its position.
     #[instrument]
-    pub fn update(&mut self, document: &sync::Arc<document::Document>) {
+    fn update_internal(&mut self, document: &sync::Arc<document::Document>, update_mode: UpdateMode) {
         /* if we're using an outdated structure hierarchy root, make a
          * new tokenizer and try to put the cursor nearby in the new
          * hierarchy. */
         if self.document.is_outdated(document) {
+            let mut options = tokenizer::PortOptionsBuilder::new();
+            options = options.additional_offset(self.class.get_offset());
+
+            match update_mode {
+                UpdateMode::AfterNewNode => {
+                    options = options.prefer_after_new_node();
+                },
+                _ => {},
+            };
+            
             self.tokenizer.port_doc(
                 &self.document,
                 document,
-                &tokenizer::PortOptionsBuilder::new().additional_offset(self.class.get_offset()).build());
+                &options.build());
             
             let mut tokenizer = self.tokenizer.clone();
 
@@ -162,6 +181,10 @@ impl Cursor {
         self.class.update(document);
     }
 
+    pub fn update(&mut self, document: &sync::Arc<document::Document>) {
+        self.update_internal(document, UpdateMode::Default);
+    }
+    
     pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
         Self::place(self.document.clone(), addr, PlacementHint::Unused).map(|new| { *self = new; })
     }
@@ -215,13 +238,15 @@ impl Cursor {
     }
      */
 
-    pub fn insert_node(&self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
+    pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
         host.insert_node(
             &self.document,
             self.tokenizer.structure_path(),
             self.tokenizer.structure_position_child(),
             self.tokenizer.structure_position_offset() + self.class.get_offset(),
-            node)
+            node).map(|_| {
+                self.update_internal(&host.borrow(), UpdateMode::AfterNewNode);
+        })
     }
 }
 

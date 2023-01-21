@@ -122,6 +122,7 @@ impl std::fmt::Debug for TokenizerStackEntry {
 #[derive(Clone, Debug, Default)]
 pub struct PortOptions {
     additional_offset: addr::Size,
+    prefer_after_new_node: bool,
 }
 
 pub struct PortOptionsBuilder {
@@ -162,6 +163,11 @@ impl PortOptionsBuilder {
         self
     }
 
+    pub fn prefer_after_new_node(mut self) -> PortOptionsBuilder {
+        self.options.prefer_after_new_node = true;
+        self
+    }
+    
     pub fn build(self) -> PortOptions {
         self.options
     }
@@ -302,7 +308,11 @@ impl Tokenizer {
             change::ChangeType::AlterNode(_path, _new_props) => {},
             change::ChangeType::InsertNode(affected_path, affected_index, new_node_offset, new_node) if affected_path == &new_path => {
                 /* A new child was added to the node we're on. */
-                if addr::Extent::sized(*new_node_offset, new_node.size).includes(offset) {
+                if options.prefer_after_new_node {
+                    /* options said we should place after the new node, so do so. */
+                    index+= 1;
+                    offset = *new_node_offset + new_node.size;
+                } else if addr::Extent::sized(*new_node_offset, new_node.size).includes(offset) {
                     /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
                     self.descend(if force_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
 
@@ -389,11 +399,7 @@ impl Tokenizer {
     }
 
     fn seek_in_node(&mut self, offset: addr::Address, index: usize) {
-        let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * (offset.to_size() / pitch)).to_addr()
-        });
-
-        self.state = TokenizerState::MetaContent(preferred_begin.unwrap_or(offset), index);
+        self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
     }
     
     /// Creates a new tokenizer seeked to the end of the token stream.
@@ -521,6 +527,52 @@ impl Tokenizer {
         }
     }
 
+    fn get_line_begin(&self, offset: addr::Address, index: usize) -> addr::Address {
+        /* Where would we *like* to begin, as decided by our content's preferred pitch? */
+        let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
+            (pitch * ((offset - addr::unit::BIT).to_size() / pitch)).to_addr()
+        });
+
+        /* Figure out whether there are any children that we need to not intrude upon. */
+        let prev_child_option = match index {
+            0 => None,
+            /* Something is seriously wrong if index was farther than one-past-the-end. */
+            i => Some((i-1, &self.node.children[i-1]))
+        };
+
+        /* Where can we not begin before? */
+        let limit = match prev_child_option {
+            /* Can't include data from the child, so need to stop after its end. */
+            Some((_, prev_child)) => prev_child.end(),
+            /* Can't include data that belongs to the parent, so need to stop before our begin. */
+            None => addr::unit::NULL,
+        };
+        
+        /* Pick a place to begin this line. */
+        preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit))
+    }
+
+    fn get_line_end(&self, offset: addr::Address, index: usize) -> addr::Address {
+        /* Where would we *like* to end, as decided by our content's preferred pitch? */
+        let preferred_end = self.node.props.content_display.preferred_pitch().map(|pitch| {
+            (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
+        });
+
+        /* Figure out whether there are any children that we need to not intrude upon. */
+        let next_child_option = self.node.children.get(index).map(|child| (index, child));
+
+        /* Where can we not end beyond? */
+        let limit = match next_child_option {
+            /* Can't include data from the child, so need to stop before it begins. */
+            Some((_, next_child)) => next_child.offset,
+            /* Can't include data that belongs to the parent, so need to stop before we end. */
+            None => self.node.size.to_addr(),
+        };
+
+        /* Pick a place to end this line. */
+        preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit))
+    }
+    
     /// Moves one (potential) token backwards in the stream.
     /// Returns true when successful, or false if hit the beginning of the token stream.
     fn move_prev(&mut self) -> bool {
@@ -554,26 +606,10 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset > addr::unit::NULL {
-                    /* Where would we *like* to begin, as decided by our content's preferred pitch? */
-                    let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
-                        (pitch * ((offset - addr::unit::BIT).to_size() / pitch)).to_addr()
-                    });
-
-                    /* Where can we not begin before? */
-                    let limit = match prev_child_option {
-                        /* Can't include data from the child, so need to stop after its end. */
-                        Some((_, prev_child)) => prev_child.end(),
-                        /* Can't include data that belongs to the parent, so need to stop before our begin. */
-                        None => addr::unit::NULL,
-                    };
-
-                    /* Pick a place to begin this line. */
-                    let begin = preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit));
-
-                    let extent = addr::Extent::between(begin, offset);
+                    let extent = addr::Extent::between(self.get_line_begin(offset, index), offset);
                         
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
                         structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
                     };
@@ -705,26 +741,10 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset < self.node.size.to_addr() {
-                    /* Where would we *like* to end, as decided by our content's preferred pitch? */
-                    let preferred_end = self.node.props.content_display.preferred_pitch().map(|pitch| {
-                        (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
-                    });
-
-                    /* Where can we not end beyond? */
-                    let limit = match next_child_option {
-                        /* Can't include data from the child, so need to stop before it begins. */
-                        Some((_, next_child)) => next_child.offset,
-                        /* Can't include data that belongs to the parent, so need to stop before we end. */
-                        None => self.node.size.to_addr(),
-                    };
-
-                    /* Pick a place to end this line. */
-                    let end = preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit));
-
-                    let extent = addr::Extent::between(offset, end);
+                    let extent = addr::Extent::between(offset, self.get_line_end(offset, index));
 
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(limit, index),
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.end, index),
                         structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
                     };
