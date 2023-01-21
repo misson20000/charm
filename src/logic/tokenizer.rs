@@ -400,6 +400,13 @@ impl Tokenizer {
 
     fn seek_in_node(&mut self, offset: addr::Address, index: usize) {
         self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
+
+        while match self.gen_token() {
+            TokenGenerationResult::Skip => true,
+            _ => false
+        } {
+            self.move_next();
+        }
     }
     
     /// Creates a new tokenizer seeked to the end of the token stream.
