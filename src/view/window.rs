@@ -183,9 +183,27 @@ impl CharmWindow {
             w.action_edit_properties();
         });
 
-        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_empty", |w| {
+        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_byte", |w| {
             if let Some(ctx) = &*w.context.borrow() {
-                ctx.lw.action_insert_empty_node();
+                ctx.lw.action_insert_byte();
+            }
+        });
+
+        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_word", |w| {
+            if let Some(ctx) = &*w.context.borrow() {
+                ctx.lw.action_insert_word();
+            }
+        });
+
+        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_dword", |w| {
+            if let Some(ctx) = &*w.context.borrow() {
+                ctx.lw.action_insert_dword();
+            }
+        });
+
+        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_qword", |w| {
+            if let Some(ctx) = &*w.context.borrow() {
+                ctx.lw.action_insert_qword();
             }
         });
         

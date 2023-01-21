@@ -48,6 +48,10 @@ impl CharmApplication {
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("win.listing.structure.insert_empty", &["I"]);
+        app.application.set_accels_for_action("win.listing.structure.insert_byte", &["B"]);
+        app.application.set_accels_for_action("win.listing.structure.insert_word", &["W"]);
+        app.application.set_accels_for_action("win.listing.structure.insert_dword", &["D"]);
+        app.application.set_accels_for_action("win.listing.structure.insert_qword", &["Q"]);
         
         // old accels
         /*

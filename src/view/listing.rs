@@ -261,19 +261,20 @@ impl ListingWidget {
         self.queue_draw();
     }
 
-    pub fn action_insert_empty_node(&self) {
+    fn action_insert_node<S: Into<addr::Size>>(&self, name: String, size: S) {
         let mut interior = self.imp().interior.get().unwrap().write();
-
-        match interior.cursor.cursor.insert_node(&interior.document_host, sync::Arc::new(structure::Node {
+        let dh = interior.document_host.clone();
+        
+        match interior.cursor.cursor.insert_node(&dh, sync::Arc::new(structure::Node {
             props: structure::Properties {
-                name: "empty".to_string(),
+                name,
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(4),
+            size: size.into(),
         })) {
             Ok(()) => {},
             Err(e) => {
@@ -281,6 +282,26 @@ impl ListingWidget {
                 interior.cursor.bonk()
             },
         }
+    }
+    
+    pub fn action_insert_empty_node(&self) {
+        self.action_insert_node("empty".to_string(), 0);
+    }
+
+    pub fn action_insert_byte(&self) {
+        self.action_insert_node("byte".to_string(), 1);
+    }
+
+    pub fn action_insert_word(&self) {
+        self.action_insert_node("word".to_string(), 2);
+    }
+
+    pub fn action_insert_dword(&self) {
+        self.action_insert_node("dword".to_string(), 4);
+    }
+
+    pub fn action_insert_qword(&self) {
+        self.action_insert_node("qword".to_string(), 8);
     }
 }
 
