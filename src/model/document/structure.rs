@@ -1,6 +1,8 @@
 use std::sync;
 use std::vec;
 
+use lazy_static::lazy_static;
+
 use crate::model::addr;
 
 #[derive(Debug, Clone)]
@@ -130,6 +132,20 @@ impl Default for Node {
             props: Properties::default(),
             size: addr::unit::REAL_MAX,
             children: vec::Vec::new(),
+        }
+    }
+}
+
+
+impl Default for Childhood {
+    fn default() -> Self {
+        lazy_static! {
+            static ref DEFAULT_NODE: sync::Arc<Node> = sync::Arc::new(Node::default());
+        }
+        
+        Childhood {
+            node: DEFAULT_NODE.clone(),
+            offset: addr::unit::NULL,
         }
     }
 }

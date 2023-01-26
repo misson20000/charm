@@ -139,6 +139,15 @@ impl DocumentHost {
 
         self.change(change)
     }
+
+    pub fn nest(&self, doc: &Document, path: structure::Path, first_sibling: usize, last_sibling: usize, props: structure::Properties) -> Result<(), change::ApplyError> {
+        let change = change::Change {
+            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, props),
+            generation: doc.generation,
+        };
+
+        self.change(change)
+    }
 }
 
 pub struct DocumentUpdateFuture<'a> {

@@ -4,6 +4,7 @@ use std::vec;
 
 use gtk::gio;
 use gtk::glib;
+use gtk::glib::clone;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
@@ -13,9 +14,7 @@ use crate::model::document::change;
 use crate::model::document::structure;
 use crate::view::helpers;
 
-fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, autoexpand: bool) -> gtk::TreeListModel {
-    let document = document_host.get();
-    
+fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, document: sync::Arc<document::Document>, autoexpand: bool) -> gtk::TreeListModel {
     let root_model = gio::ListStore::new(NodeItem::static_type());
 
     let root_item = NodeItem::new(NodeInfo {
@@ -54,13 +53,6 @@ fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, auto
     std::mem::forget(subscriber);
     
     model
-}
-
-pub fn create_selection_model(document_host: sync::Arc<document::DocumentHost>) -> gtk::SelectionModel {
-    glib::Object::builder::<StructureSelectionModel>()
-        .property("tree-model", create_tree_list_model(document_host, true))
-        .build()
-        .upcast()
 }
 
 #[derive(Debug, Clone)]
@@ -111,14 +103,17 @@ mod imp {
     
     use gtk::gio;
     use gtk::glib;
-    use gtk::glib::clone;
     use gtk::subclass::prelude::*;
     use gtk::prelude::*;
     
     use crate::model::addr;
     use crate::model::document;
+    use crate::model::document::change;
     use crate::model::document::structure;
     use crate::view::helpers;
+
+    use super::NodeInfo;
+    use super::SelectionMode;
 
     #[derive(Debug)]
     pub struct StructureListModelInterior {
@@ -164,8 +159,8 @@ mod imp {
     
     #[derive(Default)]
     pub struct NodeItem {
-        pub info: once_cell::unsync::OnceCell<cell::RefCell<super::NodeInfo>>,
-        pub staged_info: cell::RefCell<Option<super::NodeInfo>>,
+        pub info: once_cell::unsync::OnceCell<cell::RefCell<NodeInfo>>,
+        pub staged_info: cell::RefCell<Option<NodeInfo>>,
     }
 
     #[glib::object_subclass]
@@ -235,8 +230,11 @@ mod imp {
     }
     
     pub struct StructureSelectionModelInterior {
-        tree_model: gtk::TreeListModel,
-        pub mode: super::SelectionMode,
+        pub tree_model: gtk::TreeListModel,
+        pub mode: SelectionMode,
+        pub document: sync::Arc<document::Document>,
+        pub document_host: sync::Arc<document::DocumentHost>,
+        pub subscriber: helpers::AsyncSubscriber,
     }
 
     impl StructureSelectionModelInterior {
@@ -258,35 +256,15 @@ mod imp {
     }
 
     impl ObjectImpl for StructureSelectionModel {
-        fn properties() -> &'static [glib::ParamSpec] {
-            static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
-                once_cell::sync::Lazy::new(|| vec![
-                    glib::ParamSpecObject::builder::<gtk::TreeListModel>("tree-model").build(),
-                ]);
-            PROPERTIES.as_ref()
-        }
-
-        fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
-            match pspec.name() {
-                "tree-model" => {
-                    let tree_model: gtk::TreeListModel = value.get().expect("tree-model set to something that wasn't a gtk::TreeListModel");
-
-                    let obj = self.obj();
-                    tree_model.connect_items_changed(clone!(@weak obj => move |_, pos, removed, added| obj.items_changed(pos, removed, added)));
-                    
-                    self.interior.replace(Some(StructureSelectionModelInterior {
-                        tree_model,
-                        mode: super::SelectionMode::Empty,
-                    }));
-                },
-                _ => unimplemented!()
-            }
-        }
     }
 
     impl StructureSelectionModel {
-        fn borrow_interior_mut(&self) -> Option<std::cell::RefMut<'_, StructureSelectionModelInterior>> {
+        pub fn borrow_interior_mut(&self) -> Option<std::cell::RefMut<'_, StructureSelectionModelInterior>> {
             std::cell::RefMut::filter_map(self.interior.borrow_mut(), Option::as_mut).ok()
+        }
+
+        pub fn borrow_interior(&self) -> Option<std::cell::Ref<'_, StructureSelectionModelInterior>> {
+            std::cell::Ref::filter_map(self.interior.borrow(), Option::as_ref).ok()
         }
         
         fn notify_all_changed(&self, interior: std::cell::RefMut<'_, StructureSelectionModelInterior>) {
@@ -294,56 +272,102 @@ mod imp {
             drop(interior);
             self.obj().selection_changed(0, n_items);
         }
+
+        fn port_doc<'a>(interior: cell::RefMut<'a, StructureSelectionModelInterior>, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) -> cell::RefMut<'a, StructureSelectionModelInterior> {
+            if old_doc.is_outdated(new_doc) {
+                match &new_doc.previous {
+                    Some((prev_doc, change)) => {
+                        let interior = Self::port_doc(interior, old_doc, prev_doc);
+                        Self::port_change(interior, new_doc, change)
+                    },
+                    None => panic!("no common ancestor")
+                }
+            } else {
+                interior
+            }
+        }
+
+        fn port_change<'a>(mut interior: cell::RefMut<'a, StructureSelectionModelInterior>, new_doc: &sync::Arc<document::Document>, change: &change::Change) -> cell::RefMut<'a, StructureSelectionModelInterior> {
+            interior.document = new_doc.clone();
+            
+            interior.mode = match std::mem::replace(&mut interior.mode, SelectionMode::Empty) {
+                SelectionMode::Empty => SelectionMode::Empty,
+                SelectionMode::Single(mut path) => { change::update_path(&mut path, change).unwrap(); SelectionMode::Single(path) },
+                SelectionMode::SiblingRange(mut path, first_child, last_child) => {
+                    change::update_path(&mut path, change).unwrap();
+
+                    match &change.ty {
+                        change::ChangeType::AlterNode(_, _) => SelectionMode::SiblingRange(path, first_child, last_child),
+                        change::ChangeType::InsertNode(affected_path, insertion_index, _, _) if affected_path == &path && (first_child..=last_child).contains(insertion_index) => SelectionMode::SiblingRange(path, first_child, last_child+1),
+                        change::ChangeType::InsertNode(_, _, _, _) => SelectionMode::SiblingRange(path, first_child, last_child),
+                        change::ChangeType::Nest(affected_path, _nested_first, _nested_last, _props) if affected_path == &path => {
+                            path.push(first_child);
+                            SelectionMode::Single(path)
+                        },
+                        change::ChangeType::Nest(_, _, _, _) => SelectionMode::SiblingRange(path, first_child, last_child)
+                    }
+                },
+                SelectionMode::All => SelectionMode::All,
+            };
+            
+            interior
+        }
+        
+        pub fn update(&self, new_doc: &sync::Arc<document::Document>) {
+            if let Some(i) = self.borrow_interior_mut() {
+                let old_doc = i.document.clone();
+
+                let i = Self::port_doc(i, &old_doc, new_doc);
+                self.notify_all_changed(i);
+            }
+        }
     }
     
     impl SelectionModelImpl for StructureSelectionModel {
         fn selection_in_range(&self, position: u32, n_items: u32) -> gtk::Bitset {
-            match self.interior.borrow().as_ref() {
-                Some(i) => {
-                    match &i.mode {
-                        super::SelectionMode::Empty => gtk::Bitset::new_empty(),
-                        super::SelectionMode::Single(path) => {
-                            let matched_position = (position..position+n_items).into_iter().find_map(|position| match i.item(position) {
-                                None => Some(None),
-                                Some(item) => {
-                                    if &item.imp().info.get().unwrap().borrow().path == path {
-                                        Some(Some(position))
-                                    } else {
-                                        None
-                                    }
+            self.borrow_interior().map_or_else(|| gtk::Bitset::new_empty(), |i| {
+                match &i.mode {
+                    SelectionMode::Empty => gtk::Bitset::new_empty(),
+                    SelectionMode::Single(path) => {
+                        let matched_position = (position..position+n_items).into_iter().find_map(|position| match i.item(position) {
+                            None => Some(None),
+                            Some(item) => {
+                                if &item.imp().info.get().unwrap().borrow().path == path {
+                                    Some(Some(position))
+                                } else {
+                                    None
                                 }
-                            });
-
-                            match matched_position {
-                                Some(None) | None => gtk::Bitset::new_empty(),
-                                Some(Some(pos)) => gtk::Bitset::new_range(pos-position, 1)
                             }
-                        },
-                        super::SelectionMode::SiblingRange(_, _, _) => todo!(),
-                        super::SelectionMode::All => gtk::Bitset::new_range(0, n_items),
-                    }
-                },
-                None => gtk::Bitset::new_empty()
-            }
+                        });
+
+                        match matched_position {
+                            Some(None) | None => gtk::Bitset::new_empty(),
+                            Some(Some(pos)) => gtk::Bitset::new_range(pos-position, 1)
+                        }
+                    },
+                    SelectionMode::SiblingRange(_, _, _) => todo!(),
+                    SelectionMode::All => gtk::Bitset::new_range(0, n_items),
+                }
+            })
         }
 
         fn is_selected(&self, position: u32) -> bool {
-            self.interior.borrow().as_ref().map_or(false, |i| match &i.mode {
-                super::SelectionMode::Empty => false,
-                super::SelectionMode::Single(path) => i.item(position).map_or(false, |item| {
+            self.borrow_interior().map_or(false, |i| match &i.mode {
+                SelectionMode::Empty => false,
+                SelectionMode::Single(path) => i.item(position).map_or(false, |item| {
                     &item.imp().info.get().unwrap().borrow().path == path
                 }),
-                super::SelectionMode::SiblingRange(path, first, last) => i.item(position).map_or(false, |item| {
+                SelectionMode::SiblingRange(path, first, last) => i.item(position).map_or(false, |item| {
                     let query_path = &item.imp().info.get().unwrap().borrow().path;
                     query_path[0..std::cmp::min(path.len(), query_path.len())] == path[..] && query_path.get(path.len()).map_or(false, |sibling| sibling >= first && sibling <= last)
                 }),
-                super::SelectionMode::All => true,
+                SelectionMode::All => true,
             })
         }
 
         fn select_all(&self) -> bool {
             if let Some(mut interior) = self.borrow_interior_mut() {
-                interior.mode = super::SelectionMode::All;
+                interior.mode = SelectionMode::All;
                 self.notify_all_changed(interior);
                 true
             } else {
@@ -356,7 +380,7 @@ mod imp {
                 let item = match interior.item(position) {
                     Some(item) => item,
                     None if unselect_rest => {
-                        interior.mode = super::SelectionMode::Empty;
+                        interior.mode = SelectionMode::Empty;
                         self.notify_all_changed(interior);
                         return true
                     },
@@ -364,20 +388,20 @@ mod imp {
                 };
 
                 match (&interior.mode, unselect_rest) {
-                    (super::SelectionMode::Empty, _) | (_, true) => {
-                        interior.mode = super::SelectionMode::Single(item.imp().info.get().unwrap().borrow().path.clone());
+                    (SelectionMode::Empty, _) | (_, true) => {
+                        interior.mode = SelectionMode::Single(item.imp().info.get().unwrap().borrow().path.clone());
                         self.notify_all_changed(interior);
                     },
-                    (super::SelectionMode::Single(current_path), _) => {
+                    (SelectionMode::Single(current_path), _) => {
                         let item_path = &item.imp().info.get().unwrap().borrow().path;
                         
                         let begin = std::cmp::min(item_path, current_path);
                         let end = std::cmp::max(item_path, current_path);
-                        interior.mode = super::SelectionMode::new_range_between(begin, end);
+                        interior.mode = SelectionMode::new_range_between(begin, end);
                         self.notify_all_changed(interior);
                     }
-                    (super::SelectionMode::SiblingRange(_, _, _), _) => todo!(),
-                    (super::SelectionMode::All, _) => {},
+                    (SelectionMode::SiblingRange(_, _, _), _) => todo!(),
+                    (SelectionMode::All, _) => {},
                 }
                 
                 true
@@ -390,7 +414,7 @@ mod imp {
             if let Some(mut interior) = self.borrow_interior_mut() {
                 if n_items == 0 {
                     if unselect_rest {
-                        interior.mode = super::SelectionMode::Empty;
+                        interior.mode = SelectionMode::Empty;
                         self.notify_all_changed(interior);
                     }
                     return true;
@@ -419,12 +443,12 @@ mod imp {
                 
                 if !unselect_rest {
                     match &interior.mode {
-                        super::SelectionMode::Empty => {},
-                        super::SelectionMode::Single(path) => {
+                        SelectionMode::Empty => {},
+                        SelectionMode::Single(path) => {
                             begin_path = std::cmp::min(begin_path, path.clone());
                             end_path = std::cmp::max(end_path, path.clone());
                         },
-                        super::SelectionMode::SiblingRange(prefix, begin_child, end_child) => {
+                        SelectionMode::SiblingRange(prefix, begin_child, end_child) => {
                             let mut current_begin = prefix.clone();
                             let mut current_end = prefix.clone();
                             current_begin.push(*begin_child);
@@ -433,11 +457,11 @@ mod imp {
                             begin_path = std::cmp::min(begin_path, current_begin);
                             end_path = std::cmp::max(end_path, current_end);
                         },
-                        super::SelectionMode::All => return true,
+                        SelectionMode::All => return true,
                     }
                 }
                 
-                interior.mode = super::SelectionMode::new_range_between(&begin_path, &end_path);
+                interior.mode = SelectionMode::new_range_between(&begin_path, &end_path);
                 self.notify_all_changed(interior);
                 
                 true
@@ -452,7 +476,7 @@ mod imp {
 
         fn unselect_all(&self) -> bool {
             if let Some(mut interior) = self.borrow_interior_mut() {
-                interior.mode = super::SelectionMode::Empty;
+                interior.mode = SelectionMode::Empty;
                 self.notify_all_changed(interior);
                 true
             } else {
@@ -471,16 +495,15 @@ mod imp {
 
     impl ListModelImpl for StructureSelectionModel {
         fn item_type(&self) -> glib::Type {
-            //self.interior.borrow().as_ref().unwrap().tree_model.item_type()
             gtk::TreeListRow::static_type()
         }
 
         fn n_items(&self) -> u32 {
-            self.interior.borrow().as_ref().map_or(0, |i| i.tree_model.n_items())
+            self.borrow_interior().map_or(0, |i| i.tree_model.n_items())
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
-            self.interior.borrow().as_ref().and_then(|i| {
+            self.borrow_interior().and_then(|i| {
                 i.tree_model.item(position)
             })
         }
@@ -551,13 +574,14 @@ impl StructureListModel {
 
     fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
         let mut i = self.imp().interior.get().unwrap().borrow_mut();
+        document::change::update_path(&mut i.path, change).unwrap();
         i.document = new_doc.clone();
         
         let (new_node, addr) = new_doc.lookup_node(&i.path);
 
         i.address = addr;
         
-        match &change.ty {
+        let items_changed = match &change.ty {
             /* Was one of our children altered? */
             change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..]=> {
                 let index = path[i.path.len()];
@@ -565,8 +589,6 @@ impl StructureListModel {
                 let childhood = &new_node.children[index];
                 let document_host = i.document_host.clone();
 
-                std::mem::drop(i);
-                
                 child_item.stage(NodeInfo {
                     path: path.clone(),
                     node: childhood.node.clone(),
@@ -576,19 +598,18 @@ impl StructureListModel {
                     document: new_doc.clone(),
                     document_host,
                 });
+
+                None
             },
-            change::ChangeType::AlterNode(_, _) => {},
+            change::ChangeType::AlterNode(_, _) => None,
 
             /* Did we get a new child? */
             change::ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) if affected_path[..] == i.path[..] => {
                 let childhood = &new_node.children[*affected_index];
-                let mut path = affected_path.clone();
-                path.push(*affected_index);
-
                 let document_host = i.document_host.clone();
-                
+
                 i.children.insert(*affected_index, NodeItem::new(NodeInfo {
-                    path,
+                    path: vec![], /* will be fixed up later */
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
                     offset: childhood.offset,
@@ -597,12 +618,44 @@ impl StructureListModel {
                     document_host,
                 }));
 
-                //todo!("fixup paths for old children!!!!");
-                
-                std::mem::drop(i);
-                self.items_changed(*affected_index as u32, 0, 1);
+                Some((*affected_index as u32, 0, 1))
             },
-            change::ChangeType::InsertNode(_, _, _, _) => {},
+
+            change::ChangeType::Nest(parent, first_child, last_child, _props) if parent[..] == i.path[..] => {
+                let childhood = &new_node.children[*first_child];
+                let document_host = i.document_host.clone();
+                
+                let count_removed = i.children.splice(first_child..=last_child, [NodeItem::new(NodeInfo {
+                    path: vec![], /* will be fixed up later */
+                    node: childhood.node.clone(),
+                    props: childhood.node.props.clone(),
+                    offset: childhood.offset,
+                    address: addr + childhood.offset.to_size(),
+                    document: new_doc.clone(),
+                    document_host,
+                })]).count();
+
+                Some((*first_child as u32, count_removed as u32, 1))
+            },
+            change::ChangeType::Nest(_, _, _, _) => None,
+            
+            change::ChangeType::InsertNode(_, _, _, _) => None,
+        };
+
+        /* Fixup children's paths */
+        {
+            let i = &mut *i;
+            for (index, child) in i.children.iter_mut().enumerate() {
+                let mut child_info = child.imp().info.get().unwrap().borrow_mut();
+                child_info.path.splice(.., i.path.iter().cloned());
+                child_info.path.push(index);
+            }
+        }
+
+        std::mem::drop(i);
+
+        if let Some((index, added, removed)) = items_changed {
+            self.items_changed(index, added, removed);
         }
     }
     
@@ -635,7 +688,7 @@ impl NodeItem {
     fn stage(&self, info: NodeInfo) {
         *self.imp().staged_info.borrow_mut() = Some(info);
     }
-    
+
     fn update(&self) {
         if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
             let mut info = self.imp().info.get().unwrap().borrow_mut();
@@ -661,7 +714,31 @@ impl NodeItem {
 }
 
 impl StructureSelectionModel {
-    fn selection_mode(&self) -> SelectionMode {
-        self.imp().interior.borrow().as_ref().map_or(SelectionMode::Empty, |i| i.mode.clone())
+    pub fn new(document_host: sync::Arc<document::DocumentHost>) -> StructureSelectionModel {
+        let document = document_host.get();
+        
+        let model: StructureSelectionModel = glib::Object::builder().build();
+
+        let tree_model = create_tree_list_model(document_host.clone(), document.clone(), true);
+        tree_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| model.items_changed(pos, removed, added)));
+
+        let subscriber = helpers::subscribe_to_document_updates(model.downgrade(), document_host.clone(), document.clone(), move |model, new_document| {
+            model.imp().update(new_document);
+        });
+        
+        *model.imp().interior.borrow_mut() = Some(imp::StructureSelectionModelInterior {
+            tree_model,
+            mode: SelectionMode::Empty,
+            document,
+            document_host,
+            subscriber,
+        });
+
+        model
+    }
+    
+    pub fn selection_mode(&self) -> (SelectionMode, sync::Arc<document::Document>) {
+        let i = self.imp().borrow_interior().unwrap();
+        (i.mode.clone(), i.document.clone())
     }
 }

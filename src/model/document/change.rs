@@ -11,6 +11,9 @@ pub enum ChangeType {
 
     /// Inserts the node as a child of the node referred to by the given path.
     InsertNode(structure::Path, usize, addr::Address, sync::Arc<structure::Node>),
+
+    /// Wraps a node's children (range inclusive) in a new node.
+    Nest(structure::Path, usize, usize, structure::Properties),
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +34,9 @@ pub enum ApplyError {
     InvalidParameters,
 }
 
-pub fn update_path(mut path: structure::Path, through: &Change) -> Result<structure::Path, UpdateError> {
+pub fn update_path(path: &mut structure::Path, through: &Change) -> Result<(), UpdateError> {
     match &through.ty {
-        ChangeType::AlterNode(_, _) => Ok(path),
+        ChangeType::AlterNode(_, _) => Ok(()),
         ChangeType::InsertNode(affected_path, affected_index, _new_node_offset, _new_node) => {
             if path.len() > affected_path.len() && path[0..affected_path.len()] == affected_path[..] {
                 let path_index = &mut path[affected_path.len()];
@@ -43,7 +46,22 @@ pub fn update_path(mut path: structure::Path, through: &Change) -> Result<struct
                 }
             }
 
-            Ok(path)
+            Ok(())
+        },
+        ChangeType::Nest(parent, first_child, last_child, _props) => {
+            if path.len() > parent.len() && &path[0..parent.len()] == &parent[..] {
+                let child_index = &mut path[parent.len()];
+                
+                if *child_index >= *first_child && *child_index <= *last_child {
+                    *child_index-= first_child;
+                    drop(child_index);
+                    path.insert(parent.len(), *first_child);
+                } else if *child_index > *last_child {
+                    *child_index-= last_child-first_child;
+                }
+            }
+
+            Ok(())
         },
     }
 }
@@ -61,8 +79,9 @@ pub fn update_change(change: Change, to: &document::Document) -> Result<Change, 
 
             Ok(Change {
                 ty: match change.ty {
-                    ChangeType::AlterNode(path, props) => ChangeType::AlterNode(update_path(path, doc_change)?, props),
+                    ChangeType::AlterNode(mut path, props) => ChangeType::AlterNode({ update_path(&mut path, doc_change)?; path }, props),
                     ChangeType::InsertNode(_, _, _, _) => return Err(UpdateError::NotUpdatable),
+                    ChangeType::Nest(_, _, _, _) => return Err(UpdateError::NotUpdatable),
                 },
                 generation: to.generation
             })
@@ -133,6 +152,32 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             target.children.insert(after_child, structure::Childhood {
                 node,
                 offset,
+            });
+
+            Ok(())
+        })?),
+        ChangeType::Nest(parent, first_child, last_child, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
+            /* Check indices. */
+            if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() || last_child < first_child {
+                return Err(ApplyError::InvalidParameters);
+            }
+
+            /* Preconditions passed; do the deed. */
+            let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
+
+            let offset = children[0].offset;
+            let mut size = addr::unit::ZERO;
+            for child in &mut children {
+                child.offset-= offset.to_size();
+                size = std::cmp::max(size, child.offset.to_size() + child.node.size);
+            }
+
+            let new_node = &mut parent_node.children[first_child];
+            new_node.offset = offset;
+            new_node.node = sync::Arc::new(structure::Node {
+                size: size,
+                children: children,
+                props
             });
 
             Ok(())

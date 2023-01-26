@@ -3,7 +3,9 @@ use std::rc;
 use std::sync;
 
 use crate::view::CharmApplication;
+use crate::model::addr;
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::space;
 use crate::view;
 use crate::view::hierarchy;
@@ -53,7 +55,7 @@ impl CharmWindow {
             {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Go to..."), Some("listing.goto"));
-                edit_menu.append(Some("Insert or edit break..."), Some("listing.insert_break"));
+                edit_menu.append(Some("Nest"), Some("win.hierarchy.structure.nest"));
                 edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
                 {
                     let mode_menu = gio::Menu::new();
@@ -206,6 +208,10 @@ impl CharmWindow {
                 ctx.lw.action_insert_qword();
             }
         });
+
+        view::helpers::bind_simple_action(&w, &w.window, "hierarchy.structure.nest", |w| {
+            w.action_nest();
+        });
         
         view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
@@ -307,6 +313,36 @@ impl CharmWindow {
             });
         }
     }
+
+    pub fn action_nest(self: &rc::Rc<Self>) {
+        // TODO: disable action when no model is attached
+
+        if let Some(ctx) = &*self.context.borrow() {
+            let (selection, document) = match self.hierarchy_editor.model() {
+                Some(model) => model.downcast::<hierarchy::StructureSelectionModel>().unwrap(),
+                None => return
+            }.selection_mode();
+
+            let (parent, first_sibling, last_sibling) = match &selection {
+                hierarchy::SelectionMode::Empty => return,
+                hierarchy::SelectionMode::Single(path) if !path.is_empty() => (&path[0..path.len()-1], *path.last().unwrap(), *path.last().unwrap()),
+                hierarchy::SelectionMode::SiblingRange(path, begin, end) => (&path[..], *begin, *end),
+                hierarchy::SelectionMode::All | hierarchy::SelectionMode::Single(_) => {
+                    // TODO: find a way to issue a warning for this
+                    return;
+                }
+            };
+
+            // TODO: failure feedback
+            let _ = ctx.document_host.nest(&document, parent.to_vec(), first_sibling, last_sibling, structure::Properties {
+                name: "nest".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                locked: false,
+            });
+        }
+    }
     
     pub fn close_file(self: &rc::Rc<Self>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
@@ -351,7 +387,7 @@ impl WindowContext {
     fn attach(self, window: &CharmWindow) {
         window.listing_frame.set_child(Some(&self.lw));
         window.datapath_editor.set_model(Some(self.datapath_model.read().get_tree_model()));
-        window.hierarchy_editor.set_model(Some(&view::hierarchy::create_selection_model(self.document_host.clone())));
+        window.hierarchy_editor.set_model(Some(&view::hierarchy::StructureSelectionModel::new(self.document_host.clone())));
         self.lw.grab_focus();
         
         *window.context.borrow_mut() = Some(self);
