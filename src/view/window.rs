@@ -177,37 +177,14 @@ impl CharmWindow {
 
         /* window actions */
         
-        view::helpers::bind_simple_action(&w, &w.window, "open", |w| {
-            w.action_open();
-        });
+        view::helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
+        view::helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| w.action_edit_properties());
 
-        view::helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| {
-            w.action_edit_properties();
-        });
-
-        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_byte", |w| {
-            if let Some(ctx) = &*w.context.borrow() {
-                ctx.lw.action_insert_byte();
-            }
-        });
-
-        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_word", |w| {
-            if let Some(ctx) = &*w.context.borrow() {
-                ctx.lw.action_insert_word();
-            }
-        });
-
-        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_dword", |w| {
-            if let Some(ctx) = &*w.context.borrow() {
-                ctx.lw.action_insert_dword();
-            }
-        });
-
-        view::helpers::bind_simple_action(&w, &w.window, "listing.structure.insert_qword", |w| {
-            if let Some(ctx) = &*w.context.borrow() {
-                ctx.lw.action_insert_qword();
-            }
-        });
+        w.bind_listing_action("listing.structure.insert", &view::listing::action::action_insert_with_prompt);
+        w.bind_listing_action("listing.structure.insert_byte", &view::listing::action::action_insert_byte);
+        w.bind_listing_action("listing.structure.insert_word", &view::listing::action::action_insert_word);
+        w.bind_listing_action("listing.structure.insert_dword", &view::listing::action::action_insert_dword);
+        w.bind_listing_action("listing.structure.insert_qword", &view::listing::action::action_insert_qword);
 
         view::helpers::bind_simple_action(&w, &w.window, "hierarchy.structure.nest", |w| {
             w.action_nest();
@@ -230,6 +207,14 @@ impl CharmWindow {
         w
     }
 
+    fn bind_listing_action<F: Fn(&view::listing::ListingWidget) + 'static>(self: &rc::Rc<Self>, id: &str, cb: F) {
+        view::helpers::bind_simple_action(self, &self.window, id, move |w| {
+            if let Some(ctx) = &*w.context.borrow() {
+                cb(&ctx.lw)
+            }
+        });
+    }
+    
     pub fn present(&self) {
         self.config_editor_frame.hide();
         self.window.present();

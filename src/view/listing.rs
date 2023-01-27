@@ -2,24 +2,15 @@ use std::future;
 use std::pin;
 use std::sync;
 use std::task;
-use std::vec;
-//use std::time;
-//use std::collections::HashMap;
 
 use crate::view::config;
 use crate::util;
-use crate::model::addr;
-//use crate::model::datapath;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
-use crate::model::document::structure;
-//use crate::model::listing;
-//use crate::model::listing::cursor;
 use crate::model::listing::layout;
 use crate::view;
 use crate::view::gsc;
 use crate::view::helpers;
-//use crate::view::ext::CairoExt;
 
 use gtk::gdk;
 use gtk::glib;
@@ -28,8 +19,8 @@ use gtk::graphene;
 use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
-use tracing::{event, Level};
 
+pub mod action;
 pub mod facet;
 mod token_view;
 mod line;
@@ -259,49 +250,6 @@ impl ListingWidget {
         interior.work_notifier.notify();
         
         self.queue_draw();
-    }
-
-    fn action_insert_node<S: Into<addr::Size>>(&self, name: String, size: S) {
-        let mut interior = self.imp().interior.get().unwrap().write();
-        let dh = interior.document_host.clone();
-        
-        match interior.cursor.cursor.insert_node(&dh, sync::Arc::new(structure::Node {
-            props: structure::Properties {
-                name,
-                title_display: structure::TitleDisplay::Minor,
-                children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
-                locked: false,
-            },
-            children: vec::Vec::new(),
-            size: size.into(),
-        })) {
-            Ok(()) => {},
-            Err(e) => {
-                event!(Level::ERROR, "failed to insert empty node at cursor: {:?}", e);
-                interior.cursor.bonk()
-            },
-        }
-    }
-    
-    pub fn action_insert_empty_node(&self) {
-        self.action_insert_node("empty".to_string(), 0);
-    }
-
-    pub fn action_insert_byte(&self) {
-        self.action_insert_node("byte".to_string(), 1);
-    }
-
-    pub fn action_insert_word(&self) {
-        self.action_insert_node("word".to_string(), 2);
-    }
-
-    pub fn action_insert_dword(&self) {
-        self.action_insert_node("dword".to_string(), 4);
-    }
-
-    pub fn action_insert_qword(&self) {
-        self.action_insert_node("qword".to_string(), 8);
     }
 }
 

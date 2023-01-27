@@ -238,12 +238,28 @@ impl Cursor {
     }
      */
 
+    pub fn structure_path(&self) -> structure::Path {
+        self.tokenizer.structure_path()
+    }
+
+    pub fn structure_child_index(&self) -> usize {
+        self.tokenizer.structure_position_child()
+    }
+    
+    pub fn structure_offset(&self) -> addr::Address {
+        self.tokenizer.structure_position_offset() + self.class.get_offset()
+    }
+    
+    pub fn document(&self) -> sync::Arc<document::Document> {
+        self.document.clone()
+    }
+    
     pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
         host.insert_node(
             &self.document,
-            self.tokenizer.structure_path(),
-            self.tokenizer.structure_position_child(),
-            self.tokenizer.structure_position_offset() + self.class.get_offset(),
+            self.structure_path(),
+            self.structure_child_index(),
+            self.structure_offset(),
             node).map(|_| {
                 self.update_internal(&host.borrow(), UpdateMode::AfterNewNode);
         })
