@@ -111,7 +111,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkComboBox" id="children_display">
+      <object class="GtkEntry" id="children_display">
         <property name="hexpand">True</property>
         <layout>
           <property name="column">3</property>
