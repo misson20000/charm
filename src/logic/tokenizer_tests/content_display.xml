@@ -11,11 +11,15 @@
     <title node="root" nl="true" />
     <indent>
       <title node="hexdump" nl="false" />
-      <hexdump node="hexdump" begin="0x0" end="0x8" nl="true" />
-      <hexdump node="hexdump" begin="0x8" end="0x10" nl="true" />
+      <indent>
+	<hexdump node="hexdump" begin="0x0" end="0x8" nl="true" />
+	<hexdump node="hexdump" begin="0x8" end="0x10" nl="true" />
+      </indent>
 
       <title node="hexstring" nl="false" />
-      <hexstring node="hexstring" begin="0x0" end="0x10" nl="true" />
+      <indent>
+	<hexstring node="hexstring" begin="0x0" end="0x10" nl="true" />
+      </indent>
     </indent>
     <null node="root" nl="true" />
   </tokens>

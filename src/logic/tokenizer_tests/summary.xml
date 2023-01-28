@@ -69,10 +69,11 @@
       <close node="entity" nl="false" />
       
       <null node="entity" nl="true" />
-    </indent>
 
-    <hexdump node="root" begin="0x30" end="0x40" nl="true" />
-    <hexdump node="root" begin="0x40" end="0x50" nl="true" />
+      <hexdump node="root" begin="0x30" end="0x40" nl="true" />
+      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
+    </indent>
+    
     <null node="root" nl="true" />
   </tokens>
 </testcase>

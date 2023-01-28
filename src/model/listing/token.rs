@@ -66,6 +66,8 @@ impl PartialEq for Token {
     fn eq(&self, other: &Self) -> bool {
         self.class == other.class &&
             sync::Arc::<structure::Node>::ptr_eq(&self.node, &other.node) &&
+            self.node_addr == other.node_addr &&
+            self.depth == other.depth &&
             self.newline == other.newline
     }
 }

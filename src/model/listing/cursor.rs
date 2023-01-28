@@ -433,7 +433,7 @@ mod tests {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
             node_addr: addr::unit::NULL,
-            depth: 0,
+            depth: 1,
             newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
@@ -456,27 +456,12 @@ mod tests {
         /* port the cursor over */
         cursor.update(&document);
 
-        /* make sure it winds up on the new node */
-        assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
-            node: child_1.clone(),
-            node_addr: addr::unit::NULL,
-            depth: 1,
-            newline: true,
-        });
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
-
-        /* move the cursor off the first child */
-        for _ in 0..8 {
-            cursor.move_right();
-        }
-
-        /* make sure it winds up immediately after the first child */
+        /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(4.into(), 12.into())),
             node: document.root.clone(),
             node_addr: addr::unit::NULL,
-            depth: 0,
+            depth: 1,
             newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
@@ -499,10 +484,10 @@ mod tests {
         /* port the cursor over */
         cursor.update(&document);
         
-        /* make sure it winds up on the second new node */
+        /* make sure it winds up after the second new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
-            node: child_2.clone(),
+            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            node: document.root.clone(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -521,7 +506,7 @@ mod tests {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
             node_addr: addr::unit::NULL,
-            depth: 0,
+            depth: 1,
             newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
@@ -536,7 +521,7 @@ mod tests {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
             node_addr: addr::unit::NULL,
-            depth: 0,
+            depth: 1,
             newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Size::from(4) && hxc.low_nybble == false);
@@ -559,10 +544,10 @@ mod tests {
         /* port the cursor over */
         cursor.update(&document);
         
-        /* make sure it winds up on the new node */
+        /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 4.into())),
-            node: child.clone(),
+            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            node: document.root.clone(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,

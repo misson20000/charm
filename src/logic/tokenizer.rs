@@ -1392,19 +1392,19 @@ mod tests {
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x20)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x20, 0x30)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x30, 0x32)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             /* child */
             token::Token {
@@ -1417,11 +1417,11 @@ mod tests {
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 2, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x18)),
-                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_addr: 0x32.into(), depth: 2, newline: true
             },
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
@@ -1430,15 +1430,15 @@ mod tests {
             /* root */
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x4a, 0x50)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x50, 0x60)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x60, 0x70)),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),

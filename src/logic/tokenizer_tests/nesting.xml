@@ -37,7 +37,9 @@
       <null node="zs4" nl="true" />
       <null node="bumper" nl="true" />
       <title node="bumper" nl="true" />
-      <hexdump node="bumper" begin="0x0" end="0x10" nl="true" />
+      <indent>
+	<hexdump node="bumper" begin="0x0" end="0x10" nl="true" />
+      </indent>
       <null node="bumper" nl="true" />
       <null node="nest1" nl="true" />
       <title node="nest1" nl="true" />
@@ -47,7 +49,9 @@
 	<indent>
 	  <null node="nest1.1.1" nl="true" />
 	  <title node="nest1.1.1" nl="true" />
-	  <hexdump node="nest1.1.1" begin="0x0" end="0x8" nl="true" />
+	  <indent>
+	    <hexdump node="nest1.1.1" begin="0x0" end="0x8" nl="true" />
+	  </indent>
 	  <null node="nest1.1.1" nl="true" />
 	</indent>
 	<null node="nest1.1" nl="true" />
@@ -59,12 +63,14 @@
 	<indent>
 	  <null node="nest1.3.1" nl="true" />
 	  <title node="nest1.3.1" nl="true" />
-	  <hexdump node="nest1.3.1" begin="0x0" end="0x8" nl="true" />
+	  <indent>
+	    <hexdump node="nest1.3.1" begin="0x0" end="0x8" nl="true" />
+	  </indent>
 	  <null node="nest1.3.1" nl="true" />
 	</indent>
 	<null node="nest1.3" nl="true" />
+	<hexdump node="nest1" begin="0x10" end="0x18" nl="true" />
       </indent>
-      <hexdump node="nest1" begin="0x10" end="0x18" nl="true" />
       <null node="nest1" nl="true" />
     </indent>
     <null node="root" nl="true" />
