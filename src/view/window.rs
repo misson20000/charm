@@ -292,9 +292,7 @@ impl CharmWindow {
 
             /* extend lifetimes of binding and reference until window closes */
             dialog.connect_destroy(move |_| {
-                let _ = item;
-                let _ = name_binding;
-                let _ = children_display_binding;
+                let _ = (&item, &name_binding, &children_display_binding);
             });
         }
     }

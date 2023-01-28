@@ -2,7 +2,7 @@
 name = "charm"
 version = "0.1.0"
 authors = ["misson20000 <xenotoad@xenotoad.net>"]
-edition = "2018"
+edition = "2021"
 default-run = "gtk"
 
 [features]

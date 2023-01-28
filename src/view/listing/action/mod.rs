@@ -105,7 +105,7 @@ pub fn action_insert_with_prompt(listing: &super::ListingWidget) {
     
     /* extend lifetime */
     dialog.connect_destroy(move |_| {
-        let _ = state;
+        let _ = &state;
     });
     
     dialog.present();
