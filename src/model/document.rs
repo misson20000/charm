@@ -1,3 +1,5 @@
+pub mod change;
+pub mod search;
 pub mod structure;
 
 use std::future;
@@ -10,8 +12,6 @@ use crate::util;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
-
-pub mod change;
 
 #[derive(Clone)]
 pub struct Document {
@@ -244,6 +244,17 @@ impl Document {
             generation: NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
         })
     }
+
+    #[cfg(test)]
+    pub fn new_for_structure_test(root: sync::Arc<structure::Node>) -> Document {
+        Document {
+            previous: None,
+            root,
+            datapath: datapath::DataPath::new(),
+            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
+            generation: NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
+        }
+    }
     
     pub fn invalid() -> Document {
         Document {
@@ -285,6 +296,10 @@ impl Document {
         }
 
         (current_node, node_addr)
+    }
+
+    pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
+        search::AddressSearch::new(self, addr.into(), traversal)
     }
 }
 
