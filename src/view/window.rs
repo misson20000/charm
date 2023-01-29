@@ -8,6 +8,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::space;
 use crate::view;
+use crate::view::helpers;
 use crate::view::hierarchy;
 
 use gtk::gio;
@@ -15,13 +16,6 @@ use gtk::glib;
 use gtk::glib::clone;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
-
-pub struct WindowContext {
-    window: rc::Weak<CharmWindow>,
-    document_host: sync::Arc<document::DocumentHost>,
-    lw: view::listing::ListingWidget,
-    datapath_model: sync::Arc<parking_lot::RwLock<view::datapath::DataPathModel>>,
-}
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
@@ -33,6 +27,18 @@ pub struct CharmWindow {
     datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
     context: cell::RefCell<Option<WindowContext>>,
+}
+
+pub struct WindowContext {
+    document_host: sync::Arc<document::DocumentHost>,
+    
+    window: rc::Weak<CharmWindow>,
+    
+    lw: view::listing::ListingWidget,
+    datapath_model: gtk::TreeModel,
+    hierarchy_model: hierarchy::StructureSelectionModel,
+
+    datapath_subscriber: helpers::AsyncSubscriber,
 }
 
 impl CharmWindow {
@@ -177,8 +183,8 @@ impl CharmWindow {
 
         /* window actions */
         
-        view::helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
-        view::helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| w.action_edit_properties());
+        helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
+        helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| w.action_edit_properties());
 
         w.bind_listing_action("listing.structure.insert", &view::listing::action::action_insert_with_prompt);
         w.bind_listing_action("listing.structure.insert_byte", &view::listing::action::action_insert_byte);
@@ -326,13 +332,25 @@ impl CharmWindow {
             });
         }
     }
-    
-    pub fn close_file(self: &rc::Rc<Self>) {
+
+    /* This is THE ONLY place allowed to modify context */
+    fn attach_context(&self, context: Option<WindowContext>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
-        self.window.insert_action_group("listing", Option::<&gio::ActionGroup>::None);
-        *self.context.borrow_mut() = None;
+
+        *self.context.borrow_mut() = context;
+
+        if let Some(new_context) = &*self.context.borrow() {
+            self.listing_frame.set_child(Some(&new_context.lw));
+            self.datapath_editor.set_model(Some(&new_context.datapath_model));
+            self.hierarchy_editor.set_model(Some(&new_context.hierarchy_model));
+            new_context.lw.grab_focus();
+        }
+    }
+    
+    pub fn close_file(&self) {
+        self.attach_context(None);
     }
     
     pub fn open_file(self: &rc::Rc<Self>, file: &gio::File) {
@@ -348,31 +366,30 @@ impl CharmWindow {
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling
-        WindowContext::new(self, document::Document::new(space)).attach(self);
+        self.attach_context(Some(WindowContext::new(self, document::Document::new(space))));
     }
 }
 
 impl WindowContext {
     fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
+        
         let lw = view::listing::ListingWidget::new();
         lw.init(window, document_host.clone());
-        let datapath_model = view::datapath::DataPathModel::new(window, &document_host);
+        
+        let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
+        let hierarchy_model = hierarchy::StructureSelectionModel::new(document_host.clone());
         
         WindowContext {
-            window: rc::Rc::downgrade(window),
             document_host,
+            
+            window: rc::Rc::downgrade(window),
+            
             lw,
             datapath_model,
-        }
-    }
+            hierarchy_model,
 
-    fn attach(self, window: &CharmWindow) {
-        window.listing_frame.set_child(Some(&self.lw));
-        window.datapath_editor.set_model(Some(self.datapath_model.read().get_tree_model()));
-        window.hierarchy_editor.set_model(Some(&view::hierarchy::StructureSelectionModel::new(self.document_host.clone())));
-        self.lw.grab_focus();
-        
-        *window.context.borrow_mut() = Some(self);
+            datapath_subscriber,
+        }
     }
 }
