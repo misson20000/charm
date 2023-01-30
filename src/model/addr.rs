@@ -466,3 +466,16 @@ impl std::fmt::Debug for Extent {
     }
 }
 
+pub mod fmt {
+    #[derive(Debug, Clone, Copy)]
+    pub struct CompactSize(pub super::Size);
+    
+    impl std::fmt::Display for CompactSize {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self.0.bits {
+                0 => write!(f, "{:#x}", self.0.bytes),
+                _ => write!(f, "{:#x}.{}", self.0.bytes, self.0.bits)
+            }
+        }
+    }
+}

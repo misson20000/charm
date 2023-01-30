@@ -58,13 +58,13 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
 #[derive(Debug)]
 pub struct AsyncSubscriber(Option<glib::SourceId>);
 
-pub fn subscribe_to_document_updates<Object, F>(
-    obj_weak: glib::object::WeakRef<Object>,
+pub fn subscribe_to_document_updates<Ref, F>(
+    obj_weak: Ref,
     document_host: sync::Arc<document::DocumentHost>,
     initial_document: sync::Arc<document::Document>,
     callback: F) -> AsyncSubscriber where
-    Object: glib::object::ObjectType,
-    F: Fn(Object, &sync::Arc<document::Document>) + 'static {
+    Ref: glib::clone::Upgrade + 'static,
+    F: Fn(Ref::Strong, &sync::Arc<document::Document>) + 'static {
     spawn_on_main_context(async move {
         let mut document = initial_document;
 

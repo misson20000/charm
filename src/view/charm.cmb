@@ -48,12 +48,12 @@
 	(3,62,"GtkBox",None,54,None,None,None,1,None),
 	(3,63,"GtkButton","cancel_button",62,None,None,None,None,None),
 	(3,64,"GtkButton","insert_button",62,None,None,None,1,None),
-	(4,1,"GtkBox",None,None,None,None,None,None,None),
-	(4,2,"GtkSearchEntry","entry",1,None,None,None,None,None),
+	(4,1,"GtkBox","toplevel",None,None,None,None,None,None),
 	(4,4,"GtkBox",None,1,None,None,None,3,None),
 	(4,5,"GtkButton","cancel_button",4,None,None,None,None,None),
 	(4,6,"GtkScrolledWindow",None,1,None,None,None,2,None),
-	(4,7,"GtkListView","list",6,None,None,None,None,None)
+	(4,7,"GtkListView","list",6,None,None,None,None,None),
+	(4,8,"GtkEntry","entry",1,None,None,None,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","height-request","800",None,None,None,None,None),
@@ -143,6 +143,7 @@
 	(3,58,"GtkWidget","halign","start",None,None,None,None,None),
 	(3,59,"GtkEntry","activates-default","True",None,None,None,None,None),
 	(3,59,"GtkWidget","hexpand","True",None,None,None,None,None),
+	(3,60,"GtkEntry","activates-default","True",None,None,None,None,None),
 	(3,60,"GtkWidget","hexpand","True",None,None,None,None,None),
 	(3,61,"GtkLabel","label","Size",None,None,None,None,None),
 	(3,61,"GtkWidget","halign","start",None,None,None,None,None),
@@ -163,7 +164,6 @@
 	(4,1,"GtkWidget","margin-start","15",None,None,None,None,None),
 	(4,1,"GtkWidget","margin-top","15",None,None,None,None,None),
 	(4,1,"GtkWidget","width-request","500",None,None,None,None,None),
-	(4,2,"GtkSearchEntry","activates-default","True",None,None,None,None,None),
 	(4,4,"GtkBox","spacing","10",None,None,None,None,None),
 	(4,4,"GtkWidget","halign","end",None,None,None,None,None),
 	(4,4,"GtkWidget","margin-top","15",None,None,None,None,None),

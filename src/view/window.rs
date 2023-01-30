@@ -65,7 +65,7 @@ impl CharmWindow {
             }
             {
                 let edit_menu = gio::Menu::new();
-                edit_menu.append(Some("Go to..."), Some("listing.goto"));
+                edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
                 edit_menu.append(Some("Nest"), Some("win.hierarchy.structure.nest"));
                 edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
                 {
@@ -82,7 +82,11 @@ impl CharmWindow {
             }
             {
                 let struct_menu = gio::Menu::new();
-                struct_menu.append(Some("Insert empty node"), Some("win.listing.structure.insert_empty"));
+                struct_menu.append(Some("Insert byte at cursor"), Some("ctx.insert_byte"));
+                struct_menu.append(Some("Insert word at cursor"), Some("ctx.insert_word"));
+                struct_menu.append(Some("Insert dword at cursor"), Some("ctx.insert_dword"));
+                struct_menu.append(Some("Insert qword at cursor"), Some("ctx.insert_qword"));
+                struct_menu.append(Some("Insert node..."), Some("ctx.insert_node"));
                 struct_menu.freeze();
                 menu_bar.append_submenu(Some("Structure"), &struct_menu);
             }
@@ -388,6 +392,7 @@ impl WindowContext {
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
+        wc.action_group.add_action(&action::navigate::create_action(&wc));
         
         wc
     }

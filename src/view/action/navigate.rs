@@ -1,34 +1,226 @@
+use std::cell;
+use std::fmt::Write;
+use std::rc;
+use std::sync;
+
+use crate::model::addr;
+use crate::model::document;
+use crate::model::document::search;
+use crate::view::helpers;
+use crate::view::listing;
 use crate::view::window;
 
-use std::cell;
-use std::rc;
+use gtk::prelude::*;
+use gtk::subclass::prelude::*;
+use gtk::glib;
+use gtk::glib::clone;
+use gtk::gio;
 
 struct NavigateAction {
-    window_context: rc::Weak<window::WindowContext>,
+    document_host: sync::Arc<document::DocumentHost>,
+    document: cell::RefCell<sync::Arc<document::Document>>,
+
+    lw: listing::ListingWidget,
     
     dialog: gtk::ApplicationWindow,
-    document: cell::RefCell<sync::Arc<document::Document>>,
-    document_host: sync::Arc<document::DocumentHost>
+    entry: gtk::Entry,
+
+    model: gtk::SingleSelection,
+    store: gio::ListStore,
+    current_addr: cell::Cell<addr::Address>,
+    
+    subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
+}
+
+pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
+    let builder = gtk::Builder::from_string(include_str!("../navigate.ui"));
+
+    let entry: gtk::Entry = builder.object("entry").unwrap();
+    let list: gtk::ListView = builder.object("list").unwrap();
+    //let cancel_button: gtk::Button = builder.object("cancel_button").unwrap();
+
+    let dialog = gtk::ApplicationWindow::builder()
+        .application(&window_context.window.upgrade().unwrap().application.application)
+        .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+        .resizable(true)
+        .title(&"Navigate")
+        .transient_for(&window_context.window.upgrade().unwrap().window)
+        .default_widget(&list)
+        .build();
+
+    let store = gio::ListStore::new(HitItem::static_type());
+    
+    let action = rc::Rc::new(NavigateAction {
+        document_host: window_context.document_host.clone(),
+        document: cell::RefCell::new(window_context.document_host.get()),
+        lw: window_context.lw.clone(),
+        dialog: dialog.clone(),
+        entry,
+
+        model: gtk::SingleSelection::new(Some(&store)),
+        store,
+        current_addr: cell::Cell::new(addr::unit::NULL),
+        
+        subscriber: once_cell::unsync::OnceCell::new(),
+    });
+
+    list.set_model(Some(&action.model));
+    list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("../navigate-item.ui")))));
+    list.connect_activate(clone!(@weak action => move |_, position| {
+        action.do_navigate(action.model.item(position));
+    }));
+    
+    action.entry.connect_changed(clone!(@weak action => move |_| {
+        action.refresh_results(None, false);
+    }));
+
+    action.entry.connect_activate(clone!(@weak action => move |_| {
+        action.do_navigate(action.model.item(0));
+    }));
+
+    action.subscriber.set(helpers::subscribe_to_document_updates(rc::Rc::downgrade(&action), action.document_host.clone(), action.document.borrow().clone(), |action, new_document| {
+        action.refresh_results(Some(new_document.clone()), false);
+    })).unwrap();
+    
+    helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
+        action.dialog.hide();
+    });
+
+    helpers::create_simple_action_strong(action, "navigate", |ina| ina.activate())
 }
 
 impl NavigateAction {
-    fn new(window_context: &window::WindowContext) -> NavigateAction {
-        let builder = gtk::Builder::from_string(include_str!("../../navigate.ui"));
+    fn activate(&self) {
+        let cursor = self.lw.cursor();
 
-        let entry: gtk::SearchEntry = builder.object("entry").unwrap();
-        let list: gtk::ListView = builder.object("list").unwrap();
-        let cancel_button: gtk::Button = builder.object("cancel_button").unwrap();
-
+        self.entry.set_text(&format!("{}", cursor.structure_offset()));
+        self.entry.grab_focus();
+        self.refresh_results(None, true);
         
+        self.dialog.present();
     }
 
-    fn activate(&self) {
-        self.dialog.present();
+    fn refresh_results(&self, new_document: Option<sync::Arc<document::Document>>, force: bool) {
+        let new_addr = addr::Address::parse(self.entry.text().as_str()).ok().and_then(|na| if na == self.current_addr.get() { None } else { Some(na) });
+
+        if new_addr.is_some() || new_document.is_some() || force {
+            if let Some(new_document) = new_document {
+                *self.document.borrow_mut() = new_document;
+            }
+
+            if !self.dialog.is_visible() && !force {
+                return;
+            }
+            
+            if let Some(new_addr) = new_addr {
+                self.current_addr.set(new_addr);
+            }
+            
+            self.store.remove_all();
+
+            let document = self.document.borrow();
+            if let Ok(iter) = document.search_addr(self.current_addr.get(), document::search::Traversal::PostOrder) {
+                for hit in iter {
+                    self.store.append(&HitItem::new(document.clone(), hit));
+                }
+            }
+        }
+    }
+
+    fn do_navigate(&self, item: Option<glib::Object>) {
+        let item = match item.and_then(|item| item.downcast::<HitItem>().ok()) {
+            Some(item) => item,
+            None => return
+        };
+
+        println!("navigating to {:?}", item.imp().interior.get().unwrap());
+
+        self.dialog.hide();
+
+        /* clearing out the textbox helps it always select the entire string when we grab_focus() it */
+        self.entry.set_text("");
     }
 }
 
 impl Drop for NavigateAction {
     fn drop(&mut self) {
         self.dialog.destroy();
+    }
+}
+
+mod imp {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct HitItemInterior {
+        document: sync::Arc<document::Document>,
+        hit: search::Hit,
+        path_description: String,
+    }
+    
+    #[derive(Default)]
+    pub struct HitItem {
+        pub interior: once_cell::unsync::OnceCell<HitItemInterior>
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for HitItem {
+        const NAME: &'static str = "CharmHitItem";
+        type Type = super::HitItem;
+        type ParentType = glib::Object;
+    }
+
+    impl ObjectImpl for HitItem {
+        fn properties() -> &'static [glib::ParamSpec] {
+            static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
+                once_cell::sync::Lazy::new(|| vec![
+                    glib::ParamSpecString::builder("path-description").build(),
+                ]);
+            PROPERTIES.as_ref()
+        }
+
+        fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+            let interior = self.interior.get().unwrap();
+            match pspec.name() {
+                "path-description" => glib::ToValue::to_value(&interior.path_description),
+                _ => unimplemented!()
+            }
+        }
+    }
+
+    impl HitItem {
+        pub fn init(&self, document: sync::Arc<document::Document>, hit: search::Hit) {
+            let mut node = &document.root;
+
+            let mut path_description = node.props.name.clone();
+            
+            for i in &hit.path {
+                node = &node.children[*i].node;
+                
+                if !sync::Arc::ptr_eq(node, &document.root) {
+                    path_description.push_str(".");
+                }
+                path_description.push_str(&node.props.name);
+            }
+
+            write!(path_description, " + {}", addr::fmt::CompactSize(hit.offset)).unwrap();
+            
+            self.interior.set(HitItemInterior {
+                document, hit, path_description
+            }).unwrap();
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct HitItem(ObjectSubclass<imp::HitItem>)
+        ;
+}
+
+impl HitItem {
+    fn new(document: sync::Arc<document::Document>, hit: search::Hit) -> Self {
+        let item: Self = glib::Object::builder().build();
+        item.imp().init(document, hit);
+        item
     }
 }

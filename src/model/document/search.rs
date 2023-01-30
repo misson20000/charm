@@ -30,8 +30,8 @@ pub struct AddressSearch<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hit {
-    path: structure::Path,
-    offset: addr::Size,
+    pub path: structure::Path,
+    pub offset: addr::Size,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -64,6 +64,7 @@
         </child>
         <child>
           <object class="GtkEntry" id="offset_entry">
+            <property name="activates-default">True</property>
             <property name="hexpand">True</property>
             <layout>
               <property name="column">1</property>
