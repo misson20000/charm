@@ -11,16 +11,20 @@ pub struct Cursor {
 }
 
 trait TokenExt {
-    /// absolute addresses
     fn hexdump_extent(&self) -> addr::Extent;
+    fn hexdump_absolute_extent(&self) -> addr::Extent;
 }
 
 impl TokenExt for token::Token {
     fn hexdump_extent(&self) -> addr::Extent {
         match self.class {
-            token::TokenClass::Hexdump(e) => e.rebase(self.node_addr),
+            token::TokenClass::Hexdump(e) => e,
             _ => panic!("expected hexdump token")
         }
+    }
+
+    fn hexdump_absolute_extent(&self) -> addr::Extent {
+        self.hexdump_extent().rebase(self.node_addr)
     }
 }
 
@@ -56,17 +60,17 @@ impl Cursor {
         })
     }
     
-    pub fn new_placement(token: token::Token, addr: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
+    pub fn new_placement(token: token::Token, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         let extent = token.hexdump_extent();
         let limit = (extent.length() - addr::unit::BIT).floor();
         
         Ok(Cursor {
             token,
             extent,
-            offset: match addr {
-                addr if addr < extent.begin => addr::unit::ZERO,
-                addr if addr >= extent.begin + limit => limit,
-                addr => addr - extent.begin,
+            offset: match offset {
+                offset if offset < extent.begin => addr::unit::ZERO,
+                offset if offset >= extent.begin + limit => limit,
+                offset => offset - extent.begin,
             },
             low_nybble: match &hint {
                 cursor::PlacementHint::Hexdump(hph) => hph.low_nybble,
@@ -82,7 +86,7 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn get_addr(&self) -> addr::Address {
-        self.token.hexdump_extent().begin + self.offset
+        self.token.hexdump_absolute_extent().begin + self.offset
     }
 
     fn get_offset(&self) -> addr::Size {

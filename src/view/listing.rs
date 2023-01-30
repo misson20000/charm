@@ -5,8 +5,10 @@ use std::task;
 
 use crate::view::config;
 use crate::util;
+use crate::model::addr;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::listing::layout;
 use crate::view;
 use crate::view::gsc;
@@ -251,7 +253,20 @@ impl ListingWidget {
     pub fn bonk(&self) {
         self.imp().interior.get().unwrap().write().cursor.bonk();
     }
-    
+
+    pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) {
+        let mut interior_guard = self.imp().interior.get().unwrap().write();
+        let interior = &mut *interior_guard;
+        
+        if document.is_outdated(&*interior.document) {
+            self.bonk();
+            return;
+        }
+
+        interior.cursor.goto(path, offset).expect("lost cursor");
+        interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
+    }
+
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
         let mut interior = self.imp().interior.get().unwrap().write();
 
@@ -375,19 +390,18 @@ impl Interior {
         glib::Continue(true)
     }
 
-    // TODO: bring back ensure cursor in view
-    fn cursor_transaction<F>(&mut self, cb: F/*, dir: component::scroll::EnsureCursorInViewDirection*/) -> gtk::Inhibit
+    fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
     where F: FnOnce(&mut facet::cursor::CursorView) {
         cb(&mut self.cursor);
-        //self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
+        self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
         gtk::Inhibit(true)
     }
 
     // TODO: bring back ensure cursor in view
-    fn cursor_transaction_fallible<F>(&mut self, cb: F/*, dir: component::scroll::EnsureCursorInViewDirection*/) -> gtk::Inhibit
+    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
     where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
         if cb(&mut self.cursor) {
-            //self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor_view, dir);
+            self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
             gtk::Inhibit(true)
         } else {
             gtk::Inhibit(false)
@@ -397,22 +411,22 @@ impl Interior {
     fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> gtk::Inhibit {
         let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
-            (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left()/*,  component::scroll::EnsureCursorInViewDirection::Up*/),
-            (gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right()/*, component::scroll::EnsureCursorInViewDirection::Down*/),
-            //(gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    component::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  component::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
+            //(gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* fast cursor    key    shift  ctrl  */
-            //(gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    component::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   component::scroll::EnsureCursorInViewDirection::Down),
-            //(gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   component::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), component::scroll::EnsureCursorInViewDirection::Down),
+            //(gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   facet::scroll::EnsureCursorInViewDirection::Down),
+            //(gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   facet::scroll::EnsureCursorInViewDirection::Up),
+            //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
             (gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
             (gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
             
-            //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), component::scroll::EnsureCursorInViewDirection::Any),
+            //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), facet::scroll::EnsureCursorInViewDirection::Any),
             _ => gtk::Inhibit(false),
         };
 

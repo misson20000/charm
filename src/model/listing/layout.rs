@@ -14,8 +14,10 @@ use crate::logic::tokenizer;
 
 pub trait Line {
     type TokenIterator: iter::DoubleEndedIterator<Item = token::Token>;
+    type BorrowingTokenIterator<'a>: iter::DoubleEndedIterator<Item = &'a token::Token> where Self: 'a;
     
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self;
+    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_>;
     fn to_tokens(self) -> Self::TokenIterator;
 }
 
@@ -23,7 +25,7 @@ pub trait Line {
  * whether bugs are in Window logic or Tokenizer logic. */
 pub trait WindowTokenizer: Clone {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
-    fn at_address(root: sync::Arc<structure::Node>, addr: addr::Address) -> Self;
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self;
     fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document);
     fn hit_top(&self) -> bool;
     fn hit_bottom(&self) -> bool;
@@ -62,9 +64,10 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
 
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
-    pub fn seek(&mut self, target: addr::Address) -> usize {
+    pub fn seek(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> usize {
+        self.current_document = document;
         let root = self.current_document.root.clone();
-        self.repopulate_window(move |tok, _| *tok = Tokenizer::at_address(root, target))
+        self.repopulate_window(move |tok, _| *tok = Tokenizer::at_path(root, path, offset))
     }
 
     fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
@@ -216,7 +219,7 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
     pub fn get_bottom_hit_end(&self) -> bool {
         self.bottom.hit_bottom()
     }
-    
+
     /* state bookkeeping */
 
     pub fn update(&mut self, document: &sync::Arc<document::Document>) {
@@ -231,11 +234,16 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
 
 impl Line for vec::Vec<token::Token> {
     type TokenIterator = vec::IntoIter<token::Token>;
+    type BorrowingTokenIterator<'a> = std::slice::Iter<'a, token::Token>;
     
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
         tokens
     }
 
+    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+        self.iter()
+    }
+    
     fn to_tokens(self) -> Self::TokenIterator {
         self.into_iter()
     }
@@ -246,8 +254,8 @@ impl WindowTokenizer for tokenizer::Tokenizer {
         tokenizer::Tokenizer::at_beginning(root)
     }
 
-    fn at_address(root: sync::Arc<structure::Node>, addr: addr::Address) -> Self {
-        tokenizer::Tokenizer::at_address(root, addr)
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self {
+        tokenizer::Tokenizer::at_path(root, path, offset)
     }
 
     fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
@@ -291,7 +299,7 @@ mod tests {
             }
         }
 
-        fn at_address(_root: sync::Arc<structure::Node>, _addr: addr::Address) -> TestTokenizer {
+        fn at_path(_root: sync::Arc<structure::Node>, _path: &structure::Path, _offset: addr::Address) -> TestTokenizer {
             panic!("unsupported");
         }
 

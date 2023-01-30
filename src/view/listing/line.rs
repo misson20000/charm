@@ -29,6 +29,7 @@ pub struct Line {
 
 impl layout::Line for Line {
     type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
+    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token_view::TokenView>, fn(&'a token_view::TokenView) -> &'a token::Token>;
     
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
         Line {
@@ -43,6 +44,10 @@ impl layout::Line for Line {
         }
     }
 
+    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+        self.tokens.iter().map(|t| t.token())
+    }
+    
     fn to_tokens(self) -> Self::TokenIterator {
         self.tokens.into_iter().map(|t| t.into_token())
     }

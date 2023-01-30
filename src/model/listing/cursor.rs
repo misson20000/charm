@@ -84,12 +84,12 @@ enum UpdateMode {
 }
 
 impl CursorClass {
-    fn place_forward(tokenizer: &mut tokenizer::Tokenizer, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_forward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         tokenizer.next_preincrement();
         let mut option = tokenizer.prev();
         loop {
             match option {
-                Some(token) => match CursorClass::new_placement(token, addr, hint) {
+                Some(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
                     Err(_) => option = tokenizer.next_preincrement(),
@@ -99,10 +99,10 @@ impl CursorClass {
         }        
     }
 
-    fn place_backward(tokenizer: &mut tokenizer::Tokenizer, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_backward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
             match tokenizer.prev() {
-                Some(token) => match CursorClass::new_placement(token, addr, hint) {
+                Some(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the previous */
                     Err(_) => continue,
@@ -124,11 +124,11 @@ impl Cursor {
         })
     }
 
-    pub fn place(document: sync::Arc<document::Document>, addr: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
-        let mut tokenizer = tokenizer::Tokenizer::at_address(document.root.clone(), addr);
+    pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
+        let mut tokenizer = tokenizer::Tokenizer::at_path(document.root.clone(), path, offset);
         
         Ok(Cursor {
-            class: CursorClass::place_forward(&mut tokenizer, addr, &hint)?,
+            class: CursorClass::place_forward(&mut tokenizer, offset, &hint)?,
             tokenizer,
             document,
         })
@@ -185,8 +185,8 @@ impl Cursor {
         self.update_internal(document, UpdateMode::Default);
     }
     
-    pub fn goto(&mut self, addr: addr::Address) -> Result<(), PlacementFailure> {
-        Self::place(self.document.clone(), addr, PlacementHint::Unused).map(|new| { *self = new; })
+    pub fn goto(&mut self, path: &structure::Path, offset: addr::Address) -> Result<(), PlacementFailure> {
+        Self::place(self.document.clone(), path, offset, PlacementHint::Unused).map(|new| { *self = new; })
     }
 
     pub fn is_over(&self, token: &token::Token) -> bool {
@@ -274,10 +274,10 @@ impl CursorClass {
     /// prefer to place the cursor on a content line. This way, goto will put
     /// the cursor on data, but the cursor will stay on a title if it was on
     /// one.
-    fn new_placement(token: token::Token, addr: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
+    fn new_placement(token: token::Token, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
         match token.class {
-            token::TokenClass::Title => title::Cursor::new_placement(token, addr, hint).map(CursorClass::Title),
-            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, addr, hint).map(CursorClass::Hexdump),
+            token::TokenClass::Title => title::Cursor::new_placement(token, offset, hint).map(CursorClass::Title),
+            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump),
             _ => Err(token)
         }
     }

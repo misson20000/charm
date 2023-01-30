@@ -133,7 +133,9 @@ impl NavigateAction {
             None => return
         };
 
-        println!("navigating to {:?}", item.imp().interior.get().unwrap());
+        let item_interior = item.imp().interior.get().unwrap();
+        
+        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset.to_addr());
 
         self.dialog.hide();
 
@@ -153,8 +155,8 @@ mod imp {
 
     #[derive(Debug)]
     pub struct HitItemInterior {
-        document: sync::Arc<document::Document>,
-        hit: search::Hit,
+        pub document: sync::Arc<document::Document>,
+        pub hit: search::Hit,
         path_description: String,
     }
     

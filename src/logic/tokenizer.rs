@@ -194,10 +194,62 @@ impl Tokenizer {
         }
     }
 
-    pub fn at_address(_root: sync::Arc<structure::Node>, _addr: addr::Address) -> Tokenizer {
-        todo!();
-    }
+    pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Tokenizer {
+        let mut node = &root;
+        let mut node_addr = addr::unit::NULL;
+        let mut depth = 0;
+        let mut stack = None;
+        let mut summary_prev = false;
+        let mut summary_next = match root.props.children_display {
+            structure::ChildrenDisplay::Summary => true,
+            _ => false
+        };
+                
+        for child_index in path {
+            if !summary_prev && summary_next {
+                stack = Some(sync::Arc::new(TokenizerStackEntry {
+                    stack: stack.take(),
+                    descent: TokenizerDescent::MySummary,
+                    depth,
+                    node: node.clone(),
+                    node_addr,
+                }));
+            }
 
+            summary_prev = summary_next;
+
+            stack = Some(sync::Arc::new(TokenizerStackEntry {
+                stack: stack.take(),
+                descent: if summary_prev { TokenizerDescent::ChildSummary(*child_index) } else { TokenizerDescent::Child(*child_index) },
+                depth,
+                node: node.clone(),
+                node_addr,
+            }));
+
+            let childhood = &node.children[*child_index];
+            node = &childhood.node;
+            node_addr+= childhood.offset.to_size();
+            depth+= 1;
+
+            summary_next = summary_next || match node.props.children_display {
+                structure::ChildrenDisplay::Summary => true,
+                _ => false
+            };
+        }
+        
+        let mut tokenizer = Tokenizer {
+            stack,
+            state: TokenizerState::PreBlank,
+            depth,
+            node: node.clone(),
+            node_addr
+        };
+
+        tokenizer.seek_in_node_to_offset(offset);
+        
+        tokenizer
+    }
+    
     /// Applies all changes between old_doc and new_doc to the tokenizer state.
     #[instrument]
     pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document, options: &PortOptions) {
@@ -455,6 +507,19 @@ impl Tokenizer {
     }
 
     fn seek_in_node(&mut self, offset: addr::Address, index: usize) {
+        self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
+
+        while match self.gen_token() {
+            TokenGenerationResult::Skip => true,
+            _ => false
+        } {
+            self.move_next();
+        }
+    }
+
+    fn seek_in_node_to_offset(&mut self, offset: addr::Address) {
+        let index = self.node.children.partition_point(|ch| ch.offset < offset);
+        
         self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
 
         while match self.gen_token() {

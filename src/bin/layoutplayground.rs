@@ -12,6 +12,7 @@ struct Line {
 
 impl layout::Line for Line {
     type TokenIterator = vec::IntoIter<token::Token>;
+    type BorrowingTokenIterator<'a> = std::slice::Iter<'a, token::Token>;
     
     fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
         Line {
@@ -20,6 +21,10 @@ impl layout::Line for Line {
         }
     }
 
+    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+        self.tokens.iter()
+    }
+    
     fn to_tokens(self) -> Self::TokenIterator {
         self.tokens.into_iter()
     }

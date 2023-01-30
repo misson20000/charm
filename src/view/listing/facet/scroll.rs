@@ -2,7 +2,10 @@ use std::sync;
 
 use crate::view::config;
 use crate::model::addr;
+use crate::model::document;
+use crate::model::document::structure;
 use crate::model::listing::layout;
+use crate::model::listing::layout::Line;
 use crate::view::listing::facet;
 use crate::view::listing::line;
 
@@ -53,7 +56,7 @@ impl Scroller {
         self.ev_draw.want();
     }
 
-    pub fn animate(&mut self, window: &mut Window, _cursor_view: &facet::cursor::CursorView, delta: f64) {
+    pub fn animate(&mut self, window: &mut Window, cursor_view: &facet::cursor::CursorView, delta: f64) {
         {
             /* try to scroll listing engine, setting bonk flags if necessary */
 
@@ -142,12 +145,9 @@ impl Scroller {
              */
         }
 
-        /*
-        // TODO
         if self.cursor_spring {
             self.ensure_cursor_is_in_view(window, cursor_view, self.cursor_direction);
-    }
-        */
+        }
 
         /* integrate velocity - done last for 1 frame tighter feedback loop */
         self.position+= self.velocity * delta;
@@ -159,7 +159,6 @@ impl Scroller {
         }
     }
 
-    /*
     pub fn ensure_cursor_is_in_view(
         &mut self,
         window: &mut Window,
@@ -172,21 +171,22 @@ impl Scroller {
          * normal threshold: move the window if the cursor is moving out of the window
          */
         let top_super_threshold = f64::max(0.0, self.position) as isize;
-        let top_threshold = top_super_threshold + self.config.page_navigation_leadup as isize;
-        let bottom_super_threshold = window.get_window_height() as isize + f64::max(0.0, self.position) as isize - 2 * self.config.lookahead as isize;
-        let bottom_threshold = bottom_super_threshold - self.config.page_navigation_leadup as isize;
-        let cln = window.find_group(cursor_view.cursor.get_line_group());
+        let top_threshold = top_super_threshold + cfg.page_navigation_leadup as isize;
+        let bottom_super_threshold = window.get_window_height() as isize + f64::max(0.0, self.position) as isize - 2 * cfg.lookahead as isize;
+        let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup as isize;
+        
+        let line_no = window.lines.iter().enumerate().find(|(_, line)| line.iter_tokens().any(|token| cursor_view.cursor.is_over(token))).map(|(i, _)| i as isize);
         
         self.cursor_direction = dir;
         
-        match cln {
+        match line_no {
             Some(ln) if ln < top_threshold && self.position > 1.0 && (dir.maybe_upwards() || ln < top_super_threshold) => {
                 self.bonked_top = false;
                 self.bonked_bottom = false;
                 self.cursor_spring = true;
                 self.velocity = -((top_threshold - ln) as f64) * 20.0;
 
-                self.events.want_animate();
+                self.ev_draw.want();
             },
             Some(ln) if ln > bottom_threshold && (dir.maybe_downwards() || ln > bottom_super_threshold) => {
                 self.bonked_top = false;
@@ -194,20 +194,19 @@ impl Scroller {
                 self.cursor_spring = true;
                 self.velocity = (ln - bottom_threshold) as f64 * 20.0;
 
-                self.events.want_animate();
+                self.ev_draw.want();
             },
             None => {
-                self.seek(window, cursor_view.cursor.get_addr());
+                self.seek(window, cursor_view.cursor.document(), &cursor_view.cursor.structure_path(), cursor_view.cursor.structure_offset());
             },
             _ => {
                 self.cursor_spring = false;
             }
         }
-}
-    */
+    }
 
-    pub fn seek(&mut self, window: &mut Window, addr: addr::Address) {
-        window.seek(addr);
+    pub fn seek(&mut self, window: &mut Window, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) {
+        window.seek(document, path, offset);
         if window.get_bottom_hit_end() {
             self.position = self.config.lookahead as f64 * 2.0 + self.config.page_navigation_leadup as f64;
             self.bonked_bottom = true;

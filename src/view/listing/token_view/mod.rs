@@ -44,6 +44,10 @@ impl TokenView {
         self.token
     }
 
+    pub fn token(&self) -> &token::Token {
+        &self.token
+    }
+    
     pub fn get_indentation(&self) -> usize {
         self.token.depth
     }
