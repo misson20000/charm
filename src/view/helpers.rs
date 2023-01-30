@@ -9,7 +9,19 @@ use gtk::pango;
 
 use crate::model::document;
 
-pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
+pub fn create_simple_action_strong<T, F>(obj: rc::Rc<T>, id: &str, cb: F) -> gio::SimpleAction
+where F: Fn(&rc::Rc<T>) + 'static,
+      T: 'static {
+    let action = gio::SimpleAction::new(id, None);
+    action.connect_activate(move |_, _| {
+        cb(&obj)
+    });
+    action.set_enabled(true);
+
+    action
+}
+
+pub fn create_simple_action<T, F>(obj: &rc::Rc<T>, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
@@ -17,8 +29,15 @@ where F: Fn(rc::Rc<T>) + 'static,
         cb(obj)
     }));
     action.set_enabled(true);
-    map.add_action(&action);
 
+    action
+}
+
+pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
+where F: Fn(rc::Rc<T>) + 'static,
+      T: 'static {
+    let action = create_simple_action(obj, id, cb);
+    map.add_action(&action);
     action
 }
 

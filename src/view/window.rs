@@ -8,6 +8,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::space;
 use crate::view;
+use crate::view::action;
 use crate::view::helpers;
 use crate::view::hierarchy;
 
@@ -19,7 +20,7 @@ use gtk::subclass::prelude::*;
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
-    window: gtk::ApplicationWindow,
+    pub window: gtk::ApplicationWindow,
     listing_frame: gtk::Frame,
     datapath_editor: gtk::TreeView,
     hierarchy_editor: gtk::ColumnView,
@@ -30,14 +31,18 @@ pub struct CharmWindow {
 }
 
 pub struct WindowContext {
-    document_host: sync::Arc<document::DocumentHost>,
+    pub document_host: sync::Arc<document::DocumentHost>,
     
-    window: rc::Weak<CharmWindow>,
+    pub window: rc::Weak<CharmWindow>,
     
-    lw: view::listing::ListingWidget,
+    /* Widgets and models */
+    pub lw: view::listing::ListingWidget,
     datapath_model: gtk::TreeModel,
     hierarchy_model: hierarchy::StructureSelectionModel,
 
+    action_group: gio::SimpleActionGroup,
+    
+    /* Misc. subscribers and such that need to be kept around */
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
@@ -168,29 +173,18 @@ impl CharmWindow {
             context: cell::RefCell::new(None),
         });
 
-        // extend our lifetime until the window closes
-        w.window.connect_destroy(clone!(@strong w => move |_| {
-            let _: &rc::Rc<CharmWindow> = &w;
-        }));
+        w.window.connect_close_request(clone!(@strong w => move |_| {
+            /* This is especially important because it destroys actions which might have their own toplevel windows that
+             * would otherwise keep the process alive. */
+            w.close_file();
 
-        // TODO: figure out how to do this in gtk4?
-        /*
-        w.window.connect_key_press_event(|w, ek| {
-            /* key events before accelerators, because we have accelerators like "B" and "G" */
-            gtk::Inhibit(w.propagate_key_event(ek) || w.activate_key(ek))
-    });
-        */
+            gtk::Inhibit(false)
+        }));
 
         /* window actions */
         
         helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
         helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| w.action_edit_properties());
-
-        w.bind_listing_action("listing.structure.insert", &view::listing::action::action_insert_with_prompt);
-        w.bind_listing_action("listing.structure.insert_byte", &view::listing::action::action_insert_byte);
-        w.bind_listing_action("listing.structure.insert_word", &view::listing::action::action_insert_word);
-        w.bind_listing_action("listing.structure.insert_dword", &view::listing::action::action_insert_dword);
-        w.bind_listing_action("listing.structure.insert_qword", &view::listing::action::action_insert_qword);
 
         view::helpers::bind_simple_action(&w, &w.window, "hierarchy.structure.nest", |w| {
             w.action_nest();
@@ -213,14 +207,6 @@ impl CharmWindow {
         w
     }
 
-    fn bind_listing_action<F: Fn(&view::listing::ListingWidget) + 'static>(self: &rc::Rc<Self>, id: &str, cb: F) {
-        view::helpers::bind_simple_action(self, &self.window, id, move |w| {
-            if let Some(ctx) = &*w.context.borrow() {
-                cb(&ctx.lw)
-            }
-        });
-    }
-    
     pub fn present(&self) {
         self.config_editor_frame.hide();
         self.window.present();
@@ -339,12 +325,16 @@ impl CharmWindow {
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
 
+        self.window.insert_action_group("ctx", gio::ActionGroup::NONE);
+
         *self.context.borrow_mut() = context;
 
         if let Some(new_context) = &*self.context.borrow() {
             self.listing_frame.set_child(Some(&new_context.lw));
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
             self.hierarchy_editor.set_model(Some(&new_context.hierarchy_model));
+            self.window.insert_action_group("ctx", Some(&new_context.action_group));
+            
             new_context.lw.grab_focus();
         }
     }
@@ -380,7 +370,7 @@ impl WindowContext {
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
         let hierarchy_model = hierarchy::StructureSelectionModel::new(document_host.clone());
         
-        WindowContext {
+        let wc = WindowContext {
             document_host,
             
             window: rc::Rc::downgrade(window),
@@ -388,8 +378,17 @@ impl WindowContext {
             lw,
             datapath_model,
             hierarchy_model,
+            action_group: gio::SimpleActionGroup::new(),
 
             datapath_subscriber,
-        }
+        };
+
+        wc.action_group.add_action(&action::insert_node::create_action(&wc));
+        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1));
+        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
+        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
+        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
+        
+        wc
     }
 }
