@@ -593,7 +593,7 @@ impl Tokenizer {
     fn get_line_begin(&self, offset: addr::Address, index: usize) -> addr::Address {
         /* Where would we *like* to begin, as decided by our content's preferred pitch? */
         let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * ((offset - addr::unit::BIT).to_size() / pitch)).to_addr()
+            (pitch * (offset.to_size() / pitch)).to_addr()
         });
 
         /* Figure out whether there are any children that we need to not intrude upon. */
@@ -669,7 +669,7 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset > addr::unit::NULL {
-                    let extent = addr::Extent::between(self.get_line_begin(offset, index), offset);
+                    let extent = addr::Extent::between(self.get_line_begin(offset - addr::unit::BIT, index), offset);
                         
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
