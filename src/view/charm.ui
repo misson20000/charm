@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.10.3 -->
+<!-- Created with Cambalache 0.11.3 -->
 <interface>
   <!-- interface-name charm.ui -->
   <requires lib="gtk" version="4.6"/>
@@ -15,92 +15,86 @@
         </child>
         <child>
           <object class="GtkPaned">
-            <child>
-              <object class="GtkPaned">
-                <child>
-                  <object class="GtkPaned">
-                    <child>
-                      <object class="GtkFrame" id="hierarchy_frame">
-                        <property name="width-request">200</property>
-                        <child>
-                          <object class="GtkColumnView" id="hierarchy_editor"/>
-                        </child>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkFrame" id="listing_frame">
-                        <property name="hexpand">True</property>
-                        <property name="vexpand">True</property>
-                        <property name="width-request">300</property>
-                      </object>
-                    </child>
-		    <property name="height-request">500</property>
-                    <property name="hexpand">True</property>
-                    <property name="resize-start-child">False</property>
-                    <property name="shrink-end-child">False</property>
-                    <property name="shrink-start-child">False</property>
-                    <property name="vexpand">True</property>
-                    <property name="vexpand-set">True</property>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkNotebook">
-                    <property name="height-request">300</property>
-                    <property name="tab-pos">left</property>
-                    <child>
-                      <object class="GtkFrame" id="datapath_editor_frame">
-                        <property name="margin-bottom">10</property>
-                        <property name="margin-end">10</property>
-                        <property name="margin-start">10</property>
-                        <property name="margin-top">10</property>
-                        <child>
-                          <object class="GtkTreeView" id="datapath_editor"/>
-                        </child>
-                      </object>
-                    </child>
-                    <child type="tab">
-                      <object class="GtkLabel">
-                        <property name="label">Datapath</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkFrame" id="display_editor_frame">
-                        <property name="margin-bottom">10</property>
-                        <property name="margin-end">10</property>
-                        <property name="margin-start">10</property>
-                        <property name="margin-top">10</property>
-                      </object>
-                    </child>
-                    <child type="tab">
-                      <object class="GtkLabel">
-                        <property name="label">Display</property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-		<property name="orientation">vertical</property>
-                <property name="resize-end-child">False</property>
-                <property name="shrink-end-child">False</property>
-                <property name="shrink-start-child">False</property>
-                <property name="width-request">600</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkFrame" id="config_editor_frame">
-                <property name="margin-bottom">10</property>
-                <property name="margin-end">10</property>
-                <property name="margin-start">10</property>
-                <property name="margin-top">10</property>
-                <property name="width-request">200</property>
-              </object>
-            </child>
-	    <property name="resize-end-child">False</property>
+            <property name="end-child">config_editor_frame</property>
+            <property name="resize-end-child">False</property>
             <property name="shrink-end-child">False</property>
             <property name="shrink-start-child">False</property>
+            <property name="start-child">paned_main_area</property>
             <property name="vexpand">True</property>
           </object>
         </child>
       </object>
     </child>
+  </object>
+  <object class="GtkFrame" id="hierarchy_frame">
+    <property name="width-request">200</property>
+    <child>
+      <object class="GtkColumnView" id="hierarchy_editor"/>
+    </child>
+  </object>
+  <object class="GtkFrame" id="listing_frame">
+    <property name="hexpand">True</property>
+    <property name="vexpand">True</property>
+    <property name="width-request">300</property>
+  </object>
+  <object class="GtkPaned" id="paned_upper_left">
+    <property name="end-child">listing_frame</property>
+    <property name="height-request">500</property>
+    <property name="hexpand">True</property>
+    <property name="resize-start-child">False</property>
+    <property name="shrink-end-child">False</property>
+    <property name="shrink-start-child">False</property>
+    <property name="start-child">hierarchy_frame</property>
+    <property name="vexpand">True</property>
+    <property name="vexpand-set">True</property>
+  </object>
+  <object class="GtkNotebook" id="notebook">
+    <property name="height-request">300</property>
+    <property name="tab-pos">left</property>
+    <child>
+      <object class="GtkFrame" id="datapath_editor_frame">
+        <property name="margin-bottom">10</property>
+        <property name="margin-end">10</property>
+        <property name="margin-start">10</property>
+        <property name="margin-top">10</property>
+        <child>
+          <object class="GtkTreeView" id="datapath_editor"/>
+        </child>
+      </object>
+    </child>
+    <child type="tab">
+      <object class="GtkLabel">
+        <property name="label">Datapath</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkFrame" id="display_editor_frame">
+        <property name="margin-bottom">10</property>
+        <property name="margin-end">10</property>
+        <property name="margin-start">10</property>
+        <property name="margin-top">10</property>
+      </object>
+    </child>
+    <child type="tab">
+      <object class="GtkLabel">
+        <property name="label">Display</property>
+      </object>
+    </child>
+  </object>
+  <object class="GtkPaned" id="paned_main_area">
+    <property name="end-child">notebook</property>
+    <property name="orientation">vertical</property>
+    <property name="resize-end-child">False</property>
+    <property name="shrink-end-child">False</property>
+    <property name="shrink-start-child">False</property>
+    <property name="start-child">paned_upper_left</property>
+    <property name="width-request">600</property>
+  </object>
+  <object class="GtkFrame" id="config_editor_frame">
+    <property name="margin-bottom">10</property>
+    <property name="margin-end">10</property>
+    <property name="margin-start">10</property>
+    <property name="margin-top">10</property>
+    <property name="width-request">200</property>
   </object>
 </interface>
