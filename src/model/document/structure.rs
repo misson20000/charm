@@ -5,14 +5,14 @@ use lazy_static::lazy_static;
 
 use crate::model::addr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TitleDisplay {
     Inline,
     Major,
     Minor,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChildrenDisplay {
     None, //< fully collapsed
     Summary,
@@ -20,7 +20,7 @@ pub enum ChildrenDisplay {
     Full
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentDisplay {
     None,
     Hexdump(addr::Size),
@@ -50,7 +50,7 @@ impl Childhood {
 /// without rearranging nodes, which makes it easier to port paths across
 /// Changes if we can use a different ChangeType when only properties are
 /// affected.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Properties {
     pub name: String,
     pub title_display: TitleDisplay,

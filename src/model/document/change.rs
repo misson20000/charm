@@ -22,16 +22,16 @@ pub struct Change {
     pub generation: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateError {
     NoCommonAncestor,
     NotUpdatable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
     UpdateFailed(UpdateError),
-    InvalidParameters,
+    InvalidParameters(&'static str),
 }
 
 pub fn update_path(path: &mut structure::Path, through: &Change) -> Result<(), UpdateError> {
@@ -128,25 +128,25 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
         ChangeType::InsertNode(path, at_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
             /* Check at_child to make sure it's not farther than one-past the end. */
             if at_child > target.children.len() {
-                return Err(ApplyError::InvalidParameters);
+                return Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index"));
             }
 
             /* Check offset to make sure it's within bounds. */
             // TODO: automatically grow parents?
             if offset > target.size.to_addr() {
-                return Err(ApplyError::InvalidParameters);
+                return Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size"));
             }
 
             /* Check child size to make sure it's within bounds. */
             // TODO: automatically grow parents?
             if offset + node.size > target.size.to_addr() {
-                return Err(ApplyError::InvalidParameters);
+                return Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size"));
             }
             
             /* Keep child offsets monotonic. */
             if (at_child > 0 && target.children[at_child-1].offset > offset) || (at_child < target.children.len() && target.children[at_child].offset < offset) {
                 println!("rejecting insert at position {}, offset {} into children {:?}", at_child, offset, target.children);
-                return Err(ApplyError::InvalidParameters);
+                return Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"));
             }
 
             /* Preconditions passed; do the deed. */
@@ -159,8 +159,12 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
         })?),
         ChangeType::Nest(parent, first_child, last_child, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
             /* Check indices. */
-            if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() || last_child < first_child {
-                return Err(ApplyError::InvalidParameters);
+            if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() {
+                return Err(ApplyError::InvalidParameters("attempted to nest children that don't exist"));
+            }
+
+            if last_child < first_child {
+                return Err(ApplyError::InvalidParameters("last child was before first child"));
             }
 
             /* Preconditions passed; do the deed. */
@@ -186,4 +190,271 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
     }
 
     Ok(new_document)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use assert_matches::assert_matches;
+    
+    #[test]
+    fn test_update_path_through_alter_node() {
+        let mut path = vec![1, 0, 2];
+
+        update_path(&mut path, &Change {
+            ty: ChangeType::AlterNode(vec![1, 0], structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        
+        assert_eq!(path, vec![1, 0, 2]);
+    }
+
+    #[test]
+    fn test_update_path_through_insert_node() {
+        let mut path = vec![1, 0, 2];
+
+        update_path(&mut path, &Change {
+            ty: ChangeType::InsertNode(vec![1, 0], 1, addr::unit::NULL, structure::Node::builder().build()),
+            generation: 0,
+        }).unwrap();
+        
+        assert_eq!(path, vec![1, 0, 3]);
+
+        update_path(&mut path, &Change {
+            ty: ChangeType::InsertNode(vec![1, 0], 4, addr::unit::NULL, structure::Node::builder().build()),
+            generation: 0,
+        }).unwrap();
+
+        assert_eq!(path, vec![1, 0, 3]);
+
+        update_path(&mut path, &Change {
+            ty: ChangeType::InsertNode(vec![1, 0], 3, addr::unit::NULL, structure::Node::builder().build()),
+            generation: 0,
+        }).unwrap();
+
+        assert_eq!(path, vec![1, 0, 4]);
+
+        update_path(&mut path, &Change {
+            ty: ChangeType::InsertNode(vec![1, 1], 0, addr::unit::NULL, structure::Node::builder().build()),
+            generation: 0,
+        }).unwrap();
+
+        assert_eq!(path, vec![1, 0, 4]);
+    }
+
+    #[test]
+    fn test_update_path_through_nest() {
+        /* siblings before but not including the path */
+        let mut path = vec![1, 0, 2];
+        update_path(&mut path, &Change {
+            ty: ChangeType::Nest(vec![1, 0], 0, 1, structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        assert_eq!(path, vec![1, 0, 1]);
+
+        /* siblings after but not including the path */
+        let mut path = vec![1, 0, 2];
+        update_path(&mut path, &Change {
+            ty: ChangeType::Nest(vec![1, 0], 3, 10, structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        assert_eq!(path, vec![1, 0, 2]);
+
+        /* including the path */
+        let mut path = vec![1, 0, 5];
+        update_path(&mut path, &Change {
+            ty: ChangeType::Nest(vec![1, 0], 3, 10, structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        assert_eq!(path, vec![1, 0, 3, 2]);
+
+        /* ancestor of the path */
+        let mut path = vec![1, 0, 5, 4];
+        update_path(&mut path, &Change {
+            ty: ChangeType::Nest(vec![1, 0], 3, 10, structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        assert_eq!(path, vec![1, 0, 3, 2, 4]);        
+
+        /* unrelated path */
+        let mut path = vec![1, 0, 5, 4];
+        update_path(&mut path, &Change {
+            ty: ChangeType::Nest(vec![1, 1], 3, 10, structure::Properties::default()),
+            generation: 0,
+        }).unwrap();
+        assert_eq!(path, vec![1, 0, 5, 4]);
+    }
+    
+    fn create_test_document_1() -> document::Document {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1.1")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        document::Document::new_for_structure_test(root)
+    }
+
+    fn create_test_document_2() -> document::Document {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1.1")
+                          .size(0x10))
+                   .child(0x8, |b| b
+                          .name("child1.2")
+                          .size(0x10))
+                   .child(0xc, |b| b
+                          .name("child1.3")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        document::Document::new_for_structure_test(root)
+    }
+
+    #[test]
+    fn test_structural_change_alter_node() {
+        let doc = sync::Arc::new(create_test_document_1());
+        
+        let mut props = doc.lookup_node(&vec![1, 0]).0.props.clone();
+        assert_eq!(props.name, "child1.0");
+
+        props.name = "modified".to_string();
+        
+        let new_doc = apply_structural_change(&doc, Change {
+            ty: ChangeType::AlterNode(vec![1, 0], props),
+            generation: doc.generation,
+        }).unwrap();
+
+        assert_eq!(new_doc.lookup_node(&vec![1, 0]).0.props.name, "modified");
+    }
+
+    #[test]
+    fn test_structural_change_insert_node_preconditions() {
+        let doc = sync::Arc::new(create_test_document_1());
+
+        let node = structure::Node::builder().size(0x10).build();
+        
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![], 4, addr::Address::from(0x100), node.clone()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index")));
+
+        assert!(doc.lookup_node(&vec![0]).0.size < 0x21.into());
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![0], 0, addr::Address::from(0x21), node.clone()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size")));
+
+        assert_eq!(doc.lookup_node(&vec![0]).0.size, 0x20.into());
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![0], 0, addr::Address::from(0x11), node.clone()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size")));
+
+        assert_eq!(doc.lookup_node(&vec![1, 1]).1, addr::Address::from(0x18));
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![1], 0, addr::Address::from(0x2), node.clone()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![1], 2, addr::Address::from(0x2), node.clone()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+    }
+
+    #[test]
+    fn test_structural_change_insert_node() {
+        let doc = sync::Arc::new(create_test_document_1());
+
+        let node = structure::Node::builder().size(0x10).build();
+
+        let original_child = doc.lookup_node(&vec![1, 1]).0.clone();
+        
+        let new_doc = apply_structural_change(&doc, Change {
+            ty: ChangeType::InsertNode(vec![1], 1, addr::Address::from(0x2), node.clone()),
+            generation: doc.generation,
+        }).unwrap();
+
+        assert!(sync::Arc::ptr_eq(&original_child, new_doc.lookup_node(&vec![1, 2]).0));
+        assert!(sync::Arc::ptr_eq(&node, new_doc.lookup_node(&vec![1, 1]).0));
+    }
+
+    #[test]
+    fn test_structural_change_nest_preconditions() {
+        let doc = sync::Arc::new(create_test_document_1());
+
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::Nest(vec![1], 0, 2, structure::Properties::default()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("attempted to nest children that don't exist")));
+
+        assert_matches!(apply_structural_change(&doc, Change {
+            ty: ChangeType::Nest(vec![1], 1, 0, structure::Properties::default()),
+            generation: doc.generation,
+        }), Err(ApplyError::InvalidParameters("last child was before first child")));
+    }
+
+    #[test]
+    fn test_structural_change_nest() {
+        let doc = sync::Arc::new(create_test_document_2());
+
+        let orig_child1 = doc.root.children[1].node.clone();
+        let mut props = structure::Properties::default();
+        props.name = "nest".to_string();
+        
+        let new_doc = apply_structural_change(&doc, Change {
+            ty: ChangeType::Nest(vec![1], 1, 2, props),
+            generation: doc.generation,
+        }).unwrap();
+
+        let new_child1 = new_doc.root.children[1].node.clone();
+
+        assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
+        assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[2].node));
+        
+        assert!(sync::Arc::ptr_eq(&orig_child1.children[0].node, &new_child1.children[0].node));
+        assert_eq!(orig_child1.children[0].offset, new_child1.children[0].offset);
+
+        assert!(sync::Arc::ptr_eq(&orig_child1.children[3].node, &new_child1.children[2].node));
+        assert_eq!(orig_child1.children[3].offset, new_child1.children[2].offset);
+
+        let nest_child = &new_child1.children[1];
+        assert_eq!(nest_child.offset, 0x4.into());
+        assert_eq!(nest_child.node.size, 0x14.into());
+        assert_eq!(nest_child.node.children.len(), 2);
+        assert_eq!(nest_child.node.children[0].offset, 0x0.into());
+        assert!(sync::Arc::ptr_eq(&nest_child.node.children[0].node, &orig_child1.children[1].node));
+        assert_eq!(nest_child.node.children[1].offset, 0x4.into());
+        assert!(sync::Arc::ptr_eq(&nest_child.node.children[1].node, &orig_child1.children[2].node));
+    }    
 }
