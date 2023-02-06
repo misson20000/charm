@@ -10,10 +10,21 @@
     <property name="orientation">vertical</property>
     <property name="spacing">15</property>
     <property name="vexpand">True</property>
+    <property name="width-request">350</property>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Insert node</property>
+      </object>
+    </child>
     <child>
       <object class="GtkGrid">
         <property name="column-spacing">20</property>
-        <property name="row-spacing">5</property>
+        <property name="margin-bottom">5</property>
+        <property name="margin-end">5</property>
+        <property name="margin-start">5</property>
+        <property name="margin-top">5</property>
+        <property name="row-spacing">10</property>
         <property name="valign">start</property>
         <property name="vexpand">True</property>
         <child>
@@ -23,6 +34,30 @@
             <layout>
               <property name="column">1</property>
               <property name="row">0</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSeparator">
+            <property name="margin-bottom">10</property>
+            <property name="margin-top">10</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
+              <property name="row">3</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Path</property>
+            <property name="valign">center</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">4</property>
               <property name="row-span">1</property>
             </layout>
           </object>
@@ -58,6 +93,18 @@
               <property name="column">1</property>
               <property name="column-span">1</property>
               <property name="row">1</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="path_display">
+            <property name="editable">False</property>
+            <property name="enable-undo">False</property>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">4</property>
               <property name="row-span">1</property>
             </layout>
           </object>

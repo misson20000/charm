@@ -5,6 +5,10 @@
   <object class="GtkGrid" id="toplevel">
     <property name="column-spacing">30</property>
     <property name="halign">start</property>
+    <property name="margin-bottom">10</property>
+    <property name="margin-end">10</property>
+    <property name="margin-start">10</property>
+    <property name="margin-top">10</property>
     <property name="row-spacing">10</property>
     <property name="valign">start</property>
     <property name="width-request">500</property>

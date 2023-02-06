@@ -24,6 +24,7 @@ struct InsertNodeAction {
     name_entry: gtk::Entry,
     size_entry: gtk::Entry,
     offset_entry: gtk::Entry,
+    path_display: gtk::Entry,
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
@@ -32,6 +33,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
     let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
     let offset_entry: gtk::Entry = builder.object("offset_entry").unwrap();
+    let path_display: gtk::Entry = builder.object("path_display").unwrap();
     let insert_button: gtk::Button = builder.object("insert_button").unwrap();
 
     let dialog = gtk::ApplicationWindow::builder()
@@ -55,6 +57,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         name_entry,
         size_entry,
         offset_entry,
+        path_display,
     });
     
     helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
@@ -111,6 +114,7 @@ impl InsertNodeAction {
         *self.path.borrow_mut() = cursor.structure_path();
         *self.document.borrow_mut() = cursor.document();
         self.offset_entry.set_text(&format!("{}", cursor.structure_offset()));
+        self.path_display.set_text(&self.document.borrow().describe_path(&self.path.borrow()));
 
         self.name_entry.grab_focus();
         self.dialog.present();
