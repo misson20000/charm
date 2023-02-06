@@ -45,6 +45,8 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         .resizable(true)
         .title(&"Navigate")
         .transient_for(&window_context.window.upgrade().unwrap().window)
+        .hide_on_close(true)
+        .destroy_with_parent(true)
         .default_widget(&list)
         .build();
 
