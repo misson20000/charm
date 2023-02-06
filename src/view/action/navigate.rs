@@ -194,19 +194,7 @@ mod imp {
 
     impl HitItem {
         pub fn init(&self, document: sync::Arc<document::Document>, hit: search::Hit) {
-            let mut node = &document.root;
-
-            let mut path_description = node.props.name.clone();
-            
-            for i in &hit.path {
-                node = &node.children[*i].node;
-                
-                if !sync::Arc::ptr_eq(node, &document.root) {
-                    path_description.push_str(".");
-                }
-                path_description.push_str(&node.props.name);
-            }
-
+            let mut path_description = document.describe_path(&hit.path);
             write!(path_description, " + {}", addr::fmt::CompactSize(hit.offset)).unwrap();
             
             self.interior.set(HitItemInterior {

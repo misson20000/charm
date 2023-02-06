@@ -301,6 +301,22 @@ impl Document {
     pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
         search::AddressSearch::new(self, addr.into(), traversal)
     }
+
+    pub fn describe_path(&self, path: &structure::Path) -> String {
+        let mut node = &self.root;
+        let mut path_description = node.props.name.clone();
+        
+        for i in path {
+            node = &node.children[*i].node;
+            
+            if !sync::Arc::ptr_eq(node, &self.root) {
+                path_description.push_str(".");
+            }
+            path_description.push_str(&node.props.name);
+        }
+
+        path_description
+    }
 }
 
 impl std::fmt::Debug for Document {
@@ -309,5 +325,42 @@ impl std::fmt::Debug for Document {
             .field("uid", &self.uid)
             .field("generation", &self.generation)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;    
+
+    #[test]
+    fn test_describe_path() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1:0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1:1")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        let d = Document::new_for_structure_test(root);
+
+        assert_eq!(d.describe_path(&vec![]), "root");
+        assert_eq!(d.describe_path(&vec![0]), "root.child0");
+        assert_eq!(d.describe_path(&vec![1]), "root.child1");
+        assert_eq!(d.describe_path(&vec![1, 0]), "root.child1.child1:0");
+        assert_eq!(d.describe_path(&vec![1, 1]), "root.child1.child1:1");
+        assert_eq!(d.describe_path(&vec![2]), "root.child2");
     }
 }
