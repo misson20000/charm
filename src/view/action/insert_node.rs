@@ -85,7 +85,7 @@ impl InsertNodeAction {
 
         let document = self.document.borrow();
         let parent_node = document.lookup_node(&*self.path.borrow()).0;
-        let index = parent_node.children.iter().enumerate().find_map(|(i, child)| if child.offset > offset { Some(i) } else { None }).unwrap_or(0);
+        let index = parent_node.children.partition_point(|child| offset >= child.offset);
         
         self.document_host.insert_node(
             &document,
