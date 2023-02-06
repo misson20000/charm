@@ -207,6 +207,7 @@ impl Scroller {
 
     pub fn seek(&mut self, window: &mut Window, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) {
         window.seek(document, path, offset);
+
         if window.get_bottom_hit_end() {
             self.position = self.config.lookahead as f64 * 2.0 + self.config.page_navigation_leadup as f64;
             self.bonked_bottom = true;
@@ -220,6 +221,9 @@ impl Scroller {
         for _ in 0..self.config.page_navigation_leadup {
             window.scroll_up();
         }
+
+        /* request work on behalf of the new lines that need to load their content. */
+        self.ev_work.want();
     }
     
     pub fn page_up(&mut self, window: &Window) {
