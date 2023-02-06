@@ -125,9 +125,9 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             target.props = props;
             Ok(())
         })?),
-        ChangeType::InsertNode(path, after_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
-            /* Check after_child to make sure it's not farther than one-past the end. */
-            if after_child > target.children.len() {
+        ChangeType::InsertNode(path, at_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
+            /* Check at_child to make sure it's not farther than one-past the end. */
+            if at_child > target.children.len() {
                 return Err(ApplyError::InvalidParameters);
             }
 
@@ -144,12 +144,13 @@ pub fn apply_structural_change(document: &sync::Arc<document::Document>, change:
             }
             
             /* Keep child offsets monotonic. */
-            if after_child > 0 && target.children[after_child-1].offset > offset {
+            if (at_child > 0 && target.children[at_child-1].offset > offset) || (at_child < target.children.len() && target.children[at_child].offset < offset) {
+                println!("rejecting insert at position {}, offset {} into children {:?}", at_child, offset, target.children);
                 return Err(ApplyError::InvalidParameters);
             }
 
             /* Preconditions passed; do the deed. */
-            target.children.insert(after_child, structure::Childhood {
+            target.children.insert(at_child, structure::Childhood {
                 node,
                 offset,
             });
