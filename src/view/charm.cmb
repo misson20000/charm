@@ -51,9 +51,11 @@
 	(4,1,"GtkBox","toplevel",None,None,None,None,None,None),
 	(4,4,"GtkBox",None,1,None,None,None,3,None),
 	(4,5,"GtkButton","cancel_button",4,None,None,None,None,None),
-	(4,6,"GtkScrolledWindow",None,1,None,None,None,2,None),
-	(4,7,"GtkListView","list",6,None,None,None,None,None),
-	(4,8,"GtkEntry","entry",1,None,None,None,None,None)
+	(4,8,"GtkEntry","entry",1,None,None,None,1,None),
+	(4,9,"GtkFrame",None,1,None,None,None,2,None),
+	(4,10,"GtkScrolledWindow",None,9,None,None,None,None,None),
+	(4,11,"GtkListView","list",10,None,None,None,None,None),
+	(4,12,"GtkLabel",None,1,None,None,None,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","height-request","800",None,None,None,None,None),
@@ -169,13 +171,17 @@
 	(4,4,"GtkWidget","margin-top","15",None,None,None,None,None),
 	(4,5,"GtkActionable","action-name","win.cancel",None,None,None,None,None),
 	(4,5,"GtkButton","label","Close",None,None,None,None,None),
-	(4,6,"GtkScrolledWindow","hscrollbar-policy","never",None,None,None,None,None),
-	(4,6,"GtkScrolledWindow","min-content-height","300",None,None,None,None,None),
-	(4,6,"GtkWidget","vexpand","True",None,None,None,None,None),
-	(4,7,"GtkListView","single-click-activate","True",None,None,None,None,None),
-	(4,7,"GtkWidget","height-request","300",None,None,None,None,None),
-	(4,7,"GtkWidget","vexpand","True",None,None,None,None,None),
-	(4,7,"GtkWidget","width-request","500",None,None,None,None,None)
+	(4,8,"GtkWidget","margin-bottom","10",None,None,None,None,None),
+	(4,10,"GtkScrolledWindow","hscrollbar-policy","never",None,None,None,None,None),
+	(4,10,"GtkScrolledWindow","min-content-height","300",None,None,None,None,None),
+	(4,10,"GtkWidget","vexpand","True",None,None,None,None,None),
+	(4,11,"GtkListView","single-click-activate","True",None,None,None,None,None),
+	(4,11,"GtkWidget","height-request","300",None,None,None,None,None),
+	(4,11,"GtkWidget","vexpand","True",None,None,None,None,None),
+	(4,11,"GtkWidget","width-request","500",None,None,None,None,None),
+	(4,12,"GtkLabel","label","Address",None,None,None,None,None),
+	(4,12,"GtkWidget","halign","start",None,None,None,None,None),
+	(4,12,"GtkWidget","margin-bottom","5",None,None,None,None,None)
   </object_property>
   <object_layout_property>
 	(2,1,2,"GtkGridLayoutChild","column","0",None,None,None,None),
