@@ -91,20 +91,22 @@ pub fn update_change(change: Change, to: &document::Document) -> Result<Change, 
 
 fn rebuild_node_tree<F>(target: &structure::Node, mut path_segment: structure::PathIter, target_modifier: F) -> Result<structure::Node, ApplyError> where
     F: FnOnce(&mut structure::Node) -> Result<(), ApplyError> {
-    let mut new_target = (*target).clone();
     match path_segment.next() {
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
             let child = &*target.children[index].node;
             let new_child = rebuild_node_tree(child, path_segment, target_modifier)?;
+            let mut new_target = (*target).clone();
             new_target.children[index].node = sync::Arc::new(new_child);
+            Ok(new_target)
         },
         None => {
             /* Reached the end of the path. Just modify this node directly. */
-            target_modifier(&mut new_target)?
+            let mut new_target = (*target).clone();
+            target_modifier(&mut new_target)?;
+            Ok(new_target)
         }
     }
-    Ok(new_target)
 }
 
 pub fn apply_structural_change(document: &sync::Arc<document::Document>, change: Change) -> Result<document::Document, ApplyError> {
