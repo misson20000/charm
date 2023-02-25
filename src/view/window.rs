@@ -3,20 +3,18 @@ use std::rc;
 use std::sync;
 
 use crate::view::CharmApplication;
-use crate::model::addr;
 use crate::model::document;
-use crate::model::document::structure;
 use crate::model::space;
 use crate::view;
 use crate::view::action;
 use crate::view::helpers;
 use crate::view::hierarchy;
+use crate::view::props_editor;
 
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::prelude::*;
-use gtk::subclass::prelude::*;
 
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
@@ -27,6 +25,7 @@ pub struct CharmWindow {
     config_editor: gtk::ListBox,
     datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
+    props_editor: rc::Rc<props_editor::PropsEditor>,
     context: cell::RefCell<Option<WindowContext>>,
 }
 
@@ -37,8 +36,8 @@ pub struct WindowContext {
     
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
-    datapath_model: gtk::TreeModel,
-    hierarchy_model: hierarchy::StructureSelectionModel,
+    pub datapath_model: gtk::TreeModel,
+    pub hierarchy_model: hierarchy::StructureSelectionModel,
 
     action_group: gio::SimpleActionGroup,
     
@@ -66,7 +65,7 @@ impl CharmWindow {
             {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
-                edit_menu.append(Some("Nest"), Some("win.hierarchy.structure.nest"));
+                edit_menu.append(Some("Nest"), Some("ctx.nest"));
                 edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
                 {
                     let mode_menu = gio::Menu::new();
@@ -159,12 +158,43 @@ impl CharmWindow {
                         .factory(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(ui)))
                         .build());
             }
+
+            let menu = gio::Menu::new();
+            menu.append(Some("Nest"), Some("ctx.nest"));
+            let popover = gtk::PopoverMenu::from_model(Some(&menu));
+            popover.set_parent(&hierarchy_editor);
+            
+            let gesture = gtk::GestureClick::new();
+            gesture.connect_pressed(move |gesture, n_press, x, y| {
+                let seq = gesture.current_sequence();
+                let event = gesture.last_event(seq.as_ref()).unwrap();
+
+                if n_press != 1 {
+                    return;
+                }
+
+                if !event.triggers_context_menu() {
+                    return;
+                }
+
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+
+                popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                popover.popup();
+            });
+            gesture.set_exclusive(true);
+            gesture.set_button(0);
+            hierarchy_editor.add_controller(&gesture);
         }
         
         let config_editor = view::config_editor::build_config_editor();
         let config_editor_frame: gtk::Frame = builder.object("config_editor_frame").unwrap();
         config_editor_frame.set_child(Some(&config_editor));
 
+        let props_editor_frame: gtk::Frame = builder.object("props_editor_frame").unwrap();
+        let props_editor = props_editor::PropsEditor::new();
+        props_editor_frame.set_child(Some(props_editor.toplevel()));
+        
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
             window,
@@ -174,6 +204,7 @@ impl CharmWindow {
             config_editor,
             datapath_editor_frame: builder.object("datapath_editor_frame").unwrap(),
             config_editor_frame,
+            props_editor,
             context: cell::RefCell::new(None),
         });
 
@@ -188,20 +219,14 @@ impl CharmWindow {
         /* window actions */
         
         helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
-        helpers::bind_simple_action(&w, &w.window, "edit_properties", |w| w.action_edit_properties());
-
-        view::helpers::bind_simple_action(&w, &w.window, "hierarchy.structure.nest", |w| {
-            w.action_nest();
-        });
-        
-        view::helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
+        helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
                 act.set_state(&vis.to_variant());
             }
         });
         
-        view::helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
+        helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
             if let Some(vis) = state {
                 w.config_editor_frame.set_visible(vis);
                 act.set_state(&vis.to_variant());
@@ -209,11 +234,6 @@ impl CharmWindow {
         });
 
         w
-    }
-
-    pub fn present(&self) {
-        self.config_editor_frame.hide();
-        self.window.present();
     }
 
     fn action_open(self: &rc::Rc<Self>) {
@@ -252,75 +272,10 @@ impl CharmWindow {
         }));
         dialog.present();
     }
-
-    pub fn action_edit_properties(self: &rc::Rc<Self>) {
-        if let Some(item) = self.hierarchy_editor.model().and_then(|model| {
-            let selection = model.selection();
-            if selection.size() == 0 {
-                None
-            } else {
-                model.item(selection.nth(0))
-            }
-        }).map(|object| {
-            object.downcast::<gtk::TreeListRow>().unwrap().item().unwrap().downcast::<hierarchy::NodeItem>().unwrap()
-        }) {
-            let node_info = item.imp().info.get().unwrap().borrow();
-
-            let builder = gtk::Builder::from_string(include_str!("display-editor.ui"));
-
-            let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
-            let children_display: gtk::Entry = builder.object("children_display").unwrap();
-            
-            let dialog = gtk::Dialog::builder()
-                .application(&self.application.application)
-                .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
-                .resizable(true)
-                .title(&format!("Editing properties for '{}'", node_info.props.name))
-                .transient_for(&self.window)
-                .build();
-
-            std::mem::drop(node_info);
-            
-            let name_binding = item.bind_property("name", &name_entry.buffer(), "text").flags(glib::BindingFlags::BIDIRECTIONAL | glib::BindingFlags::SYNC_CREATE).build();
-            let children_display_binding = item.bind_property("children-display", &children_display.buffer(), "text").flags(glib::BindingFlags::BIDIRECTIONAL | glib::BindingFlags::SYNC_CREATE).build();
-            
-            dialog.show();
-
-            /* extend lifetimes of binding and reference until window closes */
-            dialog.connect_destroy(move |_| {
-                let _ = (&item, &name_binding, &children_display_binding);
-            });
-        }
-    }
-
-    pub fn action_nest(self: &rc::Rc<Self>) {
-        // TODO: disable action when no model is attached
-
-        if let Some(ctx) = &*self.context.borrow() {
-            let (selection, document) = match self.hierarchy_editor.model() {
-                Some(model) => model.downcast::<hierarchy::StructureSelectionModel>().unwrap(),
-                None => return
-            }.selection_mode();
-
-            let (parent, first_sibling, last_sibling) = match &selection {
-                hierarchy::SelectionMode::Empty => return,
-                hierarchy::SelectionMode::Single(path) if !path.is_empty() => (&path[0..path.len()-1], *path.last().unwrap(), *path.last().unwrap()),
-                hierarchy::SelectionMode::SiblingRange(path, begin, end) => (&path[..], *begin, *end),
-                hierarchy::SelectionMode::All | hierarchy::SelectionMode::Single(_) => {
-                    // TODO: find a way to issue a warning for this
-                    return;
-                }
-            };
-
-            // TODO: failure feedback
-            let _ = ctx.document_host.nest(&document, parent.to_vec(), first_sibling, last_sibling, structure::Properties {
-                name: "nest".to_string(),
-                title_display: structure::TitleDisplay::Minor,
-                children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
-                locked: false,
-            });
-        }
+    
+    pub fn present(&self) {
+        self.config_editor_frame.hide();
+        self.window.present();
     }
 
     /* This is THE ONLY place allowed to modify context */
@@ -328,8 +283,8 @@ impl CharmWindow {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
-
         self.window.insert_action_group("ctx", gio::ActionGroup::NONE);
+        self.props_editor.unbind();
 
         *self.context.borrow_mut() = context;
 
@@ -338,6 +293,7 @@ impl CharmWindow {
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
             self.hierarchy_editor.set_model(Some(&new_context.hierarchy_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
+            self.props_editor.bind(&new_context);
             
             new_context.lw.grab_focus();
         }
@@ -392,7 +348,9 @@ impl WindowContext {
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
+        //wc.action_group.add_action(&action::edit_props::create_action(&wc));
         wc.action_group.add_action(&action::navigate::create_action(&wc));
+        wc.action_group.add_action(&action::nest::create_action(&wc));
         
         wc
     }

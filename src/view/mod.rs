@@ -13,6 +13,7 @@ pub mod config_editor;
 pub mod datapath;
 pub mod hierarchy;
 pub mod listing;
+pub mod props_editor;
 
 use std::rc;
 
