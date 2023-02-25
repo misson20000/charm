@@ -123,6 +123,7 @@ mod imp {
         pub document_host: sync::Arc<document::DocumentHost>,
         pub document: sync::Arc<document::Document>,
         pub subscriber: helpers::AsyncSubscriber,
+        pub deleted: bool,
     }
 
     #[derive(Default)]
@@ -292,20 +293,44 @@ mod imp {
             
             interior.mode = match std::mem::replace(&mut interior.mode, SelectionMode::Empty) {
                 SelectionMode::Empty => SelectionMode::Empty,
-                SelectionMode::Single(mut path) => { change::update_path(&mut path, change).unwrap(); SelectionMode::Single(path) },
-                SelectionMode::SiblingRange(mut path, first_child, last_child) => {
-                    change::update_path(&mut path, change).unwrap();
-
-                    match &change.ty {
+                SelectionMode::Single(mut path) => match change::update_path(&mut path, change) {
+                    change::UpdatePathResult::Moved | change::UpdatePathResult::Unmoved => SelectionMode::Single(path),
+                    change::UpdatePathResult::Deleted => SelectionMode::Empty,
+                },
+                SelectionMode::SiblingRange(mut path, mut first_child, mut last_child) => match change::update_path(&mut path, change) {
+                    change::UpdatePathResult::Moved | change::UpdatePathResult::Unmoved => match &change.ty {
                         change::ChangeType::AlterNode(_, _) => SelectionMode::SiblingRange(path, first_child, last_child),
                         change::ChangeType::InsertNode(affected_path, insertion_index, _, _) if affected_path == &path && (first_child..=last_child).contains(insertion_index) => SelectionMode::SiblingRange(path, first_child, last_child+1),
                         change::ChangeType::InsertNode(_, _, _, _) => SelectionMode::SiblingRange(path, first_child, last_child),
                         change::ChangeType::Nest(affected_path, _nested_first, _nested_last, _props) if affected_path == &path => {
+                            // TODO: smarter logic here
                             path.push(first_child);
                             SelectionMode::Single(path)
                         },
-                        change::ChangeType::Nest(_, _, _, _) => SelectionMode::SiblingRange(path, first_child, last_child)
-                    }
+                        change::ChangeType::Nest(_, _, _, _) => SelectionMode::SiblingRange(path, first_child, last_child),
+                        change::ChangeType::DeleteRange(affected_path, deleted_first, deleted_last) if affected_path == &path => {
+                            let deleted = *deleted_first..=*deleted_last;
+                            if deleted.contains(&first_child) && deleted.contains(&last_child) {
+                                SelectionMode::Empty
+                            } else {
+                                if deleted.contains(&first_child) {
+                                    first_child = *deleted_first;
+                                } else if first_child > *deleted_last {
+                                    first_child-= (*deleted_last-*deleted_first)+1;
+                                }
+                                
+                                if deleted.contains(&last_child) {
+                                    last_child = *deleted_first-1;
+                                } else if last_child > *deleted_last {
+                                    last_child-= (*deleted_last-*deleted_first)+1;
+                                }
+
+                                SelectionMode::SiblingRange(path, first_child, last_child)
+                            }
+                        },
+                        change::ChangeType::DeleteRange(_, _, _) => SelectionMode::SiblingRange(path, first_child, last_child),
+                    },
+                    change::UpdatePathResult::Deleted => SelectionMode::Empty,
                 },
                 SelectionMode::All => SelectionMode::All,
             };
@@ -555,6 +580,7 @@ impl StructureListModel {
             document_host: info.document_host.clone(),
             document: info.document.clone(),
             subscriber,
+            deleted: false,
         })).unwrap();
         
         model
@@ -574,8 +600,20 @@ impl StructureListModel {
 
     fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
         let mut i = self.imp().interior.get().unwrap().borrow_mut();
-        document::change::update_path(&mut i.path, change).unwrap();
+
         i.document = new_doc.clone();
+        
+        match document::change::update_path(&mut i.path, change) {
+            document::change::UpdatePathResult::Unmoved | document::change::UpdatePathResult::Moved => {
+            },
+            document::change::UpdatePathResult::Deleted => {
+                i.deleted = true;
+                i.path.clear();
+                i.children.clear();
+                i.address = addr::unit::NULL;
+                return;
+            },
+        };
         
         let (new_node, addr) = new_doc.lookup_node(&i.path);
 
@@ -583,7 +621,7 @@ impl StructureListModel {
         
         let items_changed = match &change.ty {
             /* Was one of our children altered? */
-            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..]=> {
+            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
                 let index = path[i.path.len()];
                 let child_item = i.children[index].clone();
                 let childhood = &new_node.children[index];
@@ -620,7 +658,9 @@ impl StructureListModel {
 
                 Some((*affected_index as u32, 0, 1))
             },
+            change::ChangeType::InsertNode(_, _, _, _) => None,
 
+            /* Were some of our children nested? */
             change::ChangeType::Nest(parent, first_child, last_child, _props) if parent[..] == i.path[..] => {
                 let childhood = &new_node.children[*first_child];
                 let document_host = i.document_host.clone();
@@ -638,8 +678,14 @@ impl StructureListModel {
                 Some((*first_child as u32, count_removed as u32, 1))
             },
             change::ChangeType::Nest(_, _, _, _) => None,
-            
-            change::ChangeType::InsertNode(_, _, _, _) => None,
+
+            /* Were some of our children deleted? */
+            change::ChangeType::DeleteRange(parent, first_child, last_child) if parent[..] == i.path[..] => {
+                let count_removed = i.children.splice(first_child..=last_child, []).count();
+
+                Some((*first_child as u32, count_removed as u32, 0))
+            },
+            change::ChangeType::DeleteRange(_, _, _) => None,
         };
 
         /* Fixup children's paths */

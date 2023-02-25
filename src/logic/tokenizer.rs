@@ -267,13 +267,13 @@ impl Tokenizer {
     /// Applies a single change to the tokenizer state.
     #[instrument]
     fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
-        /* Update all of the stack entries */
+        /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
         let (force_summary, stack_state) = match &self.stack {
             Some(parent) => Self::port_recurse(parent, new_root, change),
             None => (false, PortStackState::new(new_root.clone()))
         };
         
-        /* Take a first whack at figuring out vaguely where we should be. */
+        /* Convert our old state into a normalized intermediate state that includes hints about whether or not we need to fixup summaries. */
         let intermediate_state = match &self.state {
             TokenizerState::PreBlank =>
                 IntermediatePortState::Finished(TokenizerState::PreBlank),
@@ -333,7 +333,7 @@ impl Tokenizer {
             other => (other, stack_state.new_stack),
         };
 
-        /* Update most of our fields. */
+        /* Reset most of our fields. */
         *self = Tokenizer {
             stack: new_stack,
             state: TokenizerState::End, /* this is a placeholder while we finalize details. */
@@ -342,7 +342,7 @@ impl Tokenizer {
             node_addr: stack_state.node_addr,
         };
         
-        /* If intermediate state if Finished, go ahead and finish up. Otherwise extract our remaining hints. */
+        /* If intermediate state is Finished, go ahead and finish up. Otherwise extract our remaining hints. */
         let (mut offset, mut index) = match intermediate_state {
             IntermediatePortState::Finished(finalized_state) => {
                 self.state = finalized_state;
@@ -354,9 +354,10 @@ impl Tokenizer {
             IntermediatePortState::Child(index) => (addr::unit::NULL + options.additional_offset, index),
         };
         
-        /* Ugh, we were somewhere in the middle. Check if InsertNode affects us. */
+        /* No easy outs. Need to actually figure out how the change affects our position within a node. */
         match &change.ty {
             change::ChangeType::AlterNode(_path, _new_props) => {},
+            
             change::ChangeType::InsertNode(affected_path, affected_index, new_node_offset, new_node) if affected_path == &stack_state.current_path => {
                 /* A new child was added to the node we're on. */
                 if index == *affected_index && options.prefer_after_new_node {
@@ -374,6 +375,7 @@ impl Tokenizer {
                     index+= 1;
                 }
             },
+            
             change::ChangeType::Nest(parent, first_child, last_child, _props) if parent == &stack_state.current_path => {
                 /* Children were nested on this node */
                 let new_nest = &self.node.children[*first_child];
@@ -396,8 +398,19 @@ impl Tokenizer {
                     todo!("what is going on here?");
                 }
             },
+
+            change::ChangeType::DeleteRange(parent, first_child, last_child) if parent == &stack_state.current_path => {
+                if (*first_child..=*last_child).contains(&index) {
+                    index = *first_child;
+                } else if index > *last_child {
+                    index-= last_child-first_child+1;
+                }
+            },
+            
+            /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
             change::ChangeType::Nest(_, _, _, _) => {},
             change::ChangeType::InsertNode(_, _, _, _) => {},
+            change::ChangeType::DeleteRange(_, _, _) => {},
         };
 
         self.seek_in_node(offset, index);
@@ -422,6 +435,7 @@ impl Tokenizer {
     /// Applies a change to a single item in the tokenizer stack. Returns whether or not to keep going.
     #[instrument]
     fn port_stack_entry(state: &mut PortStackState, old_tok: &TokenizerStackEntry, change: &change::Change) -> bool {
+        /* This logic more-or-less mirrors change::update_path */
         let (descent, summary) = match old_tok.descent {
             TokenizerDescent::Child(mut old_child_index) | TokenizerDescent::ChildSummary(mut old_child_index) => {
                 match &change.ty {
@@ -446,31 +460,51 @@ impl Tokenizer {
                         }
                     },
                     change::ChangeType::Nest(parent, first_child, last_child, props) => {
-                        if parent == &state.current_path && (*first_child..=*last_child).contains(&old_child_index) {
-                            let (descent_into_new_node, summary) = match props.children_display {
-                                structure::ChildrenDisplay::None => return false,
-                                _ if state.force_summary => (TokenizerDescent::ChildSummary(*first_child), true),
-                                structure::ChildrenDisplay::Summary => (TokenizerDescent::ChildSummary(*first_child), true),
-                                structure::ChildrenDisplay::Full => (TokenizerDescent::Child(*first_child), false)
-                            };
+                        if parent == &state.current_path {
+                            if (*first_child..=*last_child).contains(&old_child_index) {
+                                let (descent_into_new_node, summary) = match props.children_display {
+                                    structure::ChildrenDisplay::None => return false,
+                                    _ if state.force_summary => (TokenizerDescent::ChildSummary(*first_child), true),
+                                    structure::ChildrenDisplay::Summary => (TokenizerDescent::ChildSummary(*first_child), true),
+                                    structure::ChildrenDisplay::Full => (TokenizerDescent::Child(*first_child), false)
+                                };
 
-                            descent_into_new_node.build_path(&mut state.current_path);
+                                descent_into_new_node.build_path(&mut state.current_path);
 
-                            let childhood = descent_into_new_node.childhood(&state.node);
-                            
-                            let tse = TokenizerStackEntry {
-                                stack: state.new_stack.take(),
-                                descent: descent_into_new_node,
-                                depth: state.depth,
-                                node: std::mem::replace(&mut state.node, childhood.node),
-                                node_addr: state.node_addr,
-                            };
-                            state.depth+= tse.descent.depth_change();
-                            state.node_addr+= childhood.offset.to_size();
-                            state.new_stack = Some(sync::Arc::new(tse));
-                            state.force_summary = state.force_summary || summary;
+                                let childhood = descent_into_new_node.childhood(&state.node);
+                                
+                                let tse = TokenizerStackEntry {
+                                    stack: state.new_stack.take(),
+                                    descent: descent_into_new_node,
+                                    depth: state.depth,
+                                    node: std::mem::replace(&mut state.node, childhood.node),
+                                    node_addr: state.node_addr,
+                                };
+                                state.depth+= tse.descent.depth_change();
+                                state.node_addr+= childhood.offset.to_size();
+                                state.new_stack = Some(sync::Arc::new(tse));
+                                state.force_summary = state.force_summary || summary;
 
-                            old_child_index-= first_child;
+                                old_child_index-= first_child;
+                            } else if old_child_index > *last_child {
+                                old_child_index-= last_child-first_child;
+                            }
+                        }
+
+                        match state.node.props.children_display {
+                            structure::ChildrenDisplay::None => return false,
+                            _ if state.force_summary => (TokenizerDescent::ChildSummary(old_child_index), true),
+                            structure::ChildrenDisplay::Summary => (TokenizerDescent::ChildSummary(old_child_index), true),
+                            structure::ChildrenDisplay::Full => (TokenizerDescent::Child(old_child_index), false)
+                        }
+                    },
+                    change::ChangeType::DeleteRange(parent, first_child, last_child) => {
+                        if parent == &state.current_path {
+                            if (*first_child..=*last_child).contains(&old_child_index) {
+                                return false;
+                            } else if old_child_index > *last_child {
+                                old_child_index-= last_child-first_child+1;
+                            }
                         }
 
                         match state.node.props.children_display {

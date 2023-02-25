@@ -148,6 +148,15 @@ impl DocumentHost {
 
         self.change(change)
     }
+
+    pub fn delete_range(&self, doc: &Document, path: structure::Path, first_sibling: usize, last_sibling: usize) -> Result<(), change::ApplyError> {
+        let change = change::Change {
+            ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
+            generation: doc.generation,
+        };
+
+        self.change(change)
+    }
 }
 
 pub struct DocumentUpdateFuture<'a> {
