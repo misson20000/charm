@@ -11,6 +11,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change;
 use crate::model::document::structure;
+use crate::model::versioned::Versioned;
 use crate::view::helpers;
 
 pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, document: sync::Arc<document::Document>, autoexpand: bool) -> gtk::TreeListModel {
@@ -34,7 +35,7 @@ pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, 
         ).upcast())
     });
 
-    let subscriber = helpers::subscribe_to_document_updates(root_item.downgrade(), document_host.clone(), document, move |root_item, new_document| {
+    let subscriber = helpers::subscribe_to_updates(root_item.downgrade(), document_host.clone(), document, move |root_item, new_document| {
         root_item.stage(NodeInfo {
             path: vec![],
             node: new_document.root.clone(),
@@ -176,7 +177,7 @@ mod imp {
                 _ => unimplemented!(),
             };
 
-            if let Err(e) = info.document_host.alter_node(&info.document, info.path.clone(), info.props.clone()) {
+            if let Err(e) = info.document_host.change(info.document.alter_node(info.path.clone(), info.props.clone())) {
                 /* roll back */
                 println!("failed to alter node: {:?}", e);
                 std::mem::drop(info);
@@ -216,7 +217,7 @@ impl StructureListModel {
     fn from_node_info(info: &NodeInfo) -> Self {
         let model: Self = glib::Object::builder().build();
 
-        let subscriber = helpers::subscribe_to_document_updates(model.downgrade(), info.document_host.clone(), info.document.clone(), move |model, new_document| {
+        let subscriber = helpers::subscribe_to_updates(model.downgrade(), info.document_host.clone(), info.document.clone(), move |model, new_document| {
             model.update(new_document);
         });
 
@@ -250,7 +251,7 @@ impl StructureListModel {
 
     fn port_doc(&self, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) {
         if old_doc.is_outdated(new_doc) {
-            match &new_doc.previous {
+            match new_doc.get_previous() {
                 Some((prev_doc, change)) => {
                     self.port_doc(old_doc, prev_doc);
                     self.port_change(new_doc, change);

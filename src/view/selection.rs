@@ -48,6 +48,7 @@ mod imp {
     
     use crate::model::document;
     use crate::model::document::change;
+    use crate::model::versioned::Versioned;
     use crate::view::helpers;
     use crate::view::hierarchy::NodeItem;
 
@@ -99,7 +100,7 @@ mod imp {
 
         fn port_doc<'a>(interior: cell::RefMut<'a, StructureSelectionModelInterior>, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) -> cell::RefMut<'a, StructureSelectionModelInterior> {
             if old_doc.is_outdated(new_doc) {
-                match &new_doc.previous {
+                match new_doc.get_previous() {
                     Some((prev_doc, change)) => {
                         let interior = Self::port_doc(interior, old_doc, prev_doc);
                         Self::port_change(interior, new_doc, change)
@@ -372,7 +373,7 @@ impl StructureSelectionModel {
         let tree_model = hierarchy::create_tree_list_model(document_host.clone(), document.clone(), true);
         tree_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| model.items_changed(pos, removed, added)));
 
-        let subscriber = helpers::subscribe_to_document_updates(model.downgrade(), document_host.clone(), document.clone(), move |model, new_document| {
+        let subscriber = helpers::subscribe_to_updates(model.downgrade(), document_host.clone(), document.clone(), move |model, new_document| {
             model.imp().update(new_document);
         });
         

@@ -90,8 +90,7 @@ impl InsertNodeAction {
         let parent_node = document.lookup_node(&*self.path.borrow()).0;
         let index = parent_node.children.partition_point(|child| offset >= child.offset);
         
-        self.document_host.insert_node(
-            &document,
+        self.document_host.change(document.insert_node(
             self.path.borrow().clone(),
             index,
             offset,
@@ -105,7 +104,7 @@ impl InsertNodeAction {
                 },
                 children: Vec::new(),
                 size,
-            })).expect("TODO: handle this");
+            }))).expect("TODO: handle this");
     }
     
     pub fn activate(&self) {

@@ -10,6 +10,7 @@ use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::layout;
+use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::gsc;
 use crate::view::helpers;
@@ -211,7 +212,7 @@ impl ListingWidget {
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
 
-        let update_subscriber = helpers::subscribe_to_document_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+        let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.document_updated(new_doc);
         });
         

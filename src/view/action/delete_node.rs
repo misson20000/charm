@@ -57,6 +57,6 @@ impl DeleteNodeAction {
         };
 
         // TODO: failure feedback
-        let _ = self.document_host.delete_range(&document, parent.to_vec(), first_sibling, last_sibling);
+        let _ = self.document_host.change(document.delete_range(parent.to_vec(), first_sibling, last_sibling));
     }
 }

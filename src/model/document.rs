@@ -2,60 +2,194 @@ pub mod change;
 pub mod search;
 pub mod structure;
 
-use std::future;
-use std::pin;
 use std::sync;
-use std::task;
 use std::vec;
 
-use crate::util;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
+use crate::model::versioned;
 
 #[derive(Clone)]
 pub struct Document {
-    pub previous: Option<(sync::Arc<Document>, change::Change)>,
     pub root: sync::Arc<structure::Node>,
     pub datapath: datapath::DataPath,
-    uid: u64, //< unique ID
-    pub generation: u64, // TODO: make this private? should it be private?
+
+    previous: Option<(sync::Arc<Document>, change::Change)>,
+    uid: u64,
+    generation: u64,
 }
 
-static NEXT_DOCUMENT_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
-static NEXT_GENERATION: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
+impl versioned::Versioned for Document {
+    type Change = change::Change;
 
-pub struct DocumentHost {
-    notifier: util::Notifier,
-    current: arc_swap::ArcSwap<Document>,
+    fn get_generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn get_uid(&self) -> u64 {
+        self.uid
+    }
+
+    fn get_previous(&self) -> Option<&(sync::Arc<Self>, change::Change)> {
+        self.previous.as_ref()
+    }
 }
 
-impl DocumentHost {
-    pub fn new(doc: Document) -> DocumentHost {
-        DocumentHost {
-            notifier: util::Notifier::new(),
-            current: arc_swap::ArcSwap::from(sync::Arc::new(doc)),
+pub type DocumentHost = versioned::Host<Document>;
+
+#[derive(Debug)]
+pub enum LoadForTestingError {
+    IoError(std::io::Error),
+    XmlError(roxmltree::Error),
+}
+
+impl From<std::io::Error> for LoadForTestingError {
+    fn from(e: std::io::Error) -> LoadForTestingError {
+        LoadForTestingError::IoError(e)
+    }
+}
+
+impl From<roxmltree::Error> for LoadForTestingError {
+    fn from(e: roxmltree::Error) -> LoadForTestingError {
+        LoadForTestingError::XmlError(e)
+    }
+}
+
+impl Document {
+    pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Document {
+        let mut datapath = datapath::DataPath::new();
+        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
+        
+        Document {
+            previous: None,
+            root: sync::Arc::new(structure::Node {
+                size: addr::unit::REAL_MAX,
+                props: structure::Properties {
+                    name: "root".to_string(),
+                    title_display: structure::TitleDisplay::Major,
+                    children_display: structure::ChildrenDisplay::Full,
+                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    locked: true,
+                },
+                children: vec::Vec::new()
+            }),
+            datapath,
+            uid: versioned::next_uid(),
+            generation: versioned::next_generation(),
         }
     }
 
-    pub fn enroll(&self, cx: &task::Context) {
-        self.notifier.enroll(cx);
+    pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
+        let xml = std::fs::read_to_string(path)?;
+        let xml = roxmltree::Document::parse(&xml)?;
+        let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
+
+        Ok(Document {
+            previous: None,
+            root: tc.structure,
+            datapath: datapath::DataPath::new(),
+            uid: versioned::next_uid(),
+            generation: versioned::next_generation(),
+        })
     }
 
-    pub fn wait_for_update<'a>(&'a self, current: &'_ Document) -> DocumentUpdateFuture<'a> {
-        DocumentUpdateFuture {
-            host: self,
-            generation: current.generation,
+    #[cfg(test)]
+    pub fn new_for_structure_test(root: sync::Arc<structure::Node>) -> Document {
+        Document {
+            previous: None,
+            root,
+            datapath: datapath::DataPath::new(),
+            uid: versioned::next_uid(),
+            generation: versioned::next_generation(),
         }
     }
     
-    pub fn borrow(&self) -> arc_swap::Guard<sync::Arc<Document>> {
-        self.current.load()
+    pub fn invalid() -> Document {
+        Document {
+            previous: None,
+            root: sync::Arc::new(structure::Node {
+                size: addr::unit::REAL_MAX,
+                props: structure::Properties {
+                    name: "root".to_string(),
+                    title_display: structure::TitleDisplay::Major,
+                    children_display: structure::ChildrenDisplay::Full,
+                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    locked: true,
+                },
+                children: vec::Vec::new()
+            }),
+            datapath: datapath::DataPath::new(),
+            uid: 0,
+            generation: 0,
+        }
     }
 
-    pub fn get(&self) -> sync::Arc<Document> {
-        self.current.load_full()
+    pub fn lookup_node(&self, path: &structure::Path) -> (&sync::Arc<structure::Node>, addr::Address) {
+        let mut current_node = &self.root;
+        let mut node_addr = addr::unit::NULL;
+
+        for i in path {
+            let childhood = &current_node.children[*i];
+            node_addr+= childhood.offset.to_size();
+            current_node = &childhood.node;
+        }
+
+        (current_node, node_addr)
     }
+
+    pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
+        search::AddressSearch::new(self, addr.into(), traversal)
+    }
+
+    pub fn describe_path(&self, path: &structure::Path) -> String {
+        let mut node = &self.root;
+        let mut path_description = node.props.name.clone();
+        
+        for i in path {
+            node = &node.children[*i].node;
+            
+            if !sync::Arc::ptr_eq(node, &self.root) {
+                path_description.push_str(".");
+            }
+            path_description.push_str(&node.props.name);
+        }
+
+        path_description
+    }
+
+    #[must_use]
+    pub fn alter_node(&self, path: structure::Path, props: structure::Properties) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::AlterNode(path, props),
+            generation: self.generation,
+        }
+    }
+    
+    #[must_use]
+    pub fn insert_node(&self, path: structure::Path, after_child: usize, offset: addr::Address, node: sync::Arc<structure::Node>) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::InsertNode(path, after_child, offset, node),
+            generation: self.generation,
+        }
+    }
+
+    #[must_use]
+    pub fn nest(&self, path: structure::Path, first_sibling: usize, last_sibling: usize, props: structure::Properties) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, props),
+            generation: self.generation,
+        }
+    }
+
+    #[must_use]
+    pub fn delete_range(&self, path: structure::Path, first_sibling: usize, last_sibling: usize) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
+            generation: self.generation,
+        }
+    }
+}
 
     /*
     pub fn patch_byte(&self, location: u64, patch: u8) {
@@ -107,226 +241,6 @@ impl DocumentHost {
         self.notifier.notify();
 }
      */
-
-    pub fn change(&self, change: change::Change) -> Result<(), change::ApplyError> {
-        let old = self.current.load();
-        let new = sync::Arc::new(change::apply_structural_change(&old, change)?);
-        let swapped = self.current.compare_and_swap(&*old, new.clone());
-            
-        if !sync::Arc::ptr_eq(&*old, &swapped) {
-            /* very sad, another thread updated the document. need to fish the change back out of our fake new document and try again. */
-            return self.change((*new).clone().previous.unwrap().1)
-        }
-        
-        self.notifier.notify();
-        Ok(())
-    }
-
-    pub fn alter_node(&self, doc: &Document, path: structure::Path, props: structure::Properties) -> Result<(), change::ApplyError> {
-        let change = change::Change {
-            ty: change::ChangeType::AlterNode(path, props),
-            generation: doc.generation,
-        };
-
-        self.change(change)
-    }
-
-    pub fn insert_node(&self, doc: &Document, path: structure::Path, after_child: usize, offset: addr::Address, node: sync::Arc<structure::Node>) -> Result<(), change::ApplyError> {
-        let change = change::Change {
-            ty: change::ChangeType::InsertNode(path, after_child, offset, node),
-            generation: doc.generation,
-        };
-
-        self.change(change)
-    }
-
-    pub fn nest(&self, doc: &Document, path: structure::Path, first_sibling: usize, last_sibling: usize, props: structure::Properties) -> Result<(), change::ApplyError> {
-        let change = change::Change {
-            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, props),
-            generation: doc.generation,
-        };
-
-        self.change(change)
-    }
-
-    pub fn delete_range(&self, doc: &Document, path: structure::Path, first_sibling: usize, last_sibling: usize) -> Result<(), change::ApplyError> {
-        let change = change::Change {
-            ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
-            generation: doc.generation,
-        };
-
-        self.change(change)
-    }
-}
-
-pub struct DocumentUpdateFuture<'a> {
-    host: &'a DocumentHost,
-    generation: u64,
-}
-
-impl<'a> future::Future for DocumentUpdateFuture<'a> {
-    type Output = sync::Arc<Document>;
-
-    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
-        let guard = self.host.current.load();
-        if guard.generation != self.generation {
-            /* fast path */
-            task::Poll::Ready(arc_swap::Guard::into_inner(guard))
-        } else {
-            /* slow path. need to enroll for change notifications... */
-            std::mem::drop(guard);
-            self.host.enroll(cx);
-
-            /* check whether the document was updated while we were enrolling */
-            let guard = self.host.current.load();
-            if guard.generation != self.generation {
-                /* document was updated while we were enrolling */
-                task::Poll::Ready(arc_swap::Guard::into_inner(guard))
-            } else {
-                /* still no change... we'll pick it up when our task gets woken again. */
-                task::Poll::Pending
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for DocumentHost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DocumentHost")
-            .field("generation", &self.borrow().generation)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Debug)]
-pub enum LoadForTestingError {
-    IoError(std::io::Error),
-    XmlError(roxmltree::Error),
-}
-
-impl From<std::io::Error> for LoadForTestingError {
-    fn from(e: std::io::Error) -> LoadForTestingError {
-        LoadForTestingError::IoError(e)
-    }
-}
-
-impl From<roxmltree::Error> for LoadForTestingError {
-    fn from(e: roxmltree::Error) -> LoadForTestingError {
-        LoadForTestingError::XmlError(e)
-    }
-}
-
-impl Document {
-    pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Document {
-        let mut datapath = datapath::DataPath::new();
-        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
-        
-        Document {
-            previous: None,
-            root: sync::Arc::new(structure::Node {
-                size: addr::unit::REAL_MAX,
-                props: structure::Properties {
-                    name: "root".to_string(),
-                    title_display: structure::TitleDisplay::Major,
-                    children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::Hexdump(16.into()),
-                    locked: true,
-                },
-                children: vec::Vec::new()
-            }),
-            datapath,
-            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
-            generation: 0,
-        }
-    }
-
-    pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
-        let xml = std::fs::read_to_string(path)?;
-        let xml = roxmltree::Document::parse(&xml)?;
-        let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
-
-        Ok(Document {
-            previous: None,
-            root: tc.structure,
-            datapath: datapath::DataPath::new(),
-            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
-            generation: NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
-        })
-    }
-
-    #[cfg(test)]
-    pub fn new_for_structure_test(root: sync::Arc<structure::Node>) -> Document {
-        Document {
-            previous: None,
-            root,
-            datapath: datapath::DataPath::new(),
-            uid: NEXT_DOCUMENT_ID.fetch_add(1, sync::atomic::Ordering::Relaxed),
-            generation: NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
-        }
-    }
-    
-    pub fn invalid() -> Document {
-        Document {
-            previous: None,
-            root: sync::Arc::new(structure::Node {
-                size: addr::unit::REAL_MAX,
-                props: structure::Properties {
-                    name: "root".to_string(),
-                    title_display: structure::TitleDisplay::Major,
-                    children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::Hexdump(16.into()),
-                    locked: true,
-                },
-                children: vec::Vec::new()
-            }),
-            datapath: datapath::DataPath::new(),
-            uid: 0,
-            generation: 0,
-        }
-    }
-
-    pub fn is_outdated(&self, other: &Self) -> bool {
-        self.uid != other.uid ||
-            self.generation != other.generation
-    }
-
-    pub fn get_generation_for_debug(&self) -> u64 {
-        self.generation
-    }
-
-    pub fn lookup_node(&self, path: &structure::Path) -> (&sync::Arc<structure::Node>, addr::Address) {
-        let mut current_node = &self.root;
-        let mut node_addr = addr::unit::NULL;
-
-        for i in path {
-            let childhood = &current_node.children[*i];
-            node_addr+= childhood.offset.to_size();
-            current_node = &childhood.node;
-        }
-
-        (current_node, node_addr)
-    }
-
-    pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
-        search::AddressSearch::new(self, addr.into(), traversal)
-    }
-
-    pub fn describe_path(&self, path: &structure::Path) -> String {
-        let mut node = &self.root;
-        let mut path_description = node.props.name.clone();
-        
-        for i in path {
-            node = &node.children[*i].node;
-            
-            if !sync::Arc::ptr_eq(node, &self.root) {
-                path_description.push_str(".");
-            }
-            path_description.push_str(&node.props.name);
-        }
-
-        path_description
-    }
-}
 
 impl std::fmt::Debug for Document {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

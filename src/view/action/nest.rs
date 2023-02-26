@@ -59,12 +59,12 @@ impl NestAction {
         };
 
         // TODO: failure feedback
-        let _ = self.document_host.nest(&document, parent.to_vec(), first_sibling, last_sibling, structure::Properties {
+        let _ = self.document_host.change(document.nest(parent.to_vec(), first_sibling, last_sibling, structure::Properties {
             name: "nest".to_string(),
             title_display: structure::TitleDisplay::Minor,
             children_display: structure::ChildrenDisplay::Full,
             content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
             locked: false,
-        });
+        }));
     }
 }

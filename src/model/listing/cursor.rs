@@ -4,6 +4,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
+use crate::model::versioned::Versioned;
 use crate::logic::tokenizer;
 
 use enum_dispatch::enum_dispatch;
@@ -255,13 +256,14 @@ impl Cursor {
     }
     
     pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
-        host.insert_node(
-            &self.document,
-            self.structure_path(),
-            self.structure_child_index(),
-            self.structure_offset(),
-            node).map(|_| {
-                self.update_internal(&host.borrow(), UpdateMode::AfterNewNode);
+        host.change(
+            self.document.insert_node(
+                self.structure_path(),
+                self.structure_child_index(),
+                self.structure_offset(),
+                node)
+        ).map(|new_doc| {
+            self.update_internal(&new_doc, UpdateMode::AfterNewNode);
         })
     }
 }

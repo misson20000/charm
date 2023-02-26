@@ -10,6 +10,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
+use crate::model::versioned::Versioned;
 use crate::logic::tokenizer;
 
 pub trait Line {

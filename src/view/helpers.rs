@@ -7,7 +7,7 @@ use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
 
-use crate::model::document;
+use crate::model::versioned;
 
 pub fn create_simple_action_strong<T, F>(obj: rc::Rc<T>, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(&rc::Rc<T>) + 'static,
@@ -58,28 +58,28 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
 #[derive(Debug)]
 pub struct AsyncSubscriber(Option<glib::SourceId>);
 
-pub fn subscribe_to_document_updates<Ref, F>(
-    obj_weak: Ref,
-    document_host: sync::Arc<document::DocumentHost>,
-    initial_document: sync::Arc<document::Document>,
+pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'static>(
+    subscriber_weak: SubscriberRef,
+    host: sync::Arc<versioned::Host<Object>>,
+    initial_object: sync::Arc<Object>,
     callback: F) -> AsyncSubscriber where
-    Ref: glib::clone::Upgrade + 'static,
-    F: Fn(Ref::Strong, &sync::Arc<document::Document>) + 'static {
+    SubscriberRef: glib::clone::Upgrade + 'static,
+    F: Fn(SubscriberRef::Strong, &sync::Arc<Object>) + 'static {
     spawn_on_main_context(async move {
-        let mut document = initial_document;
+        let mut object = initial_object;
 
         loop {
-            let new_document = document_host.wait_for_update(&document).await;
+            let new_object = host.wait_for_update(&object).await;
             
-            let obj = match obj_weak.upgrade() {
-                Some(obj) => obj,
+            let subscriber = match subscriber_weak.upgrade() {
+                Some(subscriber) => subscriber,
                 None => {
                     return
                 }
             };
 
-            document = new_document.clone();
-            callback(obj, &document);
+            object = new_object.clone();
+            callback(subscriber, &object);
         };
     })
 }

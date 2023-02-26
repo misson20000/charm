@@ -3,6 +3,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::versioned;
 
 #[derive(Debug, Clone)]
 pub enum ChangeType {
@@ -157,104 +158,108 @@ fn rebuild_node_tree<F>(target: &structure::Node, mut path_segment: structure::P
     }
 }
 
-pub fn apply_structural_change(document: &sync::Arc<document::Document>, change: Change) -> Result<document::Document, ApplyError> {
-    let change = update_change(change, document).map_err(ApplyError::UpdateFailed)?;
-
-    assert_eq!(change.generation, document.generation);
-
-    let mut new_document = document::Document {
-        previous: Some((document.clone(), change.clone())),
-        root: document.root.clone(),
-        datapath: document.datapath.clone(),
-        uid: document.uid,
-        generation: document::NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed),
-    };
+impl versioned::Change<document::Document> for Change {
+    type ApplyError = ApplyError;
     
-    match change.ty {
-        ChangeType::AlterNode(path, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |mut target| {
-            target.props = props;
-            Ok(())
-        })?),
-        ChangeType::InsertNode(path, at_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
-            /* Check at_child to make sure it's not farther than one-past the end. */
-            if at_child > target.children.len() {
-                return Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index"));
-            }
+    fn apply(self, document: &sync::Arc<document::Document>) -> Result<document::Document, ApplyError> {
+        let change = update_change(self, document).map_err(ApplyError::UpdateFailed)?;
 
-            /* Check offset to make sure it's within bounds. */
-            // TODO: automatically grow parents?
-            if offset > target.size.to_addr() {
-                return Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size"));
-            }
+        assert_eq!(change.generation, document.generation);
 
-            /* Check child size to make sure it's within bounds. */
-            // TODO: automatically grow parents?
-            if offset + node.size > target.size.to_addr() {
-                return Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size"));
-            }
-            
-            /* Keep child offsets monotonic. */
-            if (at_child > 0 && target.children[at_child-1].offset > offset) || (at_child < target.children.len() && target.children[at_child].offset < offset) {
-                println!("rejecting insert at position {}, offset {} into children {:?}", at_child, offset, target.children);
-                return Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"));
-            }
+        let mut new_document = document::Document {
+            previous: Some((document.clone(), change.clone())),
+            root: document.root.clone(),
+            datapath: document.datapath.clone(),
+            uid: document.uid,
+            generation: versioned::next_generation(),
+        };
+        
+        match change.ty {
+            ChangeType::AlterNode(path, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |mut target| {
+                target.props = props;
+                Ok(())
+            })?),
+            ChangeType::InsertNode(path, at_child, offset, node) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.into_iter(), |target| {
+                /* Check at_child to make sure it's not farther than one-past the end. */
+                if at_child > target.children.len() {
+                    return Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index"));
+                }
 
-            /* Preconditions passed; do the deed. */
-            target.children.insert(at_child, structure::Childhood {
-                node,
-                offset,
-            });
+                /* Check offset to make sure it's within bounds. */
+                // TODO: automatically grow parents?
+                if offset > target.size.to_addr() {
+                    return Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size"));
+                }
 
-            Ok(())
-        })?),
-        ChangeType::Nest(parent, first_child, last_child, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
-            /* Check indices. */
-            if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() {
-                return Err(ApplyError::InvalidParameters("attempted to nest children that don't exist"));
-            }
+                /* Check child size to make sure it's within bounds. */
+                // TODO: automatically grow parents?
+                if offset + node.size > target.size.to_addr() {
+                    return Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size"));
+                }
+                
+                /* Keep child offsets monotonic. */
+                if (at_child > 0 && target.children[at_child-1].offset > offset) || (at_child < target.children.len() && target.children[at_child].offset < offset) {
+                    println!("rejecting insert at position {}, offset {} into children {:?}", at_child, offset, target.children);
+                    return Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"));
+                }
 
-            if last_child < first_child {
-                return Err(ApplyError::InvalidParameters("last child was before first child"));
-            }
+                /* Preconditions passed; do the deed. */
+                target.children.insert(at_child, structure::Childhood {
+                    node,
+                    offset,
+                });
 
-            /* Preconditions passed; do the deed. */
-            let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
+                Ok(())
+            })?),
+            ChangeType::Nest(parent, first_child, last_child, props) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
+                /* Check indices. */
+                if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() {
+                    return Err(ApplyError::InvalidParameters("attempted to nest children that don't exist"));
+                }
 
-            let offset = children[0].offset;
-            let mut size = addr::unit::ZERO;
-            for child in &mut children {
-                child.offset-= offset.to_size();
-                size = std::cmp::max(size, child.offset.to_size() + child.node.size);
-            }
+                if last_child < first_child {
+                    return Err(ApplyError::InvalidParameters("last child was before first child"));
+                }
 
-            let new_node = &mut parent_node.children[first_child];
-            new_node.offset = offset;
-            new_node.node = sync::Arc::new(structure::Node {
-                size: size,
-                children: children,
-                props
-            });
+                /* Preconditions passed; do the deed. */
+                let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
 
-            Ok(())
-        })?),
-        ChangeType::DeleteRange(parent, first_child, last_child) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
-            /* Check indices. */
-            if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() {
-                return Err(ApplyError::InvalidParameters("attempted to delete children that don't exist"));
-            }
+                let offset = children[0].offset;
+                let mut size = addr::unit::ZERO;
+                for child in &mut children {
+                    child.offset-= offset.to_size();
+                    size = std::cmp::max(size, child.offset.to_size() + child.node.size);
+                }
 
-            if last_child < first_child {
-                return Err(ApplyError::InvalidParameters("last child was before first child"));
-            }
+                let new_node = &mut parent_node.children[first_child];
+                new_node.offset = offset;
+                new_node.node = sync::Arc::new(structure::Node {
+                    size: size,
+                    children: children,
+                    props
+                });
 
-            /* Preconditions passed; do the deed. */
-            parent_node.children.splice(first_child..=last_child, []);
+                Ok(())
+            })?),
+            ChangeType::DeleteRange(parent, first_child, last_child) => new_document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.into_iter(), |parent_node| {
+                /* Check indices. */
+                if first_child >= parent_node.children.len() || last_child >= parent_node.children.len() {
+                    return Err(ApplyError::InvalidParameters("attempted to delete children that don't exist"));
+                }
 
-            Ok(())
-        })?),
+                if last_child < first_child {
+                    return Err(ApplyError::InvalidParameters("last child was before first child"));
+                }
+
+                /* Preconditions passed; do the deed. */
+                parent_node.children.splice(first_child..=last_child, []);
+
+                Ok(())
+            })?),
+        }
+
+        Ok(new_document)
     }
-
-    Ok(new_document)
 }
 
 #[cfg(test)]
@@ -262,6 +267,8 @@ mod tests {
     use super::*;
 
     use assert_matches::assert_matches;
+
+    use crate::model::versioned::Change as VersionedChange;
     
     #[test]
     fn test_update_path_through_alter_node() {
@@ -468,10 +475,10 @@ mod tests {
 
         props.name = "modified".to_string();
         
-        let new_doc = apply_structural_change(&doc, Change {
+        let new_doc = Change {
             ty: ChangeType::AlterNode(vec![1, 0], props),
             generation: doc.generation,
-        }).unwrap();
+        }.apply(&doc).unwrap();
 
         assert_eq!(new_doc.lookup_node(&vec![1, 0]).0.props.name, "modified");
     }
@@ -482,33 +489,33 @@ mod tests {
 
         let node = structure::Node::builder().size(0x10).build();
         
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::InsertNode(vec![], 4, addr::Address::from(0x100), node.clone()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index")));
 
         assert!(doc.lookup_node(&vec![0]).0.size < 0x21.into());
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::InsertNode(vec![0], 0, addr::Address::from(0x21), node.clone()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size")));
 
         assert_eq!(doc.lookup_node(&vec![0]).0.size, 0x20.into());
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::InsertNode(vec![0], 0, addr::Address::from(0x11), node.clone()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size")));
 
         assert_eq!(doc.lookup_node(&vec![1, 1]).1, addr::Address::from(0x18));
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::InsertNode(vec![1], 0, addr::Address::from(0x2), node.clone()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
 
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::InsertNode(vec![1], 2, addr::Address::from(0x2), node.clone()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
     }
 
     #[test]
@@ -519,10 +526,10 @@ mod tests {
 
         let original_child = doc.lookup_node(&vec![1, 1]).0.clone();
         
-        let new_doc = apply_structural_change(&doc, Change {
+        let new_doc = Change {
             ty: ChangeType::InsertNode(vec![1], 1, addr::Address::from(0x2), node.clone()),
             generation: doc.generation,
-        }).unwrap();
+        }.apply(&doc).unwrap();
 
         assert!(sync::Arc::ptr_eq(&original_child, new_doc.lookup_node(&vec![1, 2]).0));
         assert!(sync::Arc::ptr_eq(&node, new_doc.lookup_node(&vec![1, 1]).0));
@@ -532,15 +539,15 @@ mod tests {
     fn test_structural_change_nest_preconditions() {
         let doc = sync::Arc::new(create_test_document_1());
 
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::Nest(vec![1], 0, 2, structure::Properties::default()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("attempted to nest children that don't exist")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("attempted to nest children that don't exist")));
 
-        assert_matches!(apply_structural_change(&doc, Change {
+        assert_matches!(Change {
             ty: ChangeType::Nest(vec![1], 1, 0, structure::Properties::default()),
             generation: doc.generation,
-        }), Err(ApplyError::InvalidParameters("last child was before first child")));
+        }.apply(&doc), Err(ApplyError::InvalidParameters("last child was before first child")));
     }
 
     #[test]
@@ -551,10 +558,10 @@ mod tests {
         let mut props = structure::Properties::default();
         props.name = "nest".to_string();
         
-        let new_doc = apply_structural_change(&doc, Change {
+        let new_doc = Change {
             ty: ChangeType::Nest(vec![1], 1, 2, props),
             generation: doc.generation,
-        }).unwrap();
+        }.apply(&doc).unwrap();
 
         let new_child1 = new_doc.root.children[1].node.clone();
 
@@ -582,20 +589,20 @@ mod tests {
         let doc = sync::Arc::new(create_test_document_2());
 
         /* try deleting just child1 */
-        let new_doc = apply_structural_change(&doc, Change {
+        let new_doc = Change {
             ty: ChangeType::DeleteRange(vec![], 1, 1),
             generation: doc.generation,
-        }).unwrap();
+        }.apply(&doc).unwrap();
 
         assert_eq!(new_doc.root.children.len(), 2);
         assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
         assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[1].node));
 
         /* try deleting child1.1 through child1.2 */
-        let new_doc = apply_structural_change(&doc, Change {
+        let new_doc = Change {
             ty: ChangeType::DeleteRange(vec![1], 1, 2),
             generation: doc.generation,
-        }).unwrap();
+        }.apply(&doc).unwrap();
 
         assert_eq!(new_doc.root.children.len(), 3);
         assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));

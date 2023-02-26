@@ -80,7 +80,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         action.do_navigate(action.model.item(0));
     }));
 
-    action.subscriber.set(helpers::subscribe_to_document_updates(rc::Rc::downgrade(&action), action.document_host.clone(), action.document.borrow().clone(), |action, new_document| {
+    action.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action), action.document_host.clone(), action.document.borrow().clone(), |action, new_document| {
         action.refresh_results(Some(new_document.clone()), false);
     })).unwrap();
     

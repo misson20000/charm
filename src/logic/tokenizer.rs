@@ -15,6 +15,7 @@ use crate::model::listing::token;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::document::change;
+use crate::model::versioned::Versioned;
 
 use tracing::instrument;
 
@@ -285,7 +286,7 @@ impl Tokenizer {
     #[instrument]
     pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document, options: &PortOptions) {
         if old_doc.is_outdated(new_doc) {
-            match &new_doc.previous {
+            match new_doc.get_previous() {
                 Some((prev_doc, change)) => {
                     self.port_doc(old_doc, prev_doc, options);
                     self.port_change(&new_doc.root, change, options);
@@ -1440,6 +1441,8 @@ mod tests {
     use std::iter;
     use std::vec;
 
+    use crate::model::versioned::Change;
+    
     struct DownwardTokenizerIterator(Tokenizer);
     struct UpwardTokenizerIterator(Tokenizer);
 
@@ -1739,10 +1742,7 @@ mod tests {
             .build();
  
         let old_doc = sync::Arc::new(document::Document::new_for_structure_test(root));
-        let new_doc = change::apply_structural_change(&old_doc, change::Change {
-            ty: change::ChangeType::DeleteRange(vec![1], 1, 2),
-            generation: old_doc.generation,
-        }).unwrap();
+        let new_doc = old_doc.delete_range(vec![1], 1, 2).apply(&old_doc).unwrap();
         
         let (o_child_1_2, o_child_1_2_addr) = old_doc.lookup_node(&vec![1, 2]);
         let (o_child_1_3, o_child_1_3_addr) = old_doc.lookup_node(&vec![1, 3]);

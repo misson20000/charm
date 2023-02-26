@@ -19,7 +19,7 @@ pub fn create_model(document_host: sync::Arc<document::DocumentHost>) -> (gtk::T
 
     update_store(&store, &document);
     
-    let subscriber = helpers::subscribe_to_document_updates(store.downgrade(), document_host, document, move |store, new_document| {
+    let subscriber = helpers::subscribe_to_updates(store.downgrade(), document_host, document, move |store, new_document| {
         update_store(&store, &new_document);
     });
 
