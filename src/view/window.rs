@@ -102,6 +102,12 @@ impl CharmWindow {
                 help_menu.freeze();
                 menu_bar.append_submenu(Some("Help"), &help_menu);
             }
+            {
+                let debug_menu = gio::Menu::new();
+                debug_menu.append(Some("Reset this window's UI by reopening current document state"), Some("ctx.debug.reopen_current_document"));
+                debug_menu.freeze();
+                menu_bar.append_submenu(Some("Debug"), &debug_menu);
+            }
             menu_bar.freeze();
 
             let menu_bar_widget: gtk::PopoverMenuBar = builder.object("menu_bar").unwrap();
@@ -218,7 +224,7 @@ impl CharmWindow {
         }));
 
         /* window actions */
-        
+
         helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
@@ -236,7 +242,7 @@ impl CharmWindow {
 
         w
     }
-
+    
     fn action_open(self: &rc::Rc<Self>) {
         let dialog = gtk::FileChooserDialog::new( // TODO (written pre gtk4): use FileChooserNative
             Some("Charm: Open File"),
@@ -280,7 +286,7 @@ impl CharmWindow {
     }
 
     /* This is THE ONLY place allowed to modify context */
-    fn attach_context(&self, context: Option<WindowContext>) {
+    pub fn attach_context(&self, context: Option<WindowContext>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
@@ -322,7 +328,7 @@ impl CharmWindow {
 }
 
 impl WindowContext {
-    fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
+    pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         
         let lw = view::listing::ListingWidget::new();
@@ -353,6 +359,7 @@ impl WindowContext {
         //wc.action_group.add_action(&action::edit_props::create_action(&wc));
         wc.action_group.add_action(&action::navigate::create_action(&wc));
         wc.action_group.add_action(&action::nest::create_action(&wc));
+        wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
         
         wc
     }
