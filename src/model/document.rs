@@ -19,7 +19,7 @@ pub struct Document {
     pub root: sync::Arc<structure::Node>,
     pub datapath: datapath::DataPath,
     uid: u64, //< unique ID
-    generation: u64,
+    pub generation: u64, // TODO: make this private? should it be private?
 }
 
 static NEXT_DOCUMENT_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);

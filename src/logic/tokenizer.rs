@@ -1553,4 +1553,150 @@ mod tests {
         test_forward(&testcase);
         test_backward(&testcase);
     }
+
+    fn seek_to_token(tokenizer: &mut Tokenizer, target: &token::Token) {
+        while match tokenizer.gen_token() {
+            TokenGenerationResult::Ok(token) => &token != target,
+            TokenGenerationResult::Skip => true,
+            TokenGenerationResult::Boundary => panic!("couldn't find token"),
+        } {
+            if !tokenizer.move_next() {
+                panic!("hit end of token stream");
+            }
+        }        
+    }
+
+    fn peek(tokenizer: &mut Tokenizer) -> token::Token {
+        loop {
+            match tokenizer.gen_token() {
+                TokenGenerationResult::Ok(token) => return token,
+                TokenGenerationResult::Skip => assert!(tokenizer.move_next()),
+                TokenGenerationResult::Boundary => panic!("couldn't find token"),
+            }
+        }        
+    }
+
+    fn assert_tokenizers_eq(a: &Tokenizer, b: &Tokenizer) {
+        assert_eq!(a.state, b.state);
+        assert_eq!(a.depth, b.depth);
+        assert!(sync::Arc::ptr_eq(&a.node, &b.node));
+        assert_eq!(a.node_addr, b.node_addr);
+
+        let mut stack_walker_a = &a.stack;
+        let mut stack_walker_b = &b.stack;
+
+        loop {
+            let (stack_item_a, stack_item_b) = match (stack_walker_a, stack_walker_b) {
+                (Some(a), Some(b)) => (a, b),
+                (None, None) => return,
+                _ => panic!("mismatch"),
+            };
+
+            assert_eq!(stack_item_a.descent, stack_item_b.descent);
+            assert_eq!(stack_item_a.depth, stack_item_b.depth);
+            assert!(sync::Arc::ptr_eq(&stack_item_a.node, &stack_item_b.node));
+            assert_eq!(stack_item_a.node_addr, stack_item_b.node_addr);
+            
+            stack_walker_a = &stack_item_a.stack;
+            stack_walker_b = &stack_item_b.stack;
+        };
+    }
+
+    fn assert_port_functionality(old_doc: &document::Document, new_doc: &document::Document, records: &[(token::Token, token::Token, PortOptions)]) {
+        let mut tokenizers: Vec<(Tokenizer, &token::Token, &token::Token, &PortOptions)> = records.iter().map(|(before_token, after_token, options)| (Tokenizer::at_beginning(old_doc.root.clone()), before_token, after_token, options)).collect();
+
+        for (tokenizer, before_token, _after_token, _) in tokenizers.iter_mut() {
+            seek_to_token(tokenizer, before_token);
+        }
+
+        for (tokenizer, _before_token, after_token, options) in tokenizers.iter_mut() {
+            println!("tokenizer before port: {:#?}", tokenizer);
+            tokenizer.port_doc(&old_doc, &new_doc, options);
+            println!("tokenizer after port: {:#?}", tokenizer);
+            
+            assert_eq!(&peek(tokenizer), *after_token);
+
+            /* Check that the ported tokenizer is the same as if we had created a new tokenizer and seeked it (if only we knew where to seek it to...), i.e. its internal state isn't corrupted in a way that doesn't happen during normal tokenizer movement. */
+            let mut clean_tokenizer = Tokenizer::at_beginning(new_doc.root.clone());
+            seek_to_token(&mut clean_tokenizer, after_token);
+            assert_tokenizers_eq(&tokenizer, &clean_tokenizer);
+        }        
+    }
+    
+    #[test]
+    fn port_delete_node() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x50)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x18))
+                   .child(0x20, |b| b
+                          .name("child1.1")
+                          .size(0x18))
+                   .child(0x30, |b| b
+                          .name("child1.2")
+                          .size(0x18))
+                   .child(0x48, |b| b
+                          .name("child1.3")
+                          .size(0x1c)))
+            .child(0x60, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+ 
+        let old_doc = sync::Arc::new(document::Document::new_for_structure_test(root));
+        let new_doc = change::apply_structural_change(&old_doc, change::Change {
+            ty: change::ChangeType::DeleteRange(vec![1], 1, 2),
+            generation: old_doc.generation,
+        }).unwrap();
+        
+        let (o_child_1_2, o_child_1_2_addr) = old_doc.lookup_node(&vec![1, 2]);
+        let (o_child_1_3, o_child_1_3_addr) = old_doc.lookup_node(&vec![1, 3]);
+        let (n_child_1,   n_child_1_addr)   = new_doc.lookup_node(&vec![1]);
+
+        assert_port_functionality(&old_doc, &new_doc, &[
+            (
+                token::Token {
+                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0x8)),
+                    node: o_child_1_2.clone(),
+                    node_addr: o_child_1_2_addr,
+                    depth: 3,
+                    newline: true
+                },
+                token::Token {
+                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x40, 0x8)),
+                    node: n_child_1.clone(),
+                    node_addr: n_child_1_addr,
+                    depth: 2,
+                    newline: true
+                },
+                PortOptionsBuilder::new().build()
+            ),
+            (
+                token::Token {
+                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
+                    node: o_child_1_3.clone(),
+                    node_addr: o_child_1_3_addr,
+                    depth: 3,
+                    newline: true
+                },
+                token::Token {
+                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
+                    /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
+                    node: o_child_1_3.clone(),
+                    node_addr: o_child_1_3_addr,
+                    depth: 3,
+                    newline: true
+                },
+                PortOptionsBuilder::new().build()
+            ),
+        ]);
+    }
 }
