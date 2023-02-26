@@ -8,7 +8,7 @@ use crate::model::space;
 use crate::view;
 use crate::view::action;
 use crate::view::helpers;
-use crate::view::hierarchy;
+use crate::view::selection;
 use crate::view::props_editor;
 
 use gtk::gio;
@@ -37,7 +37,7 @@ pub struct WindowContext {
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
     pub datapath_model: gtk::TreeModel,
-    pub hierarchy_model: hierarchy::StructureSelectionModel,
+    pub selection_model: selection::StructureSelectionModel,
 
     action_group: gio::SimpleActionGroup,
     
@@ -298,7 +298,7 @@ impl CharmWindow {
         if let Some(new_context) = &*self.context.borrow() {
             self.listing_frame.set_child(Some(&new_context.lw));
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
-            self.hierarchy_editor.set_model(Some(&new_context.hierarchy_model));
+            self.hierarchy_editor.set_model(Some(&new_context.selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind(&new_context);
             
@@ -335,7 +335,7 @@ impl WindowContext {
         lw.init(window, document_host.clone());
         
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
-        let hierarchy_model = hierarchy::StructureSelectionModel::new(document_host.clone());
+        let selection_model = selection::StructureSelectionModel::new(document_host.clone());
         
         let wc = WindowContext {
             document_host,
@@ -344,7 +344,7 @@ impl WindowContext {
             
             lw,
             datapath_model,
-            hierarchy_model,
+            selection_model,
             action_group: gio::SimpleActionGroup::new(),
 
             datapath_subscriber,

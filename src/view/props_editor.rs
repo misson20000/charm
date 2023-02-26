@@ -8,14 +8,14 @@ use gtk::glib::clone;
 
 use crate::model::document;
 use crate::model::document::structure;
-use crate::view::hierarchy;
+use crate::view::selection;
 use crate::view::window;
 
 struct PropsInterior {
     document_host: sync::Arc<document::DocumentHost>,
     document: sync::Arc<document::Document>,
 
-    selection: hierarchy::StructureSelectionModel,
+    selection: selection::StructureSelectionModel,
     path: Option<structure::Path>,
 
     /* we don't need to subscribe to document updates since the selection model emits selection changed signals when the
@@ -63,11 +63,11 @@ impl PropsEditor {
         *self.interior.borrow_mut() = Some(PropsInterior {
             document_host: ctx.document_host.clone(),
             document: document.clone(),
-            selection: ctx.hierarchy_model.clone(),
+            selection: ctx.selection_model.clone(),
             path: None,
         });
 
-        ctx.hierarchy_model.connect_selection_changed(clone!(@weak self as pe => move |_hierarchy_model, _pos, _n_items| {
+        ctx.selection_model.connect_selection_changed(clone!(@weak self as pe => move |_hierarchy_model, _pos, _n_items| {
             pe.update_selection();
         }));
 
@@ -80,7 +80,7 @@ impl PropsEditor {
             let (selection_mode, document) = interior.selection.selection_mode();
 
             let path = match selection_mode {
-                hierarchy::SelectionMode::Single(path) => Some(path),
+                selection::SelectionMode::Single(path) => Some(path),
                 _ => None
             };
 

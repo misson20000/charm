@@ -14,6 +14,7 @@ pub mod datapath;
 pub mod hierarchy;
 pub mod listing;
 pub mod props_editor;
+pub mod selection;
 
 use std::rc;
 
