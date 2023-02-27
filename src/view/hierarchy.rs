@@ -249,18 +249,6 @@ impl StructureListModel {
         model
     }
 
-    fn port_doc(&self, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) {
-        if old_doc.is_outdated(new_doc) {
-            match new_doc.previous() {
-                Some((prev_doc, change)) => {
-                    self.port_doc(old_doc, prev_doc);
-                    self.port_change(new_doc, change);
-                },
-                None => panic!("no common ancestor")
-            }
-        }
-    }
-
     fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
         let mut i = self.imp().interior.get().unwrap().borrow_mut();
 
@@ -371,9 +359,11 @@ impl StructureListModel {
     fn update(&self, new_doc: &sync::Arc<document::Document>) {
         if let Some(i) = self.imp().interior.get().map(|i| i.borrow()) {
             let old_doc = i.document.clone();
-            std::mem::drop(i);
+            drop(i);
             
-            self.port_doc(&old_doc, new_doc);
+            new_doc.changes_since(&old_doc, &mut |doc, change| {
+                self.port_change(doc, change);
+            });
 
             /* We need to avoid notifying gtk of its own property updates. Our system to do this works by filtering out
              * updates that match what GTK thinks the properties already are. Unfortunately, there are some cases where

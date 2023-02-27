@@ -27,7 +27,7 @@ pub trait Line {
 pub trait WindowTokenizer: Clone {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
     fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self;
-    fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document);
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change);
     fn hit_top(&self) -> bool;
     fn hit_bottom(&self) -> bool;
     fn prev(&mut self) -> Option<token::Token>;
@@ -226,8 +226,10 @@ impl<L: Line, Tokenizer: WindowTokenizer> Window<L, Tokenizer> {
     pub fn update(&mut self, document: &sync::Arc<document::Document>) {
         if self.current_document.is_outdated(document) {
             self.repopulate_window(|tok, current_doc| {
-                tok.port_doc(current_doc, document);
-                *current_doc = document.clone()
+                document.changes_since(&current_doc.clone(), &mut |new_doc, change| {
+                    tok.port_change(new_doc, change);
+                    *current_doc = new_doc.clone()
+                });
             });
         }
     }
@@ -259,8 +261,8 @@ impl WindowTokenizer for tokenizer::Tokenizer {
         tokenizer::Tokenizer::at_path(root, path, offset)
     }
 
-    fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document) {
-        self.port_doc(old_doc, new_doc, &tokenizer::PortOptions::default());
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change) {
+        tokenizer::Tokenizer::port_change(self, &new_doc.root, change, &tokenizer::PortOptions::default());
     }
     
     fn hit_top(&self) -> bool {
@@ -304,7 +306,7 @@ mod tests {
             panic!("unsupported");
         }
 
-        fn port_doc(&mut self, _old_doc: &document::Document, _new_doc: &document::Document) {
+        fn port_change(&mut self, _new_doc: &sync::Arc<document::Document>, _change: &document::change::Change) {
             panic!("unsupported");
         }
 

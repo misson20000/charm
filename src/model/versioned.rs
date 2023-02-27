@@ -77,6 +77,37 @@ pub trait Versioned: Sized + Clone {
 
         Ok(change)
     }
+
+    /// For each version after base up to and including self, invoke the callback for each change record, and the object produced by applying that change.
+    /// For example, if you have versions A, B, C, D and you call `D.changes_since(A)`, the callback will be invoked for B, C, and D.
+    fn changes_since<F: FnMut(&sync::Arc<Self>, &<Self::Change as Change<Self>>::ApplyRecord)>(self: &sync::Arc<Self>, base: &Self, cb: &mut F) {
+        self.assert_same_uid(base);
+
+        if base.is_outdated(self) {
+            match self.version().previous.as_ref() {
+                Some((prev, change)) => {
+                    prev.changes_since(base, cb);
+                    cb(self, change);
+                },
+                None => panic!("no common ancestors??")
+            }
+        }
+    }
+
+    /// Same as changes_since but doesn't require `self` to be in an Arc. The tradeoff is that you don't get Arcs in the callback either.
+    fn changes_since_ref<F: FnMut(&Self, &<Self::Change as Change<Self>>::ApplyRecord)>(&self, base: &Self, cb: &mut F) {
+        self.assert_same_uid(base);
+
+        if base.is_outdated(self) {
+            match self.version().previous.as_ref() {
+                Some((prev, change)) => {
+                    prev.changes_since_ref(base, cb);
+                    cb(self, change);
+                },
+                None => panic!("no common ancestors??")
+            }
+        }
+    }
 }
 
 static NEXT_UID:        sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);

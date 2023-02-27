@@ -151,11 +151,15 @@ impl Cursor {
                 },
                 _ => {},
             };
-            
-            self.tokenizer.port_doc(
-                &self.document,
-                document,
-                &options.build());
+
+            let options = options.build();
+
+            document.changes_since(&self.document, &mut |document, change| {
+                self.tokenizer.port_change(
+                    &document.root,
+                    change,
+                    &options);
+            });
             
             let mut tokenizer = self.tokenizer.clone();
 

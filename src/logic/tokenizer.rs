@@ -12,10 +12,8 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::listing::token;
-use crate::model::document;
 use crate::model::document::structure;
 use crate::model::document::change;
-use crate::model::versioned::Versioned;
 
 use tracing::instrument;
 
@@ -282,25 +280,9 @@ impl Tokenizer {
         tokenizer
     }
     
-    /// Applies all changes between old_doc and new_doc to the tokenizer state.
-    #[instrument]
-    pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document, options: &PortOptions) {
-        old_doc.assert_same_uid(new_doc);
-
-        if old_doc.is_outdated(new_doc) {
-            match new_doc.previous() {
-                Some((prev_doc, change)) => {
-                    self.port_doc(old_doc, prev_doc, options);
-                    self.port_change(&new_doc.root, change, options);
-                },
-                None => panic!("no common ancestor")
-            }
-        }
-    }
-    
     /// Applies a single change to the tokenizer state.
     #[instrument]
-    fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
+    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
         /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
         let stack_state = match &self.stack {
             Some(parent) => Self::port_recurse(parent, new_root, change),
@@ -1443,6 +1425,9 @@ mod tests {
     use std::iter;
     use std::vec;
 
+    use crate::model::document;
+    use crate::model::versioned::Versioned;
+    
     struct DownwardTokenizerIterator(Tokenizer);
     struct UpwardTokenizerIterator(Tokenizer);
 
@@ -1701,7 +1686,7 @@ mod tests {
 
         for (tokenizer, _before_token, after_token, options) in tokenizers.iter_mut() {
             println!("tokenizer before port: {:#?}", tokenizer);
-            tokenizer.port_doc(&old_doc, &new_doc, options);
+            new_doc.changes_since_ref(old_doc, &mut |doc, change| tokenizer.port_change(&doc.root, change, options));
             println!("tokenizer after port: {:#?}", tokenizer);
             
             assert_eq!(&peek(tokenizer), *after_token);

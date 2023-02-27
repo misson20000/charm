@@ -66,56 +66,11 @@ mod imp {
         fn item(&self, position: u32) -> Option<NodeItem> {
             self.tree_model.item(position).map(|item| item.downcast::<gtk::TreeListRow>().unwrap().item().unwrap().downcast().unwrap())
         }
-    }
-    
-    #[derive(Default)]
-    pub struct StructureSelectionModel {
-        pub interior: cell::RefCell<Option<StructureSelectionModelInterior>>,
-    }
 
-    #[glib::object_subclass]
-    impl ObjectSubclass for StructureSelectionModel {
-        const NAME: &'static str = "CharmStructureSelectionModel";
-        type Type = super::StructureSelectionModel;
-        type Interfaces = (gio::ListModel, gtk::SelectionModel,);
-    }
-
-    impl ObjectImpl for StructureSelectionModel {
-    }
-
-    impl StructureSelectionModel {
-        pub fn borrow_interior_mut(&self) -> Option<std::cell::RefMut<'_, StructureSelectionModelInterior>> {
-            std::cell::RefMut::filter_map(self.interior.borrow_mut(), Option::as_mut).ok()
-        }
-
-        pub fn borrow_interior(&self) -> Option<std::cell::Ref<'_, StructureSelectionModelInterior>> {
-            std::cell::Ref::filter_map(self.interior.borrow(), Option::as_ref).ok()
-        }
-        
-        fn notify_all_changed(&self, interior: std::cell::RefMut<'_, StructureSelectionModelInterior>) {
-            let n_items = interior.tree_model.n_items();
-            drop(interior);
-            self.obj().selection_changed(0, n_items);
-        }
-
-        fn port_doc<'a>(interior: cell::RefMut<'a, StructureSelectionModelInterior>, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) -> cell::RefMut<'a, StructureSelectionModelInterior> {
-            if old_doc.is_outdated(new_doc) {
-                match new_doc.previous() {
-                    Some((prev_doc, change)) => {
-                        let interior = Self::port_doc(interior, old_doc, prev_doc);
-                        Self::port_change(interior, new_doc, change)
-                    },
-                    None => panic!("no common ancestor")
-                }
-            } else {
-                interior
-            }
-        }
-
-        fn port_change<'a>(mut interior: cell::RefMut<'a, StructureSelectionModelInterior>, new_doc: &sync::Arc<document::Document>, change: &change::Change) -> cell::RefMut<'a, StructureSelectionModelInterior> {
-            interior.document = new_doc.clone();
+        fn port_change<'a>(&mut self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
+            self.document = new_doc.clone();
             
-            interior.mode = match std::mem::replace(&mut interior.mode, SelectionMode::Empty) {
+            self.mode = match std::mem::replace(&mut self.mode, SelectionMode::Empty) {
                 SelectionMode::Empty => SelectionMode::Empty,
                 SelectionMode::Single(mut path) => match change.update_path(&mut path) {
                     change::UpdatePathResult::Moved | change::UpdatePathResult::Unmoved => SelectionMode::Single(path),
@@ -158,15 +113,42 @@ mod imp {
                 },
                 SelectionMode::All => SelectionMode::All,
             };
-            
-            interior
+        }
+    }
+    
+    #[derive(Default)]
+    pub struct StructureSelectionModel {
+        pub interior: cell::RefCell<Option<StructureSelectionModelInterior>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for StructureSelectionModel {
+        const NAME: &'static str = "CharmStructureSelectionModel";
+        type Type = super::StructureSelectionModel;
+        type Interfaces = (gio::ListModel, gtk::SelectionModel,);
+    }
+
+    impl ObjectImpl for StructureSelectionModel {
+    }
+
+    impl StructureSelectionModel {
+        pub fn borrow_interior_mut(&self) -> Option<std::cell::RefMut<'_, StructureSelectionModelInterior>> {
+            std::cell::RefMut::filter_map(self.interior.borrow_mut(), Option::as_mut).ok()
+        }
+
+        pub fn borrow_interior(&self) -> Option<std::cell::Ref<'_, StructureSelectionModelInterior>> {
+            std::cell::Ref::filter_map(self.interior.borrow(), Option::as_ref).ok()
+        }
+        
+        fn notify_all_changed(&self, interior: std::cell::RefMut<'_, StructureSelectionModelInterior>) {
+            let n_items = interior.tree_model.n_items();
+            drop(interior);
+            self.obj().selection_changed(0, n_items);
         }
         
         pub fn update(&self, new_doc: &sync::Arc<document::Document>) {
-            if let Some(i) = self.borrow_interior_mut() {
-                let old_doc = i.document.clone();
-
-                let i = Self::port_doc(i, &old_doc, new_doc);
+            if let Some(mut i) = self.borrow_interior_mut() {
+                new_doc.changes_since(&i.document.clone(), &mut |new_doc, change| i.port_change(new_doc, change));
                 self.notify_all_changed(i);
             }
         }
