@@ -285,8 +285,10 @@ impl Tokenizer {
     /// Applies all changes between old_doc and new_doc to the tokenizer state.
     #[instrument]
     pub fn port_doc(&mut self, old_doc: &document::Document, new_doc: &document::Document, options: &PortOptions) {
+        old_doc.assert_same_uid(new_doc);
+
         if old_doc.is_outdated(new_doc) {
-            match new_doc.get_previous() {
+            match new_doc.previous() {
                 Some((prev_doc, change)) => {
                     self.port_doc(old_doc, prev_doc, options);
                     self.port_change(&new_doc.root, change, options);
@@ -1441,8 +1443,6 @@ mod tests {
     use std::iter;
     use std::vec;
 
-    use crate::model::versioned::Change;
-    
     struct DownwardTokenizerIterator(Tokenizer);
     struct UpwardTokenizerIterator(Tokenizer);
 
@@ -1741,8 +1741,9 @@ mod tests {
                    .size(0x4))
             .build();
  
-        let old_doc = sync::Arc::new(document::Document::new_for_structure_test(root));
-        let new_doc = old_doc.delete_range(vec![1], 1, 2).apply(&old_doc).unwrap();
+        let old_doc = document::Document::new_for_structure_test(root);
+        let mut new_doc = old_doc.clone();
+        new_doc.change_for_debug(old_doc.delete_range(vec![1], 1, 2)).unwrap();
         
         let (o_child_1_2, o_child_1_2_addr) = old_doc.lookup_node(&vec![1, 2]);
         let (o_child_1_3, o_child_1_3_addr) = old_doc.lookup_node(&vec![1, 3]);

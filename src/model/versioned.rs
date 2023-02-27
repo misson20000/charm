@@ -7,31 +7,86 @@ use crate::util;
 
 pub trait Change<Object>: Clone {
     type ApplyError;
+    type ApplyRecord: Clone;
 
-    fn apply(self, old: &sync::Arc<Object>) -> Result<Object, Self::ApplyError>;
+    fn apply(self, object: &mut Object) -> Result<(Self, Self::ApplyRecord), Self::ApplyError>;
 }
 
-pub trait Versioned: Sized {
-    type Change: Change<Self>;
-    
-    fn get_generation(&self) -> u64;
-    fn get_uid(&self) -> u64;
-    fn get_previous(&self) -> Option<&(sync::Arc<Self>, Self::Change)>;
+#[derive(Clone)]
+pub struct Version<Object: Versioned> {
+    previous: Option<(sync::Arc<Object>, <Object::Change as Change<Object>>::ApplyRecord)>,
+    uid: u64,
+    generation: u64
+}
 
+impl<Object: Versioned> std::fmt::Debug for Version<Object> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Version")
+            .field("uid", &self.uid)
+            .field("generation", &self.generation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T: Versioned> Default for Version<T> {
+    fn default() -> Self {
+        Version {
+            previous: None,
+            uid: next_uid(),
+            generation: next_generation(),
+        }
+    }
+}
+
+impl<T: Versioned> Version<T> {
     fn is_outdated(&self, other: &Self) -> bool {
-        self.get_uid() != other.get_uid() ||
-            self.get_generation() != other.get_generation()
+        self.uid != other.uid ||
+            self.generation != other.generation
+    }
+}
+
+pub trait Versioned: Sized + Clone {
+    type Change: Change<Self>;
+
+    fn version(&self) -> &Version<Self>;
+    fn version_mut(&mut self) -> &mut Version<Self>;
+
+    fn generation(&self) -> u64 {
+        self.version().generation
+    }
+
+    fn previous(&self) -> Option<&(sync::Arc<Self>, <Self::Change as Change<Self>>::ApplyRecord)> {
+        self.version().previous.as_ref()
+    }
+    
+    fn assert_same_uid(&self, other: &Self) {
+        assert_eq!(self.version().uid, other.version().uid);
+    }
+    
+    fn is_outdated(&self, other: &Self) -> bool {
+        self.version().is_outdated(other.version())
+    }
+
+    fn change_for_debug(&mut self, change: Self::Change) -> Result<Self::Change, <Self::Change as Change<Self>>::ApplyError> {
+        let old = sync::Arc::new(self.clone());
+        let (change, record) = change.apply(self)?;
+
+        let version = self.version_mut();
+        version.previous = Some((old, record));
+        version.generation = next_generation();
+
+        Ok(change)
     }
 }
 
 static NEXT_UID:        sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
 static NEXT_GENERATION: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
 
-pub fn next_uid() -> u64 {
+fn next_uid() -> u64 {
     NEXT_UID.fetch_add(1, sync::atomic::Ordering::Relaxed)
 }
 
-pub fn next_generation() -> u64 {
+fn next_generation() -> u64 {
     NEXT_GENERATION.fetch_add(1, sync::atomic::Ordering::Relaxed)
 }
 
@@ -55,7 +110,7 @@ impl<Object: Versioned> Host<Object> {
     pub fn wait_for_update<'a>(&'a self, current: &'_ Object) -> ObjectUpdateFuture<'a, Object> {
         ObjectUpdateFuture {
             host: self,
-            generation: current.get_generation(),
+            generation: current.generation(),
         }
     }
     
@@ -69,12 +124,19 @@ impl<Object: Versioned> Host<Object> {
 
     pub fn change(&self, change: Object::Change) -> Result<sync::Arc<Object>, <<Object as Versioned>::Change as Change<Object>>::ApplyError> {
         let old = self.current.load();
-        let new = sync::Arc::new(change.apply(&old)?);
+        let mut object = (**old).clone();
+        let (change, record) = change.apply(&mut object)?;
+
+        let version = object.version_mut();
+        version.previous = Some((old.clone(), record));
+        version.generation = next_generation();
+        
+        let new = sync::Arc::new(object);
         let swapped = self.current.compare_and_swap(&*old, new.clone());
             
         if !sync::Arc::ptr_eq(&*old, &swapped) {
-            /* very sad, another thread updated the object. need to fish the change back out of our object and try again. */
-            return self.change((*new).get_previous().unwrap().1.clone())
+            /* very sad, another thread updated the object. need to try again. */
+            return self.change(change);
         }
         
         self.notifier.notify();
@@ -92,7 +154,7 @@ impl<'a, Object: Versioned> future::Future for ObjectUpdateFuture<'a, Object> {
 
     fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         let guard = self.host.current.load();
-        if guard.get_generation() != self.generation {
+        if guard.generation() != self.generation {
             /* fast path */
             task::Poll::Ready(arc_swap::Guard::into_inner(guard))
         } else {
@@ -102,7 +164,7 @@ impl<'a, Object: Versioned> future::Future for ObjectUpdateFuture<'a, Object> {
 
             /* check whether the object was updated while we were enrolling */
             let guard = self.host.current.load();
-            if guard.get_generation() != self.generation {
+            if guard.generation() != self.generation {
                 /* object was updated while we were enrolling */
                 task::Poll::Ready(arc_swap::Guard::into_inner(guard))
             } else {
@@ -116,7 +178,7 @@ impl<'a, Object: Versioned> future::Future for ObjectUpdateFuture<'a, Object> {
 impl<Object: Versioned> std::fmt::Debug for Host<Object> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(std::any::type_name::<Host<Object>>())
-            .field("generation", &self.borrow().get_generation())
+            .field("generation", &self.borrow().generation())
             .finish_non_exhaustive()
     }
 }

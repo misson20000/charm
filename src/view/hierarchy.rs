@@ -251,7 +251,7 @@ impl StructureListModel {
 
     fn port_doc(&self, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) {
         if old_doc.is_outdated(new_doc) {
-            match new_doc.get_previous() {
+            match new_doc.previous() {
                 Some((prev_doc, change)) => {
                     self.port_doc(old_doc, prev_doc);
                     self.port_change(new_doc, change);
@@ -266,7 +266,7 @@ impl StructureListModel {
 
         i.document = new_doc.clone();
         
-        match change::update_path(&mut i.path, change) {
+        match change.update_path(&mut i.path) {
             change::UpdatePathResult::Unmoved | change::UpdatePathResult::Moved => {
             },
             change::UpdatePathResult::Deleted => {

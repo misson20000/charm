@@ -9,30 +9,25 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::space::AddressSpace;
 use crate::model::versioned;
+use crate::model::versioned::Versioned;
 
 #[derive(Clone)]
 pub struct Document {
     pub root: sync::Arc<structure::Node>,
     pub datapath: datapath::DataPath,
 
-    previous: Option<(sync::Arc<Document>, change::Change)>,
-    uid: u64,
-    generation: u64,
+    version: versioned::Version<Document>,
 }
 
 impl versioned::Versioned for Document {
     type Change = change::Change;
 
-    fn get_generation(&self) -> u64 {
-        self.generation
+    fn version(&self) -> &versioned::Version<Document> {
+        &self.version
     }
 
-    fn get_uid(&self) -> u64 {
-        self.uid
-    }
-
-    fn get_previous(&self) -> Option<&(sync::Arc<Self>, change::Change)> {
-        self.previous.as_ref()
+    fn version_mut(&mut self) -> &mut versioned::Version<Document> {
+        &mut self.version
     }
 }
 
@@ -62,7 +57,6 @@ impl Document {
         datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
         
         Document {
-            previous: None,
             root: sync::Arc::new(structure::Node {
                 size: addr::unit::REAL_MAX,
                 props: structure::Properties {
@@ -75,8 +69,8 @@ impl Document {
                 children: vec::Vec::new()
             }),
             datapath,
-            uid: versioned::next_uid(),
-            generation: versioned::next_generation(),
+
+            version: Default::default(),
         }
     }
 
@@ -86,28 +80,23 @@ impl Document {
         let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
 
         Ok(Document {
-            previous: None,
             root: tc.structure,
             datapath: datapath::DataPath::new(),
-            uid: versioned::next_uid(),
-            generation: versioned::next_generation(),
+            version: Default::default(),
         })
     }
 
     #[cfg(test)]
     pub fn new_for_structure_test(root: sync::Arc<structure::Node>) -> Document {
         Document {
-            previous: None,
             root,
             datapath: datapath::DataPath::new(),
-            uid: versioned::next_uid(),
-            generation: versioned::next_generation(),
+            version: Default::default(),
         }
     }
     
     pub fn invalid() -> Document {
         Document {
-            previous: None,
             root: sync::Arc::new(structure::Node {
                 size: addr::unit::REAL_MAX,
                 props: structure::Properties {
@@ -120,8 +109,7 @@ impl Document {
                 children: vec::Vec::new()
             }),
             datapath: datapath::DataPath::new(),
-            uid: 0,
-            generation: 0,
+            version: Default::default(),
         }
     }
 
@@ -162,7 +150,7 @@ impl Document {
     pub fn alter_node(&self, path: structure::Path, props: structure::Properties) -> change::Change {
         change::Change {
             ty: change::ChangeType::AlterNode(path, props),
-            generation: self.generation,
+            generation: self.generation(),
         }
     }
     
@@ -170,7 +158,7 @@ impl Document {
     pub fn insert_node(&self, path: structure::Path, after_child: usize, offset: addr::Address, node: sync::Arc<structure::Node>) -> change::Change {
         change::Change {
             ty: change::ChangeType::InsertNode(path, after_child, offset, node),
-            generation: self.generation,
+            generation: self.generation(),
         }
     }
 
@@ -178,7 +166,7 @@ impl Document {
     pub fn nest(&self, path: structure::Path, first_sibling: usize, last_sibling: usize, props: structure::Properties) -> change::Change {
         change::Change {
             ty: change::ChangeType::Nest(path, first_sibling, last_sibling, props),
-            generation: self.generation,
+            generation: self.generation(),
         }
     }
 
@@ -186,7 +174,7 @@ impl Document {
     pub fn delete_range(&self, path: structure::Path, first_sibling: usize, last_sibling: usize) -> change::Change {
         change::Change {
             ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
-            generation: self.generation,
+            generation: self.generation(),
         }
     }
 }
@@ -245,8 +233,7 @@ impl Document {
 impl std::fmt::Debug for Document {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Document")
-            .field("uid", &self.uid)
-            .field("generation", &self.generation)
+            .field("version", &self.version)
             .finish_non_exhaustive()
     }
 }

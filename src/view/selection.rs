@@ -100,7 +100,7 @@ mod imp {
 
         fn port_doc<'a>(interior: cell::RefMut<'a, StructureSelectionModelInterior>, old_doc: &sync::Arc<document::Document>, new_doc: &sync::Arc<document::Document>) -> cell::RefMut<'a, StructureSelectionModelInterior> {
             if old_doc.is_outdated(new_doc) {
-                match new_doc.get_previous() {
+                match new_doc.previous() {
                     Some((prev_doc, change)) => {
                         let interior = Self::port_doc(interior, old_doc, prev_doc);
                         Self::port_change(interior, new_doc, change)
@@ -117,11 +117,11 @@ mod imp {
             
             interior.mode = match std::mem::replace(&mut interior.mode, SelectionMode::Empty) {
                 SelectionMode::Empty => SelectionMode::Empty,
-                SelectionMode::Single(mut path) => match change::update_path(&mut path, change) {
+                SelectionMode::Single(mut path) => match change.update_path(&mut path) {
                     change::UpdatePathResult::Moved | change::UpdatePathResult::Unmoved => SelectionMode::Single(path),
                     change::UpdatePathResult::Deleted => SelectionMode::Empty,
                 },
-                SelectionMode::SiblingRange(mut path, mut first_child, mut last_child) => match change::update_path(&mut path, change) {
+                SelectionMode::SiblingRange(mut path, mut first_child, mut last_child) => match change.update_path(&mut path) {
                     change::UpdatePathResult::Moved | change::UpdatePathResult::Unmoved => match &change.ty {
                         change::ChangeType::AlterNode(_, _) => SelectionMode::SiblingRange(path, first_child, last_child),
                         change::ChangeType::InsertNode(affected_path, insertion_index, _, _) if affected_path == &path && (first_child..=last_child).contains(insertion_index) => SelectionMode::SiblingRange(path, first_child, last_child+1),
