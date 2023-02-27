@@ -356,7 +356,6 @@ impl WindowContext {
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
         wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
         wc.action_group.add_action(&action::delete_node::create_action(&wc));
-        //wc.action_group.add_action(&action::edit_props::create_action(&wc));
         wc.action_group.add_action(&action::navigate::create_action(&wc));
         wc.action_group.add_action(&action::nest::create_action(&wc));
         wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
