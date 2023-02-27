@@ -259,7 +259,7 @@ impl ListingWidget {
         let mut interior_guard = self.imp().interior.get().unwrap().write();
         let interior = &mut *interior_guard;
         
-        if document.is_outdated(&*interior.document) {
+        if interior.document.generation() != document.generation() {
             self.bonk();
             return;
         }

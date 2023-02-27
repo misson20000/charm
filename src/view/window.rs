@@ -4,6 +4,7 @@ use std::sync;
 
 use crate::view::CharmApplication;
 use crate::model::document;
+use crate::model::selection as selection_model;
 use crate::model::space;
 use crate::view;
 use crate::view::action;
@@ -31,6 +32,7 @@ pub struct CharmWindow {
 
 pub struct WindowContext {
     pub document_host: sync::Arc<document::DocumentHost>,
+    pub selection_host: sync::Arc<selection_model::Host>,
     
     pub window: rc::Weak<CharmWindow>,
     
@@ -42,6 +44,7 @@ pub struct WindowContext {
     action_group: gio::SimpleActionGroup,
     
     /* Misc. subscribers and such that need to be kept around */
+    document_subscriber_for_selection_update: helpers::AsyncSubscriber,
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
@@ -330,15 +333,23 @@ impl CharmWindow {
 impl WindowContext {
     pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
+        let document = document_host.get();
+        let selection_host = sync::Arc::new(selection_model::Host::new(selection_model::Selection::new(document.clone())));
+
+        let document_subscriber_for_selection_update = helpers::subscribe_to_updates(sync::Arc::downgrade(&selection_host), document_host.clone(), document.clone(), |selection_host, new_document| {
+            // TODO: catch panics, rescue by reopening document
+            selection_host.change(selection_model::Change::DocumentUpdated(new_document.clone())).unwrap();
+        });
         
         let lw = view::listing::ListingWidget::new();
         lw.init(window, document_host.clone());
         
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
-        let selection_model = selection::StructureSelectionModel::new(document_host.clone());
+        let selection_model = selection::StructureSelectionModel::new(selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
             document_host,
+            selection_host,
             
             window: rc::Rc::downgrade(window),
             
@@ -347,6 +358,7 @@ impl WindowContext {
             selection_model,
             action_group: gio::SimpleActionGroup::new(),
 
+            document_subscriber_for_selection_update,
             datapath_subscriber,
         };
 

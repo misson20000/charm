@@ -3,23 +3,20 @@ use std::rc::Rc;
 use std::sync;
 
 use gtk::prelude::*;
-use gtk::glib;
-use gtk::glib::clone;
+//use gtk::glib;
+//use gtk::glib::clone;
 
 use crate::model::document;
-use crate::model::document::structure;
-use crate::view::selection;
+//use crate::model::document::structure;
+use crate::model::selection;
 use crate::view::window;
 
 struct PropsInterior {
     document_host: sync::Arc<document::DocumentHost>,
-    document: sync::Arc<document::Document>,
+    selection_host: sync::Arc<selection::Host>,
+    selection: sync::Arc<selection::Selection>,
 
-    selection: selection::StructureSelectionModel,
-    path: Option<structure::Path>,
-
-    /* we don't need to subscribe to document updates since the selection model emits selection changed signals when the
-     * document updates. this means it's impossible for us to get out of sync with the selection, which is good. */
+    /* TODO: subscriber */
 }
 
 pub struct PropsEditor {
@@ -58,29 +55,31 @@ impl PropsEditor {
     }
     
     pub fn bind(self: &Rc<Self>, ctx: &window::WindowContext) {
-        let document = ctx.document_host.get();
+        let selection = ctx.selection_host.get();
         
         *self.interior.borrow_mut() = Some(PropsInterior {
             document_host: ctx.document_host.clone(),
-            document: document.clone(),
-            selection: ctx.selection_model.clone(),
-            path: None,
+            selection_host: ctx.selection_host.clone(),
+            selection: selection.clone(),
         });
 
+        /*
         ctx.selection_model.connect_selection_changed(clone!(@weak self as pe => move |_hierarchy_model, _pos, _n_items| {
             pe.update_selection();
         }));
 
         self.update_selection();
+        */
     }
 
+    /*
     fn update_selection(&self) {
         let mut interior_guard = self.interior.borrow_mut();
         if let Some(interior) = interior_guard.as_mut() {
             let (selection_mode, document) = interior.selection.selection_mode();
 
             let path = match selection_mode {
-                selection::SelectionMode::Single(path) => Some(path),
+                selection::Mode::Single(path) => Some(path),
                 _ => None
             };
 
@@ -101,7 +100,8 @@ impl PropsEditor {
             interior.document = document;
             interior.path = path;
         }
-    }
+}
+    */
 
     pub fn toplevel(&self) -> &gtk::Widget {
         &self.toplevel

@@ -346,6 +346,7 @@ impl StructureListModel {
                 let mut child_info = child.imp().info.get().unwrap().borrow_mut();
                 child_info.path.splice(.., i.path.iter().cloned());
                 child_info.path.push(index);
+                child_info.document = new_doc.clone();
             }
         }
 

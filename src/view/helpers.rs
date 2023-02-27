@@ -62,9 +62,9 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
     subscriber_weak: SubscriberRef,
     host: sync::Arc<versioned::Host<Object>>,
     initial_object: sync::Arc<Object>,
-    callback: F) -> AsyncSubscriber where
+    mut callback: F) -> AsyncSubscriber where
     SubscriberRef: glib::clone::Upgrade + 'static,
-    F: Fn(SubscriberRef::Strong, &sync::Arc<Object>) + 'static {
+    F: FnMut(SubscriberRef::Strong, &sync::Arc<Object>) + 'static {
     spawn_on_main_context(async move {
         let mut object = initial_object;
 

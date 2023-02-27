@@ -40,8 +40,8 @@ impl<T: Versioned> Default for Version<T> {
 
 impl<T: Versioned> Version<T> {
     fn is_outdated(&self, other: &Self) -> bool {
-        self.uid != other.uid ||
-            self.generation != other.generation
+        assert_eq!(self.uid, other.uid);
+        self.generation < other.generation
     }
 }
 
@@ -94,6 +94,22 @@ pub trait Versioned: Sized + Clone {
         }
     }
 
+    fn changes_since_fallible<E, F: FnMut(&sync::Arc<Self>, &<Self::Change as Change<Self>>::ApplyRecord) -> Result<(), E>>(self: &sync::Arc<Self>, base: &Self, cb: &mut F) -> Result<(), E> {
+        self.assert_same_uid(base);
+
+        if base.is_outdated(self) {
+            match self.version().previous.as_ref() {
+                Some((prev, change)) => {
+                    prev.changes_since_fallible(base, cb)?;
+                    cb(self, change)?;
+                },
+                None => panic!("no common ancestors??")
+            }
+        }
+
+        Ok(())
+    }
+    
     /// Same as changes_since but doesn't require `self` to be in an Arc. The tradeoff is that you don't get Arcs in the callback either.
     fn changes_since_ref<F: FnMut(&Self, &<Self::Change as Change<Self>>::ApplyRecord)>(&self, base: &Self, cb: &mut F) {
         self.assert_same_uid(base);
