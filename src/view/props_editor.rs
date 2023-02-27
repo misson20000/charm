@@ -3,6 +3,8 @@ use std::rc::Rc;
 use std::sync;
 
 use gtk::prelude::*;
+use gtk::glib;
+use gtk::glib::clone;
 
 use crate::model::document;
 use crate::model::document::structure;
@@ -28,6 +30,7 @@ pub struct PropsEditor {
     children_display: gtk::ComboBox,
     path_display: gtk::Entry,
 
+    in_update: cell::Cell<bool>,
     interior: cell::RefCell<Option<PropsInterior>>,
 }
 
@@ -45,12 +48,29 @@ impl PropsEditor {
             name_entry,
             children_display,
             path_display,
+            in_update: cell::Cell::new(false),
             interior: cell::RefCell::new(None),
         };
         
         pe.unbind();
 
-        Rc::new(pe)
+        let pe = Rc::new(pe);
+
+        pe.name_entry.buffer().connect_text_notify(clone!(@weak pe => move |buffer| {
+            if !pe.in_update.get() {
+                let mut interior_guard = pe.interior.borrow_mut();
+                if let Some(interior) = interior_guard.as_mut() {
+                    if let Some((path, props)) = interior.current.as_mut() {
+                        props.name = buffer.text();
+                        if let Err(e) = interior.document_host.change(interior.selection.document.alter_node(path.clone(), props.clone())) {
+                            println!("failed to alter node: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }));
+        
+        pe
     }
 
     pub fn unbind(&self) {
@@ -78,10 +98,13 @@ impl PropsEditor {
     }
 
     fn selection_updated_bulk(&self, selection: &sync::Arc<selection::Selection>) {
+        self.in_update.set(true);
         let mut interior_guard = self.interior.borrow_mut();
         if let Some(interior) = interior_guard.as_mut() {
             selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.selection_updated(interior, selection.clone(), record.selection_changed));
         }
+        drop(interior_guard);
+        self.in_update.set(false);
     }
 
     fn selection_updated(&self, interior: &mut PropsInterior, selection: sync::Arc<selection::Selection>, changed: bool) {
@@ -89,6 +112,8 @@ impl PropsEditor {
             selection::Mode::Single(path) => Some(path),
             _ => None
         };
+
+        interior.selection = selection.clone();
         
         if let Some(path) = &path {
             let (node, _addr) = selection.document.lookup_node(&path);
@@ -105,8 +130,6 @@ impl PropsEditor {
             self.update_controls(None);
             self.update_path_control(&selection.document, None);
         }
-
-        interior.selection = selection;
     }
 
     fn update_controls(&self, props: Option<&structure::Properties>) {
