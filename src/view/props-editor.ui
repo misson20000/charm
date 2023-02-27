@@ -46,7 +46,7 @@
           </object>
         </child>
         <child>
-          <object class="GtkEntry">
+          <object class="GtkEntry" id="path_display">
             <layout>
               <property name="column">1</property>
               <property name="row">7</property>

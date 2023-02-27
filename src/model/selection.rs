@@ -161,8 +161,8 @@ pub enum Change {
 
 #[derive(Debug, Clone)]
 pub struct ChangeRecord {
-    document_updated: Option<(u64, sync::Arc<document::Document>)>,
-    selection_changed: bool,
+    pub document_updated: Option<(u64, sync::Arc<document::Document>)>,
+    pub selection_changed: bool,
 }
 
 #[derive(Debug, Clone)]
