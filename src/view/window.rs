@@ -26,7 +26,7 @@ pub struct CharmWindow {
     config_editor: gtk::ListBox,
     datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
-    props_editor: rc::Rc<props_editor::PropsEditor>,
+    pub props_editor: rc::Rc<props_editor::PropsEditor>,
     context: cell::RefCell<Option<WindowContext>>,
 }
 

@@ -159,7 +159,7 @@ impl PropsEditor {
         *self.interior.borrow_mut() = Some(interior);
     }
 
-    fn selection_updated_bulk(&self, selection: &sync::Arc<selection::Selection>) {
+    pub fn selection_updated_bulk(&self, selection: &sync::Arc<selection::Selection>) {
         self.in_update.set(true);
         let mut interior_guard = self.interior.borrow_mut();
         if let Some(interior) = interior_guard.as_mut() {
@@ -254,5 +254,9 @@ impl PropsEditor {
     
     pub fn toplevel(&self) -> &gtk::Widget {
         &self.toplevel
+    }
+
+    pub fn focus_name(&self) {
+        self.name_entry.grab_focus();
     }
 }
