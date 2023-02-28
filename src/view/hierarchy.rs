@@ -393,8 +393,6 @@ impl NodeItem {
         if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
             let mut info = self.imp().info.get().unwrap().borrow_mut();
 
-            println!("updating nodeinfo {} -> {}", info.props.name, new_info.props.name);
-        
             let changed_name = info.props.name != new_info.props.name;
             let changed_offset = info.offset != new_info.offset;
             let changed_address = info.address != new_info.address;
