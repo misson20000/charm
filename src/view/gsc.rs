@@ -110,15 +110,33 @@ impl Cache {
 
     pub fn print_with_cursor(&self, snapshot: &gtk::Snapshot, entry: Entry, config: &config::Config, cursor: &CursorView, pos: &mut graphene::Point) {
         if let Some(gs) = self.get(entry) {
-            let color = if cursor.get_blink() {
+            let color = if cursor.has_focus && cursor.get_blink() {                
                 let (_ink, logical) = gs.clone().extents(&self.font);
                 snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
                     pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
                     pos.y() + helpers::pango_unscale(logical.y()),
                     helpers::pango_unscale(logical.width()),
                     helpers::pango_unscale(logical.height())));
-
+                
                 &config.cursor_fg_color
+            } else if !cursor.has_focus {
+                let (_ink, logical) = gs.clone().extents(&self.font);
+                snapshot.append_border(
+                    &gsk::RoundedRect::new(
+                        graphene::Rect::new(
+                            pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                            pos.y() + helpers::pango_unscale(logical.y()),
+                            helpers::pango_unscale(logical.width()),
+                            helpers::pango_unscale(logical.height())),
+                        graphene::Size::zero(),
+                        graphene::Size::zero(),
+                        graphene::Size::zero(),
+                        graphene::Size::zero()),
+                    &[1.0; 4],
+                    &[config.cursor_bg_color; 4],
+                );
+
+                &config.text_color
             } else {
                 &config.text_color
             };
@@ -163,7 +181,7 @@ pub fn render_text_with_cursor(snapshot: &gtk::Snapshot, pg: &pango::Context, fo
         let mut gs = pango::GlyphString::new();
         pango::shape(text, item.analysis(), &mut gs);
 
-        let color = if cursor.get_blink() {
+        let color = if cursor.has_focus && cursor.get_blink() {
             let (_ink, logical) = gs.clone().extents(font);
             snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
                 pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
@@ -172,6 +190,24 @@ pub fn render_text_with_cursor(snapshot: &gtk::Snapshot, pg: &pango::Context, fo
                 helpers::pango_unscale(logical.height())));
 
             &config.cursor_fg_color
+        } else if !cursor.has_focus {
+            let (_ink, logical) = gs.clone().extents(font);
+            snapshot.append_border(
+                &gsk::RoundedRect::new(
+                    graphene::Rect::new(
+                        pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                        pos.y() + helpers::pango_unscale(logical.y()),
+                        helpers::pango_unscale(logical.width()),
+                        helpers::pango_unscale(logical.height())),
+                    graphene::Size::zero(),
+                    graphene::Size::zero(),
+                    graphene::Size::zero(),
+                    graphene::Size::zero()),
+                &[1.0; 4],
+                &[config.cursor_bg_color; 4],
+            );
+
+            &config.text_color
         } else {
             &config.text_color
         };

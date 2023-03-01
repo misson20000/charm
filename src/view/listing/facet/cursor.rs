@@ -111,6 +111,12 @@ impl CursorView {
         self.insert = insert;
         self.ev_draw.want();
     }
+
+    pub fn change_focused(&mut self, focused: bool) {
+        self.blink();
+        self.has_focus = focused;
+        self.ev_draw.want();
+    }
     
     // TODO: macro this
     fn movement<F>(&mut self, mov: F) where F: FnOnce(&mut cursor::Cursor) -> cursor::MovementResult {

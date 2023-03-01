@@ -237,6 +237,19 @@ impl ListingWidget {
             inhibit
         }));
         self.add_controller(&ec_scroll);
+
+        let gesture = gtk::GestureClick::new();
+        gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, _x, _y| {
+            lw.grab_focus();
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        }));
+        gesture.set_button(0);
+        gesture.set_exclusive(true);
+        self.add_controller(&gesture);
+
+        self.connect_has_focus_notify(move |lw| {
+            lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());
+        });
         
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
