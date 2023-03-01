@@ -40,7 +40,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         .application(&window_context.window.upgrade().unwrap().application.application)
         .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
         .resizable(true)
-        .title(&"Insert node")
+        .title("Insert node")
         .transient_for(&window_context.window.upgrade().unwrap().window)
         .hide_on_close(true)
         .destroy_with_parent(true)

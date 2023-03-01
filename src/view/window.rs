@@ -194,7 +194,7 @@ impl CharmWindow {
             });
             gesture.set_exclusive(true);
             gesture.set_button(0);
-            hierarchy_editor.add_controller(&gesture);
+            hierarchy_editor.add_controller(gesture);
         }
         
         let config_editor = view::config_editor::build_config_editor();
@@ -232,14 +232,14 @@ impl CharmWindow {
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
-                act.set_state(&vis.to_variant());
+                act.set_state(vis.to_variant());
             }
         });
         
         helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
             if let Some(vis) = state {
                 w.config_editor_frame.set_visible(vis);
-                act.set_state(&vis.to_variant());
+                act.set_state(vis.to_variant());
             }
         });
 

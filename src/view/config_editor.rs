@@ -75,7 +75,7 @@ fn edit_color<F: 'static>(label: &str, default: gdk::RGBA, setter: F) -> gtk::Li
     let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     bx.prepend(&gtk::Label::new(Some(label)));
 
-    let cb: gtk::ColorButton = gtk::builders::ColorButtonBuilder::new()
+    let cb: gtk::ColorButton = gtk::ColorButton::builder()
         .rgba(&default)
         .show_editor(true)
         .title(label)

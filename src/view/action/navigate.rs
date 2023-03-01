@@ -43,7 +43,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         .application(&window_context.window.upgrade().unwrap().application.application)
         .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
         .resizable(true)
-        .title(&"Navigate")
+        .title("Navigate")
         .transient_for(&window_context.window.upgrade().unwrap().window)
         .hide_on_close(true)
         .destroy_with_parent(true)
@@ -59,7 +59,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         dialog: dialog.clone(),
         entry,
 
-        model: gtk::SingleSelection::new(Some(&store)),
+        model: gtk::SingleSelection::new(Some(store.clone())),
         store,
         current_addr: cell::Cell::new(addr::unit::NULL),
         

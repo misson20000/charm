@@ -87,7 +87,7 @@ impl PropsEditor {
         let pe = Rc::new(pe);
 
         pe.name_entry.buffer().connect_text_notify(clone!(@weak pe => move |buffer| {
-            pe.change_prop(|props| props.name = buffer.text());
+            pe.change_prop(|props| props.name = buffer.text().to_string());
         }));
 
         pe.title_display.connect_selected_notify(clone!(@weak pe => move |dd| {

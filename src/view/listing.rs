@@ -229,14 +229,14 @@ impl ListingWidget {
             let inhibit = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
             inhibit
         }));
-        self.add_controller(&ec_key);
+        self.add_controller(ec_key);
 
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_ecs, dx, dy| {
             let inhibit = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
             inhibit
         }));
-        self.add_controller(&ec_scroll);
+        self.add_controller(ec_scroll);
 
         let gesture = gtk::GestureClick::new();
         gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, _x, _y| {
@@ -245,7 +245,7 @@ impl ListingWidget {
         }));
         gesture.set_button(0);
         gesture.set_exclusive(true);
-        self.add_controller(&gesture);
+        self.add_controller(gesture);
 
         self.connect_has_focus_notify(move |lw| {
             lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());

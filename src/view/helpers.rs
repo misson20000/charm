@@ -45,7 +45,7 @@ pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::traits::Ac
 where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
-    let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
+    let action = gio::SimpleAction::new_stateful(id, None, initial_state.to_variant());
     action.connect_change_state(clone!(@weak obj => move |action, state| {
         cb(action, obj, state.and_then(|var| S::from_variant(var)))
     }));
@@ -85,7 +85,7 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
 }
 
 pub fn spawn_on_main_context<F: future::Future<Output = ()> + 'static>(task: F) -> AsyncSubscriber {
-    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task)))
+    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task).into_source_id().unwrap()))
 }
 
 impl Drop for AsyncSubscriber {

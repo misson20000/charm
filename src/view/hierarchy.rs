@@ -29,7 +29,7 @@ pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, 
     
     root_model.append(&root_item);
     
-    let model = gtk::TreeListModel::new(&root_model, false, autoexpand, |obj| {
+    let model = gtk::TreeListModel::new(root_model, false, autoexpand, |obj| {
         Some(StructureListModel::from_node_info(
             &obj.downcast_ref::<NodeItem>().unwrap().imp().info.get().unwrap().borrow()
         ).upcast())
