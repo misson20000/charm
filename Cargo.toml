@@ -13,7 +13,7 @@ gtk = ["dep:gtk"]
 gtk = { version = "0.6.2", optional = true, package = "gtk4" }
 futures = "0.3.26"
 lazy_static = "1.4.0"
-tokio = { version = "1.25.0", features = ["full"] }
+tokio = { version = "1.26.0", features = ["full"] }
 hex-literal = "0.3.4"
 send_wrapper = "0.6.0"
 conv = "0.3.3"
@@ -21,7 +21,7 @@ parking_lot = "0.12.1"
 imbl = { git = "https://github.com/jneem/imbl/" }
 enum_dispatch = "0.3.11"
 byteorder = "1.4.3"
-lru = "0.9.0"
+lru = "0.10.0"
 take_mut = "0.2.2"
 itertools = "0.10.5"
 roxmltree = "0.18.0"
