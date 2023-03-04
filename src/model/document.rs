@@ -58,7 +58,7 @@ impl Document {
         
         Document {
             root: sync::Arc::new(structure::Node {
-                size: addr::unit::REAL_MAX,
+                size: addr::unit::MAX,
                 props: structure::Properties {
                     name: "root".to_string(),
                     title_display: structure::TitleDisplay::Major,
@@ -98,7 +98,7 @@ impl Document {
     pub fn invalid() -> Document {
         Document {
             root: sync::Arc::new(structure::Node {
-                size: addr::unit::REAL_MAX,
+                size: addr::unit::MAX,
                 props: structure::Properties {
                     name: "root".to_string(),
                     title_display: structure::TitleDisplay::Major,

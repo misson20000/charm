@@ -38,7 +38,7 @@ pub mod unit {
     use super::{Address, Size, Extent};
 
     pub const NULL: Address = Address { byte: 0, bit: 0 };
-    pub const REAL_END: Address = Address { byte: u64::MAX, bit: 8 }; // TODO: change this back to END
+    pub const END: Address = Address { byte: u64::MAX, bit: 8 };
 
     pub const ZERO: Size = Size { bytes: 0, bits: 0 };
     pub const BIT: Size = Size { bytes: 0, bits: 1 };
@@ -46,7 +46,7 @@ pub mod unit {
     pub const BYTE: Size = Size { bytes: 1, bits: 0 };
     pub const BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
     pub const QWORD: Size = Size { bytes: 8, bits: 0 };
-    pub const REAL_MAX: Size = Size { bytes: u64::MAX, bits: 8 }; // TODO: change this back to MAX
+    pub const MAX: Size = Size { bytes: u64::MAX, bits: 8 };
 
     pub const EMPTY: Extent = Extent { begin: NULL, end: NULL };
 }
@@ -183,7 +183,7 @@ impl Extent {
     }
     
     pub fn unbounded(begin: Address) -> Extent {
-        Extent { begin, end: unit::REAL_END }
+        Extent { begin, end: unit::END }
     }
 
     pub fn length(&self) -> Size {
@@ -288,7 +288,7 @@ impl std::ops::Add<u64> for Address {
 
     fn add(self, rhs: u64) -> Address {
         if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
-            unit::REAL_END
+            unit::END
         } else {
             Address {byte: self.byte + rhs, bit: self.bit}
         }
@@ -300,7 +300,7 @@ impl std::ops::Add<Size> for Address {
 
     fn add(self, rhs: Size) -> Address {
         if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
-            unit::REAL_END
+            unit::END
         } else {
             Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64)
         }
@@ -310,7 +310,7 @@ impl std::ops::Add<Size> for Address {
 impl std::ops::AddAssign<u64> for Address {
     fn add_assign(&mut self, rhs: u64) {
         if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
-            *self = unit::REAL_END
+            *self = unit::END
         } else {
             self.byte+= rhs;
         }
@@ -320,7 +320,7 @@ impl std::ops::AddAssign<u64> for Address {
 impl std::ops::AddAssign<Size> for Address {
     fn add_assign(&mut self, rhs: Size) {
         if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
-            *self = unit::REAL_END
+            *self = unit::END
         } else {
             *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64);
         }
@@ -331,7 +331,7 @@ impl std::ops::Sub<u64> for Address {
     type Output = Address;
 
     fn sub(self, rhs: u64) -> Address {
-        if self == unit::REAL_END {
+        if self == unit::END {
             Address::normalize_unsigned(self.byte - rhs, self.bit as u64)
         } else {
             Address {byte: self.byte - rhs, bit: self.bit}

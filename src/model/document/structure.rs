@@ -130,7 +130,7 @@ impl Default for Node {
     fn default() -> Node {
         Node {
             props: Properties::default(),
-            size: addr::unit::REAL_MAX,
+            size: addr::unit::MAX,
             children: vec::Vec::new(),
         }
     }
