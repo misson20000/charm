@@ -3,12 +3,14 @@ use std::rc;
 use std::sync;
 
 use crate::view::CharmApplication;
+use crate::model::addr;
 use crate::model::document;
 use crate::model::selection as selection_model;
 use crate::model::space;
 use crate::view;
 use crate::view::action;
 use crate::view::helpers;
+use crate::view::hierarchy;
 use crate::view::selection;
 use crate::view::props_editor;
 
@@ -226,6 +228,20 @@ impl CharmWindow {
             gtk::Inhibit(false)
         }));
 
+        w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| {
+            let guard = w.context.borrow();
+            let Some(ctx) = guard.as_ref() else { return };
+            let Some(model) = he.model() else { return };
+            let Some(object) = model.item(pos) else { return };
+            let Ok(tlr) = object.downcast::<gtk::TreeListRow>() else { return };
+            let Some(node_item_object) = tlr.item() else { return };
+            let Ok(node_item) = node_item_object.downcast::<hierarchy::NodeItem>() else { return };
+
+            let info = node_item.info();
+            
+            ctx.lw.goto(&info.document, &info.path, addr::unit::NULL);
+        }));
+        
         /* window actions */
 
         helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());

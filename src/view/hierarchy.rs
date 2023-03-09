@@ -389,6 +389,10 @@ impl NodeItem {
         *self.imp().staged_info.borrow_mut() = Some(info);
     }
 
+    pub fn info(&self) -> cell::Ref<'_, NodeInfo> {
+        self.imp().info.get().unwrap().borrow()
+    }
+    
     fn update(&self) {
         if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
             let mut info = self.imp().info.get().unwrap().borrow_mut();
