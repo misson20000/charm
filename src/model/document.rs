@@ -5,9 +5,8 @@ pub mod structure;
 use std::sync;
 use std::vec;
 
+use crate::datapath;
 use crate::model::addr;
-use crate::model::datapath;
-use crate::model::space::AddressSpace;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -52,9 +51,9 @@ impl From<roxmltree::Error> for LoadForTestingError {
 }
 
 impl Document {
-    pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Document {
+    pub fn new<Space: datapath::space::AddressSpace>(space: Space) -> Document {
         let mut datapath = datapath::DataPath::new();
-        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
+        datapath.push_back(datapath::filter::LoadSpaceFilter::new(space, 0, 0).to_filter());
         
         Document {
             root: sync::Arc::new(structure::Node {

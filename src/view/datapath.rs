@@ -1,6 +1,6 @@
 use std::sync;
 
-use crate::model::datapath;
+use crate::datapath;
 use crate::model::document;
 use crate::view::helpers;
 
@@ -35,9 +35,9 @@ fn update_store(store: &gtk::ListStore, document: &sync::Arc<document::Document>
         store.set(&i, &[
             (0, match filter {
                 datapath::Filter::LoadSpace(_) => &"Load Address Space",
-                datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
-                datapath::Filter::Move(_) => &"Move Bytes",
-                datapath::Filter::Insert(_) => &"Insert Bytes",
+                //datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
+                //datapath::Filter::Move(_) => &"Move Bytes",
+                //datapath::Filter::Insert(_) => &"Insert Bytes",
             }),
             (1, &format!("0x{:x}", filter.human_affects_addr())),
             (2, &filter.human_affects_size().map(|size| format!("0x{:x}", size)).unwrap_or_else(|| "Infinite".to_string())),

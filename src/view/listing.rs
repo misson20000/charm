@@ -3,15 +3,14 @@ use std::pin;
 use std::sync;
 use std::task;
 
-use crate::view::config;
-use crate::util;
 use crate::model::addr;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::layout;
 use crate::model::versioned::Versioned;
+use crate::util;
 use crate::view;
+use crate::view::config;
 use crate::view::gsc;
 use crate::view::helpers;
 
@@ -360,8 +359,6 @@ impl Interior {
     fn work(&mut self, widget: &ListingWidget, cx: &mut task::Context) {
         self.work_notifier.enroll(cx);
 
-        self.document.datapath.poll(cx);
-        
         for line in self.window.lines.iter_mut() {
             line.work(&self.document, cx);
 

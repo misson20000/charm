@@ -1,3 +1,5 @@
+use crate::datapath::ByteRecord;
+use crate::datapath::DataFlags;
 use crate::model::addr;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
@@ -40,15 +42,17 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
             continue;
         }
         
-        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
-        
+        let byte_record = token_view.data_cache.get(i as usize).map(|abr| abr.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(ByteRecord::PENDING);
+	let byte_value = byte_record.value().unwrap_or(0);
+	let byte_flags = byte_record.flags();
+	
         for low_nybble in [false, true] {
-            let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
+            let nybble = if low_nybble { byte_value & 0xf } else { byte_value >> 4 };
             let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i as u64 && hxc.low_nybble == low_nybble);
 
             let digit = gsc::Entry::Digit(nybble);
 
-            if !byte_record.pending && byte_record.loaded {
+            if byte_flags.contains(DataFlags::LOADED) {
                 if has_cursor {
                     /* the cursor is over this nybble */
                     render.gsc_mono.print_with_cursor(snapshot, digit, &render.config, cursor, pos);
@@ -98,13 +102,15 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
     pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width() * offset_in_line));
 
     for i in 0..extent.length().bytes as i64 {
-        let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
+        let byte_record = token_view.data_cache.get(i as usize).map(|abr| abr.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(ByteRecord::PENDING);
+	let byte_value = byte_record.value().unwrap_or(0);
+	let byte_flags = byte_record.flags();
         
         let has_cursor = hex_cursor.map_or(false, |hxc| hxc.offset.bytes == i as u64);
 
-        let digit = gsc::Entry::PrintableAscii(byte_record.value);
+        let digit = gsc::Entry::PrintableAscii(byte_value);
 
-        if !byte_record.pending && byte_record.loaded {
+        if byte_flags.contains(DataFlags::LOADED) {
             /* we don't really care about cursor right now. */
             let _ = has_cursor;
             render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);

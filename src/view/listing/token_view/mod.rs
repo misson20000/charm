@@ -1,9 +1,10 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::task;
 use std::vec;
 
+use crate::datapath;
 use crate::model::addr;
-use crate::model::datapath;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
@@ -17,11 +18,19 @@ use gtk::graphene;
 
 mod hexdump;
 
+type DataFetchFuture = impl Future<Output = ()>;
+
+enum FetchState {
+    Clear,
+    Pending(Pin<Box<DataFetchFuture>>),
+    Finished,
+}
+
 pub struct TokenView {
     token: token::Token,
     
-    data_cache: vec::Vec<datapath::ByteRecord>,
-    data_pending: bool,
+    data_cache: vec::Vec<datapath::AtomicByteRecord>,
+    data_pending: FetchState,
     
     logical_bounds: Option<graphene::Rect>,
     logical_bounds_asciidump: Option<graphene::Rect>,
@@ -33,7 +42,7 @@ impl TokenView {
             token,
 
             data_cache: vec::Vec::new(),
-            data_pending: true,
+            data_pending: FetchState::Clear,
             
             logical_bounds: None,
             logical_bounds_asciidump: None,
@@ -168,21 +177,32 @@ impl TokenView {
     
     pub fn invalidate_data(&mut self) {
         self.data_cache.clear();
-        self.data_pending = true;
+	self.data_pending = FetchState::Clear;
     }
     
     pub fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
-        if self.data_pending {
-            let (begin_byte, size) = self.token.absolute_extent().round_out();
-            
-            self.data_cache.resize(size as usize, datapath::ByteRecord::default());
-            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
-            
-            self.data_pending = self.data_cache.iter().any(|b| b.pending);
+	let mut boxed_future = match std::mem::replace(&mut self.data_pending, FetchState::Clear) {
+	    FetchState::Clear => {
+		let (begin_byte, size) = self.token.absolute_extent().round_out();
+		
+		self.data_cache.resize_with(size as usize, || datapath::ByteRecord::PENDING.into());
+		Box::pin(document.datapath.clone().fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache)))
+	    },
+	    FetchState::Pending(future) => {
+		future
+	    },
+	    FetchState::Finished => return false,
+	};
 
-            true
-        } else {
-            false
-        }
+	match Future::poll(boxed_future.as_mut(), cx) {
+	    task::Poll::Pending => {
+		self.data_pending = FetchState::Pending(boxed_future);
+		true
+	    },
+	    task::Poll::Ready(_) => {
+		self.data_pending = FetchState::Finished;
+		true
+	    }
+	}
     }
 }

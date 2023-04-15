@@ -6,7 +6,7 @@ use std::string;
 use std::io::Read;
 use std::io::Seek;
 
-use crate::model::space;
+use crate::datapath::space;
 #[cfg(feature = "gtk")]
 use crate::view::config;
 
@@ -20,7 +20,7 @@ pub struct FileAddressSpace {
     tokio_handle: tokio::runtime::Handle,
 }
 
-struct FetchFuture {
+pub struct FetchFuture {
     delay: pin::Pin<Box<tokio::time::Sleep>>, /* pin projection is obnoxious and prevents us from mutating the other fields here */
     fas: sync::Arc<FileAddressSpace>,
     extent: (u64, u64),
@@ -78,16 +78,18 @@ fn get_file_access_delay() -> u64 {
 }
 
 impl space::AddressSpace for FileAddressSpace {
+    type Future = FetchFuture;
+    
     fn get_label(&self) -> &str {
         &self.label
     }
     
-    fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>> {
+    fn fetch(self: sync::Arc<Self>, extent: (u64, u64)) -> Self::Future {
         let _guard = self.tokio_handle.enter();
-        Box::pin(FetchFuture {
+        FetchFuture {
             delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(get_file_access_delay()))),
             fas: self.clone(),
             extent,
-        })
+        }
     }
 }

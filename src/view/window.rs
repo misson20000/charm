@@ -2,11 +2,11 @@ use std::cell;
 use std::rc;
 use std::sync;
 
-use crate::view::CharmApplication;
+use crate::datapath::space;
 use crate::model::document;
 use crate::model::selection as selection_model;
-use crate::model::space;
 use crate::view;
+use crate::view::CharmApplication;
 use crate::view::action;
 use crate::view::helpers;
 use crate::view::selection;
@@ -317,12 +317,10 @@ impl CharmWindow {
         let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
         let dn = attributes.attribute_as_string("standard::display-name").unwrap();
 
-        let space = std::sync::Arc::new(
-            space::file::FileAddressSpace::open(
-                self.application.rt.handle().clone(),
-                &file.path().unwrap(),
-                &dn).unwrap(),
-        );
+        let space = space::file::FileAddressSpace::open(
+            self.application.rt.handle().clone(),
+            &file.path().unwrap(),
+            &dn).unwrap();
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling

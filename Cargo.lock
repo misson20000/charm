@@ -107,6 +107,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "assert_matches",
+ "bitflags",
  "byteorder",
  "conv",
  "enum_dispatch",
