@@ -208,22 +208,25 @@ impl ListingWidget {
             self.allocated_height(),
             self.allocated_baseline());
 
+        /* Register animation callback */
         self.add_tick_callback(|lw, frame_clock| {
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
 
+        /* Subscribe to document updates */
         let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), document_host, document, |lw, new_doc| {
             lw.document_updated(new_doc);
         });
-        
         if interior.document_update_event_source.set(update_subscriber).is_err() {
             panic!("double-initialized document_update_event_source");
         }
 
+        /* Spawn work task */
         if interior.work_event_source.set(helpers::spawn_on_main_context(ListingWidgetWorkFuture(self.downgrade()))).is_err() {
             panic!("double-initialized work_event_source");
         }
 
+        /* Register keybaord event controller */
         let ec_key = gtk::EventControllerKey::new();
         ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_eck, keyval, keycode, modifier| {
             let inhibit = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
@@ -231,6 +234,7 @@ impl ListingWidget {
         }));
         self.add_controller(ec_key);
 
+        /* Register scroll event controller */
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_ecs, dx, dy| {
             let inhibit = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
@@ -238,6 +242,7 @@ impl ListingWidget {
         }));
         self.add_controller(ec_scroll);
 
+        /* Focus on click */
         let gesture = gtk::GestureClick::new();
         gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, _x, _y| {
             lw.grab_focus();
@@ -247,10 +252,12 @@ impl ListingWidget {
         gesture.set_exclusive(true);
         self.add_controller(gesture);
 
+        /* Notify cursor when focus state changes */
         self.connect_has_focus_notify(move |lw| {
             lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());
         });
-        
+
+        /* Finished initializing; set interior. */
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
     }
