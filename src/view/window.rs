@@ -34,19 +34,19 @@ pub struct CharmWindow {
 
 pub struct WindowContext {
     pub document_host: sync::Arc<document::DocumentHost>,
-    pub selection_host: sync::Arc<selection_model::Host>,
+    pub hierarchy_selection_host: sync::Arc<selection_model::hierarchy::Host>,
     
     pub window: rc::Weak<CharmWindow>,
     
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
     pub datapath_model: gtk::TreeModel,
-    pub selection_model: selection::StructureSelectionModel,
+    pub hierarchy_selection_model: selection::HierarchySelectionModel,
 
     action_group: gio::SimpleActionGroup,
     
     /* Misc. subscribers and such that need to be kept around */
-    document_subscriber_for_selection_update: helpers::AsyncSubscriber,
+    document_subscriber_for_hierarchy_selection_update: helpers::AsyncSubscriber,
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
@@ -317,7 +317,7 @@ impl CharmWindow {
         if let Some(new_context) = &*self.context.borrow() {
             self.listing_frame.set_child(Some(&new_context.lw));
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
-            self.hierarchy_editor.set_model(Some(&new_context.selection_model));
+            self.hierarchy_editor.set_model(Some(&new_context.hierarchy_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind(&new_context);
             
@@ -350,31 +350,31 @@ impl WindowContext {
     pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         let document = document_host.get();
-        let selection_host = sync::Arc::new(selection_model::Host::new(selection_model::Selection::new(document.clone())));
+        let hierarchy_selection_host = sync::Arc::new(selection_model::hierarchy::Host::new(selection_model::HierarchySelection::new(document.clone())));
 
-        let document_subscriber_for_selection_update = helpers::subscribe_to_updates(sync::Arc::downgrade(&selection_host), document_host.clone(), document.clone(), |selection_host, new_document| {
+        let document_subscriber_for_hierarchy_selection_update = helpers::subscribe_to_updates(sync::Arc::downgrade(&hierarchy_selection_host), document_host.clone(), document.clone(), |hierarchy_selection_host, new_document| {
             // TODO: catch panics, rescue by reopening document
-            selection_host.change(selection_model::Change::DocumentUpdated(new_document.clone())).unwrap();
+            hierarchy_selection_host.change(selection_model::hierarchy::Change::DocumentUpdated(new_document.clone())).unwrap();
         });
         
         let lw = view::listing::ListingWidget::new();
         lw.init(window, document_host.clone());
         
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
-        let selection_model = selection::StructureSelectionModel::new(selection_host.clone(), document_host.clone());
+        let hierarchy_selection_model = selection::HierarchySelectionModel::new(hierarchy_selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
             document_host,
-            selection_host,
+            hierarchy_selection_host,
             
             window: rc::Rc::downgrade(window),
             
             lw,
             datapath_model,
-            selection_model,
+            hierarchy_selection_model,
             action_group: gio::SimpleActionGroup::new(),
 
-            document_subscriber_for_selection_update,
+            document_subscriber_for_hierarchy_selection_update,
             datapath_subscriber,
         };
 

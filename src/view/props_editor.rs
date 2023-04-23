@@ -16,8 +16,8 @@ use crate::view::window;
 
 struct PropsInterior {
     document_host: sync::Arc<document::DocumentHost>,
-    selection_host: sync::Arc<selection::Host>,
-    selection: sync::Arc<selection::Selection>,
+    selection_host: sync::Arc<selection::hierarchy::Host>,
+    selection: sync::Arc<selection::HierarchySelection>,
 
     current: Option<(structure::Path, structure::Properties)>,
     
@@ -142,8 +142,8 @@ impl PropsEditor {
     }
     
     pub fn bind(self: &Rc<Self>, ctx: &window::WindowContext) {
-        let selection_host = ctx.selection_host.clone();
-        let selection = ctx.selection_host.get();
+        let selection_host = ctx.hierarchy_selection_host.clone();
+        let selection = ctx.hierarchy_selection_host.get();
 
         let mut interior = PropsInterior {
             document_host: ctx.document_host.clone(),
@@ -159,7 +159,7 @@ impl PropsEditor {
         *self.interior.borrow_mut() = Some(interior);
     }
 
-    pub fn selection_updated_bulk(&self, selection: &sync::Arc<selection::Selection>) {
+    pub fn selection_updated_bulk(&self, selection: &sync::Arc<selection::HierarchySelection>) {
         self.in_update.set(true);
         let mut interior_guard = self.interior.borrow_mut();
         if let Some(interior) = interior_guard.as_mut() {
@@ -169,9 +169,9 @@ impl PropsEditor {
         self.in_update.set(false);
     }
 
-    fn selection_updated(&self, interior: &mut PropsInterior, selection: sync::Arc<selection::Selection>, changed: bool) {
+    fn selection_updated(&self, interior: &mut PropsInterior, selection: sync::Arc<selection::HierarchySelection>, changed: bool) {
         let path = match &selection.mode {
-            selection::Mode::Single(path) => Some(path),
+            selection::hierarchy::Mode::Single(path) => Some(path),
             _ => None
         };
 
