@@ -10,6 +10,7 @@ use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::layout;
+use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::gsc;
@@ -54,7 +55,10 @@ pub struct RenderDetail {
 
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
+    selection_host: sync::Arc<selection::listing::Host>,
+    
     document: sync::Arc<document::Document>,
+    selection: sync::Arc<selection::ListingSelection>,
     
     window: layout::Window<line::Line>,
     cursor: facet::cursor::CursorView,
@@ -64,6 +68,7 @@ struct Interior {
     render: sync::Arc<RenderDetail>,
 
     document_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
+    selection_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_notifier: util::Notifier,
 }
@@ -118,8 +123,17 @@ impl WidgetImpl for ListingWidgetImp {
             None => return,
         };
         let interior = &mut *interior_guard;
-        
         let render = interior.refresh_render_detail(&self.obj()).clone();
+        
+        let selection = match &interior.selection {
+            sel if sync::Arc::ptr_eq(&sel.document, &interior.document) => &sel.mode,
+            _ => {
+                println!("WARNING: rendering listing widget with selection that does not agree with document. this should not happen!");
+                const INVALID_MODE: selection::listing::Mode = selection::listing::Mode::Structure(selection::listing::StructureMode::Empty);
+
+                &INVALID_MODE
+            }
+        };
 
         /* fill in background */
         snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
@@ -178,14 +192,23 @@ impl ListingWidget {
         lw
     }
     
-    pub fn init(&self, _window: &view::window::CharmWindow, document_host: sync::Arc<document::DocumentHost>) {
+    pub fn init(
+        &self,
+        _window: &view::window::CharmWindow,
+        document_host: sync::Arc<document::DocumentHost>,
+        selection_host: sync::Arc<selection::listing::Host>
+    ) {
         let render = RenderDetail::new(config::copy(), self.pango_context(), 0);
         let document = document_host.get();
+        let selection = selection_host.get();
         
         let mut interior = Interior {
             document_host: document_host.clone(),
             document: document.clone(),
-            
+
+            selection_host: selection_host.clone(),
+            selection: selection.clone(),
+
             window: layout::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone()),
             scroll: facet::scroll::Scroller::new(),
@@ -197,6 +220,7 @@ impl ListingWidget {
             render: sync::Arc::new(render),
 
             document_update_event_source: once_cell::sync::OnceCell::new(),
+            selection_update_event_source: once_cell::sync::OnceCell::new(),
             work_event_source: once_cell::sync::OnceCell::new(),
             work_notifier: util::Notifier::new(),
         };
@@ -214,11 +238,23 @@ impl ListingWidget {
         });
 
         /* Subscribe to document updates */
-        let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), document_host, document, |lw, new_doc| {
-            lw.document_updated(new_doc);
-        });
-        if interior.document_update_event_source.set(update_subscriber).is_err() {
-            panic!("double-initialized document_update_event_source");
+        {
+            let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), document_host, document, |lw, new_doc| {
+                lw.document_updated(new_doc);
+            });
+            if interior.document_update_event_source.set(update_subscriber).is_err() {
+                panic!("double-initialized document_update_event_source");
+            }
+        }
+
+        /* Subscribe to selection updates */
+        {
+            let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), selection_host, selection, |lw, new_sel| {
+                lw.selection_updated(new_sel);
+            });
+            if interior.selection_update_event_source.set(update_subscriber).is_err() {
+                panic!("double-initialized selection_update_event_source");
+            }
         }
 
         /* Spawn work task */
@@ -290,13 +326,15 @@ impl ListingWidget {
 
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
         let mut interior = self.imp().interior.get().unwrap().write();
+        interior.document_updated(new_document);
 
-        interior.window.update(new_document);
-        interior.cursor.cursor.update(new_document);
-        interior.document = new_document.clone();
+        self.queue_draw();
+    }
 
-        interior.work_notifier.notify();
-        
+    fn selection_updated(&self, new_selection: &sync::Arc<selection::ListingSelection>) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+        interior.selection_updated(new_selection);
+
         self.queue_draw();
     }
 }
@@ -338,6 +376,22 @@ impl RenderDetail {
 }
 
 impl Interior {
+    fn document_updated(&mut self, new_document: &sync::Arc<document::Document>) {
+        self.window.update(new_document);
+        self.cursor.cursor.update(new_document);
+        self.document = new_document.clone();
+
+        self.work_notifier.notify();
+    }
+
+    fn selection_updated(&mut self, new_selection: &sync::Arc<selection::ListingSelection>) {
+        if self.document.is_outdated(&new_selection.document) {
+            self.document_updated(&new_selection.document);
+        }
+
+        self.selection = new_selection.clone();
+    }
+    
     fn refresh_render_detail(&mut self, widget: &ListingWidget) -> &sync::Arc<RenderDetail> {
         let config = config::borrow();
         if !sync::Arc::ptr_eq(&self.render.config, &*config) {
