@@ -93,18 +93,21 @@ impl InsertNodeAction {
         self.document_host.change(document.insert_node(
             self.path.borrow().clone(),
             index,
-            offset,
-            sync::Arc::new(structure::Node {
-                props: structure::Properties {
-                    name,
-                    title_display: structure::TitleDisplay::Minor,
-                    children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
-                    locked: false
-                },
-                children: Vec::new(),
-                size,
-            }))).expect("TODO: handle this");
+            structure::Childhood::new(
+                sync::Arc::new(structure::Node {
+                    props: structure::Properties {
+                        name,
+                        title_display: structure::TitleDisplay::Minor,
+                        children_display: structure::ChildrenDisplay::Full,
+                        content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                        locked: false
+                    },
+                    children: Vec::new(),
+                    size,
+                }),
+                offset
+            )
+        )).expect("TODO: handle this");
     }
     
     pub fn activate(&self) {

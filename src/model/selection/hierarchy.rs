@@ -85,7 +85,7 @@ impl Selection {
             Mode::SiblingRange(mut path, mut first_child, mut last_child) => match change.update_path(&mut path) {
                 doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => match &change.ty {
                     doc_change::ChangeType::AlterNode(_, _) => Mode::SiblingRange(path, first_child, last_child),
-                    doc_change::ChangeType::InsertNode(affected_path, insertion_index, _, _) if affected_path == &path => {
+                    doc_change::ChangeType::InsertNode(affected_path, insertion_index, _) if affected_path == &path => {
                         if (first_child..=last_child).contains(insertion_index) {
                             selection_changed = true;
                             Mode::SiblingRange(path, first_child, last_child+1)
@@ -99,14 +99,14 @@ impl Selection {
                             Mode::SiblingRange(path, first_child, last_child)
                         }
                     }
-                    doc_change::ChangeType::InsertNode(_, _, _, _) => Mode::SiblingRange(path, first_child, last_child),
-                    doc_change::ChangeType::Nest(affected_path, _nested_first, _nested_last, _props) if affected_path == &path => {
+                    doc_change::ChangeType::InsertNode(_, _, _) => Mode::SiblingRange(path, first_child, last_child),
+                    doc_change::ChangeType::Nest(affected_path, _nested_first, _nested_last, _extent, _props) if affected_path == &path => {
                         // TODO: smarter logic here
                         path.push(first_child);
                         selection_changed = true;
                         Mode::Single(path)
                     },
-                    doc_change::ChangeType::Nest(_, _, _, _) => Mode::SiblingRange(path, first_child, last_child),
+                    doc_change::ChangeType::Nest(_, _, _, _, _) => Mode::SiblingRange(path, first_child, last_child),
                     doc_change::ChangeType::DeleteRange(affected_path, deleted_first, deleted_last) if affected_path == &path => {
                         let deleted = *deleted_first..=*deleted_last;
                         if deleted.contains(&first_child) && deleted.contains(&last_child) {

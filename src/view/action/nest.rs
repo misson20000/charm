@@ -69,7 +69,10 @@ impl NestAction {
             }
         };
 
-        let new_doc = match self.document_host.change(selection.document.nest(parent.to_vec(), first_sibling, last_sibling, structure::Properties {
+        let parent_node = selection.document.lookup_node(parent).0;
+        let extent = addr::Extent::between(parent_node.children[first_sibling].offset, parent_node.children[last_sibling].end());
+        
+        let new_doc = match self.document_host.change(selection.document.nest(parent.to_vec(), first_sibling, last_sibling, extent, structure::Properties {
             name: "".to_string(),
             title_display: structure::TitleDisplay::Minor,
             children_display: structure::ChildrenDisplay::Full,
@@ -86,7 +89,7 @@ impl NestAction {
 
         let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
         let nested_node_path = match record {
-            document::change::Change { ty: document::change::ChangeType::Nest(parent, first_child, _, _), .. } => {
+            document::change::Change { ty: document::change::ChangeType::Nest(parent, first_child, _, _, _), .. } => {
                 let mut path = parent.clone();
                 path.push(*first_child);
                 path

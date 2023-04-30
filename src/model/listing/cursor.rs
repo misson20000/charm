@@ -264,8 +264,7 @@ impl Cursor {
             self.document.insert_node(
                 self.structure_path(),
                 self.structure_child_index(),
-                self.structure_offset(),
-                node)
+                structure::Childhood::new(node, self.structure_offset()))
         ).map(|new_doc| {
             self.update_internal(&new_doc, UpdateMode::AfterNewNode);
         })

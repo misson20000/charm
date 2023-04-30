@@ -113,7 +113,7 @@ impl Document {
         }
     }
 
-    pub fn lookup_node(&self, path: &structure::Path) -> (&sync::Arc<structure::Node>, addr::Address) {
+    pub fn lookup_node(&self, path: structure::PathSlice) -> (&sync::Arc<structure::Node>, addr::Address) {
         let mut current_node = &self.root;
         let mut node_addr = addr::unit::NULL;
 
@@ -155,17 +155,17 @@ impl Document {
     }
     
     #[must_use]
-    pub fn insert_node(&self, path: structure::Path, after_child: usize, offset: addr::Address, node: sync::Arc<structure::Node>) -> change::Change {
+    pub fn insert_node(&self, path: structure::Path, after_child: usize, childhood: structure::Childhood) -> change::Change {
         change::Change {
-            ty: change::ChangeType::InsertNode(path, after_child, offset, node),
+            ty: change::ChangeType::InsertNode(path, after_child, childhood),
             generation: self.generation(),
         }
     }
 
     #[must_use]
-    pub fn nest(&self, path: structure::Path, first_sibling: usize, last_sibling: usize, props: structure::Properties) -> change::Change {
+    pub fn nest(&self, path: structure::Path, first_sibling: usize, last_sibling: usize, extent: addr::Extent, props: structure::Properties) -> change::Change {
         change::Change {
-            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, props),
+            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, extent, props),
             generation: self.generation(),
         }
     }

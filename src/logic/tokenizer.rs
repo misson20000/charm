@@ -387,19 +387,19 @@ impl Tokenizer {
         match &change.ty {
             change::ChangeType::AlterNode(_path, _new_props) => {},
             
-            change::ChangeType::InsertNode(affected_path, affected_index, new_node_offset, new_node) if affected_path == &stack_state.current_path => {
+            change::ChangeType::InsertNode(affected_path, affected_index, new_childhood) if affected_path == &stack_state.current_path => {
                 /* A new child was added to the node we're on. */
                 if *index == *affected_index && options.prefer_after_new_node {
                     /* options said we should place after the new node, so do so. */
                     *index+= 1;
-                    *offset = Some(*new_node_offset + new_node.size);
+                    *offset = Some(new_childhood.end());
                 } else if let Some(offset) = offset.as_mut() {
-                    if addr::Extent::sized(*new_node_offset, new_node.size).includes(*offset) {
+                    if new_childhood.extent().includes(*offset) {
                         /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
                         self.descend(if is_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
 
                         *index = 0;
-                        *offset-= new_node_offset.to_size();
+                        *offset-= new_childhood.offset.to_size();
                     } else if *index >= *affected_index {
                         *index+= 1;
                     }
@@ -409,20 +409,22 @@ impl Tokenizer {
                 }
             },
             
-            change::ChangeType::Nest(parent, first_child, last_child, _props) if parent == &stack_state.current_path => {
+            change::ChangeType::Nest(parent, first_child, last_child, extent, _props) if parent == &stack_state.current_path => {
                 /* Children were nested on this node */
                 let new_nest = &self.node.children[*first_child];
                 
-                if (*first_child..=*last_child).contains(index) {
+                if (*first_child..=*last_child).contains(index) || offset.map_or(false, |o| extent.includes(o)) {
                     if options.prefer_after_new_node {
                         /* options said we should place after the new node, so do so. */
                         *index = first_child + 1;
-                        *offset = Some(new_nest.offset + new_nest.node.size);
+                        *offset = Some(new_nest.end());
                     } else {
                         /* descend into the new node. */
                         let new_nest_offset = new_nest.offset;
                         
                         self.descend(if is_summary { TokenizerDescent::ChildSummary(*first_child) } else { TokenizerDescent::Child(*first_child) }, TokenizerState::End);
+
+                        // TODO: is there something more helpful we could do here?
                         *index = 0;
                         
                         if let Some(offset) = offset.as_mut() {
@@ -445,8 +447,8 @@ impl Tokenizer {
             },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
-            change::ChangeType::Nest(_, _, _, _) => {},
-            change::ChangeType::InsertNode(_, _, _, _) => {},
+            change::ChangeType::Nest(_, _, _, _, _) => {},
+            change::ChangeType::InsertNode(_, _, _) => {},
             change::ChangeType::DeleteRange(_, _, _) => {},
         };
 
@@ -505,14 +507,14 @@ impl Tokenizer {
         
         match &change.ty {
             change::ChangeType::AlterNode(_, _) => state.push(child_index),
-            change::ChangeType::InsertNode(path, after_child, _offset, _node) => {
+            change::ChangeType::InsertNode(path, after_child, _childhood) => {
                 if path == &state.current_path && child_index >= *after_child {
                     state.push(child_index + 1);
                 } else {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Nest(parent, first_child, last_child, _props) => {
+            change::ChangeType::Nest(parent, first_child, last_child, _extent, _props) => {
                 if parent == &state.current_path {
                     if (*first_child..=*last_child).contains(&child_index) {
                         state.push(*first_child);

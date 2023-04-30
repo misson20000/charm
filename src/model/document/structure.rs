@@ -28,6 +28,7 @@ pub enum ContentDisplay {
 }
 
 pub type Path = vec::Vec<usize>;
+pub type PathSlice<'a> = &'a [usize];
 pub type PathIter<'a> = std::vec::IntoIter<usize>;
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,10 @@ pub struct Childhood {
 }
 
 impl Childhood {
+    pub fn new(node: sync::Arc<Node>, offset: addr::Address) -> Childhood {
+        Childhood { node, offset }
+    }
+    
     pub fn end(&self) -> addr::Address {
         self.offset + self.node.size
     }
@@ -222,8 +227,12 @@ pub mod builder {
             self
         }
 
-        pub fn build(self) -> sync::Arc<Node> {
-            sync::Arc::new(self.node)
+        pub fn build(&self) -> sync::Arc<Node> {
+            sync::Arc::new(self.node.clone())
+        }
+
+        pub fn build_child(&self, offset: addr::Address) -> Childhood {
+            Childhood::new(sync::Arc::new(self.node.clone()), offset)
         }
     }
 }
