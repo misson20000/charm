@@ -110,6 +110,23 @@ fn edit_font<F: 'static>(label: &str, default: &pango::FontDescription, setter: 
     lbr
 }
 
+fn edit_checkbox<F: 'static>(label: &str, default: bool, setter: F) -> gtk::ListBoxRow where
+    F: Fn(&mut config::Config, bool) {
+    let lbr = gtk::ListBoxRow::new();
+    let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bx.prepend(&gtk::Label::new(Some(label)));
+
+    let cb: gtk::CheckButton = gtk::CheckButton::new();
+    cb.connect_active_notify(move |cb| update_config(&setter, cb.is_active()));
+
+    cb.set_halign(gtk::Align::End);
+    bx.append(&cb);
+    bx.set_hexpand(true);
+    lbr.set_child(Some(&bx));
+    
+    lbr
+}
+
 pub fn build_config_editor() -> gtk::ListBox {
     let lb = gtk::ListBox::new();
 
@@ -142,6 +159,8 @@ pub fn build_config_editor() -> gtk::ListBox {
     lb.append(&edit_color("Cursor Text Color", current.cursor_fg_color, |cfg, v| { cfg.cursor_fg_color = v; }));
 
     lb.append(&edit_font("Monospace Font", &current.monospace_font, |cfg, v| { cfg.monospace_font = v; }));
+
+    lb.append(&edit_checkbox("Show Token Boundaries", current.show_token_bounds, |cfg, v| { cfg.show_token_bounds = v; }));
     
     lb
 }

@@ -56,6 +56,8 @@ pub struct Config {
     pub mode_text_entry_color: gdk::RGBA,
 
     pub monospace_font: pango::FontDescription,
+
+    pub show_token_bounds: bool,
 }
 
 impl Default for Config {
@@ -107,6 +109,8 @@ impl Default for Config {
             mode_text_entry_color: gdk::RGBA::bytes(hex!("ff4921ff")),
 
             monospace_font: pango::FontDescription::from_string("Monospace Regular 12"),
+
+            show_token_bounds: true,
         }
     }
 }

@@ -15,6 +15,8 @@ use crate::view::listing::facet::cursor::CursorView;
 
 use gtk::prelude::*;
 use gtk::graphene;
+use gtk::gsk;
+use gtk::gdk;
 
 mod hexdump;
 
@@ -70,6 +72,21 @@ impl TokenView {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }
 
+    pub fn render_logical_bounds(&self, snapshot: &gtk::Snapshot) {
+        if let Some(lb) = self.logical_bounds {
+            snapshot.append_border(
+                &gsk::RoundedRect::new(
+                    lb,
+                    graphene::Size::zero(),
+                    graphene::Size::zero(),
+                    graphene::Size::zero(),
+                    graphene::Size::zero()),
+                &[1.0; 4],
+                &[gdk::RGBA::GREEN; 4],
+            );
+        }
+    }
+    
     pub fn render(
         &mut self,
         snapshot: &gtk::Snapshot,
@@ -148,7 +165,7 @@ impl TokenView {
             },
         }
         
-        self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y(), pos.x(), pos.y()));
+        self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y() + helpers::pango_unscale(render.metrics.descent()), pos.x(), pos.y()));
 
         pos
     }

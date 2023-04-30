@@ -110,6 +110,10 @@ impl Line {
             snapshot.save();
             let ascii_advance = token.render_asciidump(&snapshot, cursor, selection_intersection, render, &ascii_position);
             snapshot.restore();
+
+            if render.config.show_token_bounds {
+                token.render_logical_bounds(&snapshot);
+            }
             
             main_position.set_x(main_position.x() + main_advance.x());
             ascii_position.set_x(ascii_position.x() + ascii_advance.x());
