@@ -32,6 +32,7 @@ pub enum PunctuationClass {
 pub struct Token {
     pub class: TokenClass,
     pub node: sync::Arc<structure::Node>,
+    pub node_path: structure::Path,
     pub node_addr: addr::Address,
     // TODO: colorization
     // colorization will be implemented by emitting multiple hexdump tokens on one line

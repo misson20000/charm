@@ -438,6 +438,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -466,6 +467,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(4.into(), 12.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -494,6 +496,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -511,6 +514,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -526,6 +530,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,
@@ -554,6 +559,7 @@ mod tests {
         assert_eq!(cursor.class.get_token(), &token::Token {
             class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
             node: document.root.clone(),
+            node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
             newline: true,

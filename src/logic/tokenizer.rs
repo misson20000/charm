@@ -569,6 +569,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::Token {
                     class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                     node: self.node.clone(),
+                    node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
                     newline: true,
@@ -579,6 +580,7 @@ impl Tokenizer {
             TokenizerState::Title => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Title,
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
                 newline: !self.node.props.title_display.is_inline(),
@@ -588,6 +590,7 @@ impl Tokenizer {
             TokenizerState::Hexdump(extent, _) => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Hexdump(extent),
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth + 1,
                 newline: true,
@@ -595,6 +598,7 @@ impl Tokenizer {
             TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Hexstring(extent),
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth + 1,
                 newline: true,
@@ -603,6 +607,7 @@ impl Tokenizer {
             TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
                 newline: false,
@@ -612,6 +617,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::Token {
                     class: token::TokenClass::SummaryLabel,
                     node: ch.node.clone(),
+                    node_path: self.structure_path(),
                     node_addr: self.node_addr + ch.offset.to_size(),
                     depth: self.depth,
                     newline: false,
@@ -621,6 +627,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::Token {  
                     class: token::TokenClass::Punctuation(token::PunctuationClass::Comma),
                     node: self.node.clone(),
+                    node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
                     newline: false,
@@ -631,6 +638,7 @@ impl Tokenizer {
             TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
                 newline: false,
@@ -638,6 +646,7 @@ impl Tokenizer {
             TokenizerState::SummaryNewline => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                 node: self.node.clone(),
+                node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
                 newline: true,
@@ -655,6 +664,7 @@ impl Tokenizer {
                         structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                     },
                     node: self.node.clone(),
+                    node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
                     newline: false,
@@ -666,6 +676,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::Token {
                     class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
                     node: self.node.clone(),
+                    node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
                     newline: true,
@@ -1297,7 +1308,7 @@ pub mod xml {
                     "node" => {
                         structure = match structure {
                             Some(_) => panic!("multiple structure definitions"),
-                            None => Some(inflate_structure(child, addr::unit::NULL, &mut lookup))
+                            None => Some(inflate_structure(child, addr::unit::NULL, structure::Path::default(), &mut lookup))
                         }
                     }
                     "tokens" => {
@@ -1353,18 +1364,18 @@ pub mod xml {
         )
     }
         
-    fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> structure::Childhood {
+    fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, child_path: structure::Path, map: &mut collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> structure::Childhood {
         let offset = match xml.attribute("offset") {
             Some(addr) => addr::Address::parse(addr).unwrap(),
             None => addr::unit::NULL
         };
         structure::Childhood {
-            node: inflate_structure(xml, parent_addr + offset.to_size(), map),
+            node: inflate_structure(xml, parent_addr + offset.to_size(), child_path, map),
             offset,
         }
     }
         
-    pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::Address, map: &mut collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
+    pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::Address, node_path: structure::Path, map: &mut collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
         let node = structure::Node {
             size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
             props: structure::Properties {
@@ -1397,19 +1408,24 @@ pub mod xml {
                 },
                 locked: true,
             },
-            children: xml.children().filter(|c| c.is_element()).map(|c| inflate_childhood(c, node_addr, map)).collect()
+            children: xml.children().filter(|c| c.is_element()).enumerate().map(|(i, c)| {
+                let mut path = node_path.clone();
+                path.push(i);
+                inflate_childhood(c, node_addr, path, map)
+            }).collect()
         };
         let arc = sync::Arc::new(node);
-        map.insert(arc.props.name.clone(), (node_addr, arc.clone()));
+        map.insert(arc.props.name.clone(), (node_addr, node_path, arc.clone()));
         arc
     }
 
     impl TokenDef {
-        fn into_token(self, lookup: &collections::HashMap<String, (addr::Address, sync::Arc<structure::Node>)>) -> token::Token {
+        fn into_token(self, lookup: &collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> token::Token {
             let lookup_result = lookup.get(&self.node_name).unwrap_or_else(|| panic!("expected a node named '{}'", self.node_name));
             token::Token {
                 class: self.class,
-                node: lookup_result.1.clone(),
+                node: lookup_result.2.clone(),
+                node_path: lookup_result.1.clone(),
                 node_addr: lookup_result.0,
                 depth: self.depth,
                 newline: self.newline
@@ -1558,65 +1574,65 @@ mod tests {
             /* root */
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x20)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x20, 0x30)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x30, 0x32)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             /* child */
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Title,
-                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x0, 0x10)),
-                node: child.clone(), node_addr: 0x32.into(), depth: 2, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 2, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x10, 0x18)),
-                node: child.clone(), node_addr: 0x32.into(), depth: 2, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 2, newline: true
             },
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                node: child.clone(), node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
             },
             /* root */
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x4a, 0x50)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x50, 0x60)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Hexdump(addr::Extent::between(0x60, 0x70)),
-                node: root.clone(), node_addr: 0.into(), depth: 1, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
                 class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                node: root.clone(), node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
             },
         ];
 
@@ -1739,6 +1755,7 @@ mod tests {
                 token::Token {
                     class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0x8)),
                     node: o_child_1_2.clone(),
+                    node_path: vec![1, 2],
                     node_addr: o_child_1_2_addr,
                     depth: 3,
                     newline: true
@@ -1746,6 +1763,7 @@ mod tests {
                 token::Token {
                     class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x40, 0x8)),
                     node: n_child_1.clone(),
+                    node_path: vec![1],
                     node_addr: n_child_1_addr,
                     depth: 2,
                     newline: true
@@ -1756,6 +1774,7 @@ mod tests {
                 token::Token {
                     class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
                     node: o_child_1_3.clone(),
+                    node_path: vec![1, 3],
                     node_addr: o_child_1_3_addr,
                     depth: 3,
                     newline: true
@@ -1764,6 +1783,7 @@ mod tests {
                     class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
                     /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
                     node: o_child_1_3.clone(),
+                    node_path: vec![1, 3],
                     node_addr: o_child_1_3_addr,
                     depth: 3,
                     newline: true
