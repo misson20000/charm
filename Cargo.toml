@@ -6,7 +6,7 @@ edition = "2021"
 default-run = "gtk"
 
 [features]
-default = []
+default = ["gtk"]
 gtk = ["dep:gtk"]
 
 [dependencies]
