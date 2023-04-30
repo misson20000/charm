@@ -200,11 +200,17 @@ impl Extent {
         addr >= self.begin && addr < self.end
     }
 
+    /// Returns whether or not this extent contains the entirety of the other extent.
+    pub fn contains(&self, other: Extent) -> bool {
+        other.begin >= self.begin && other.end <= self.end
+    }
+
+    /// Returns the intersection of this extent and the other, if they overlap. If they abut, a zero-size extent is returned.
     pub fn intersection(&self, other: Extent) -> Option<Extent> {
         let begin = std::cmp::max(self.begin, other.begin);
         let end = std::cmp::min(self.end, other.end);
 
-        if end > begin {
+        if end >= begin {
             Some(Self::between(begin, end))
         } else {
             None
