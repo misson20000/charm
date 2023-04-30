@@ -8,6 +8,7 @@ use crate::view::listing;
 use crate::view::listing::token_view::TokenView;
 use crate::view::listing::facet::cursor::CursorView;
 
+use gtk::prelude::*;
 use gtk::graphene;
 
 pub fn render(
@@ -31,16 +32,33 @@ pub fn render(
         },
         _ => 0
     };
+
+    let (_, logical_space) = render.gsc_mono.get(gsc::Entry::Space).unwrap().clone().extents(&render.font_mono);
     
     for i in (-offset_in_line)..extent.length().bytes as i64 {
         if (i + offset_in_line) != 0 {
             /* insert a gutter between every byte */
-            pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
-            
+            let mut gutter_width = helpers::pango_unscale(logical_space.width());
+
             if (i + offset_in_line) % 8 == 0 && (i + offset_in_line) != 0 {
                 /* insert an additional gutter every 8 bytes */
-                pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
+                gutter_width+= helpers::pango_unscale(logical_space.width());
             }
+            
+            if i >= 1 {
+                let gutter_extent = addr::Extent::sized(((i as u64) - 1).into(), 2.into()).rebase(extent.begin).intersection(extent);
+                let gutter_selected = gutter_extent.map_or(false, |ge| selection.includes(ge));
+
+                if gutter_selected {
+                    snapshot.append_color(&render.config.selection_color, &graphene::Rect::new(
+                        pos.x() + helpers::pango_unscale(logical_space.x()),
+                        pos.y() + helpers::pango_unscale(logical_space.y()),
+                        gutter_width,
+                        helpers::pango_unscale(logical_space.height()) - 1.0));
+                }
+            }
+            
+            pos.set_x(pos.x() + gutter_width);
         }
 
         /* if offset_in_line is set, skip rendering these slots. */

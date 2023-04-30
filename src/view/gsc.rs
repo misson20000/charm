@@ -220,7 +220,8 @@ impl<'a> TextConfig<'a> {
                 pos.x() + helpers::pango_unscale(logical.x()),
                 pos.y() + helpers::pango_unscale(logical.y()),
                 helpers::pango_unscale(logical.width()),
-                helpers::pango_unscale(logical.height())));
+                /* This subtracting 1.0 thing sucks, but otherwise lines overlap a little and it looks bad. */
+                helpers::pango_unscale(logical.height()) - 1.0));
         }
 
         if let Some(placeholder_color) = &self.placeholder {
