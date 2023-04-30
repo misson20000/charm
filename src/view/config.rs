@@ -39,6 +39,7 @@ pub struct Config {
     pub text_color: gdk::RGBA,
     pub patch_color: gdk::RGBA,
     pub placeholder_color: gdk::RGBA,
+    pub selection_color: gdk::RGBA,
 
     pub addr_pane_bold: bool,
     pub breaks_bold: bool,
@@ -89,6 +90,7 @@ impl Default for Config {
             text_color: gdk::RGBA::bytes(hex!("dbdbe6ff")),
             patch_color: gdk::RGBA::bytes(hex!("ffff00ff")),
             placeholder_color: gdk::RGBA::bytes(hex!("141414ff")),
+            selection_color: gdk::RGBA::bytes(hex!("8888ff60")),
 
             addr_pane_bold: true,
             breaks_bold: true,

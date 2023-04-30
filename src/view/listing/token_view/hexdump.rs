@@ -1,6 +1,7 @@
 use crate::model::addr;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
+use crate::model::selection;
 use crate::view::helpers;
 use crate::view::gsc;
 use crate::view::listing;
@@ -10,7 +11,7 @@ use crate::view::listing::facet::cursor::CursorView;
 use gtk::prelude::*;
 use gtk::graphene;
 
-pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, cursor: &CursorView, has_cursor: bool, render: &listing::RenderDetail, pos: &mut graphene::Point) {
+pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, cursor: &CursorView, has_cursor: bool, selection: &selection::listing::Mode, render: &listing::RenderDetail, pos: &mut graphene::Point) {
     let hex_cursor = match &cursor.cursor.class {
         cursor::CursorClass::Hexdump(hxc) if has_cursor => Some(hxc),
         _ => None,
@@ -39,8 +40,11 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
             pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
             continue;
         }
-        
+
+        let byte_extent = addr::Extent::sized(extent.begin, addr::unit::BYTE).intersection(extent);
         let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
+
+        let selected = byte_extent.map_or(false, |be| selection.includes(&token_view.token, Some(be)));
         
         for low_nybble in [false, true] {
             let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
@@ -48,19 +52,27 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
 
             let digit = gsc::Entry::Digit(nybble);
 
-            if !byte_record.pending && byte_record.loaded {
-                if has_cursor {
-                    /* the cursor is over this nybble */
-                    render.gsc_mono.print_with_cursor(snapshot, digit, &render.config, cursor, pos);
-                } else {
-                    /* the cursor is not over this nybble */
-                    render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
+            if let Some(gs) = render.gsc_mono.get(digit) {
+                let (_ink, logical) = gs.clone().extents(&render.font_mono);
+
+                if selected {
+                    snapshot.append_color(&render.config.selection_color, &graphene::Rect::new(
+                        pos.x() + helpers::pango_unscale(logical.x()),
+                        pos.y() + helpers::pango_unscale(logical.y()),
+                        helpers::pango_unscale(logical.width()),
+                        helpers::pango_unscale(logical.height())));
                 }
-            } else {
-                /* Draw a placeholder, instead. */
-                if let Some(gs) = render.gsc_mono.get(digit) {
-                    let (_ink, logical) = gs.clone().extents(&render.font_mono);
-                    
+                
+                if !byte_record.pending && byte_record.loaded {
+                    if has_cursor {
+                        /* the cursor is over this nybble */
+                        render.gsc_mono.print_with_cursor(snapshot, digit, &render.config, cursor, pos);
+                    } else {
+                        /* the cursor is not over this nybble */
+                        render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
+                    }
+                } else {
+                    /* Draw a placeholder, instead. */
                     snapshot.append_color(&render.config.placeholder_color, &graphene::Rect::new(
                         pos.x() + helpers::pango_unscale(logical.x()),
                         pos.y() + helpers::pango_unscale(logical.y()),

@@ -7,6 +7,7 @@ use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::selection;
 use crate::view::helpers;
 use crate::view::gsc;
 use crate::view::listing;
@@ -69,7 +70,7 @@ impl TokenView {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }
 
-    pub fn render(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
+    pub fn render(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, selection: &selection::listing::Mode, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
         let lh = helpers::pango_unscale(render.metrics.height());
         
         snapshot.translate(origin);
@@ -126,7 +127,7 @@ impl TokenView {
                 }
             },
             token::TokenClass::Hexdump(extent) => {
-                hexdump::render(self, extent, snapshot, cursor, has_cursor, render, &mut pos);
+                hexdump::render(self, extent, snapshot, cursor, has_cursor, selection, render, &mut pos);
             },
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {

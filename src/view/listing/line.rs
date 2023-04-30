@@ -6,6 +6,7 @@ use std::vec;
 use crate::model::document;
 use crate::model::listing::layout;
 use crate::model::listing::token;
+use crate::model::selection;
 use crate::view::gsc;
 use crate::view::helpers;
 use crate::view::listing;
@@ -24,6 +25,7 @@ pub struct Line {
     
     tokens: vec::Vec<token_view::TokenView>,
     render_serial: u64,
+    selection_hash: u64,
     render_node: Option<gsk::RenderNode>,
 }
 
@@ -40,6 +42,7 @@ impl layout::Line for Line {
             
             tokens: tokens.into_iter().map(token_view::TokenView::from).collect(),
             render_serial: 0,
+            selection_hash: 0,
             render_node: None,
         }
     }
@@ -58,14 +61,20 @@ impl Line {
         self.render_node = None;
     }
 
-    pub fn render(&mut self, cursor: &facet::cursor::CursorView, render: &listing::RenderDetail) -> Option<gsk::RenderNode> {
+    pub fn render(&mut self, cursor: &facet::cursor::CursorView, selection: &selection::listing::Mode, render: &listing::RenderDetail) -> Option<gsk::RenderNode> {
         /* check if the cursor is on any of the tokens on this line */
         let has_cursor = self.tokens.iter().any(|t| t.contains_cursor(&cursor.cursor));
+
+        let selection_hash = {
+            let mut state = std::collections::hash_map::DefaultHasher::default();
+            std::hash::Hash::hash(selection, &mut state);
+            std::hash::Hasher::finish(&state)
+        };
         
         /* if we rendered this line earlier, the parameters haven't been invalidated, and the cursor isn't on this line, just reuse the previous snapshot. */
         if let Some(rn) = self.render_node.as_ref() {
             /* if the cursor is on the line, we need to redraw it every time the cursor animates, which is hard to tell when that happens so we just redraw it every frame. */
-            if self.render_serial == render.serial && !has_cursor {
+            if self.render_serial == render.serial && self.selection_hash == selection_hash && !has_cursor {
                 return Some(rn.clone());
             }
         }
@@ -94,7 +103,7 @@ impl Line {
         /* render tokens */
         for token in &mut self.tokens {
             snapshot.save();
-            let main_advance = token.render(&snapshot, cursor, render, &main_position);
+            let main_advance = token.render(&snapshot, cursor, selection, render, &main_position);
             snapshot.restore();
             snapshot.save();
             let ascii_advance = token.render_asciidump(&snapshot, cursor, render, &ascii_position);
@@ -116,6 +125,7 @@ impl Line {
         }
 
         if !has_cursor {
+            self.selection_hash = selection_hash;
             self.render_serial = render.serial;
             self.render_node = snapshot.to_node();
             self.render_node.clone()

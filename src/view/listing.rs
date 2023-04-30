@@ -145,7 +145,7 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.save();
         snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
         for line in interior.window.lines.iter_mut() {
-            if let Some(node) = line.render(&interior.cursor, &*render) {
+            if let Some(node) = line.render(&interior.cursor, selection, &*render) {
                 snapshot.append_node(node);
             }
             
