@@ -234,27 +234,56 @@ impl StructureRange {
             doc_change::UpdatePathResult::Deleted => StructureMode::Empty,
         };
 
-        ret.check_integrity(new_doc);
+        if !ret.check_integrity(new_doc) {
+            println!("selection integrity check failed: {:?}", ret);
+            return StructureMode::Empty;
+        }
 
         ret
     }
 
-    fn check_integrity(&self, document: &document::Document) {
+    fn check_integrity(&self, document: &document::Document) -> bool {
         let node = document.lookup_node(&self.path).0;
-        assert!(self.begin.0 <= node.children[self.begin.1].offset);
-        if self.end.1 != node.children.len() {
-            assert!(self.end.0 >= node.children[self.end.1].end());
+
+        if self.begin.1 > node.children.len() {
+            println!("begin index too large");
+            return false;
         }
-        assert!(self.end.0 <= node.size.to_addr());
+
+        if self.end.1 > node.children.len() {
+            println!("end index too large");
+            return false;
+        }
+
+        if self.begin.1 != node.children.len() {
+            if self.begin.0 > node.children[self.begin.1].offset {
+                println!("begins after first indexed child");
+                return false;
+            }
+        }
+        
+        if self.end.1 != node.children.len() {
+            if self.end.0 < node.children[self.end.1].end() {
+                println!("ends before last indexed child");
+                return false;
+            }
+        }
+
+        if self.end.0 > node.size.to_addr() {
+            println!("ends after end of node");
+            return false;
+        }
+
+        true
     }
 }
 
 impl StructureMode {
-    fn check_integrity(&self, document: &document::Document) {
+    fn check_integrity(&self, document: &document::Document) -> bool{
         match self {
-            StructureMode::Empty => {},
+            StructureMode::Empty => true,
             StructureMode::Range(sr) => sr.check_integrity(document),
-            StructureMode::All => {},
+            StructureMode::All => true,
         }
     }
 }
