@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 // TODO: create a real distinction between offsets and addresses, and make OffsetExtent a thing.
 
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
 pub struct Address {
     pub byte: u64,
     pub bit: u8
@@ -10,13 +10,13 @@ pub struct Address {
 
 pub type Offset = Size;
 
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
 pub struct Size {
     pub bytes: u64,
     pub bits: u8
 }
 
-#[derive(Default, PartialEq, Eq, Copy, Clone)]
+#[derive(Default, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct Extent {
     pub begin: Address,
     pub end: Address,
