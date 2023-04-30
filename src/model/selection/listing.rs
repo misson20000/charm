@@ -162,6 +162,7 @@ impl StructureRange {
                     
                     if childhood.extent().includes(self.begin.0) {
                         self.begin.0 = childhood.offset;
+                        self.begin.1 = *insertion_index;
                     }
                     
                     if childhood.extent().includes(self.end.0) {
