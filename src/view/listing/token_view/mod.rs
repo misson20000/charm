@@ -70,7 +70,14 @@ impl TokenView {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }
 
-    pub fn render(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, selection: &selection::listing::Mode, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
+    pub fn render(
+        &mut self,
+        snapshot: &gtk::Snapshot,
+        cursor: &CursorView,
+        selection: selection::listing::TokenIntersection,
+        render: &listing::RenderDetail,
+        origin: &graphene::Point
+    ) -> graphene::Point {
         let lh = helpers::pango_unscale(render.metrics.height());
         
         snapshot.translate(origin);
@@ -143,7 +150,14 @@ impl TokenView {
         pos
     }
 
-    pub fn render_asciidump(&mut self, snapshot: &gtk::Snapshot, cursor: &CursorView, render: &listing::RenderDetail, origin: &graphene::Point) -> graphene::Point {
+    pub fn render_asciidump(
+        &mut self,
+        snapshot: &gtk::Snapshot,
+        cursor: &CursorView,
+        selection: selection::listing::TokenIntersection,
+        render: &listing::RenderDetail,
+        origin: &graphene::Point
+    ) -> graphene::Point {
         let lh = helpers::pango_unscale(render.metrics.height());
         
         snapshot.translate(origin);

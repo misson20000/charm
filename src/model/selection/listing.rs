@@ -43,6 +43,39 @@ pub struct Selection {
     version: versioned::Version<Selection>,
 }
 
+pub type Host = versioned::Host<Selection>;
+
+#[derive(Clone)]
+pub enum Change {
+    DocumentUpdated(sync::Arc<document::Document>),
+
+    Clear,
+    SelectAll,
+    ConvertToStructure,
+    ConvertToAddress,
+    AssignFromHierarchy(sync::Arc<super::HierarchySelection>),
+    AssignStructure(StructureRange),
+    AssignAddress(addr::Extent),
+    UnionStructure(StructureRange),
+    UnionAddress(addr::Extent),
+}
+
+#[derive(Debug, Clone)]
+pub struct ChangeRecord {
+}
+
+#[derive(Debug, Clone)]
+pub enum ApplyError {
+    WrongMode
+}
+
+#[derive(Clone, Copy, Debug, Hash)]
+pub enum TokenIntersection {
+    None,
+    Partial(addr::Extent),
+    Total,
+}
+
 impl Selection {
     pub fn new(document: sync::Arc<document::Document>) -> Self {
         Selection {
@@ -74,30 +107,6 @@ impl Selection {
     }
 }
 
-#[derive(Clone)]
-pub enum Change {
-    DocumentUpdated(sync::Arc<document::Document>),
-
-    Clear,
-    SelectAll,
-    ConvertToStructure,
-    ConvertToAddress,
-    AssignFromHierarchy(sync::Arc<super::HierarchySelection>),
-    AssignStructure(StructureRange),
-    AssignAddress(addr::Extent),
-    UnionStructure(StructureRange),
-    UnionAddress(addr::Extent),
-}
-
-#[derive(Debug, Clone)]
-pub struct ChangeRecord {
-}
-
-#[derive(Debug, Clone)]
-pub enum ApplyError {
-    WrongMode
-}
-
 impl versioned::Versioned for Selection {
     type Change = Change;
 
@@ -110,8 +119,6 @@ impl versioned::Versioned for Selection {
     }
 }
 
-pub type Host = versioned::Host<Selection>;
-
 impl versioned::Change<Selection> for Change {
     type ApplyError = ApplyError;
     type ApplyRecord = ChangeRecord;
@@ -122,29 +129,46 @@ impl versioned::Change<Selection> for Change {
     }
 }
 
-impl StructureRange {
-    /// If extent is Some, returns whether this range contains the data specified by the extent under the node at the given path.
-    /// If extent is None, returns whether this range contains the entire node specified by the given path.
-    pub fn includes(&self, path: &structure::Path, extent: Option<addr::Extent>) -> bool {
-        if path.len() >= self.path.len() && path[0..self.path.len()] == self.path[..] {
-            if path.len() == self.path.len() {
-                extent.map_or(false, |e| addr::Extent::between(self.begin.0, self.end.0).contains(e))
-            } else {
-                (self.begin.1..self.end.1).contains(&path[self.path.len()])
+impl Mode {
+    pub fn token_intersection(&self, token: &token::Token) -> TokenIntersection {
+        match self {
+            Mode::Structure(StructureMode::Empty) => TokenIntersection::None,
+            Mode::Structure(StructureMode::All) => TokenIntersection::Total,
+            Mode::Structure(StructureMode::Range(range)) => {
+                if token.node_path.len() >= range.path.len() && token.node_path[0..range.path.len()] == range.path[..] {
+                    if token.node_path.len() == range.path.len() {
+                        TokenIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0))
+                    } else if (range.begin.1..range.end.1).contains(&token.node_path[range.path.len()]) {
+                        TokenIntersection::Total
+                    } else {
+                        TokenIntersection::None
+                    }
+                } else {
+                    TokenIntersection::None
+                }
             }
-        } else {
-            false
+            Mode::Address(extent) => {
+                let token_extent = addr::Extent::sized(token.node_addr, token.node.size);
+
+                if extent.contains(token_extent) {
+                    TokenIntersection::Total
+                } else {
+                    match extent.intersection(token_extent) {
+                        Some(e) => TokenIntersection::Partial(e.debase(token.node_addr)),
+                        None => TokenIntersection::None,
+                    }
+                }
+            },
         }
     }
 }
 
-impl Mode {
-    pub fn includes(&self, token: &token::Token, extent: Option<addr::Extent>) -> bool {
+impl TokenIntersection {
+    pub fn includes(&self, extent: addr::Extent) -> bool {
         match self {
-            Mode::Structure(StructureMode::Empty) => false,
-            Mode::Structure(StructureMode::All) => true,
-            Mode::Structure(StructureMode::Range(range)) => range.includes(&token.node_path, extent),
-            Mode::Address(extent) => extent.intersection(extent.rebase(token.node_addr)).map_or(false, |overlap| overlap.length() > addr::unit::ZERO),
+            Self::None => false,
+            Self::Partial(e) => e.contains(extent),
+            Self::Total => true,
         }
     }
 }

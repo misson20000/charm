@@ -220,6 +220,10 @@ impl Extent {
     pub fn rebase(&self, base: Address) -> Extent {
         Extent { begin: base + self.begin.to_size(), end: base + self.end.to_size() }
     }
+
+    pub fn debase(&self, base: Address) -> Extent {
+        Extent { begin: base - self.begin.to_size(), end: base - self.end.to_size() }
+    }
 }
 
 #[cfg(test)]

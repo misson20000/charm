@@ -11,7 +11,16 @@ use crate::view::listing::facet::cursor::CursorView;
 use gtk::prelude::*;
 use gtk::graphene;
 
-pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, cursor: &CursorView, has_cursor: bool, selection: &selection::listing::Mode, render: &listing::RenderDetail, pos: &mut graphene::Point) {
+pub fn render(
+    token_view: &mut TokenView,
+    extent: addr::Extent,
+    snapshot: &gtk::Snapshot,
+    cursor: &CursorView,
+    has_cursor: bool,
+    selection: selection::listing::TokenIntersection,
+    render: &listing::RenderDetail,
+    pos: &mut graphene::Point
+) {
     let hex_cursor = match &cursor.cursor.class {
         cursor::CursorClass::Hexdump(hxc) if has_cursor => Some(hxc),
         _ => None,
@@ -44,7 +53,7 @@ pub fn render(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::
         let byte_extent = addr::Extent::sized(extent.begin, addr::unit::BYTE).intersection(extent);
         let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
 
-        let selected = byte_extent.map_or(false, |be| selection.includes(&token_view.token, Some(be)));
+        let selected = byte_extent.map_or(false, |be| selection.includes(be));
         
         for low_nybble in [false, true] {
             let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };

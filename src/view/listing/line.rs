@@ -102,11 +102,13 @@ impl Line {
 
         /* render tokens */
         for token in &mut self.tokens {
+            let selection_intersection = selection.token_intersection(&token.token());
+            
             snapshot.save();
-            let main_advance = token.render(&snapshot, cursor, selection, render, &main_position);
+            let main_advance = token.render(&snapshot, cursor, selection_intersection, render, &main_position);
             snapshot.restore();
             snapshot.save();
-            let ascii_advance = token.render_asciidump(&snapshot, cursor, render, &ascii_position);
+            let ascii_advance = token.render_asciidump(&snapshot, cursor, selection_intersection, render, &ascii_position);
             snapshot.restore();
             
             main_position.set_x(main_position.x() + main_advance.x());
