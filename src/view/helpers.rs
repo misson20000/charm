@@ -56,7 +56,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
 }
 
 #[derive(Debug)]
-pub struct AsyncSubscriber(Option<glib::SourceId>);
+pub struct AsyncSubscriber(Option<glib::JoinHandle<()>>);
 
 pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'static>(
     subscriber_weak: SubscriberRef,
@@ -85,13 +85,13 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
 }
 
 pub fn spawn_on_main_context<F: future::Future<Output = ()> + 'static>(task: F) -> AsyncSubscriber {
-    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task).into_source_id().unwrap()))
+    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task)))
 }
 
 impl Drop for AsyncSubscriber {
     fn drop(&mut self) {
-        if let Some(source_id) = self.0.take() {
-            source_id.remove();
+        if let Some(jh) = self.0.take() {
+            jh.abort();
         }
     }
 }
