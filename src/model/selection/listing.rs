@@ -300,4 +300,11 @@ impl TokenIntersection {
             Self::Total => true,
         }
     }
+
+    pub fn is_total(&self) -> bool {
+        match self {
+            Self::Total => true,
+            _ => false,
+        }
+    }
 }

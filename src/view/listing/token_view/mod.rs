@@ -88,7 +88,9 @@ impl TokenView {
         
         match self.token.class {
             token::TokenClass::Punctuation(punct) => {
-                render.gsc_mono.begin(gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos).render(snapshot);
+                render.gsc_mono.begin(gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos)
+                    .selected(selection.is_total(), &render.config.selection_color)
+                    .render(snapshot);
             },
             token::TokenClass::Title => {
                 gsc::begin_text(
@@ -98,9 +100,15 @@ impl TokenView {
                     &self.token.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                    .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
 
-                render.gsc_bold.begin(gsc::Entry::Colon, &render.config.text_color, &mut pos).render(snapshot);
+                render.gsc_bold.begin(
+                    gsc::Entry::Colon,
+                    &render.config.text_color,
+                    &mut pos)
+                    .selected(selection.is_total(), &render.config.selection_color)
+                    .render(snapshot);
             },
             token::TokenClass::SummaryLabel => {
                 gsc::begin_text(
@@ -110,9 +118,15 @@ impl TokenView {
                     &self.token.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                    .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
                 
-                render.gsc_bold.begin(gsc::Entry::Colon, &render.config.text_color, &mut pos).render(snapshot);
+                render.gsc_bold.begin(
+                    gsc::Entry::Colon,
+                    &render.config.text_color,
+                    &mut pos)
+                    .selected(selection.is_total(), &render.config.selection_color)
+                    .render(snapshot);
             },
             token::TokenClass::Hexdump(extent) => {
                 hexdump::render(self, extent, snapshot, cursor, has_cursor, selection, render, &mut pos);
@@ -120,11 +134,16 @@ impl TokenView {
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
-
+                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(extent);
+                    let selected = byte_extent.map_or(false, |be| selection.includes(be));
+                    
                     render.gsc_mono.begin_iter([
                         gsc::Entry::Digit((j & 0xf0) >> 4),
                         gsc::Entry::Digit( j & 0x0f      ),
-                    ].into_iter(), &render.config.text_color, &mut pos).render(snapshot);
+                    ].into_iter(), &render.config.text_color, &mut pos)
+                        .selected(selected, &render.config.selection_color)
+                    // TODO: cursor for hexstring
+                        .render(snapshot);
                 }
             },
         }
@@ -155,7 +174,7 @@ impl TokenView {
             token::TokenClass::Title => { },
             token::TokenClass::SummaryLabel => { },
             token::TokenClass::Hexdump(extent) => {
-                hexdump::render_asciidump(self, extent, snapshot, cursor, has_cursor, render, &mut pos);
+                hexdump::render_asciidump(self, extent, snapshot, cursor, has_cursor, selection, render, &mut pos);
             },
             token::TokenClass::Hexstring(_) => { },
         }

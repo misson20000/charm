@@ -54,6 +54,8 @@ struct TextConfig<'a> {
     font: &'a pango::Font,
     color: &'a gdk::RGBA,
     cursor: Option<CursorConfig<'a>>,
+    selected: Option<&'a gdk::RGBA>,
+    placeholder: Option<&'a gdk::RGBA>,
 }
 
 impl Cache {
@@ -121,6 +123,8 @@ impl Cache {
                 font: &self.font,
                 color,
                 cursor: None,
+                selected: None,
+                placeholder: None,
             },
         }
     }
@@ -133,6 +137,8 @@ impl Cache {
                 font: &self.font,
                 color,
                 cursor: None,
+                selected: None,
+                placeholder: None,
             },
         }
     }
@@ -152,6 +158,8 @@ pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a 
             font,
             color,
             cursor: None,
+            selected: None,
+            placeholder: None,
         },
     }
 }
@@ -164,6 +172,20 @@ impl<'a, I: Iterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
                 cursor_fg_color,
                 cursor_bg_color,
             });
+        }
+        self
+    }
+
+    pub fn selected(mut self, enable: bool, selection_bg_color: &'a gdk::RGBA) -> Self {
+        if enable {
+            self.config.selected = Some(selection_bg_color);
+        }
+        self
+    }
+
+    pub fn placeholder(mut self, enable: bool, placeholder_color: &'a gdk::RGBA) -> Self {
+        if enable {
+            self.config.placeholder = Some(placeholder_color);
         }
         self
     }
@@ -192,6 +214,22 @@ impl<'a, I: std::iter::DoubleEndedIterator<Item = pango::GlyphString>> TextBuild
 impl<'a> TextConfig<'a> {
     fn render_gs(&mut self, pos: &mut graphene::Point, snapshot: &gtk::Snapshot, gs: &pango::GlyphString) {
         let (_ink, logical) = gs.clone().extents(self.font);
+
+        if let Some(sel_color) = &self.selected {
+            snapshot.append_color(&sel_color, &graphene::Rect::new(
+                pos.x() + helpers::pango_unscale(logical.x()),
+                pos.y() + helpers::pango_unscale(logical.y()),
+                helpers::pango_unscale(logical.width()),
+                helpers::pango_unscale(logical.height())));
+        }
+
+        if let Some(placeholder_color) = &self.placeholder {
+            snapshot.append_color(placeholder_color, &graphene::Rect::new(
+                pos.x() + helpers::pango_unscale(logical.x()),
+                pos.y() + helpers::pango_unscale(logical.y()),
+                helpers::pango_unscale(logical.width()),
+                helpers::pango_unscale(logical.height())));
+        }
         
         if let Some(ccfg) = &self.cursor {
             if ccfg.cursor.has_focus && ccfg.cursor.get_blink() {
