@@ -88,50 +88,31 @@ impl TokenView {
         
         match self.token.class {
             token::TokenClass::Punctuation(punct) => {
-                render.gsc_mono.print(snapshot, gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos);
+                render.gsc_mono.begin(gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos).render(snapshot);
             },
             token::TokenClass::Title => {
-                if has_cursor {
-                    gsc::render_text_with_cursor(
-                        snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config,
-                        cursor,
-                        &self.token.node.props.name,
-                        &mut pos);
-                } else {
-                    gsc::render_text(
-                        snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config.text_color,
-                        &self.token.node.props.name,
-                        &mut pos);
-                }
-                render.gsc_bold.print(snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
+                gsc::begin_text(
+                    &render.pango,
+                    &render.font_bold,
+                    &render.config.text_color,
+                    &self.token.node.props.name,
+                    &mut pos)
+                    .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                    .render(snapshot);
+
+                render.gsc_bold.begin(gsc::Entry::Colon, &render.config.text_color, &mut pos).render(snapshot);
             },
             token::TokenClass::SummaryLabel => {
-                if has_cursor {
-                    gsc::render_text_with_cursor(
-                        snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config,
-                        cursor,
-                        &self.token.node.props.name,
-                        &mut pos);
-                    render.gsc_bold.print_with_cursor(snapshot, gsc::Entry::Colon, &render.config, cursor, &mut pos);
-                } else {
-                    gsc::render_text(
-                        snapshot,
-                        &render.pango,
-                        &render.font_bold,
-                        &render.config.text_color,
-                        &self.token.node.props.name,
-                        &mut pos);
-                    render.gsc_bold.print(snapshot, gsc::Entry::Colon, &render.config.text_color, &mut pos);
-                }
+                gsc::begin_text(
+                    &render.pango,
+                    &render.font_bold,
+                    &render.config.text_color,
+                    &self.token.node.props.name,
+                    &mut pos)
+                    .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                    .render(snapshot);
+                
+                render.gsc_bold.begin(gsc::Entry::Colon, &render.config.text_color, &mut pos).render(snapshot);
             },
             token::TokenClass::Hexdump(extent) => {
                 hexdump::render(self, extent, snapshot, cursor, has_cursor, selection, render, &mut pos);
@@ -139,8 +120,11 @@ impl TokenView {
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
-                    render.gsc_mono.print(snapshot, gsc::Entry::Digit((j & 0xf0) >> 4), &render.config.text_color, &mut pos);
-                    render.gsc_mono.print(snapshot, gsc::Entry::Digit( j & 0x0f      ), &render.config.text_color, &mut pos);
+
+                    render.gsc_mono.begin_iter([
+                        gsc::Entry::Digit((j & 0xf0) >> 4),
+                        gsc::Entry::Digit( j & 0x0f      ),
+                    ].into_iter(), &render.config.text_color, &mut pos).render(snapshot);
                 }
             },
         }

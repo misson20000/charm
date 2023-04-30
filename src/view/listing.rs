@@ -156,13 +156,12 @@ impl WidgetImpl for ListingWidgetImp {
         /* render debug text */
         if false {
             let mut pos = graphene::Point::new(1000.0, 100.0);
-            gsc::render_text(
-                snapshot,
+            gsc::begin_text(
                 &render.pango,
                 &render.font_mono,
                 &render.config.text_color,
                 &format!("cursor: {:?}", interior.cursor.cursor),
-                &mut pos);
+                &mut pos).render(snapshot);
         }
     }
 }

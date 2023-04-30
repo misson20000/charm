@@ -123,7 +123,7 @@ impl Line {
         /* if any of our tokens wanted to show an address, render the first one into the address pane */
         if let Some(addr) = visible_address {
             let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, helpers::pango_unscale(render.metrics.height()));
-            gsc::render_text_align_right(&snapshot, &render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos);
+            gsc::begin_text(&render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos).render_right_aligned(&snapshot);
         }
 
         if !has_cursor {

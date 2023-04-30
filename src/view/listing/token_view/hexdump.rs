@@ -44,6 +44,7 @@ pub fn render(
             }
         }
 
+        /* if offset_in_line is set, skip rendering these slots. */
         if i < 0 {
             pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
             pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width()));
@@ -73,13 +74,9 @@ pub fn render(
                 }
                 
                 if !byte_record.pending && byte_record.loaded {
-                    if has_cursor {
-                        /* the cursor is over this nybble */
-                        render.gsc_mono.print_with_cursor(snapshot, digit, &render.config, cursor, pos);
-                    } else {
-                        /* the cursor is not over this nybble */
-                        render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
-                    }
+                    render.gsc_mono.begin(digit, &render.config.text_color, pos)
+                        .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                        .render(snapshot);
                 } else {
                     /* Draw a placeholder, instead. */
                     snapshot.append_color(&render.config.placeholder_color, &graphene::Rect::new(
@@ -128,7 +125,8 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
         if !byte_record.pending && byte_record.loaded {
             /* we don't really care about cursor right now. */
             let _ = has_cursor;
-            render.gsc_mono.print(snapshot, digit, &render.config.text_color, pos);
+            render.gsc_mono.begin(digit, &render.config.text_color, pos)
+                .render(snapshot);
         } else {
             /* Draw a placeholder, instead. */
             if let Some(gs) = render.gsc_mono.get(digit) {

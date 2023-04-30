@@ -3,7 +3,6 @@
 const DIGIT_STRINGS: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 use crate::model::listing::token;
-use crate::view::config;
 use crate::view::helpers;
 use crate::view::listing::facet::cursor::CursorView;
 
@@ -36,6 +35,25 @@ pub struct Cache {
     gs_colon: pango::GlyphString, // ": "
 
     space_width: i32,
+}
+
+struct CursorConfig<'a> {
+    cursor: &'a CursorView,
+    cursor_fg_color: &'a gdk::RGBA,
+    cursor_bg_color: &'a gdk::RGBA,
+}
+
+#[must_use]
+pub struct TextBuilder<'a, I: Iterator<Item = pango::GlyphString>> {
+    iterator: I,
+    pos: &'a mut graphene::Point,
+    config: TextConfig<'a>,
+}
+
+struct TextConfig<'a> {
+    font: &'a pango::Font,
+    color: &'a gdk::RGBA,
+    cursor: Option<CursorConfig<'a>>,
 }
 
 impl Cache {
@@ -95,38 +113,103 @@ impl Cache {
         }
     }
 
-    pub fn print(&self, snapshot: &gtk::Snapshot, entry: Entry, color: &gdk::RGBA, pos: &mut graphene::Point) {
-        if let Some(gs) = self.get(entry) {
-            if let Some(tn) = gsk::TextNode::new(
-                &self.font,
-                gs,
+    pub fn begin<'a>(&'a self, entry: Entry, color: &'a gdk::RGBA, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString>> {
+        TextBuilder {
+            iterator: self.get(entry).cloned().into_iter(),
+            pos,
+            config: TextConfig {
+                font: &self.font,
                 color,
-                pos) {
-                snapshot.append_node(tn);
-            }
-
-            let advance = helpers::pango_unscale(gs.width());
-            pos.set_x(pos.x() + advance);
+                cursor: None,
+            },
         }
     }
 
-    pub fn print_with_cursor(&self, snapshot: &gtk::Snapshot, entry: Entry, config: &config::Config, cursor: &CursorView, pos: &mut graphene::Point) {
-        if let Some(gs) = self.get(entry) {
-            let color = if cursor.has_focus && cursor.get_blink() {                
-                let (_ink, logical) = gs.clone().extents(&self.font);
-                snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
-                    pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+    pub fn begin_iter<'a, I: Iterator<Item = Entry> + 'a>(&'a self, entries: I, color: &'a gdk::RGBA, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString> + 'a> {
+        TextBuilder {
+            iterator: entries.map(|e| self.get(e).cloned()).flatten(),
+            pos,
+            config: TextConfig {
+                font: &self.font,
+                color,
+                cursor: None,
+            },
+        }
+    }
+}
+
+pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a gdk::RGBA, text: &'a str, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl std::iter::DoubleEndedIterator<Item = pango::GlyphString> + 'a> {
+    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
+
+    TextBuilder {
+        iterator: items.into_iter().map(|item| {
+            let mut gs = pango::GlyphString::new();
+            pango::shape(text, item.analysis(), &mut gs);
+            gs
+        }),
+        pos,
+        config: TextConfig {
+            font,
+            color,
+            cursor: None,
+        },
+    }
+}
+
+impl<'a, I: Iterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
+    pub fn cursor(mut self, enable: bool, cursor: &'a CursorView, cursor_fg_color: &'a gdk::RGBA, cursor_bg_color: &'a gdk::RGBA) -> Self {
+        if enable {
+            self.config.cursor = Some(CursorConfig {
+                cursor,
+                cursor_fg_color,
+                cursor_bg_color,
+            });
+        }
+        self
+    }
+    
+    pub fn render(mut self, snapshot: &gtk::Snapshot) {
+        for gs in self.iterator {
+            self.config.render_gs(self.pos, snapshot, &gs);
+
+            let advance = helpers::pango_unscale(gs.width());
+            self.pos.set_x(self.pos.x() + advance);
+        }
+    }
+}
+
+impl<'a, I: std::iter::DoubleEndedIterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
+    pub fn render_right_aligned(mut self, snapshot: &gtk::Snapshot) {
+        for gs in self.iterator.rev() {
+            let advance = helpers::pango_unscale(gs.width());
+            self.pos.set_x(self.pos.x() - advance);
+
+            self.config.render_gs(self.pos, snapshot, &gs);
+        }
+    }
+}
+
+impl<'a> TextConfig<'a> {
+    fn render_gs(&mut self, pos: &mut graphene::Point, snapshot: &gtk::Snapshot, gs: &pango::GlyphString) {
+        let (_ink, logical) = gs.clone().extents(self.font);
+        
+        if let Some(ccfg) = &self.cursor {
+            if ccfg.cursor.has_focus && ccfg.cursor.get_blink() {
+                /* Draw the cursor background */
+                snapshot.append_color(&ccfg.cursor_bg_color, &graphene::Rect::new(
+                    pos.x() + helpers::pango_unscale(logical.x()) + ccfg.cursor.get_bonk(),
                     pos.y() + helpers::pango_unscale(logical.y()),
                     helpers::pango_unscale(logical.width()),
                     helpers::pango_unscale(logical.height())));
-                
-                &config.cursor_fg_color
-            } else if !cursor.has_focus {
-                let (_ink, logical) = gs.clone().extents(&self.font);
+
+                /* Override foreground color */
+                self.color = ccfg.cursor_fg_color;
+            } else if !ccfg.cursor.has_focus {
+                /* Draw the cursor frame */
                 snapshot.append_border(
                     &gsk::RoundedRect::new(
                         graphene::Rect::new(
-                            pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
+                            pos.x() + helpers::pango_unscale(logical.x()) + ccfg.cursor.get_bonk(),
                             pos.y() + helpers::pango_unscale(logical.y()),
                             helpers::pango_unscale(logical.width()),
                             helpers::pango_unscale(logical.height())),
@@ -135,114 +218,18 @@ impl Cache {
                         graphene::Size::zero(),
                         graphene::Size::zero()),
                     &[1.0; 4],
-                    &[config.cursor_bg_color; 4],
+                    &[ccfg.cursor_bg_color.clone(); 4],
                 );
-
-                &config.text_color
-            } else {
-                &config.text_color
-            };
-            
-            if let Some(tn) = gsk::TextNode::new(
-                &self.font,
-                gs,
-                color,
-                pos) {
-                snapshot.append_node(tn);
             }
-
-            let advance = helpers::pango_unscale(gs.width());
-            pos.set_x(pos.x() + advance);
         }
-    }
-}
 
-pub fn render_text(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str, pos: &mut graphene::Point) {
-    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
-
-    for item in items {
-        let mut gs = pango::GlyphString::new();
-        pango::shape(text, item.analysis(), &mut gs);
-        snapshot.append_node(
-            gsk::TextNode::new(
-                font,
-                &gs,
-                color,
-                pos)
-                .unwrap());
-
-        let advance = helpers::pango_unscale(gs.width());
-        pos.set_x(pos.x() + advance);
-    }
-}
-
-pub fn render_text_with_cursor(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, config: &config::Config, cursor: &CursorView, text: &str, pos: &mut graphene::Point) {
-    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
-
-    for item in items {
-        let mut gs = pango::GlyphString::new();
-        pango::shape(text, item.analysis(), &mut gs);
-
-        let color = if cursor.has_focus && cursor.get_blink() {
-            let (_ink, logical) = gs.clone().extents(font);
-            snapshot.append_color(&config.cursor_bg_color, &graphene::Rect::new(
-                pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
-                pos.y() + helpers::pango_unscale(logical.y()),
-                helpers::pango_unscale(logical.width()),
-                helpers::pango_unscale(logical.height())));
-
-            &config.cursor_fg_color
-        } else if !cursor.has_focus {
-            let (_ink, logical) = gs.clone().extents(font);
-            snapshot.append_border(
-                &gsk::RoundedRect::new(
-                    graphene::Rect::new(
-                        pos.x() + helpers::pango_unscale(logical.x()) + cursor.get_bonk(),
-                        pos.y() + helpers::pango_unscale(logical.y()),
-                        helpers::pango_unscale(logical.width()),
-                        helpers::pango_unscale(logical.height())),
-                    graphene::Size::zero(),
-                    graphene::Size::zero(),
-                    graphene::Size::zero(),
-                    graphene::Size::zero()),
-                &[1.0; 4],
-                &[config.cursor_bg_color; 4],
-            );
-
-            &config.text_color
-        } else {
-            &config.text_color
-        };
-        
-        snapshot.append_node(
-            gsk::TextNode::new(
-                font,
-                &gs,
-                color,
-                pos)
-                .unwrap());
-
-        let advance = helpers::pango_unscale(gs.width());
-        pos.set_x(pos.x() + advance);
-    }
-}
-
-pub fn render_text_align_right(snapshot: &gtk::Snapshot, pg: &pango::Context, font: &pango::Font, color: &gdk::RGBA, text: &str, pos: &mut graphene::Point) {
-    let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
-
-    for item in items {
-        let mut gs = pango::GlyphString::new();
-        pango::shape(text, item.analysis(), &mut gs);
-
-        let advance = helpers::pango_unscale(gs.width());
-        pos.set_x(pos.x() - advance);
-        
-        snapshot.append_node(
-            gsk::TextNode::new(
-                font,
-                &gs,
-                color,
-                pos)
-                .unwrap());
+        if let Some(tn) = gsk::TextNode::new(
+            self.font,
+            gs,
+            self.color,
+            pos
+        ) {
+            snapshot.append_node(tn);
+        }
     }
 }
