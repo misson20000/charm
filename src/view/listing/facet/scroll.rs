@@ -25,9 +25,9 @@ pub struct Scroller {
 type Window = layout::Window<line::Line>;
 
 impl Scroller {
-    pub fn new() -> Scroller {
+    pub fn new(config: sync::Arc<config::Config>) -> Scroller {
         Scroller {
-            config: config::copy(),
+            config,
             ev_draw: facet::Event::new(),
             ev_work: facet::Event::new(),
             
@@ -40,6 +40,10 @@ impl Scroller {
         }
     }
 
+    pub fn reconf(&mut self, config: sync::Arc<config::Config>) {
+        self.config = config;
+    }
+    
     pub fn get_position(&self) -> f64 {
         self.position
     }

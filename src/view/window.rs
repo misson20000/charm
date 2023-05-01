@@ -201,7 +201,7 @@ impl CharmWindow {
             hierarchy_editor.add_controller(gesture);
         }
         
-        let config_editor = view::config_editor::build_config_editor();
+        let config_editor = view::config_editor::build_config_editor(view::config::INSTANCE.clone());
         let config_editor_frame: gtk::Frame = builder.object("config_editor_frame").unwrap();
         config_editor_frame.set_child(Some(&config_editor));
 

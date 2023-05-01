@@ -191,6 +191,12 @@ impl<Object: Versioned> Host<Object> {
     }
 }
 
+impl<Object: Versioned + Default> Default for Host<Object> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 pub struct ObjectUpdateFuture<'a, Object: Versioned> {
     host: &'a Host<Object>,
     generation: u64,

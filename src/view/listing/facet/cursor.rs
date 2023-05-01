@@ -46,14 +46,14 @@ impl std::fmt::Debug for CursorView {
 }
 
 impl CursorView {
-    pub fn new(document: sync::Arc<document::Document>) -> CursorView {
+    pub fn new(document: sync::Arc<document::Document>, config: sync::Arc<config::Config>) -> CursorView {
         CursorView {
             cursor: cursor::Cursor::new(document).expect("should be able to default-place cursor"),
             mode: Mode::Command,
             has_focus: true,
             insert: false,
             
-            config: config::copy(),
+            config,
             ev_draw: facet::Event::new(),
             ev_work: facet::Event::new(),
             
@@ -62,6 +62,10 @@ impl CursorView {
         }
     }
 
+    pub fn reconf(&mut self, config: sync::Arc<config::Config>) {
+        self.config = config;
+    }
+    
     pub fn get_bonk(&self) -> f32 {
         (self.bonk_timer / 0.25) * 3.0 * ((0.25 - self.bonk_timer) * 10.0 * 2.0 * std::f32::consts::PI).cos()
     }

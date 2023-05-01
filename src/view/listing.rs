@@ -69,6 +69,7 @@ struct Interior {
 
     document_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     selection_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
+    config_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_notifier: util::Notifier,
 }
@@ -123,7 +124,7 @@ impl WidgetImpl for ListingWidgetImp {
             None => return,
         };
         let interior = &mut *interior_guard;
-        let render = interior.refresh_render_detail(&self.obj()).clone();
+        let render = &interior.render;
         
         let selection = match &interior.selection {
             sel if sync::Arc::ptr_eq(&sel.document, &interior.document) => &sel.mode,
@@ -197,9 +198,13 @@ impl ListingWidget {
         document_host: sync::Arc<document::DocumentHost>,
         selection_host: sync::Arc<selection::listing::Host>
     ) {
-        let render = RenderDetail::new(config::copy(), self.pango_context(), 0);
+        let config_host = config::INSTANCE.clone();
+        
+        let config = config_host.get();
         let document = document_host.get();
         let selection = selection_host.get();
+
+        let render = RenderDetail::new(config.clone(), self.pango_context(), 0);
         
         let mut interior = Interior {
             document_host: document_host.clone(),
@@ -209,8 +214,8 @@ impl ListingWidget {
             selection: selection.clone(),
 
             window: layout::Window::new(document.clone()),
-            cursor: facet::cursor::CursorView::new(document.clone()),
-            scroll: facet::scroll::Scroller::new(),
+            cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
+            scroll: facet::scroll::Scroller::new(config.clone()),
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -220,6 +225,7 @@ impl ListingWidget {
 
             document_update_event_source: once_cell::sync::OnceCell::new(),
             selection_update_event_source: once_cell::sync::OnceCell::new(),
+            config_update_event_source: once_cell::sync::OnceCell::new(),
             work_event_source: once_cell::sync::OnceCell::new(),
             work_notifier: util::Notifier::new(),
         };
@@ -253,6 +259,16 @@ impl ListingWidget {
             });
             if interior.selection_update_event_source.set(update_subscriber).is_err() {
                 panic!("double-initialized selection_update_event_source");
+            }
+        }
+
+        /* Subscribe to config updates */
+        {
+            let update_subscriber = helpers::subscribe_to_updates(self.downgrade(), config_host, config, |lw, new_conf| {
+                lw.config_updated(new_conf);
+            });
+            if interior.config_update_event_source.set(update_subscriber).is_err() {
+                panic!("double-initialized config_update_event_source");
             }
         }
 
@@ -336,10 +352,17 @@ impl ListingWidget {
 
         self.queue_draw();
     }
+
+    fn config_updated(&self, new_config: &sync::Arc<config::Config>) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+        interior.config_updated(new_config, self);
+
+        self.queue_draw();
+    }
 }
 
 impl RenderDetail {
-    fn new(config: config::Copy, pg: pango::Context, serial: u64) -> RenderDetail {
+    fn new(config: sync::Arc<config::Config>, pg: pango::Context, serial: u64) -> RenderDetail {
         let fm = pg.font_map().unwrap();
 
         let font_mono = fm.load_font(&pg, &config.monospace_font).expect("expected to be able to load selected font");
@@ -390,22 +413,20 @@ impl Interior {
 
         self.selection = new_selection.clone();
     }
-    
-    fn refresh_render_detail(&mut self, widget: &ListingWidget) -> &sync::Arc<RenderDetail> {
-        let config = config::borrow();
-        if !sync::Arc::ptr_eq(&self.render.config, &*config) {
-            self.render = sync::Arc::new(
-                RenderDetail::new(
-                    config.clone(),
-                    widget.pango_context(),
-                    self.render.serial + 1));
-        }
-        &self.render
+
+    fn config_updated(&mut self, new_config: &sync::Arc<config::Config>, widget: &ListingWidget) {
+        self.scroll.reconf(new_config.clone());
+        self.cursor.reconf(new_config.clone());
+        self.render = sync::Arc::new(
+            RenderDetail::new(
+                new_config.clone(),
+                widget.pango_context(),
+                self.render.serial + 1));
     }
     
     /// Resize the underlying window.
-    fn size_allocate(&mut self, widget: &ListingWidget, _width: i32, height: i32, _baseline: i32) {
-        let render = self.refresh_render_detail(widget);
+    fn size_allocate(&mut self, _widget: &ListingWidget, _width: i32, height: i32, _baseline: i32) {
+        let render = &self.render;
         let line_height = render.metrics.height();
 
         // TODO: replace with div_ceil when it gets stabilized
