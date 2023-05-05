@@ -142,6 +142,11 @@ impl Line {
             snapshot.to_node()
         }
     }
+
+    pub fn pick_token(&self, x: f64, y: f64) -> Option<&token_view::TokenView> {
+        let point = graphene::Point::new(x as f32, y as f32);
+        self.tokens.iter().find(|token| token.contains(&point))
+    }
 }
 
 impl facet::Facet for Line {

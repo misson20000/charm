@@ -15,6 +15,7 @@ use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::gsc;
 use crate::view::helpers;
+use crate::view::ext::RGBAExt;
 
 use gtk::gdk;
 use gtk::glib;
@@ -63,7 +64,8 @@ struct Interior {
     window: layout::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
-
+    hover: Option<(f64, f64)>,
+    
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
 
@@ -145,7 +147,19 @@ impl WidgetImpl for ListingWidgetImp {
         /* render lines */
         snapshot.save();
         snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
-        for line in interior.window.lines.iter_mut() {
+
+        let pick = interior.hover.and_then(|(_x, y)| interior.pick_line(y));
+        
+        for (i, line) in interior.window.lines.iter_mut().enumerate() {
+            if let Some((j, _)) = pick {
+                if i == j {
+                    snapshot.append_color(&gdk::RGBA::bytes(hex_literal::hex!("ff000080")), &graphene::Rect::new(
+                        0.0, helpers::pango_unscale(render.metrics.descent()),
+                        1000.0, helpers::pango_unscale(render.metrics.height())
+                    ));
+                }
+            }
+            
             if let Some(node) = line.render(&interior.cursor, selection, &*render) {
                 snapshot.append_node(node);
             }
@@ -155,14 +169,17 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.restore();
 
         /* render debug text */
-        if false {
+        if true {
             let mut pos = graphene::Point::new(1000.0, 100.0);
             gsc::begin_text(
                 &render.pango,
                 &render.font_mono,
                 &render.config.text_color,
-                &format!("cursor: {:?}", interior.cursor.cursor),
-                &mut pos).render(snapshot);
+                &format!(
+                    "hover: {:?}, pick: {:?}",
+                    interior.hover,
+                    interior.hover.and_then(|(x, y)| interior.pick_line(y))
+                ), &mut pos).render(snapshot);
         }
     }
 }
@@ -216,6 +233,7 @@ impl ListingWidget {
             window: layout::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
+            hover: None,
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -293,6 +311,18 @@ impl ListingWidget {
         }));
         self.add_controller(ec_scroll);
 
+        /* Register motion event controller */
+        let ec_motion = gtk::EventControllerMotion::new();
+        ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| {
+            let inhibit = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
+            inhibit
+        }));
+        ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| {
+            let inhibit = lw.imp().interior.get().unwrap().write().hover(&lw, None);
+            inhibit
+        }));
+        self.add_controller(ec_motion);
+        
         /* Focus on click */
         let gesture = gtk::GestureClick::new();
         gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, _x, _y| {
@@ -536,6 +566,31 @@ impl Interior {
         self.collect_events(widget);
         
         gtk::Inhibit(true)
+    }
+
+    fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
+        self.hover = hover;
+
+        widget.queue_draw();
+    }
+
+    fn pick_line(&self, y: f64) -> Option<(usize, f64)> {
+        let descent = helpers::pango_unscale(self.render.metrics.descent()) as f64;
+        let line_height = helpers::pango_unscale(self.render.metrics.height()) as f64;
+        let lineno = ((y - descent) / line_height) + self.scroll.get_position();
+
+        // TODO: if rust ever comes out with checked float -> int conversions, use that here.
+        if lineno >= 0.0 {
+            Some((lineno as usize, y - descent - (lineno.trunc() + self.scroll.get_position()) * line_height))
+        } else {
+            None
+        }
+    }
+
+    fn pick_token(&self, x: f64, y: f64) -> Option<&token_view::TokenView> {
+        let (lineno, y) = self.pick_line(y)?;
+        let line = self.window.lines.get(lineno)?;
+        line.pick_token(x, y)
     }
 }
 
