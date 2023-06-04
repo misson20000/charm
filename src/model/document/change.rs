@@ -77,7 +77,6 @@ impl Change {
                     
                     if *child_index >= *first_child && *child_index <= *last_child {
                         *child_index-= first_child;
-                        drop(child_index);
                         path.insert(parent.len(), *first_child);
                         UpdatePathResult::Moved
                     } else if *child_index > *last_child {
@@ -95,7 +94,6 @@ impl Change {
                     let child_index = &mut path[parent.len()];
                     
                     if *child_index >= *first_child && *child_index <= *last_child {
-                        std::mem::drop(child_index);
                         path.truncate(parent.len());
 
                         UpdatePathResult::Deleted
@@ -171,7 +169,7 @@ impl versioned::Change<document::Document> for Change {
         assert_eq!(self.generation, document.generation());
 
         match &self.ty {
-            ChangeType::AlterNode(path, props) => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |mut target| {
+            ChangeType::AlterNode(path, props) => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
                 target.props = props.clone();
                 Ok(())
             })?),

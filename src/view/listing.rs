@@ -178,7 +178,7 @@ impl WidgetImpl for ListingWidgetImp {
                 &format!(
                     "hover: {:?}, pick: {:?}",
                     interior.hover,
-                    interior.hover.and_then(|(x, y)| interior.pick_line(y))
+                    interior.hover.and_then(|(_x, y)| interior.pick_line(y))
                 ), &mut pos).render(snapshot);
         }
     }
