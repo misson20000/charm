@@ -178,7 +178,9 @@ impl WidgetImpl for ListingWidgetImp {
                 &format!(
                     "hover: {:?}, pick: {:?}",
                     interior.hover,
-                    interior.hover.and_then(|(_x, y)| interior.pick_line(y))
+                    interior.hover
+                        .and_then(|(x, y)| interior.pick_token(x, y))
+                        .map(|(tv, x)| (x, tv.token()))
                 ), &mut pos).render(snapshot);
         }
     }
@@ -587,7 +589,7 @@ impl Interior {
         }
     }
 
-    fn pick_token(&self, x: f64, y: f64) -> Option<&token_view::TokenView> {
+    fn pick_token(&self, x: f64, y: f64) -> Option<(&token_view::TokenView, f32)> {
         let (lineno, y) = self.pick_line(y)?;
         let line = self.window.lines.get(lineno)?;
         line.pick_token(x, y)

@@ -5,6 +5,7 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::model::selection;
@@ -72,6 +73,10 @@ impl TokenView {
         self.logical_bounds.map(|lb| lb.contains_point(point)).unwrap_or(false)
     }
 
+    pub fn logical_bounds(&self) -> Option<&graphene::Rect> {
+        self.logical_bounds.as_ref()
+    }
+    
     pub fn render_logical_bounds(&self, snapshot: &gtk::Snapshot) {
         if let Some(lb) = self.logical_bounds {
             snapshot.append_border(
@@ -199,6 +204,15 @@ impl TokenView {
         self.logical_bounds_asciidump = Some(graphene::Rect::new(origin.x(), origin.y(), pos.x(), pos.y()));
 
         pos
+    }
+
+    pub fn pick_position(&self, x: f32, _y: f32) -> Option<(structure::Path, addr::Address, usize)> {
+        match self.token.class {
+            token::TokenClass::Hexdump(extent) => {
+                hexdump::pick_position(self, extent, x)
+            },
+            _ => None, // TODO
+        }
     }
     
     pub fn invalidate_data(&mut self) {

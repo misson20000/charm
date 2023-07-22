@@ -113,3 +113,10 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
             .render(snapshot);
     }
 }
+
+pub fn pick_position(
+    token_view: &TokenView,
+    extent: addr::Extent,
+    x: f32) -> Option<(structure::Path, addr::Address, usize)> {
+    todo!();
+}

@@ -49,6 +49,7 @@ pub mod unit {
     pub const MAX: Size = Size { bytes: u64::MAX, bits: 8 };
 
     pub const EMPTY: Extent = Extent { begin: NULL, end: NULL };
+    pub const UNBOUNDED: Extent = Extent { begin: NULL, end: END };
 }
 
 #[derive(Debug)]

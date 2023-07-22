@@ -135,7 +135,38 @@ impl versioned::Change<Selection> for Change {
     fn apply(mut self, selection: &mut Selection) -> Result<(Change, ChangeRecord), ApplyError> {
         let record = match &mut self {
             Change::DocumentUpdated(new_document) => selection.update_document(new_document),
+
             _ => todo!(),
+
+            /*
+            Change::Clear => {
+                selection.mode = match selection.mode {
+                    Mode::Structure(_) => selection.mode = Mode::Structure(StructureMode::Empty),
+                    Mode::Address(_) => selection.mode = Mode::Address(addr::unit::EMPTY),
+                };
+                ChangeRecord {}
+            },
+            Change::SelectAll => {
+                selection.mode.select_all(),
+            
+            Change::ConvertToStructure => match selection.mode {
+                Mode::Structure(_) =>
+                    return Err(ApplyError::WrongMode),
+                Mode::Address(extent) =>
+                    selection.mode = Mode::Structure(StructureMode::try_from_extent(extent)?),
+            },
+
+            Change::ConvertToAddress => match selection.mode {
+                Mode::Structure(StructureMode::Empty) => selection.mode =
+                    Mode::Address(addr::unit::EMPTY),
+                Mode::Structure(StructureMode::Range(sr)) => selection.mode =
+                    Mode::Address(sr.get_extent(self.document)),
+                Mode::Structure(StructureMode::All) => selection.mode =
+                    Mode::Address(addr::unit::UNBOUNDED),
+            },
+
+                Change::AssignFromHierarchy(sync::Arc<super::HierarchySelection>) => todo!(),
+            */
         };
 
         Ok((self, record))
