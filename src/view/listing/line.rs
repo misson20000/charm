@@ -144,7 +144,7 @@ impl Line {
     }
 
     /* This is really crummy and will have to change later, but I just want to get something working first. */
-    pub fn pick_token(&self, x: f64, y: f64) -> Option<(&token_view::TokenView, f32)> {
+    pub fn pick_token(&self, x: f64, _y: f64) -> Option<(&token_view::TokenView, f32)> {
         let token = self.tokens.iter().find(
             |token| token.logical_bounds().map_or(
                 false,
