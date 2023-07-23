@@ -142,7 +142,7 @@ declare_config![Config {
 
     "Monospace Font" monospace_font: pango::FontDescription = pango::FontDescription::from_string("Monospace Regular 12"),
 
-    "Show Token Bounds" show_token_bounds: bool = true,
+    "Show Token Bounds" show_token_bounds: bool = false,
 }];
 
 pub type Host = versioned::Host<Config>;
