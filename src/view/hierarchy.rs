@@ -272,7 +272,7 @@ impl StructureListModel {
         
         let items_changed = match &change.ty {
             /* Was one of our children altered? */
-            change::ChangeType::AlterNode(path, new_props) if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
+            change::ChangeType::AlterNode { path, props: new_props } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
                 let index = path[i.path.len()];
                 let child_item = i.children[index].clone();
                 let childhood = &new_node.children[index];
@@ -290,10 +290,10 @@ impl StructureListModel {
 
                 None
             },
-            change::ChangeType::AlterNode(_, _) => None,
+            change::ChangeType::AlterNode { .. } => None,
 
             /* Did we get a new child? */
-            change::ChangeType::InsertNode(affected_path, affected_index, _new_childhood) if affected_path[..] == i.path[..] => {
+            change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: _ } if affected_path[..] == i.path[..] => {
                 let childhood = &new_node.children[*affected_index];
                 let document_host = i.document_host.clone();
 
@@ -309,10 +309,10 @@ impl StructureListModel {
 
                 Some((*affected_index as u32, 0, 1))
             },
-            change::ChangeType::InsertNode(_, _, _) => None,
+            change::ChangeType::InsertNode { .. } => None,
 
             /* Were some of our children nested? */
-            change::ChangeType::Nest(parent, first_child, last_child, _extent, _props) if parent[..] == i.path[..] => {
+            change::ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } if parent[..] == i.path[..] => {
                 let childhood = &new_node.children[*first_child];
                 let document_host = i.document_host.clone();
                 
@@ -328,10 +328,10 @@ impl StructureListModel {
 
                 Some((*first_child as u32, count_removed as u32, 1))
             },
-            change::ChangeType::Nest(_, _, _, _, _) => None,
+            change::ChangeType::Nest { .. } => None,
 
             /* Was one of our children destructured? */
-            change::ChangeType::Destructure(parent, child, num_grandchildren, _offset) if parent[..] == i.path[..] => {
+            change::ChangeType::Destructure { parent, child_index: child, num_grandchildren, offset: _ } if parent[..] == i.path[..] => {
                 let document_host = i.document_host.clone();
                 
                 i.children.splice(child..=child, new_node.children[*child..(*child+*num_grandchildren)].iter().map(|childhood| NodeItem::new(NodeInfo {
@@ -346,15 +346,15 @@ impl StructureListModel {
 
                 Some((*child as u32, 1, *num_grandchildren as u32))
             },
-            change::ChangeType::Destructure(_, _, _, _) => None,
+            change::ChangeType::Destructure { .. } => None,
 
             /* Were some of our children deleted? */
-            change::ChangeType::DeleteRange(parent, first_child, last_child) if parent[..] == i.path[..] => {
+            change::ChangeType::DeleteRange { parent, first_child, last_child } if parent[..] == i.path[..] => {
                 let count_removed = i.children.splice(first_child..=last_child, []).count();
 
                 Some((*first_child as u32, count_removed as u32, 0))
             },
-            change::ChangeType::DeleteRange(_, _, _) => None,
+            change::ChangeType::DeleteRange { .. } => None,
         };
 
         /* Fixup children's paths */

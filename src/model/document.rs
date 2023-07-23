@@ -149,23 +149,23 @@ impl Document {
     #[must_use]
     pub fn alter_node(&self, path: structure::Path, props: structure::Properties) -> change::Change {
         change::Change {
-            ty: change::ChangeType::AlterNode(path, props),
+            ty: change::ChangeType::AlterNode { path, props },
             generation: self.generation(),
         }
     }
     
     #[must_use]
-    pub fn insert_node(&self, path: structure::Path, after_child: usize, childhood: structure::Childhood) -> change::Change {
+    pub fn insert_node(&self, parent: structure::Path, index: usize, child: structure::Childhood) -> change::Change {
         change::Change {
-            ty: change::ChangeType::InsertNode(path, after_child, childhood),
+            ty: change::ChangeType::InsertNode { parent, index, child },
             generation: self.generation(),
         }
     }
 
     #[must_use]
-    pub fn nest(&self, path: structure::Path, first_sibling: usize, last_sibling: usize, extent: addr::Extent, props: structure::Properties) -> change::Change {
+    pub fn nest(&self, parent: structure::Path, first_child: usize, last_child: usize, extent: addr::Extent, props: structure::Properties) -> change::Change {
         change::Change {
-            ty: change::ChangeType::Nest(path, first_sibling, last_sibling, extent, props),
+            ty: change::ChangeType::Nest { parent, first_child, last_child, extent, props },
             generation: self.generation(),
         }
     }
@@ -180,15 +180,20 @@ impl Document {
         let childhood = &parent_node.children[path[path.len()-1]];
         
         Ok(change::Change {
-            ty: change::ChangeType::Destructure(path[0..path.len()-1].to_vec(), path[path.len()-1], childhood.node.children.len(), childhood.offset),
+            ty: change::ChangeType::Destructure {
+                parent: path[0..path.len()-1].to_vec(),
+                child_index: path[path.len()-1],
+                num_grandchildren: childhood.node.children.len(),
+                offset: childhood.offset
+            },
             generation: self.generation(),
         })
     }
     
     #[must_use]
-    pub fn delete_range(&self, path: structure::Path, first_sibling: usize, last_sibling: usize) -> change::Change {
+    pub fn delete_range(&self, parent: structure::Path, first_child: usize, last_child: usize) -> change::Change {
         change::Change {
-            ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
+            ty: change::ChangeType::DeleteRange { parent, first_child, last_child },
             generation: self.generation(),
         }
     }

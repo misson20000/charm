@@ -89,7 +89,7 @@ impl NestAction {
 
         let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
         let nested_node_path = match record {
-            document::change::Change { ty: document::change::ChangeType::Nest(parent, first_child, _, _, _), .. } => {
+            document::change::Change { ty: document::change::ChangeType::Nest { parent, first_child, .. }, .. } => {
                 let mut path = parent.clone();
                 path.push(*first_child);
                 path

@@ -409,9 +409,9 @@ impl Tokenizer {
         
         /* Adjust the offset and index. */
         match &change.ty {
-            change::ChangeType::AlterNode(_path, _new_props) => {},
+            change::ChangeType::AlterNode { .. } => {},
             
-            change::ChangeType::InsertNode(affected_path, affected_index, new_childhood) if affected_path == &stack_state.current_path => {
+            change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
                 /* A new child was added to the node we're on. */
                 if *index == *affected_index && options.prefer_after_new_node {
                     /* options said we should place after the new node, so do so. */
@@ -433,7 +433,7 @@ impl Tokenizer {
                 }
             },
             
-            change::ChangeType::Nest(parent, first_child, last_child, extent, _props) if parent == &stack_state.current_path => {
+            change::ChangeType::Nest { parent, first_child, last_child, extent, props: _ } if parent == &stack_state.current_path => {
                 /* Children were nested on this node */
                 let new_nest = &self.node.children[*first_child];
                 
@@ -461,12 +461,12 @@ impl Tokenizer {
                 }
             },
 
-            change::ChangeType::Destructure(parent, _child, _num_grandchildren, _offset) if parent == &stack_state.current_path => {
+            change::ChangeType::Destructure { parent, .. } if parent == &stack_state.current_path => {
                 /* Handled by PortStackMode::Destructuring, so we don't have to deal with it here. */
             },
 
             /* If the node we were on (or an ancestor of it) were deleted, that was already handled by port_recurse. Here we're only worried about our direct children (that we're not positioned on) being deleted. */
-            change::ChangeType::DeleteRange(parent, first_child, last_child) if parent == &stack_state.current_path => {
+            change::ChangeType::DeleteRange { parent, first_child, last_child } if parent == &stack_state.current_path => {
                 if (*first_child..=*last_child).contains(index) {
                     *index = *first_child;
                 } else if *index > *last_child {
@@ -475,10 +475,10 @@ impl Tokenizer {
             },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
-            change::ChangeType::Nest(_, _, _, _, _) => {},
-            change::ChangeType::Destructure(_, _, _, _) => {},
-            change::ChangeType::InsertNode(_, _, _) => {},
-            change::ChangeType::DeleteRange(_, _, _) => {},
+            change::ChangeType::Nest { .. } => {},
+            change::ChangeType::Destructure { .. } => {},
+            change::ChangeType::InsertNode { .. } => {},
+            change::ChangeType::DeleteRange { .. } => {},
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
@@ -535,15 +535,15 @@ impl Tokenizer {
         };
         
         match &change.ty {
-            change::ChangeType::AlterNode(_, _) => state.push(child_index),
-            change::ChangeType::InsertNode(path, after_child, _childhood) => {
+            change::ChangeType::AlterNode { .. } => state.push(child_index),
+            change::ChangeType::InsertNode { parent: path, index: after_child, child: _ } => {
                 if path == &state.current_path && child_index >= *after_child {
                     state.push(child_index + 1);
                 } else {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Nest(parent, first_child, last_child, _extent, _props) => {
+            change::ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } => {
                 if parent == &state.current_path {
                     if (*first_child..=*last_child).contains(&child_index) {
                         state.push(*first_child);
@@ -555,14 +555,14 @@ impl Tokenizer {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Destructure(parent, destructured_child, num_grandchildren, offset) => {
+            change::ChangeType::Destructure { parent, child_index: destructured_child, num_grandchildren, offset } => {
                 if parent == &state.current_path {
                     state.destructured(*destructured_child, child_index, *num_grandchildren, *offset, &old_tok.node.children[*destructured_child]);
                 } else {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::DeleteRange(parent, first_child, last_child) => {
+            change::ChangeType::DeleteRange { parent, first_child, last_child } => {
                 if parent == &state.current_path {
                     if (*first_child..=*last_child).contains(&child_index) {
                         state.deleted(*first_child, child_index, &old_tok.node);

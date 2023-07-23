@@ -181,8 +181,8 @@ impl StructureRange {
     fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> StructureMode {
         let ret = match change.update_path(&mut self.path) {
             doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match &change.ty {
-                doc_change::ChangeType::AlterNode(_, _) => self,
-                doc_change::ChangeType::InsertNode(affected_path, insertion_index, childhood) if affected_path == &self.path => {
+                doc_change::ChangeType::AlterNode { .. } => self,
+                doc_change::ChangeType::InsertNode { parent: affected_path, index: insertion_index, child: childhood } if affected_path == &self.path => {
                     if self.begin.1 > *insertion_index || (self.begin.1 == *insertion_index && self.begin.0 > childhood.offset) {
                         self.begin.1+= 1;
                     }
@@ -202,8 +202,8 @@ impl StructureRange {
                     
                     self
                 }
-                doc_change::ChangeType::InsertNode(_, _, _) => self,
-                doc_change::ChangeType::Nest(affected_path, nested_first, nested_last, nested_extent, _props) if affected_path == &self.path => {
+                doc_change::ChangeType::InsertNode { .. } => self,
+                doc_change::ChangeType::Nest { parent: affected_path, first_child: nested_first, last_child: nested_last, extent: nested_extent, props: _ } if affected_path == &self.path => {
                     let nested = *nested_first..=*nested_last;
                     let new_child = &new_doc.lookup_node(affected_path).0.children[*nested_first];
                         
@@ -239,20 +239,20 @@ impl StructureRange {
 
                     self
                 },
-                doc_change::ChangeType::Nest(_, _, _, _, _) => self,
-                doc_change::ChangeType::Destructure(affected_parent, child, num_grandchildren, _offset) if affected_parent == &self.path => {
-                    if self.begin.1 > *child {
+                doc_change::ChangeType::Nest { .. } => self,
+                doc_change::ChangeType::Destructure { parent: affected_parent, child_index, num_grandchildren, offset: _ } if affected_parent == &self.path => {
+                    if self.begin.1 > *child_index {
                         self.begin.1+= *num_grandchildren;
                     }
 
-                    if self.end.1 > *child {
+                    if self.end.1 > *child_index {
                         self.end.1+= *num_grandchildren;
                     }
 
                     self
                 },
-                doc_change::ChangeType::Destructure(_, _, _, _) => self,
-                doc_change::ChangeType::DeleteRange(affected_path, deleted_first, deleted_last) if affected_path == &self.path => {
+                doc_change::ChangeType::Destructure { .. } => self,
+                doc_change::ChangeType::DeleteRange { parent: affected_path, first_child: deleted_first, last_child: deleted_last } if affected_path == &self.path => {
                     let deleted = *deleted_first..=*deleted_last;
                     if deleted.contains(&self.begin.1) && deleted.contains(&self.end.1) {
                         return StructureMode::Empty;
@@ -272,17 +272,17 @@ impl StructureRange {
                         self
                     }
                 },
-                doc_change::ChangeType::DeleteRange(_, _, _) => self,
+                doc_change::ChangeType::DeleteRange { .. } => self,
             }),
             doc_change::UpdatePathResult::Destructured => match &change.ty {
                 /* We had selected a range within to a node that got
                  * destructued, so we need to select that same range in its new
                  * position in the new parent. */
-                doc_change::ChangeType::Destructure(_parent, child, _num_grandchildren, offset) => {
+                doc_change::ChangeType::Destructure { parent: _, child_index, num_grandchildren: _, offset } => {
                     self.begin.0+= offset.to_size();
-                    self.begin.1+= child;
+                    self.begin.1+= *child_index;
                     self.end.0+= offset.to_size();
-                    self.end.1+= child;
+                    self.end.1+= *child_index;
                     StructureMode::Range(self)
                 },
                 _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
