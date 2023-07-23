@@ -10,7 +10,10 @@ use crate::model::versioned::Versioned;
 pub enum Mode {
     Empty,
     Single(structure::Path),
+
+    /// Inclusive
     SiblingRange(structure::Path, usize, usize),
+    
     All,
 }
 
@@ -70,13 +73,28 @@ impl Selection {
 
     fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> bool {
         self.document = new_doc.clone();
-        
+
+        /* Whether the selection changed significantly in a way the user should
+         * care about or not (e.g. they had selected a node that got deleted and
+         * we had to clear their selection) */
         let mut selection_changed = false;
         
         self.mode = match std::mem::replace(&mut self.mode, Mode::Empty) {
             Mode::Empty => Mode::Empty,
             Mode::Single(mut path) => match change.update_path(&mut path) {
                 doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => Mode::Single(path),
+                doc_change::UpdatePathResult::Destructured => match &change.ty {
+                    doc_change::ChangeType::Destructure(affected_parent, child, num_grandchildren, _offset) => {
+                        selection_changed = true;
+
+                        if *num_grandchildren == 0 {
+                            Mode::Empty
+                        } else {
+                            Mode::SiblingRange(affected_parent.clone(), *child, child + num_grandchildren - 1)
+                        }
+                    },
+                    _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
+                },
                 doc_change::UpdatePathResult::Deleted => {
                     selection_changed = true;
                     Mode::Empty
@@ -107,6 +125,27 @@ impl Selection {
                         Mode::Single(path)
                     },
                     doc_change::ChangeType::Nest(_, _, _, _, _) => Mode::SiblingRange(path, first_child, last_child),
+                    doc_change::ChangeType::Destructure(affected_parent, child, num_grandchildren, _offset) if affected_parent == &path => {
+                        if first_child == *child && last_child == *child && *num_grandchildren == 0 {
+                            selection_changed = true;
+                            Mode::Empty
+                        } else {
+                            if (first_child..=last_child).contains(child) {
+                                selection_changed = true;
+                            }
+                            
+                            if first_child > *child {
+                                first_child+= num_grandchildren;
+                            }
+
+                            if last_child >= *child {
+                                last_child+= num_grandchildren - 1;
+                            }
+
+                            Mode::SiblingRange(path, first_child, last_child)
+                        }
+                    },
+                    doc_change::ChangeType::Destructure(_, _, _, _) => Mode::SiblingRange(path, first_child, last_child),
                     doc_change::ChangeType::DeleteRange(affected_path, deleted_first, deleted_last) if affected_path == &path => {
                         let deleted = *deleted_first..=*deleted_last;
                         if deleted.contains(&first_child) && deleted.contains(&last_child) {
@@ -131,6 +170,17 @@ impl Selection {
                         }
                     },
                     doc_change::ChangeType::DeleteRange(_, _, _) => Mode::SiblingRange(path, first_child, last_child),
+                },
+                doc_change::UpdatePathResult::Destructured => match &change.ty {
+                    /* We had selected siblings that belonged to a node that got
+                     * destructued, so we need to select those same siblings in
+                     * their new positions in their new parent. */
+                    doc_change::ChangeType::Destructure(_parent, child, _num_grandchildren, _offset) => {
+                        first_child+= child;
+                        last_child+= child;
+                        Mode::SiblingRange(path, first_child, last_child)
+                    },
+                    _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
                 },
                 doc_change::UpdatePathResult::Deleted => {
                     selection_changed = true;
@@ -208,7 +258,7 @@ impl versioned::Change<Selection> for Change {
                     *document = doc.clone();
                     match change.update_path(path) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => Ok(()),
-                        doc_change::UpdatePathResult::Deleted => Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => Err(ApplyError::NodeDeleted),
                     }
                 })?;
 
@@ -225,7 +275,7 @@ impl versioned::Change<Selection> for Change {
                     *document = doc.clone();
                     match change.update_path(path) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => Ok(()),
-                        doc_change::UpdatePathResult::Deleted => Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => Err(ApplyError::NodeDeleted),
                     }
                 })?;
 
@@ -262,11 +312,11 @@ impl versioned::Change<Selection> for Change {
                     *document = doc.clone();
                     match change.update_path(first) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => {},
-                        doc_change::UpdatePathResult::Deleted => return Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => return Err(ApplyError::NodeDeleted),
                     }
                     match change.update_path(last) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => {},
-                        doc_change::UpdatePathResult::Deleted => return Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => return Err(ApplyError::NodeDeleted),
                     }
                     Ok(())
                 })?;
@@ -284,11 +334,11 @@ impl versioned::Change<Selection> for Change {
                     *document = doc.clone();
                     match change.update_path(first) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => {},
-                        doc_change::UpdatePathResult::Deleted => return Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => return Err(ApplyError::NodeDeleted),
                     }
                     match change.update_path(last) {
                         doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => {},
-                        doc_change::UpdatePathResult::Deleted => return Err(ApplyError::NodeDeleted),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => return Err(ApplyError::NodeDeleted),
                     }
                     Ok(())
                 })?;

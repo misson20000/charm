@@ -257,7 +257,7 @@ impl StructureListModel {
         match change.update_path(&mut i.path) {
             change::UpdatePathResult::Unmoved | change::UpdatePathResult::Moved => {
             },
-            change::UpdatePathResult::Deleted => {
+            change::UpdatePathResult::Deleted | change::UpdatePathResult::Destructured => {
                 i.deleted = true;
                 i.path.clear();
                 i.children.clear();
@@ -329,6 +329,24 @@ impl StructureListModel {
                 Some((*first_child as u32, count_removed as u32, 1))
             },
             change::ChangeType::Nest(_, _, _, _, _) => None,
+
+            /* Was one of our children destructured? */
+            change::ChangeType::Destructure(parent, child, num_grandchildren, _offset) if parent[..] == i.path[..] => {
+                let document_host = i.document_host.clone();
+                
+                i.children.splice(child..=child, new_node.children[*child..(*child+*num_grandchildren)].iter().map(|childhood| NodeItem::new(NodeInfo {
+                    path: vec![], /* will be fixed up later */
+                    node: childhood.node.clone(),
+                    props: childhood.node.props.clone(),
+                    offset: childhood.offset,
+                    address: addr + childhood.offset.to_size(),
+                    document: new_doc.clone(),
+                    document_host: document_host.clone(),
+                }))).count();
+
+                Some((*child as u32, 1, *num_grandchildren as u32))
+            },
+            change::ChangeType::Destructure(_, _, _, _) => None,
 
             /* Were some of our children deleted? */
             change::ChangeType::DeleteRange(parent, first_child, last_child) if parent[..] == i.path[..] => {

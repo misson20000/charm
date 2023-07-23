@@ -171,6 +171,21 @@ impl Document {
     }
 
     #[must_use]
+    pub fn destructure(&self, path: &structure::Path) -> Result<change::Change, DestructureError> {
+        if path.is_empty() {
+            return Err(DestructureError::AttemptToDestructureRoot);
+        }
+
+        let (parent_node, _) = self.lookup_node(&path[0..path.len()-1]);
+        let childhood = &parent_node.children[path[path.len()-1]];
+        
+        Ok(change::Change {
+            ty: change::ChangeType::Destructure(path[0..path.len()-1].to_vec(), path[path.len()-1], childhood.node.children.len(), childhood.offset),
+            generation: self.generation(),
+        })
+    }
+    
+    #[must_use]
     pub fn delete_range(&self, path: structure::Path, first_sibling: usize, last_sibling: usize) -> change::Change {
         change::Change {
             ty: change::ChangeType::DeleteRange(path, first_sibling, last_sibling),
@@ -229,6 +244,11 @@ impl Document {
         self.notifier.notify();
 }
      */
+
+#[derive(Debug, Clone, Copy)]
+pub enum DestructureError {
+    AttemptToDestructureRoot,
+}
 
 impl std::fmt::Debug for Document {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

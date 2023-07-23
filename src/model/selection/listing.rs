@@ -240,6 +240,18 @@ impl StructureRange {
                     self
                 },
                 doc_change::ChangeType::Nest(_, _, _, _, _) => self,
+                doc_change::ChangeType::Destructure(affected_parent, child, num_grandchildren, _offset) if affected_parent == &self.path => {
+                    if self.begin.1 > *child {
+                        self.begin.1+= *num_grandchildren;
+                    }
+
+                    if self.end.1 > *child {
+                        self.end.1+= *num_grandchildren;
+                    }
+
+                    self
+                },
+                doc_change::ChangeType::Destructure(_, _, _, _) => self,
                 doc_change::ChangeType::DeleteRange(affected_path, deleted_first, deleted_last) if affected_path == &self.path => {
                     let deleted = *deleted_first..=*deleted_last;
                     if deleted.contains(&self.begin.1) && deleted.contains(&self.end.1) {
@@ -262,6 +274,19 @@ impl StructureRange {
                 },
                 doc_change::ChangeType::DeleteRange(_, _, _) => self,
             }),
+            doc_change::UpdatePathResult::Destructured => match &change.ty {
+                /* We had selected a range within to a node that got
+                 * destructued, so we need to select that same range in its new
+                 * position in the new parent. */
+                doc_change::ChangeType::Destructure(_parent, child, _num_grandchildren, offset) => {
+                    self.begin.0+= offset.to_size();
+                    self.begin.1+= child;
+                    self.end.0+= offset.to_size();
+                    self.end.1+= child;
+                    StructureMode::Range(self)
+                },
+                _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
+            },
             doc_change::UpdatePathResult::Deleted => StructureMode::Empty,
         };
 

@@ -73,6 +73,7 @@ impl CharmWindow {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
                 edit_menu.append(Some("Nest"), Some("ctx.nest"));
+                edit_menu.append(Some("Destructure"), Some("ctx.destructure"));
                 edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
                 {
                     let mode_menu = gio::Menu::new();
@@ -174,6 +175,7 @@ impl CharmWindow {
 
             let menu = gio::Menu::new();
             menu.append(Some("Nest"), Some("ctx.nest"));
+            menu.append(Some("Destructure"), Some("ctx.destructure"));
             menu.append(Some("Delete"), Some("ctx.delete_node"));
             let popover = gtk::PopoverMenu::from_model(Some(&menu));
             popover.set_parent(&hierarchy_editor);
@@ -400,6 +402,7 @@ impl WindowContext {
         wc.action_group.add_action(&action::delete_node::create_action(&wc));
         wc.action_group.add_action(&action::navigate::create_action(&wc));
         wc.action_group.add_action(&action::nest::create_action(&wc));
+        wc.action_group.add_action(&action::destructure::create_action(&wc));
         wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
         
         wc

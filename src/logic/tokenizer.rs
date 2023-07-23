@@ -142,6 +142,13 @@ enum PortStackMode {
         offset_within_parent: addr::Size,
         summary: bool,
     },
+
+    /* We processed a node that got destructured, but didn't push it onto the stack. */
+    Destructuring {
+        destructured_childhood: structure::Childhood,
+        destructured_child_index: usize,
+        summary: bool,
+    },
 }
 
 struct PortStackState {
@@ -290,7 +297,7 @@ impl Tokenizer {
         };
 
         /* Convert our old state into an intermediate state that allows us to represent that we might not know the offset yet, or might not care about figuring it out. */
-        let mut intermediate_state = match stack_state.mode {
+        let mut intermediate_state = match &stack_state.mode {
             /* We were in a child that got deleted. Our old state tells us about where we were in the child. */
             PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent, summary: false } => {
                 let offset_within_child = match &self.state {
@@ -300,10 +307,26 @@ impl Tokenizer {
                     _ => addr::unit::NULL
                 };
                 
-                IntermediatePortState::NormalContent(Some(offset_within_child + offset_within_parent), first_deleted_child_index)
+                IntermediatePortState::NormalContent(Some(offset_within_child + *offset_within_parent), *first_deleted_child_index)
             },
-            PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent: _,  summary: true  } => IntermediatePortState::SummaryLabel(first_deleted_child_index),
+            PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent: _,  summary: true  } => IntermediatePortState::SummaryLabel(*first_deleted_child_index),
 
+            /* We were in a child that got destructured. Our old state tells us about where we were in that child. */
+            PortStackMode::Destructuring { destructured_childhood, destructured_child_index, summary: false } => match &self.state {
+                TokenizerState::PreBlank | TokenizerState::Title | TokenizerState::SummaryOpener | TokenizerState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                
+                TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
+                TokenizerState::Hexdump(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+
+                TokenizerState::SummaryLabel(i) | TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
+
+                TokenizerState::SummaryValueEnd | TokenizerState::SummaryNewline | TokenizerState::SummaryCloser | TokenizerState::PostBlank | TokenizerState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
+            },
+            // TODO: try harder here
+            PortStackMode::Destructuring { destructured_child_index, summary: true, .. } => IntermediatePortState::SummaryLabel(*destructured_child_index),
+            
             PortStackMode::Normal => match &self.state {
                 TokenizerState::PreBlank =>
                     IntermediatePortState::Finished(TokenizerState::PreBlank),
@@ -351,10 +374,11 @@ impl Tokenizer {
             }
         };
 
-        let is_summary = match stack_state.mode {
+        let is_summary = match &stack_state.mode {
             PortStackMode::Normal => false,
             PortStackMode::Summary => true,
-            PortStackMode::Deleted { summary, .. } => summary,
+            PortStackMode::Deleted { summary, .. } => *summary,
+            PortStackMode::Destructuring { summary, .. } => *summary,
         };
         
         *self = Tokenizer {
@@ -437,6 +461,10 @@ impl Tokenizer {
                 }
             },
 
+            change::ChangeType::Destructure(parent, _child, _num_grandchildren, _offset) if parent == &stack_state.current_path => {
+                /* Handled by PortStackMode::Destructuring, so we don't have to deal with it here. */
+            },
+
             /* If the node we were on (or an ancestor of it) were deleted, that was already handled by port_recurse. Here we're only worried about our direct children (that we're not positioned on) being deleted. */
             change::ChangeType::DeleteRange(parent, first_child, last_child) if parent == &stack_state.current_path => {
                 if (*first_child..=*last_child).contains(index) {
@@ -448,6 +476,7 @@ impl Tokenizer {
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
             change::ChangeType::Nest(_, _, _, _, _) => {},
+            change::ChangeType::Destructure(_, _, _, _) => {},
             change::ChangeType::InsertNode(_, _, _) => {},
             change::ChangeType::DeleteRange(_, _, _) => {},
         };
@@ -522,6 +551,13 @@ impl Tokenizer {
                     } else if child_index > *last_child {
                         state.push(child_index - (last_child-first_child));
                     }
+                } else {
+                    state.push(child_index);
+                }
+            },
+            change::ChangeType::Destructure(parent, destructured_child, num_grandchildren, offset) => {
+                if parent == &state.current_path {
+                    state.destructured(*destructured_child, child_index, *num_grandchildren, *offset, &old_tok.node.children[*destructured_child]);
                 } else {
                     state.push(child_index);
                 }
@@ -1215,9 +1251,54 @@ impl PortStackState {
             PortStackMode::Deleted { .. } => {
                 /* Something got deleted, but we were already processing stack entries for deleted nodes anyway. */
             },
+            PortStackMode::Destructuring { .. } => {
+                panic!("deletion and destructure shouldn't happen in the same change ");
+            },
         }
     }
 
+    fn destructured(&mut self, destructured_child: usize, current_child: usize, num_grandchildren: usize, offset: addr::Address, childhood: &structure::Childhood) {
+        match self.mode {
+            /* Only enter destructuring mode if we're trying to descend into a child that got destructured. */
+            PortStackMode::Normal | PortStackMode::Summary if current_child == destructured_child => {
+                assert_eq!(offset, childhood.offset);
+                
+                self.mode = PortStackMode::Destructuring {
+                    summary: match self.mode {
+                        PortStackMode::Normal => false,
+                        PortStackMode::Summary => true,
+                        _ => false
+                    },
+                    destructured_child_index: destructured_child,
+                    destructured_childhood: childhood.clone(),
+                };
+            },
+
+            /* If we're not in destructuring mode and we're descending into a different child node, just fix the index and continue normally. */
+            PortStackMode::Normal | PortStackMode::Summary => {
+                if current_child > destructured_child {
+                    self.push(current_child + num_grandchildren - 1);
+                } else {
+                    self.push(current_child);
+                }
+            },
+
+            /* If this is the second time around we're entering the function,
+             * it's because we're descending into one of the destructured node's
+             * children and we can push the new index and continue normally. */
+            PortStackMode::Destructuring { summary: true, .. } => {
+                self.mode = PortStackMode::Summary;
+                self.push(destructured_child + current_child);
+            },
+            PortStackMode::Destructuring { summary: false, .. } => {
+                self.mode = PortStackMode::Normal;
+                self.push(destructured_child + current_child);
+            },
+            
+            PortStackMode::Deleted { .. } => panic!("it shouldn't be possible to both delete and destructure a node in the same change"),
+        }
+    }
+    
     fn summarized(&mut self) {
         match self.mode {
             PortStackMode::Normal => {
@@ -1231,6 +1312,7 @@ impl PortStackState {
             PortStackMode::Deleted { .. } => {
                 /* We're processing stack entries in nodes that have been deleted. Don't care. */
             },
+            PortStackMode::Destructuring { .. } => panic!("should be unreachable"),
         }
     }
 
@@ -1259,7 +1341,8 @@ impl PortStackState {
 
                 *node = childhood.node;
                 *offset_within_parent = *offset_within_parent + childhood.offset.to_size();
-            }
+            },
+            PortStackMode::Destructuring { .. } => panic!("should be unreachable"),
         }
     }
     
