@@ -80,11 +80,7 @@ impl Selection {
     pub fn new(document: sync::Arc<document::Document>) -> Self {
         Selection {
             document,
-            mode: Mode::Structure(StructureMode::Range(StructureRange {
-                path: vec![],
-                begin: (addr::Address::from(0x10), 0),
-                end: (addr::Address::from(0x20), 0),
-            })),
+            mode: Mode::Structure(StructureMode::Empty),
             
             version: Default::default(),
         }
