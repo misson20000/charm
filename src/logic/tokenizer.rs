@@ -1159,10 +1159,6 @@ impl Tokenizer {
             _ => addr::unit::NULL
         }
     }
-
-    pub fn get_addr(&self) -> addr::Address {
-        self.node_addr + self.structure_position_offset().to_size()
-    }
 }
 
 impl TokenizerDescent {

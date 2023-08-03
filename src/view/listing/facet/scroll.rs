@@ -172,7 +172,7 @@ impl Scroller {
         
         /*
          * super threshold: move the window no matter what direction the cursor is moving
-         * normal threshold: move the window if the cursor is moving towards the edge of the window, but not if it's moving into the window
+         * normal threshold: move the window if the cursor is moving out of the window
          */
         let top_super_threshold = f64::max(0.0, self.position) as isize;
         let top_threshold = top_super_threshold + cfg.page_navigation_leadup as isize;
