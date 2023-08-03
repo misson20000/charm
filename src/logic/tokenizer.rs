@@ -625,13 +625,13 @@ impl Tokenizer {
             }),
             
             TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump(extent, _) => TokenGenerationResult::Ok(token::Token {
+            TokenizerState::Hexdump(extent, index) => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Hexdump(extent),
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth + 1,
-                newline: true,
+                newline: extent.end == self.get_line_end(extent.begin, index),
             }),
             TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Hexstring(extent),
@@ -805,7 +805,7 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset > addr::unit::NULL {
-                    let extent = addr::Extent::between(self.get_line_begin(offset - addr::unit::BIT, index), offset);
+                    let extent = addr::Extent::between(std::cmp::max(self.get_line_begin(offset - addr::unit::BIT, index), offset - 4), offset);
                         
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
@@ -940,7 +940,7 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset < self.node.size.to_addr() {
-                    let extent = addr::Extent::between(offset, self.get_line_end(offset, index));
+                    let extent = addr::Extent::between(offset, std::cmp::min(offset + 4, self.get_line_end(offset, index)));
 
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(extent.end, index),
