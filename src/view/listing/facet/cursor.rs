@@ -137,12 +137,12 @@ impl CursorView {
     
     pub fn move_left(&mut self) { self.movement(|c| c.move_left()); }
     pub fn move_right(&mut self) { self.movement(|c| c.move_right()); }
-    //pub fn move_up(&mut self) { self.movement(|c| c.move_up()); }
-    //pub fn move_down(&mut self) { self.movement(|c| c.move_down()); }
+    pub fn move_up(&mut self) { self.movement(|c| c.move_up()); }
+    pub fn move_down(&mut self) { self.movement(|c| c.move_down()); }
     //pub fn move_to_start_of_line(&mut self) { self.movement(|c| c.move_to_start_of_line()); }
     //pub fn move_to_end_of_line(&mut self) { self.movement(|c| c.move_to_end_of_line()); }
-    pub fn move_left_large(&mut self) { self.movement(|c| c.move_left_large()); }
-    pub fn move_right_large(&mut self) { self.movement(|c| c.move_right_large()); }
+    //pub fn move_left_large(&mut self) { self.movement(|c| c.move_left_large()); }
+    //pub fn move_right_large(&mut self) { self.movement(|c| c.move_right_large()); }
     //pub fn move_up_to_break(&mut self) { self.movement(|c| c.move_up_to_break()); }
     //pub fn move_down_to_break(&mut self) { self.movement(|c| c.move_down_to_break()); }
 

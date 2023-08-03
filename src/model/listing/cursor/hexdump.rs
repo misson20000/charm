@@ -29,32 +29,38 @@ impl TokenExt for token::Token {
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
+    pub fn new_transition(token: token::Token, op: cursor::TransitionOp, vth: &cursor::VerticalTransitionHint) -> Result<Cursor, token::Token> {
         let extent = token.hexdump_extent();
         let limit = (extent.length() - addr::unit::BIT).floor();
+
+        let visual_offset_in_line = match self.token.node.props.content_display {
+            structure::ContentDisplay::Hexdump(pitch) => {
+                (extent.begin % pitch).bytes as i64
+            },
+            _ => 0
+        };
         
         Ok(Cursor {
             token,
             extent,
-            offset: match hint.op {
-                cursor::TransitionOp::MoveLeftLarge => addr::Size::from(limit.bytes & !7),
-                op if op.is_left() => limit,
-                op if op.is_right() => addr::unit::ZERO,
-                _ => match &hint.class {
-                    cursor::TransitionHintClass::Hexdump(hth) => std::cmp::min(hth.offset, limit),
+            offset: match op {
+                op if op.is_vertical() => match vth {
+                    cursor::VerticalTransitionHint::Hexdump(hvth) => std::cmp::min(hvth.offset, limit),
                     _ => addr::unit::ZERO,
                 },
+                op if op.is_left() => limit,
+                op if op.is_right() => addr::unit::ZERO,
+                _ => addr::unit::ZERO,
             },
-            low_nybble: match (&hint.class, hint.op) {
+            low_nybble: match (vth, op) {
                 /* decide from op */
-                (_, cursor::TransitionOp::MoveLeftLarge) => false,
                 (_, op) if op.is_left() => true,
                 (_, op) if op.is_right() => false,
                 /* if we have an intended offset and had to truncate it, we should place at the end of the line */
-                (cursor::TransitionHintClass::Hexdump(hth), _) if hth.offset > limit => true,
+                (cursor::VerticalTransitionHint::Hexdump(hvth), op) if op.is_vertical() && hvth.offset > limit => true,
                 /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
-                (cursor::TransitionHintClass::Hexdump(hth), _) => hth.low_nybble,
-                /* last resort, if the op is seriously misbehaving and is neither left nor right */
+                (cursor::VerticalTransitionHint::Hexdump(hvth), op) if op.is_vertical() => hvth.low_nybble,
+                /* last resort, if the op is seriously misbehaving and is neither left nor right nor vertical */
                 _ => false,
             },
         })
@@ -104,9 +110,16 @@ impl cursor::CursorClassExt for Cursor {
         })
     }
     
-    fn get_transition_hint(&self) -> cursor::TransitionHintClass {
-        cursor::TransitionHintClass::Hexdump(HexdumpTransitionHint {
-            offset: self.offset,
+    fn get_vertical_transition_hint(&self) -> cursor::VerticalTransitionHint {
+        let visual_offset_in_line = match self.token.node.props.content_display {
+            structure::ContentDisplay::Hexdump(pitch) => {
+                (self.token.hexdump_extent().begin.to_size() % pitch).bytes as i64
+            },
+            _ => 0
+        };
+
+        cursor::VerticalTransitionHint::Hexdump(HexdumpVerticalTransitionHint {
+            offset: visual_offset_in_line + self.offset,
             low_nybble: self.low_nybble
         })
     }
@@ -235,7 +248,7 @@ pub struct HexdumpPlacementHint {
 }
 
 #[derive(Debug, Clone)]
-pub struct HexdumpTransitionHint {
+pub struct HexdumpVerticalTransitionHint {
     offset: addr::Size,
     low_nybble: bool,
 }

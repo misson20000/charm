@@ -10,8 +10,8 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
-        if hint.op.is_entry() {
+    pub fn new_transition(token: token::Token, op: cursor::TransitionOp, _vth: &cursor::VerticalTransitionHint) -> Result<Cursor, token::Token> {
+        if op.is_entry() {
             /* skip over title tokens for entry */
             Err(token)
         } else {
@@ -54,8 +54,8 @@ impl cursor::CursorClassExt for Cursor {
         cursor::PlacementHint::Title
     }
     
-    fn get_transition_hint(&self) -> cursor::TransitionHintClass {
-        cursor::TransitionHintClass::Unused
+    fn get_vertical_transition_hint(&self) -> cursor::VerticalTransitionHint {
+        cursor::VerticalTransitionHint::Unused
     }
 
     #[instrument]
