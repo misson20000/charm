@@ -69,9 +69,9 @@ impl Cache {
             font: font.clone(),
             
             gs_space,
-            gs_comma: Self::shape(pg, ", "),
-            gs_open: Self::shape(pg, "{"),
-            gs_close: Self::shape(pg, "}"),
+            gs_comma: Self::shape(pg, token::PunctuationClass::Comma.as_str()),
+            gs_open: Self::shape(pg, token::PunctuationClass::OpenBracket.as_str()),
+            gs_close: Self::shape(pg, token::PunctuationClass::CloseBracket.as_str()),
             gs_digit: DIGIT_STRINGS.map(|d| Self::shape(pg, d)),
             gs_ascii: std::array::from_fn(|i| Self::shape(pg, std::str::from_utf8(&[0x20 + i as u8]).unwrap())),
             gs_dot: Self::shape(pg, "."),

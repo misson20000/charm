@@ -81,13 +81,7 @@ pub struct TokenTestFormat<'a>(pub &'a Token);
 impl<'a> fmt::Display for TokenTestFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.class {
-            TokenClass::Punctuation(punct) => write!(f, "{}", match punct {
-                PunctuationClass::Empty => "",
-                PunctuationClass::Space => " ",
-                PunctuationClass::Comma => ", ",
-                PunctuationClass::OpenBracket => "{",
-                PunctuationClass::CloseBracket => "}",
-            }),
+            TokenClass::Punctuation(punct) => write!(f, "{}", punct.as_str()),
             TokenClass::Title => write!(f, "{}: ", &self.0.node.props.name),
             TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.props.name),
             TokenClass::Hexdump(extent) => {
@@ -105,6 +99,18 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
                 }
                 Ok(())
             }
+        }
+    }
+}
+
+impl PunctuationClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PunctuationClass::Empty => "",
+            PunctuationClass::Space => " ",
+            PunctuationClass::Comma => ", ",
+            PunctuationClass::OpenBracket => "{",
+            PunctuationClass::CloseBracket => "}",            
         }
     }
 }
