@@ -89,19 +89,13 @@ impl InsertNodeAction {
         let document = self.document.borrow();
         let parent_node = document.lookup_node(&*self.path.borrow()).0;
         let index = parent_node.children.partition_point(|child| offset >= child.offset);
-        
+
         self.document_host.change(document.insert_node(
             self.path.borrow().clone(),
             index,
             structure::Childhood::new(
                 sync::Arc::new(structure::Node {
-                    props: structure::Properties {
-                        name,
-                        title_display: structure::TitleDisplay::Minor,
-                        children_display: structure::ChildrenDisplay::Full,
-                        content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
-                        locked: false
-                    },
+                    props: parent_node.props.clone_rename(name),
                     children: Vec::new(),
                     size,
                 }),

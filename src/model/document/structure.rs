@@ -169,6 +169,18 @@ impl Node {
     }
 }
 
+impl Properties {
+    pub fn clone_rename(&self, new_name: String) -> Properties {
+        Properties {
+            name: new_name,
+            title_display: self.title_display.clone(),
+            children_display: self.children_display.clone(),
+            content_display: self.content_display.clone(),
+            locked: self.locked,
+        }
+    }
+}
+
 /* This is mostly useful for testcases */
 pub mod builder {
     use super::*;
