@@ -111,7 +111,7 @@ impl PropsEditor {
         pe.content_display.connect_selected_notify(clone!(@weak pe => move |dd| {
             pe.change_prop(|props| props.content_display = match dd.selected() {
                 0 => structure::ContentDisplay::None,
-                1 => structure::ContentDisplay::Hexdump(16.into()),
+                1 => structure::ContentDisplay::default_hexdump(),
                 2 => structure::ContentDisplay::Hexstring,
                 x => panic!("unexpected selected index: {}", x)
             });
@@ -215,7 +215,7 @@ impl PropsEditor {
             self.content_display.set_model(Some(&self.content_model));
             self.content_display.set_selected(match props.content_display {
                 structure::ContentDisplay::None => 0,
-                structure::ContentDisplay::Hexdump(_) => 1,
+                structure::ContentDisplay::Hexdump { .. } => 1,
                 structure::ContentDisplay::Hexstring => 2,
             });
             

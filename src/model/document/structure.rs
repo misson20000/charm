@@ -23,7 +23,10 @@ pub enum ChildrenDisplay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentDisplay {
     None,
-    Hexdump(addr::Size),
+    Hexdump {
+        line_pitch: addr::Size,
+        gutter_pitch: addr::Size,
+    },
     Hexstring
 }
 
@@ -107,15 +110,23 @@ impl ContentDisplay {
     pub fn preferred_pitch(&self) -> Option<addr::Size> {
         match self {
             ContentDisplay::None => None,
-            ContentDisplay::Hexdump(pitch) => Some(*pitch),
+            ContentDisplay::Hexdump { line_pitch, .. } => Some(*line_pitch),
             ContentDisplay::Hexstring => None,
+        }
+    }
+
+    /// An alternative to default() that explicitly returns a hexdump style.
+    pub fn default_hexdump() -> ContentDisplay {
+        ContentDisplay::Hexdump {
+            line_pitch: addr::Size::from(16),
+            gutter_pitch: addr::Size::from(8),
         }
     }
 }
 
 impl Default for ContentDisplay {
     fn default() -> ContentDisplay {
-        ContentDisplay::Hexdump(addr::Size::from(16))
+        Self::default_hexdump()
     }
 }
 

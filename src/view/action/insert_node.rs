@@ -143,7 +143,7 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
                 name: name.clone(),
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(addr::Size::from(16)),
+                content_display: structure::ContentDisplay::default_hexdump(),
                 locked: false,
             },
             children: Vec::new(),

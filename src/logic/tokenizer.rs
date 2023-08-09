@@ -698,7 +698,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::Token {
                     class: match self.node.props.content_display {
                         structure::ContentDisplay::None => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                        structure::ContentDisplay::Hexdump(_) => token::TokenClass::Hexdump(extent),
+                        structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexdump(extent),
                         structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                     },
                     node: self.node.clone(),
@@ -809,7 +809,7 @@ impl Tokenizer {
                         
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
-                        structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
+                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
                     };
                     
@@ -944,7 +944,7 @@ impl Tokenizer {
 
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => TokenizerState::MetaContent(extent.end, index),
-                        structure::ContentDisplay::Hexdump(_) => TokenizerState::Hexdump(extent, index),
+                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
                         structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
                     };
 
@@ -1480,14 +1480,22 @@ pub mod xml {
                     Some(invalid) => panic!("invalid children attribute: {}", invalid)
                 },
                 content_display: match xml.attribute("content") {
-                    None => structure::ContentDisplay::Hexdump(16.into()),
+                    None => structure::ContentDisplay::default(),
                     Some("hexstring") => structure::ContentDisplay::Hexstring,
-                    Some("hexdump") => structure::ContentDisplay::Hexdump(
-                        xml.attribute("pitch").map_or(
-                            16.into(),
+                    Some("hexdump") => structure::ContentDisplay::Hexdump {
+                        line_pitch: xml.attribute("line_pitch")
+                            .or_else(|| xml.attribute("pitch"))
+                            .map_or(
+                                16.into(),
+                                |p| addr::Address::parse(p).map_or_else(                                
+                                    |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                                    |a| a.to_size())),
+                        gutter_pitch: xml.attribute("gutter_pitch").map_or(
+                            8.into(),
                             |p| addr::Address::parse(p).map_or_else(                                
                                 |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                                |a| a.to_size()))),
+                                |a| a.to_size())),
+                    },
                     Some("none") => structure::ContentDisplay::None,
                     Some(invalid) => panic!("invalid content attribute: {}", invalid)
                 },

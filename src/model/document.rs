@@ -63,7 +63,7 @@ impl Document {
                     name: "root".to_string(),
                     title_display: structure::TitleDisplay::Major,
                     children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    content_display: structure::ContentDisplay::default(),
                     locked: true,
                 },
                 children: vec::Vec::new()
@@ -103,7 +103,7 @@ impl Document {
                     name: "root".to_string(),
                     title_display: structure::TitleDisplay::Major,
                     children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::Hexdump(16.into()),
+                    content_display: structure::ContentDisplay::default(),
                     locked: true,
                 },
                 children: vec::Vec::new()

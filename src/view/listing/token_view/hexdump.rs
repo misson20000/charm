@@ -27,8 +27,8 @@ pub fn render(
     };
 
     let offset_in_line = match token_view.token.node.props.content_display {
-        structure::ContentDisplay::Hexdump(pitch) => {
-            (extent.begin.to_size() % pitch).bytes as i64
+        structure::ContentDisplay::Hexdump { line_pitch, .. } => {
+            (extent.begin.to_size() % line_pitch).bytes as i64
         },
         _ => 0
     };
@@ -91,8 +91,8 @@ pub fn render(
 
 pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, _cursor: &CursorView, _has_cursor: bool, selection: selection::listing::TokenIntersection, render: &listing::RenderDetail, pos: &mut graphene::Point) {
     let offset_in_line = match token_view.token.node.props.content_display {
-        structure::ContentDisplay::Hexdump(pitch) => {
-            (extent.begin.to_size() % pitch).bytes as i32
+        structure::ContentDisplay::Hexdump { line_pitch, .. } => {
+            (extent.begin.to_size() % line_pitch).bytes as i32
         },
         _ => 0
     };
