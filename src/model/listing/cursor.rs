@@ -14,6 +14,7 @@ pub mod key;
 
 pub mod title;
 pub mod hexdump;
+pub mod punctuation;
 
 #[derive(Debug)]
 pub enum MovementResult {
@@ -66,6 +67,7 @@ pub trait CursorClassExt {
 pub enum CursorClass {
     Title(title::Cursor),
     Hexdump(hexdump::Cursor),
+    Punctuation(punctuation::Cursor),
 }
 
 #[derive(Debug)]
@@ -283,6 +285,7 @@ impl CursorClass {
         match token.class {
             token::TokenClass::Title => title::Cursor::new_placement(token, offset, hint).map(CursorClass::Title),
             token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump),
+            token::TokenClass::Punctuation { class: _, accepts_cursor: true } => punctuation::Cursor::new_placement(token, offset, hint).map(CursorClass::Punctuation),
             _ => Err(token)
         }
     }
@@ -293,6 +296,7 @@ impl CursorClass {
         match token.class {
             token::TokenClass::Title => title::Cursor::new_transition(token, hint).map(CursorClass::Title),
             token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump),
+            token::TokenClass::Punctuation { class: _, accepts_cursor: true } => punctuation::Cursor::new_transition(token, hint).map(CursorClass::Punctuation),
             _ => Err(token)
         }
     }
@@ -356,6 +360,7 @@ impl CursorClass {
 pub enum PlacementHint {
     Hexdump(hexdump::HexdumpPlacementHint),
     Title,
+    Punctuation,
     Unused
 }
 

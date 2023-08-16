@@ -605,7 +605,10 @@ impl Tokenizer {
         match self.state {
             TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                    class: token::TokenClass::Punctuation {
+                        class: token::PunctuationClass::Empty,
+                        accepts_cursor: false,
+                    },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
@@ -643,7 +646,10 @@ impl Tokenizer {
             }),
             
             TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
+                class: token::TokenClass::Punctuation {
+                    class: token::PunctuationClass::OpenBracket,
+                    accepts_cursor: true,
+                },
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
@@ -663,7 +669,10 @@ impl Tokenizer {
             },
             TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
                 TokenGenerationResult::Ok(token::Token {  
-                    class: token::TokenClass::Punctuation(token::PunctuationClass::Comma),
+                    class: token::TokenClass::Punctuation {
+                        class: token::PunctuationClass::Comma,
+                        accepts_cursor: false,
+                    },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
@@ -674,7 +683,10 @@ impl Tokenizer {
                 TokenGenerationResult::Skip
             },
             TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
+                class: token::TokenClass::Punctuation {
+                    class: token::PunctuationClass::CloseBracket,
+                    accepts_cursor: true,
+                },
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
@@ -682,7 +694,10 @@ impl Tokenizer {
                 newline: false,
             }),
             TokenizerState::SummaryNewline => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                class: token::TokenClass::Punctuation {
+                    class: token::PunctuationClass::Empty,
+                    accepts_cursor: false,
+                },
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
@@ -697,7 +712,10 @@ impl Tokenizer {
                 
                 TokenGenerationResult::Ok(token::Token {
                     class: match self.node.props.content_display {
-                        structure::ContentDisplay::None => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                        structure::ContentDisplay::None => token::TokenClass::Punctuation {
+                            class: token::PunctuationClass::Empty,
+                            accepts_cursor: true,
+                        },
                         structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexdump(extent),
                         structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                     },
@@ -712,7 +730,10 @@ impl Tokenizer {
 
             TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                    class: token::TokenClass::Punctuation {
+                        class: token::PunctuationClass::Empty,
+                        accepts_cursor: true,
+                    },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
@@ -1422,12 +1443,14 @@ pub mod xml {
             if c.has_tag_name("indent") {
                 inflate_token_tree(c, collection, depth + 1)
             } else {
+                let accepts_cursor = xml.attribute("cursor").map_or(false, |b| b.eq("true"));
+                
                 collection.push(TokenDef {
                     class: match c.tag_name().name() {
-                        "null" => token::TokenClass::Punctuation(token::PunctuationClass::Empty),
-                        "open" => token::TokenClass::Punctuation(token::PunctuationClass::OpenBracket),
-                        "comma" => token::TokenClass::Punctuation(token::PunctuationClass::Comma),
-                        "close" => token::TokenClass::Punctuation(token::PunctuationClass::CloseBracket),
+                        "null" => token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor },
+                        "open" => token::TokenClass::Punctuation { class: token::PunctuationClass::OpenBracket, accepts_cursor },
+                        "comma" => token::TokenClass::Punctuation { class: token::PunctuationClass::Comma, accepts_cursor },
+                        "close" => token::TokenClass::Punctuation { class: token::PunctuationClass::CloseBracket, accepts_cursor },
                         "title" => token::TokenClass::Title,
                         "summlabel" => token::TokenClass::SummaryLabel,
                         "hexdump" => token::TokenClass::Hexdump(inflate_extent(&c)),

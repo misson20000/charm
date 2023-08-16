@@ -7,7 +7,10 @@ use crate::model::document::structure;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenClass {
     /// An empty token, used to create a blank line via the newline attribute.
-    Punctuation(PunctuationClass),
+    Punctuation {
+        class: PunctuationClass,
+        accepts_cursor: bool
+    },
     /// A title block to show the name of the structure node.
     Title,
     SummaryLabel,
@@ -81,7 +84,7 @@ pub struct TokenTestFormat<'a>(pub &'a Token);
 impl<'a> fmt::Display for TokenTestFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.class {
-            TokenClass::Punctuation(punct) => write!(f, "{}", punct.as_str()),
+            TokenClass::Punctuation { class, .. } => write!(f, "{}", class.as_str()),
             TokenClass::Title => write!(f, "{}: ", &self.0.node.props.name),
             TokenClass::SummaryLabel => write!(f, "{}: ", &self.0.node.props.name),
             TokenClass::Hexdump(extent) => {

@@ -109,8 +109,15 @@ impl TokenView {
         let has_cursor = cursor.cursor.is_over(&self.token);
         
         match self.token.class {
-            token::TokenClass::Punctuation(punct) => {
-                render.gsc_mono.begin(gsc::Entry::Punctuation(punct), &render.config.text_color, &mut pos)
+            token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: true } if has_cursor => {
+                render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationClass::Space), &render.config.text_color, &mut pos)
+                    .cursor(true, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
+                    .selected(selection.is_total(), &render.config.selection_color)
+                    .render(snapshot);
+            },
+            token::TokenClass::Punctuation { class, accepts_cursor } => {
+                render.gsc_mono.begin(gsc::Entry::Punctuation(class), &render.config.text_color, &mut pos)
+                    .cursor(has_cursor && accepts_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
@@ -192,7 +199,7 @@ impl TokenView {
         let has_cursor = cursor.cursor.is_over(&self.token);
         
         match self.token.class {
-            token::TokenClass::Punctuation(_) => { },
+            token::TokenClass::Punctuation { .. } => { },
             token::TokenClass::Title => { },
             token::TokenClass::SummaryLabel => { },
             token::TokenClass::Hexdump(extent) => {
