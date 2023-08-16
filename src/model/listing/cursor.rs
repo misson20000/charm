@@ -440,10 +440,12 @@ mod tests {
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump(16.into()),
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: addr::unit::ZERO,
+            index: 0,
             depth: 1,
             newline: true,
         });
@@ -472,10 +474,12 @@ mod tests {
 
         /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(4.into(), 12.into())),
+            class: token::TokenClass::Hexdump(12.into()) ,
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: 4.into(),
+            index: 1,
             depth: 1,
             newline: true,
         });
@@ -504,10 +508,12 @@ mod tests {
         
         /* make sure it winds up after the second new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            class: token::TokenClass::Hexdump(8.into()) ,
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: 8.into(),
+            index: 2,
             depth: 1,
             newline: true,
         });
@@ -522,10 +528,12 @@ mod tests {
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump(16.into()) ,
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: addr::unit::ZERO,
+            index: 0,
             depth: 1,
             newline: true,
         });
@@ -538,10 +546,12 @@ mod tests {
 
         /* make sure it winds up in the correct position on the correct token */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump(16.into()) ,
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: addr::unit::ZERO,
+            index: 0,
             depth: 1,
             newline: true,
         });
@@ -570,10 +580,12 @@ mod tests {
         
         /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            class: token::TokenClass::Hexdump(8.into()),
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
+            offset: 8.into(),
+            index: 1,
             depth: 1,
             newline: true,
         });

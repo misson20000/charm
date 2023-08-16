@@ -6,26 +6,26 @@
     </node>
   </node>
   <tokens>
-    <null node="root" nl="true" />
-    <title node="root" nl="true" />
+    <null node="root" offset="0x0" index="0" nl="true" />
+    <title node="root" offset="0x0" index="0" nl="true" />
     <indent>
-      <hexdump node="root" begin="0x0" end="0x10" nl="true" />
-      <title node="inline32" nl="false" />
+      <hexdump node="root" offset="0x0" index="0" length="0x10" nl="true" />
+      <title node="inline32" offset="0x0" index="0" nl="false" />
       <indent>
-	<hexstring node="inline32" begin="0x0" end="0x4" nl="true" />
+	<hexstring node="inline32" offset="0x0" index="0" length="0x4" nl="true" />
       </indent>
-      <hexdump node="root" begin="0x14" end="0x20" nl="true" />
-      <title node="inlinedump" nl="false" />
+      <hexdump node="root" offset="0x14" index="1" length="0xc" nl="true" />
+      <title node="inlinedump" offset="0x0" index="0" nl="false" />
       <indent>
-	<hexdump node="inlinedump" begin="0x0" end="0x8" nl="true" />
-	<hexdump node="inlinedump" begin="0x8" end="0x10" nl="true" />
-	<hexdump node="inlinedump" begin="0x10" end="0x18" nl="true" />
-	<hexdump node="inlinedump" begin="0x18" end="0x20" nl="true" />
+	<hexdump node="inlinedump" offset="0x0" index="0" length="0x8" nl="true" />
+	<hexdump node="inlinedump" offset="0x8" index="0" length="0x8" nl="true" />
+	<hexdump node="inlinedump" offset="0x10" index="0" length="0x8" nl="true" />
+	<hexdump node="inlinedump" offset="0x18" index="0" length="0x8" nl="true" />
       </indent>
-      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
-      <hexdump node="root" begin="0x50" end="0x60" nl="true" />
-      <hexdump node="root" begin="0x60" end="0x70" nl="true" />
+      <hexdump node="root" offset="0x40" index="2" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x50" index="2" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x60" index="2" length="0x10" nl="true" />
     </indent>
-    <null node="root" nl="true" cursor="true" />
+    <null node="root" offset="0x70" index="2" nl="true" cursor="true" />
   </tokens>
 </testcase>

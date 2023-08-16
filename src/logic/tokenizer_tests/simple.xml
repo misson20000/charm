@@ -4,24 +4,24 @@
     </node>
   </node>
   <tokens>
-    <null node="root" nl="true" />
-    <title node="root" nl="true" />
+    <null node="root" offset="0x0" index="0" nl="true" />
+    <title node="root" offset="0x0" index="0" nl="true" />
     <indent>
-      <hexdump node="root" begin="0x0" end="0x10" nl="true" />
-      <hexdump node="root" begin="0x10" end="0x20" nl="true" />
-      <hexdump node="root" begin="0x20" end="0x30" nl="true" />
-      <hexdump node="root" begin="0x30" end="0x32" nl="true" />
-      <null node="child" nl="true" />
-      <title node="child" nl="true" />
+      <hexdump node="root" offset="0x0" index="0" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x10" index="0" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x20" index="0" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x30" index="0" length="0x2" nl="true" />
+      <null node="child" offset="0x0" index="0" nl="true" />
+      <title node="child" offset="0x0" index="0" nl="true" />
       <indent>
-	<hexdump node="child" begin="0x0" end="0x10" nl="true" />
-	<hexdump node="child" begin="0x10" end="0x18" nl="true" />
+	<hexdump node="child" offset="0x0" index="0" length="0x10" nl="true" />
+	<hexdump node="child" offset="0x10" index="0" length="0x8" nl="true" />
       </indent>
-      <null node="child" nl="true" cursor="true" />
-      <hexdump node="root" begin="0x4a" end="0x50" nl="true" />
-      <hexdump node="root" begin="0x50" end="0x60" nl="true" />
-      <hexdump node="root" begin="0x60" end="0x70" nl="true" />
+      <null node="child" offset="0x18" index="0" nl="true" cursor="true" />
+      <hexdump node="root" offset="0x4a" index="1" length="0x6" nl="true" />
+      <hexdump node="root" offset="0x50" index="1" length="0x10" nl="true" />
+      <hexdump node="root" offset="0x60" index="1" length="0x10" nl="true" />
     </indent>
-    <null node="root" nl="true" cursor="true" />
+    <null node="root" offset="0x70" index="1" nl="true" cursor="true" />
   </tokens>
 </testcase>

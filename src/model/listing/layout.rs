@@ -324,10 +324,12 @@ mod tests {
             } else {
                 self.position-= 1;
                 Some(token::Token {
-                    class: token::TokenClass::Hexdump(addr::Extent::sized(self.position.into(), 1.into())),
+                    class: token::TokenClass::Hexdump(1.into()),
                     node: self.node.clone(),
                     node_path: structure::Path::default(),
                     node_addr: addr::unit::NULL,
+                    offset: self.position.into(),
+                    index: 0,
                     depth: 0,
                     newline: self.position % 2 == 1,
                 })
@@ -338,10 +340,12 @@ mod tests {
             let position = self.position;
             self.position+= 1;
             Some(token::Token {
-                class: token::TokenClass::Hexdump(addr::Extent::sized(position.into(), 1.into())),
+                class: token::TokenClass::Hexdump(1.into()),
                 node: self.node.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                offset: position.into(),
+                index: 0,
                 depth: 0,
                 newline: position % 2 == 1,
             })

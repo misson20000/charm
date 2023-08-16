@@ -13,7 +13,7 @@ use gtk::graphene;
 
 pub fn render(
     token_view: &mut TokenView,
-    extent: addr::Extent,
+    length: addr::Size,
     snapshot: &gtk::Snapshot,
     cursor: &CursorView,
     has_cursor: bool,
@@ -28,14 +28,16 @@ pub fn render(
 
     let offset_in_line = match token_view.token.node.props.content_display {
         structure::ContentDisplay::Hexdump { line_pitch, .. } => {
-            (extent.begin.to_size() % line_pitch).bytes as i64
+            (token_view.token.offset % line_pitch).bytes as i64
         },
         _ => 0
     };
 
     let (_, logical_space) = render.gsc_mono.get(gsc::Entry::Space).unwrap().clone().extents(&render.font_mono);
+
+    let extent = addr::Extent::sized(token_view.token.offset.to_addr(), length);
     
-    for i in (-offset_in_line)..extent.length().bytes as i64 {
+    for i in (-offset_in_line)..length.bytes as i64 {
         if (i + offset_in_line) != 0 {
             /* insert a gutter between every byte */
             let mut gutter_width = helpers::pango_unscale(logical_space.width());
@@ -89,17 +91,27 @@ pub fn render(
     }
 }
 
-pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, _cursor: &CursorView, _has_cursor: bool, selection: selection::listing::TokenIntersection, render: &listing::RenderDetail, pos: &mut graphene::Point) {
+pub fn render_asciidump(
+    token_view: &mut TokenView,
+    length: addr::Size,
+    snapshot: &gtk::Snapshot,
+    _cursor: &CursorView,
+    _has_cursor: bool,
+    selection: selection::listing::TokenIntersection,
+    render: &listing::RenderDetail,
+    pos: &mut graphene::Point) {
     let offset_in_line = match token_view.token.node.props.content_display {
         structure::ContentDisplay::Hexdump { line_pitch, .. } => {
-            (extent.begin.to_size() % line_pitch).bytes as i32
+            (token_view.token.offset % line_pitch).bytes as i32
         },
         _ => 0
     };
 
     pos.set_x(pos.x() + helpers::pango_unscale(render.gsc_mono.space_width() * offset_in_line));
 
-    for i in 0..extent.length().bytes {
+    let extent = addr::Extent::sized(token_view.token.offset.to_addr(), length);
+    
+    for i in 0..length.bytes {
         let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).rebase(extent.begin).intersection(extent);
         let byte_record = token_view.data_cache.get(i as usize).copied().unwrap_or_default();
         let selected = byte_extent.map_or(false, |be| selection.includes(be));
@@ -116,7 +128,7 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
 
 pub fn pick_position(
     _token_view: &TokenView,
-    _extent: addr::Extent,
+    _length: addr::Size,
     _x: f32) -> Option<(structure::Path, addr::Address, usize)> {
     todo!();
 }

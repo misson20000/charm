@@ -18,61 +18,69 @@
     </node>
   </node>
   <tokens>
-    <null node="root" nl="true" />
-    <title node="root" nl="true" />
+    <null node="root" offset="0x0" index="0" nl="true" />
+    <title node="root" offset="0x0" index="0" nl="true" />
     <indent>
-      <null node="zs1" nl="true" />
-      <title node="zs1" nl="true" />
-      <null node="zs1" nl="true" cursor="true" />
-      <null node="zs2" nl="true" />
-      <title node="zs2" nl="true" />
+      <null node="zs1" offset="0x0" index="0" nl="true" />
+      <title node="zs1" offset="0x0" index="0" nl="true" />
+      <null node="zs1" offset="0x0" index="0" nl="true" cursor="true" />
+      
+      <null node="zs2" offset="0x0" index="0" nl="true" />
+      <title node="zs2" offset="0x0" index="0" nl="true" />
       <indent>
-	<null node="zs3" nl="true" />
-	<title node="zs3" nl="true" />
-	<null node="zs3" nl="true" cursor="true" />
+	<null node="zs3" offset="0x0" index="0" nl="true" />
+	<title node="zs3" offset="0x0" index="0" nl="true" />
+	<null node="zs3" offset="0x0" index="0" nl="true" cursor="true" />
       </indent>
-      <null node="zs2" nl="true" cursor="true" />
-      <null node="zs4" nl="true" />
-      <title node="zs4" nl="true" />
-      <null node="zs4" nl="true" cursor="true" />
-      <null node="bumper" nl="true" />
-      <title node="bumper" nl="true" />
+      <null node="zs2" offset="0x0" index="1" nl="true" cursor="true" />
+      
+      <null node="zs4" offset="0x0" index="0" nl="true" />
+      <title node="zs4" offset="0x0" index="0" nl="true" />
+      <null node="zs4" offset="0x0" index="0" nl="true" cursor="true" />
+      
+      <null node="bumper" offset="0x0" index="0" nl="true" />
+      <title node="bumper" offset="0x0" index="0" nl="true" />
       <indent>
-	<hexdump node="bumper" begin="0x0" end="0x10" nl="true" />
+	<hexdump node="bumper" offset="0x0" index="0" length="0x10" nl="true" />
       </indent>
-      <null node="bumper" nl="true" cursor="true" />
-      <null node="nest1" nl="true" />
-      <title node="nest1" nl="true" />
+      <null node="bumper" offset="0x10" index="0" nl="true" cursor="true" />
+      
+      <null node="nest1" offset="0x0" index="0" nl="true" />
+      <title node="nest1" offset="0x0" index="0" nl="true" />
       <indent>
-	<null node="nest1.1" nl="true" />
-	<title node="nest1.1" nl="true" />
+	
+	<null node="nest1.1" offset="0x0" index="0" nl="true" />
+	<title node="nest1.1" offset="0x0" index="0" nl="true" />
 	<indent>
-	  <null node="nest1.1.1" nl="true" />
-	  <title node="nest1.1.1" nl="true" />
+	  <null node="nest1.1.1" offset="0x0" index="0" nl="true" />
+	  <title node="nest1.1.1" offset="0x0" index="0" nl="true" />
 	  <indent>
-	    <hexdump node="nest1.1.1" begin="0x0" end="0x8" nl="true" />
+	    <hexdump node="nest1.1.1" offset="0x0" index="0" length="0x8" nl="true" />
 	  </indent>
-	  <null node="nest1.1.1" nl="true" cursor="true" />
+	  <null node="nest1.1.1" offset="0x8" index="0" nl="true" cursor="true" />
 	</indent>
-	<null node="nest1.1" nl="true" cursor="true" />
-	<null node="nest1.2" nl="true" />
-	<title node="nest1.2" nl="true" />
-	<null node="nest1.2" nl="true" cursor="true" />
-	<null node="nest1.3" nl="true" />
-	<title node="nest1.3" nl="true" />
+	<null node="nest1.1" offset="0x8" index="1" nl="true" cursor="true" />
+	
+	<null node="nest1.2" offset="0x0" index="0" nl="true" />
+	<title node="nest1.2" offset="0x0" index="0" nl="true" />
+	<null node="nest1.2" offset="0x0" index="0" nl="true" cursor="true" />
+	
+	<null node="nest1.3" offset="0x0" index="0" nl="true" />
+	<title node="nest1.3" offset="0x0" index="0" nl="true" />
 	<indent>
-	  <null node="nest1.3.1" nl="true" />
-	  <title node="nest1.3.1" nl="true" />
+	  <null node="nest1.3.1" offset="0x0" index="0" nl="true" />
+	  <title node="nest1.3.1" offset="0x0" index="0" nl="true" />
 	  <indent>
-	    <hexdump node="nest1.3.1" begin="0x0" end="0x8" nl="true" />
+	    <hexdump node="nest1.3.1" offset="0x0" index="0" length="0x8" nl="true" />
 	  </indent>
-	  <null node="nest1.3.1" nl="true" cursor="true" />
+	  <null node="nest1.3.1" offset="0x8" index="0" nl="true" cursor="true" />
 	</indent>
-	<null node="nest1.3" nl="true" cursor="true" />
-	<hexdump node="nest1" begin="0x10" end="0x18" nl="true" />
+	<null node="nest1.3" offset="0x8" index="1" nl="true" cursor="true" />
+	
+	<hexdump node="nest1" offset="0x10" index="3" length="0x8" nl="true" />
       </indent>
-      <null node="nest1" nl="true" cursor="true" />
+      <null node="nest1" offset="0x18" index="3" nl="true" cursor="true" />
     </indent>
-    <null node="root" nl="true" cursor="true" />
+    <null node="root" offset="0x28" index="5" nl="true" cursor="true" />
   </tokens>
 </testcase>
