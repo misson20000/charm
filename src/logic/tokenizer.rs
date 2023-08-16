@@ -1443,7 +1443,7 @@ pub mod xml {
             if c.has_tag_name("indent") {
                 inflate_token_tree(c, collection, depth + 1)
             } else {
-                let accepts_cursor = xml.attribute("cursor").map_or(false, |b| b.eq("true"));
+                let accepts_cursor = c.attribute("cursor").map_or(false, |b| b.eq("true"));
                 
                 collection.push(TokenDef {
                     class: match c.tag_name().name() {
@@ -1695,7 +1695,7 @@ mod tests {
         let expected_tokens = vec![
             /* root */
             token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: false },
                 node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
             },
             token::Token {
@@ -1720,7 +1720,7 @@ mod tests {
             },
             /* child */
             token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: false },
                 node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
             },
             token::Token {
@@ -1736,7 +1736,7 @@ mod tests {
                 node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 2, newline: true
             },
             token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: true },
                 node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
             },
             /* root */
@@ -1753,7 +1753,7 @@ mod tests {
                 node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
             token::Token {
-                class: token::TokenClass::Punctuation(token::PunctuationClass::Empty),
+                class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: true },
                 node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
             },
         ];

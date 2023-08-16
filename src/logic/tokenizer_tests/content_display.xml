@@ -21,6 +21,6 @@
 	<hexstring node="hexstring" begin="0x0" end="0x10" nl="true" />
       </indent>
     </indent>
-    <null node="root" nl="true" />
+    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>

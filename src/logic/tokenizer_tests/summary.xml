@@ -17,7 +17,7 @@
     <title node="root" nl="true" />
     <indent>
       <title node="entity" nl="false" />
-      <open node="entity" nl="false" />
+      <open node="entity" nl="false" cursor="true" />
       
       <summlabel node="type" nl="false" />
       <indent>
@@ -28,7 +28,7 @@
 
       <summlabel node="pos" nl="false" />
       <indent>
-	<open node="pos" nl="false" />
+	<open node="pos" nl="false" cursor="true" />
 
 	<summlabel node="x1" nl="false" />
 	<indent>
@@ -42,14 +42,14 @@
 	  <hexstring node="y1" begin="0x0" end="0x8" nl="false" />
 	</indent>
 
-	<close node="pos" nl="false" />
+	<close node="pos" nl="false" cursor="true" />
       </indent>
       
       <comma node="entity" nl="false" />
 
       <summlabel node="target" nl="false" />
       <indent>
-	<open node="target" nl="false" />
+	<open node="target" nl="false" cursor="true" />
 
 	<summlabel node="x2" nl="false" />
 	<indent>
@@ -63,10 +63,10 @@
 	  <hexstring node="y2" begin="0x0" end="0x8" nl="false" />
 	</indent>
 
-	<close node="target" nl="false" />
+	<close node="target" nl="false" cursor="true" />
       </indent>
 
-      <close node="entity" nl="false" />
+      <close node="entity" nl="false" cursor="true" />
       
       <null node="entity" nl="true" />
 
@@ -74,6 +74,6 @@
       <hexdump node="root" begin="0x40" end="0x50" nl="true" />
     </indent>
     
-    <null node="root" nl="true" />
+    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>
