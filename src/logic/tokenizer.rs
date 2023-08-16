@@ -1661,7 +1661,10 @@ mod tests {
                 name: "root".to_string(),
                 title_display: structure::TitleDisplay::Major,
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16.into()),
+                content_display: structure::ContentDisplay::Hexdump {
+                    line_pitch: 16.into(),
+                    gutter_pitch: 8.into(),
+                },
                 locked: true,
             },
             children: vec::Vec::new()
@@ -1673,7 +1676,10 @@ mod tests {
                 name: "child".to_string(),
                 title_display: structure::TitleDisplay::Major,
                 children_display: structure::ChildrenDisplay::Full,
-                content_display: structure::ContentDisplay::Hexdump(16.into()),
+                content_display: structure::ContentDisplay::Hexdump {
+                    line_pitch: 16.into(),
+                    gutter_pitch: 8.into(),
+                },
                 locked: true,
             },
             children: vec::Vec::new()
