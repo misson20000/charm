@@ -10,21 +10,28 @@ use crate::view::listing;
 use crate::view::window;
 
 use gtk::prelude::*;
+use gtk::glib;
+use gtk::glib::clone;
 use gtk::gio;
 
 struct InsertNodeAction {
     document_host: sync::Arc<document::DocumentHost>,
-    document: cell::RefCell<sync::Arc<document::Document>>,
+    activation: cell::RefCell<Option<Activation>>,
 
     lw: listing::ListingWidget,
     
     dialog: gtk::ApplicationWindow,
     
-    path: cell::RefCell<structure::Path>,
     name_entry: gtk::Entry,
     size_entry: gtk::Entry,
     offset_entry: gtk::Entry,
+    order_entry: gtk::DropDown,
     path_display: gtk::Entry,
+}
+
+struct Activation {
+    document: sync::Arc<document::Document>,
+    path: structure::Path,
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
@@ -33,6 +40,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
     let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
     let offset_entry: gtk::Entry = builder.object("offset_entry").unwrap();
+    let order_entry: gtk::DropDown = builder.object("order_entry").unwrap();
     let path_display: gtk::Entry = builder.object("path_display").unwrap();
     let insert_button: gtk::Button = builder.object("insert_button").unwrap();
 
@@ -49,26 +57,31 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     
     let action = rc::Rc::new(InsertNodeAction {
         document_host: window_context.document_host.clone(),
-        document: cell::RefCell::new(window_context.document_host.get()),
+        activation: cell::RefCell::new(None),
         lw: window_context.lw.clone(),
         dialog: dialog.clone(),
         
-        path: cell::RefCell::new(vec![]),
         name_entry,
         size_entry,
         offset_entry,
+        order_entry,
         path_display,
     });
     
     helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
-        action.dialog.hide();
+        action.deactivate();
     });
 
     helpers::bind_simple_action(&action, &action.dialog, "insert", |action| {
         action.do_insert();
-        action.dialog.hide();
+        action.deactivate();
     });
 
+    dialog.connect_close_request(clone!(@weak action => @default-return gtk::Inhibit(false), move |_| {
+        action.deactivate();
+        gtk::Inhibit(false)
+    }));
+    
     helpers::create_simple_action_strong(action, "insert_node", |ina| ina.activate())
 }
 
@@ -86,12 +99,16 @@ impl InsertNodeAction {
             Err(e) => { println!("TODO: failed to parse address: {:?}", e); return }
         };
 
-        let document = self.document.borrow();
-        let parent_node = document.lookup_node(&*self.path.borrow()).0;
-        let index = parent_node.children.partition_point(|child| offset >= child.offset);
+        let activation = match self.activation.take() {
+            Some(a) => a,
+            None => { println!("calling do_insert when action wasn't previously activated?"); return }
+        };
+        
+        let parent_node = activation.document.lookup_node(&activation.path).0;
+        let index = self.order_entry.selected() as usize;
 
-        self.document_host.change(document.insert_node(
-            self.path.borrow().clone(),
+        self.document_host.change(activation.document.insert_node(
+            activation.path,
             index,
             structure::Childhood::new(
                 sync::Arc::new(structure::Node {
@@ -107,13 +124,33 @@ impl InsertNodeAction {
     pub fn activate(&self) {
         let cursor = self.lw.cursor();
 
-        *self.path.borrow_mut() = cursor.structure_path();
-        *self.document.borrow_mut() = cursor.document();
-        self.offset_entry.set_text(&format!("{}", cursor.structure_offset()));
-        self.path_display.set_text(&self.document.borrow().describe_path(&self.path.borrow()));
+        let activation = Activation {
+            document: cursor.document(),
+            path: cursor.structure_path(),
+        };
 
+        self.offset_entry.set_text(&format!("{}", cursor.structure_offset()));
+        self.path_display.set_text(&activation.document.describe_path(&activation.path));
+
+        let (node, _) = activation.document.lookup_node(&activation.path);
+        let model = gtk::StringList::new(&[]);
+        for i in &node.children {
+            model.append(&i.node.props.name);
+        }
+        model.append("<end>");
+        self.order_entry.set_model(Some(&model));
+        self.order_entry.set_selected(cursor.structure_child_index() as u32);
+        
+        self.activation.replace(Some(activation));
+        
         self.name_entry.grab_focus();
         self.dialog.present();
+    }
+
+    fn deactivate(&self) {
+        self.order_entry.set_model(gio::ListModel::NONE);
+        self.activation.take();
+        self.dialog.hide();
     }
 }
 

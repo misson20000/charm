@@ -45,7 +45,19 @@
             <layout>
               <property name="column">0</property>
               <property name="column-span">2</property>
+              <property name="row">4</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Insert Before</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
               <property name="row">3</property>
+              <property name="row-span">1</property>
             </layout>
           </object>
         </child>
@@ -57,7 +69,7 @@
             <layout>
               <property name="column">0</property>
               <property name="column-span">1</property>
-              <property name="row">4</property>
+              <property name="row">5</property>
               <property name="row-span">1</property>
             </layout>
           </object>
@@ -86,6 +98,17 @@
           </object>
         </child>
         <child>
+          <object class="GtkDropDown" id="order_entry">
+            <property name="hexpand">True</property>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">3</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
           <object class="GtkEntry" id="size_entry">
             <property name="activates-default">True</property>
             <property name="hexpand">True</property>
@@ -101,10 +124,11 @@
           <object class="GtkEntry" id="path_display">
             <property name="editable">False</property>
             <property name="enable-undo">False</property>
+            <property name="sensitive">False</property>
             <layout>
               <property name="column">1</property>
               <property name="column-span">1</property>
-              <property name="row">4</property>
+              <property name="row">5</property>
               <property name="row-span">1</property>
             </layout>
           </object>

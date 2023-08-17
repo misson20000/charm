@@ -738,7 +738,7 @@ impl Tokenizer {
                     accepts_cursor: true,
                 },
                 self.node.size, self.node.children.len(),
-            ).set_newline(true)),
+            ).set_newline(true).adjust_depth(1)),
             TokenizerState::PostBlank => TokenGenerationResult::Skip,
             TokenizerState::End => TokenGenerationResult::Skip,
         }
@@ -1173,6 +1173,8 @@ impl Tokenizer {
             TokenizerState::MetaContent(offset, _) => offset,
             TokenizerState::Hexdump(extent, _) => extent.begin,
             TokenizerState::Hexstring(extent, _) => extent.begin,
+            TokenizerState::PostBlank => self.node.size.to_addr(),
+            TokenizerState::End => self.node.size.to_addr(),
             // TODO: probably some missing here, need to figure out what is intuitive to the user.
             _ => addr::unit::NULL
         }
