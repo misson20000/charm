@@ -15,80 +15,86 @@
         </child>
         <child>
           <object class="GtkPaned">
-            <property name="end-child">config_editor_frame</property>
+            <property name="end-child">
+              <object class="GtkFrame" id="config_editor_frame">
+                <property name="margin-bottom">10</property>
+                <property name="margin-end">10</property>
+                <property name="margin-start">10</property>
+                <property name="margin-top">10</property>
+                <property name="width-request">200</property>
+              </object>
+            </property>
             <property name="resize-end-child">False</property>
             <property name="shrink-end-child">False</property>
             <property name="shrink-start-child">False</property>
-            <property name="start-child">paned_main_area</property>
-            <property name="vexpand">True</property>
-          </object>
-        </child>
-      </object>
-    </child>
-  </object>
-  <object class="GtkFrame" id="hierarchy_frame">
-    <property name="width-request">200</property>
-    <child>
-      <object class="GtkBox" id="hierarchy_box">
-        <property name="orientation">vertical</property>
-        <child>
-          <object class="GtkScrolledWindow">
-            <property name="hexpand">True</property>
-            <property name="vexpand">True</property>
-            <child>
-              <object class="GtkColumnView" id="hierarchy_editor">
-                <property name="vexpand">True</property>
+            <property name="start-child">
+              <object class="GtkPaned" id="paned_main_area">
+                <property name="end-child">
+                  <object class="GtkFrame" id="datapath_editor_frame">
+                    <property name="margin-bottom">10</property>
+                    <property name="margin-end">10</property>
+                    <property name="margin-start">10</property>
+                    <property name="margin-top">10</property>
+                    <child>
+                      <object class="GtkTreeView" id="datapath_editor"/>
+                    </child>
+                  </object>
+                </property>
+                <property name="orientation">vertical</property>
+                <property name="resize-end-child">False</property>
+                <property name="shrink-end-child">False</property>
+                <property name="shrink-start-child">False</property>
+                <property name="start-child">
+                  <object class="GtkPaned" id="paned_upper_half">
+                    <property name="end-child">
+                      <object class="GtkFrame" id="listing_frame">
+                        <property name="hexpand">True</property>
+                        <property name="vexpand">True</property>
+                        <property name="width-request">300</property>
+                      </object>
+                    </property>
+                    <property name="height-request">500</property>
+                    <property name="hexpand">True</property>
+                    <property name="resize-start-child">False</property>
+                    <property name="shrink-end-child">False</property>
+                    <property name="shrink-start-child">False</property>
+                    <property name="start-child">
+                      <object class="GtkFrame" id="hierarchy_frame">
+                        <property name="width-request">200</property>
+                        <child>
+                          <object class="GtkBox" id="hierarchy_box">
+                            <property name="orientation">vertical</property>
+                            <child>
+                              <object class="GtkScrolledWindow">
+                                <property name="hexpand">True</property>
+                                <property name="vexpand">True</property>
+                                <child>
+                                  <object class="GtkColumnView" id="hierarchy_editor">
+                                    <property name="vexpand">True</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkFrame" id="props_editor_frame">
+                                <property name="valign">end</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                    </property>
+                    <property name="vexpand">True</property>
+                    <property name="vexpand-set">True</property>
+                  </object>
+                </property>
+                <property name="width-request">600</property>
               </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="GtkFrame" id="props_editor_frame">
-            <property name="valign">end</property>
+            </property>
+            <property name="vexpand">True</property>
           </object>
         </child>
       </object>
-    </child>
-  </object>
-  <object class="GtkFrame" id="listing_frame">
-    <property name="hexpand">True</property>
-    <property name="vexpand">True</property>
-    <property name="width-request">300</property>
-  </object>
-  <object class="GtkPaned" id="paned_upper_half">
-    <property name="end-child">listing_frame</property>
-    <property name="height-request">500</property>
-    <property name="hexpand">True</property>
-    <property name="resize-start-child">False</property>
-    <property name="shrink-end-child">False</property>
-    <property name="shrink-start-child">False</property>
-    <property name="start-child">hierarchy_frame</property>
-    <property name="vexpand">True</property>
-    <property name="vexpand-set">True</property>
-  </object>
-  <object class="GtkPaned" id="paned_main_area">
-    <property name="end-child">datapath_editor_frame</property>
-    <property name="orientation">vertical</property>
-    <property name="resize-end-child">False</property>
-    <property name="shrink-end-child">False</property>
-    <property name="shrink-start-child">False</property>
-    <property name="start-child">paned_upper_half</property>
-    <property name="width-request">600</property>
-  </object>
-  <object class="GtkFrame" id="config_editor_frame">
-    <property name="margin-bottom">10</property>
-    <property name="margin-end">10</property>
-    <property name="margin-start">10</property>
-    <property name="margin-top">10</property>
-    <property name="width-request">200</property>
-  </object>
-  <object class="GtkFrame" id="datapath_editor_frame">
-    <property name="margin-bottom">10</property>
-    <property name="margin-end">10</property>
-    <property name="margin-start">10</property>
-    <property name="margin-top">10</property>
-    <child>
-      <object class="GtkTreeView" id="datapath_editor"/>
     </child>
   </object>
 </interface>
