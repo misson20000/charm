@@ -58,11 +58,11 @@ impl TokenView {
 
     pub fn visible_address(&self) -> Option<addr::Address> {
         match self.token.class {
-            token::TokenClass::Title => Some(self.token.offset),
-            token::TokenClass::Hexdump(_) => Some(self.token.offset),
-            token::TokenClass::Hexstring(_) => Some(self.token.offset),
+            token::TokenClass::Title => Some(self.token.node_addr),
+            token::TokenClass::Hexdump(e) => Some(self.token.node_addr + e.begin.to_size()),
+            token::TokenClass::Hexstring(e) => Some(self.token.node_addr + e.begin.to_size()),
             _ => None,
-        }.map(|offset| self.token.node_addr + offset)
+        }
     }
 
     pub fn contains_cursor(&self, cursor: &cursor::Cursor) -> bool {
@@ -157,13 +157,11 @@ impl TokenView {
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::Hexdump(length) => {
-                hexdump::render(self, length, snapshot, cursor, has_cursor, selection, render, &mut pos);
+            token::TokenClass::Hexdump(extent) => {
+                hexdump::render(self, extent, snapshot, cursor, has_cursor, selection, render, &mut pos);
             },
-            token::TokenClass::Hexstring(length) => {
-                let extent = self.token.extent();
-                
-                for i in 0..length.bytes {
+            token::TokenClass::Hexstring(extent) => {
+                for i in 0..extent.length().bytes {
                     let j = i as u8;
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be));
@@ -217,8 +215,8 @@ impl TokenView {
 
     pub fn pick_position(&self, x: f32, _y: f32) -> Option<(structure::Path, addr::Address, usize)> {
         match self.token.class {
-            token::TokenClass::Hexdump(length) => {
-                hexdump::pick_position(self, length, x)
+            token::TokenClass::Hexdump(extent) => {
+                hexdump::pick_position(self, extent, x)
             },
             _ => None, // TODO
         }

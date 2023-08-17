@@ -13,67 +13,67 @@
     </node>
   </node>
   <tokens>
-    <null node="root" offset="0x0" index="0" nl="true" />
-    <title node="root" offset="0x0" index="0" nl="true" />
+    <null node="root" nl="true" />
+    <title node="root" nl="true" />
     <indent>
-      <title node="entity" offset="0x0" index="0" nl="false" />
-      <open node="entity" offset="0x0" index="0" nl="false" cursor="true" />
+      <title node="entity" nl="false" />
+      <open node="entity" nl="false" cursor="true" />
       
-      <summlabel node="type" offset="0x0" index="0" nl="false" />
+      <summlabel node="type" nl="false" />
       <indent>
-	<hexdump node="type" offset="0x0" index="0" length="0x8" nl="false" />
+	<hexdump node="type" begin="0x0" end="0x8" nl="false" />
       </indent>
       
-      <comma node="entity" offset="0x8" index="1" nl="false" />
+      <comma node="entity" nl="false" />
 
-      <summlabel node="pos" offset="0x0" index="0" nl="false" />
+      <summlabel node="pos" nl="false" />
       <indent>
-	<open node="pos" offset="0x0" index="0" nl="false" cursor="true" />
+	<open node="pos" nl="false" cursor="true" />
 
-	<summlabel node="x1" offset="0x0" index="0" nl="false" />
+	<summlabel node="x1" nl="false" />
 	<indent>
-	  <hexstring node="x1" offset="0x0" index="0" length="0x8" nl="false" />
+	  <hexstring node="x1" begin="0x0" end="0x8" nl="false" />
 	</indent>
 	
-	<comma node="pos" offset="0x8" index="1" nl="false" />
+	<comma node="pos" nl="false" />
 	
-	<summlabel node="y1" offset="0x0" index="0" nl="false" />
+	<summlabel node="y1" nl="false" />
 	<indent>
-	  <hexstring node="y1" offset="0x0" index="0" length="0x8" nl="false" />
+	  <hexstring node="y1" begin="0x0" end="0x8" nl="false" />
 	</indent>
 
-	<close node="pos" offset="0x10" index="2" nl="false" cursor="true" />
+	<close node="pos" nl="false" cursor="true" />
       </indent>
       
-      <comma node="entity" offset="0x20" index="2" nl="false" />
+      <comma node="entity" nl="false" />
 
-      <summlabel node="target" offset="0x0" index="0" nl="false" />
+      <summlabel node="target" nl="false" />
       <indent>
-	<open node="target" offset="0x0" index="0" nl="false" cursor="true" />
+	<open node="target" nl="false" cursor="true" />
 
-	<summlabel node="x2" offset="0x0" index="0" nl="false" />
+	<summlabel node="x2" nl="false" />
 	<indent>
-	  <hexstring node="x2" offset="0x0" index="0" length="0x8" nl="false" />
+	  <hexstring node="x2" begin="0x0" end="0x8" nl="false" />
 	</indent>
 	
-	<comma node="target" offset="0x8" index="1" nl="false" />
+	<comma node="target" nl="false" />
 	
-	<summlabel node="y2" offset="0x0" index="0" nl="false" />
+	<summlabel node="y2" nl="false" />
 	<indent>
-	  <hexstring node="y2" offset="0x0" index="0" length="0x8" nl="false" />
+	  <hexstring node="y2" begin="0x0" end="0x8" nl="false" />
 	</indent>
 
-	<close node="target" offset="0x10" index="2" nl="false" cursor="true" />
+	<close node="target" nl="false" cursor="true" />
       </indent>
 
-      <close node="entity" offset="0x30" index="3" nl="false" cursor="true" />
+      <close node="entity" nl="false" cursor="true" />
       
-      <null node="entity" offset="0x30" index="3" nl="true" />
+      <null node="entity" nl="true" />
 
-      <hexdump node="root" offset="0x30" index="1" length="0x10" nl="true" />
-      <hexdump node="root" offset="0x40" index="1" length="0x10" nl="true" />
+      <hexdump node="root" begin="0x30" end="0x40" nl="true" />
+      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
     </indent>
     
-    <null node="root" offset="0x50" index="1" nl="true" cursor="true" />
+    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>

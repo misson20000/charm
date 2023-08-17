@@ -10,9 +10,27 @@ pub struct Cursor {
     pub low_nybble: bool,
 }
 
+trait TokenExt {
+    fn hexdump_extent(&self) -> addr::Extent;
+    fn hexdump_absolute_extent(&self) -> addr::Extent;
+}
+
+impl TokenExt for token::Token {
+    fn hexdump_extent(&self) -> addr::Extent {
+        match self.class {
+            token::TokenClass::Hexdump(e) => e,
+            _ => panic!("expected hexdump token")
+        }
+    }
+
+    fn hexdump_absolute_extent(&self) -> addr::Extent {
+        self.hexdump_extent().rebase(self.node_addr)
+    }
+}
+
 impl Cursor {
     pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
-        let extent = token.extent();
+        let extent = token.hexdump_extent();
         let limit = (extent.length() - addr::unit::BIT).floor();
         
         Ok(Cursor {
@@ -43,7 +61,7 @@ impl Cursor {
     }
     
     pub fn new_placement(token: token::Token, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
-        let extent = token.extent();
+        let extent = token.hexdump_extent();
         let limit = (extent.length() - addr::unit::BIT).floor();
         
         Ok(Cursor {
@@ -68,7 +86,7 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn get_addr(&self) -> addr::Address {
-        self.token.absolute_addr() + self.offset
+        self.token.hexdump_absolute_extent().begin + self.offset
     }
 
     fn get_offset(&self) -> addr::Size {
