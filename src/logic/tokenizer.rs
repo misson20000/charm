@@ -17,59 +17,23 @@ use crate::model::document::change;
 
 use tracing::instrument;
 
+mod normal;
+mod summary;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum TokenizerState {
-    PreBlank,
-    Title,
-    
-    MetaContent(addr::Address, usize),
-    Hexdump(addr::Extent, usize),
-    Hexstring(addr::Extent, usize),
-    
-    SummaryOpener,
-    /// The argument here is an index for which child is being labelled. Does not tolerate one-past-the-end.
-    SummaryLabel(usize),
-    /// The argument here is an index for which child comes before the separator. Does not tolerate one-past-the-end.
-    /// We still go through this state for the last child, even though it doesn't have a separator after it,
-    /// we just suppress that token when it comes time to generate it.
-    SummarySeparator(usize),
-    SummaryCloser,
-    SummaryNewline,
-
-    SummaryValueBegin,
-    SummaryLeaf,
-    SummaryValueEnd,
-
-    PostBlank,
-    End,
+enum Mode {
+    Normal(normal::NormalState),
+    SummaryBranch(summary::BranchState),
+    SummaryLeaf(summary::LeafState),
+    Invalid,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum TokenizerDescent {
-    Child(usize),
-    ChildSummary(usize),
-    MySummary,
-}
-
-#[derive(Clone)]
-pub struct TokenizerStackEntry {
-    stack: Option<sync::Arc<TokenizerStackEntry>>,
-    descent: TokenizerDescent,
-    depth: usize,
+#[derive(Clone, Debug)]
+struct CommonFields {
     node: sync::Arc<structure::Node>,
-    node_addr: addr::Address,    
-}
-
-#[derive(Clone)]
-pub struct Tokenizer {
-    /* invariants:
-       - stack should always contain a path all the way back to the root node
-     */
-    stack: Option<sync::Arc<TokenizerStackEntry>>,
-    state: TokenizerState,
-    depth: usize,
-    pub node: sync::Arc<structure::Node>,
-    node_addr: addr::Address,
+    node_absolute_addr: addr::Address,
+    actual_depth: usize,
+    visual_depth: usize,
 }
 
 #[derive(Debug)]
@@ -79,143 +43,34 @@ pub enum TokenGenerationResult {
     Boundary,
 }
 
-enum AscendDirection {
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum StackEntryClass {
+    Normal(normal::StackEntry),
+    Branch(summary::BranchStackEntry),
+}
+
+#[derive(Clone)]
+pub struct StackEntry {
+    parent: Option<sync::Arc<StackEntry>>,
+    class: StackEntryClass,
+    common: CommonFields,
+}
+
+#[derive(Clone)]
+pub struct Tokenizer {
+    stack: Option<sync::Arc<StackEntry>>,
+    mode: Mode,
+    common: CommonFields
+}
+
+enum PopDirection {
     Prev, Next
 }
 
-struct TokenizerStackDebugHelper<'a>(&'a Option<sync::Arc<TokenizerStackEntry>>);
-
-impl std::fmt::Debug for Tokenizer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tokenizer")
-            .field("state", &self.state)
-            .field("node", &self.node.props.name)
-            .field("stack", &TokenizerStackDebugHelper(&self.stack))
-            .finish_non_exhaustive()
-    }
-}
-
-impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut dl = f.debug_list();
-        let mut i = self.0;
-
-        while let Some(entry) = i {
-            dl.entry(entry);
-            i = &entry.stack;
-        }
-
-        dl.finish()
-    }
-}
-
-impl std::fmt::Debug for TokenizerStackEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Entry")
-            .field("descent", &self.descent)
-            .field("node", &self.node.props.name)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct PortOptions {
-    additional_offset: addr::Size,
-    prefer_after_new_node: bool,
-}
-
-pub struct PortOptionsBuilder {
-    options: PortOptions,
-}
-
-#[derive(Debug)]
-enum PortStackMode {
-    Normal,
-    Summary,
-    // TODO: ChildrenDisplaySetToNone,
-
-    /* Even if nodes get deleted, we need to descend into their stack entries and sum up their offsets to figure out where in the parent node we should be. */
-    Deleted {
-        /* PortStackState::node represents the parent node that had its child deleted. This represents a child on the old hierarchy, used for building offset_within_parent. */
-        node: sync::Arc<structure::Node>,
-        first_deleted_child_index: usize,
-        offset_within_parent: addr::Size,
-        summary: bool,
-    },
-
-    /* We processed a node that got destructured, but didn't push it onto the stack. */
-    Destructuring {
-        destructured_childhood: structure::Childhood,
-        destructured_child_index: usize,
-        summary: bool,
-    },
-}
-
-struct PortStackState {
-    mode: PortStackMode,
-    current_path: structure::Path,
-    new_stack: Option<sync::Arc<TokenizerStackEntry>>,
-    depth: usize,
-    node_addr: addr::Address,
-    node: sync::Arc<structure::Node>,
-}
-
-impl std::fmt::Debug for PortStackState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PortStackState")
-            .field("mode", &self.mode)
-            .field("current_path", &self.current_path)
-            .field("new_stack", &TokenizerStackDebugHelper(&self.new_stack))
-            .field("depth", &self.depth)
-            .field("node_addr", &self.node_addr)
-            .field("node", &self.node.props.name)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Debug)]
-enum SummaryPortMapping {
-    Beginning,
-    Child(usize),
-    Content(addr::Address),
-    End,
-}
-
-#[derive(Debug)]
-enum IntermediatePortState {
-    Finished(TokenizerState),
-
-    NormalContent(Option<addr::Address>, usize),
-    SummaryLabel(usize),
-    SummarySeparator(usize),
-}
-
-impl PortOptionsBuilder {
-    pub fn new() -> PortOptionsBuilder {
-        PortOptionsBuilder {
-            options: PortOptions::default()
-        }
-    }
-
-    pub fn additional_offset(mut self, offset: addr::Size) -> PortOptionsBuilder {
-        self.options.additional_offset = offset;
-        self
-    }
-
-    pub fn prefer_after_new_node(mut self) -> PortOptionsBuilder {
-        self.options.prefer_after_new_node = true;
-        self
-    }
-    
-    pub fn build(self) -> PortOptions {
-        self.options
-    }
-}
-
-impl Default for PortOptionsBuilder {
-    fn default() -> PortOptionsBuilder {
-        Self::new()
-    }
+#[derive(PartialEq, Eq)]
+enum MovementResult {
+    Ok,
+    HitBoundary
 }
 
 impl Tokenizer {
@@ -223,360 +78,25 @@ impl Tokenizer {
     pub fn at_beginning(root: sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
             stack: None,
-            state: TokenizerState::PreBlank,
-            depth: 0,
-            node: root,
-            node_addr: addr::unit::NULL,
+            mode: Mode::Normal(normal::State::PreBlank),
+            common: CommonFields {
+                node: root,
+                node_absolute_addr: addr::unit::NULL,
+                actual_depth: 0,
+                visual_depth: 0,
+            }
         }
     }
 
     /// Creates a new tokenizer positioned at a specific offset within the node at the given path.
     pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Tokenizer {
-        let mut node = &root;
-        let mut node_addr = addr::unit::NULL;
-        let mut depth = 0;
-        let mut stack = None;
-        let mut summary_prev = false;
-        let mut summary_next = match root.props.children_display {
-            structure::ChildrenDisplay::Summary => true,
-            _ => false
-        };
-                
-        for child_index in path {
-            if !summary_prev && summary_next {
-                stack = Some(sync::Arc::new(TokenizerStackEntry {
-                    stack: stack.take(),
-                    descent: TokenizerDescent::MySummary,
-                    depth,
-                    node: node.clone(),
-                    node_addr,
-                }));
-            }
-
-            summary_prev = summary_next;
-
-            stack = Some(sync::Arc::new(TokenizerStackEntry {
-                stack: stack.take(),
-                descent: if summary_prev { TokenizerDescent::ChildSummary(*child_index) } else { TokenizerDescent::Child(*child_index) },
-                depth,
-                node: node.clone(),
-                node_addr,
-            }));
-
-            let childhood = &node.children[*child_index];
-            node = &childhood.node;
-            node_addr+= childhood.offset.to_size();
-            depth+= 1;
-
-            summary_next = summary_next || match node.props.children_display {
-                structure::ChildrenDisplay::Summary => true,
-                _ => false
-            };
-        }
-        
-        let mut tokenizer = Tokenizer {
-            stack,
-            state: TokenizerState::PreBlank,
-            depth,
-            node: node.clone(),
-            node_addr
-        };
-
-        tokenizer.seek_in_node_to_offset(offset);
-        
-        tokenizer
+        todo!();
     }
     
-    /// Applies a single change to the tokenizer state.
-    #[instrument]
-    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
-        /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
-        let stack_state = match &self.stack {
-            Some(parent) => Self::port_recurse(parent, new_root, change),
-            None => PortStackState::new(new_root.clone())
-        };
-
-        /* Convert our old state into an intermediate state that allows us to represent that we might not know the offset yet, or might not care about figuring it out. */
-        let mut intermediate_state = match &stack_state.mode {
-            /* We were in a child that got deleted. Our old state tells us about where we were in the child. */
-            PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent, summary: false } => {
-                let offset_within_child = match &self.state {
-                    TokenizerState::MetaContent(offset, _) => *offset,
-                    TokenizerState::Hexdump(extent, _) => extent.begin,
-                    TokenizerState::Hexstring(extent, _) => extent.begin,
-                    _ => addr::unit::NULL
-                };
-                
-                IntermediatePortState::NormalContent(Some(offset_within_child + *offset_within_parent), *first_deleted_child_index)
-            },
-            PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent: _,  summary: true  } => IntermediatePortState::SummaryLabel(*first_deleted_child_index),
-
-            /* We were in a child that got destructured. Our old state tells us about where we were in that child. */
-            PortStackMode::Destructuring { destructured_childhood, destructured_child_index, summary: false } => match &self.state {
-                TokenizerState::PreBlank | TokenizerState::Title | TokenizerState::SummaryOpener | TokenizerState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
-                
-                TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
-                TokenizerState::Hexdump(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
-
-                TokenizerState::SummaryLabel(i) | TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
-
-                TokenizerState::SummaryValueEnd | TokenizerState::SummaryNewline | TokenizerState::SummaryCloser | TokenizerState::PostBlank | TokenizerState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
-            },
-            // TODO: try harder here
-            PortStackMode::Destructuring { destructured_child_index, summary: true, .. } => IntermediatePortState::SummaryLabel(*destructured_child_index),
-            
-            PortStackMode::Normal => match &self.state {
-                TokenizerState::PreBlank =>
-                    IntermediatePortState::Finished(TokenizerState::PreBlank),
-                TokenizerState::Title =>
-                    IntermediatePortState::Finished(TokenizerState::Title),
-                
-                TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
-                TokenizerState::Hexdump(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
-                TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
-
-                TokenizerState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
-                TokenizerState::SummaryLabel(i) => IntermediatePortState::NormalContent(None, *i),
-                TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, *i),
-                TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::End),
-                TokenizerState::SummaryNewline => IntermediatePortState::Finished(TokenizerState::PostBlank),
-                TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::Title),
-                TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
-                TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::End),
-
-                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::PostBlank),
-                TokenizerState::End => IntermediatePortState::Finished(TokenizerState::End),
-            },
-
-            PortStackMode::Summary => match &self.state {
-                TokenizerState::PreBlank =>
-                    IntermediatePortState::Finished(TokenizerState::PreBlank),
-                TokenizerState::Title =>
-                    IntermediatePortState::Finished(TokenizerState::Title),
-                
-                TokenizerState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
-                TokenizerState::Hexdump(_, index) => IntermediatePortState::SummaryLabel(*index),
-                TokenizerState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
-
-                TokenizerState::SummaryOpener => IntermediatePortState::Finished(TokenizerState::SummaryOpener),
-                TokenizerState::SummaryLabel(i) => IntermediatePortState::SummaryLabel(*i),
-                TokenizerState::SummarySeparator(i) => IntermediatePortState::SummarySeparator(*i),
-                TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
-                TokenizerState::SummaryNewline => IntermediatePortState::Finished(TokenizerState::SummaryNewline),
-                TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::SummaryValueBegin),
-                TokenizerState::SummaryLeaf => IntermediatePortState::Finished(TokenizerState::SummaryLeaf),
-                TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::SummaryValueEnd),
-
-                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::SummaryNewline),
-                TokenizerState::End => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
-            }
-        };
-
-        let is_summary = match &stack_state.mode {
-            PortStackMode::Normal => false,
-            PortStackMode::Summary => true,
-            PortStackMode::Deleted { summary, .. } => *summary,
-            PortStackMode::Destructuring { summary, .. } => *summary,
-        };
-        
-        *self = Tokenizer {
-            stack: stack_state.new_stack,
-            state: TokenizerState::End, /* this is a placeholder. we finalize the details later... */
-            depth: stack_state.depth,
-            node: stack_state.node,
-            node_addr: stack_state.node_addr,
-        };
-        
-        /* If intermediate state is Finished, go ahead and finish up. Otherwise, get references to the (offset, index) that we need to adjust. */
-        let mut dont_care_offset = None;
-        let (offset, index) = match intermediate_state {
-            IntermediatePortState::Finished(finalized_state) => {
-                self.state = finalized_state;
-                return;
-            },
-            
-            IntermediatePortState::NormalContent(ref mut offset, ref mut index) => (offset, index),
-            IntermediatePortState::SummaryLabel(ref mut index) => (&mut dont_care_offset, index),
-            IntermediatePortState::SummarySeparator(ref mut index) => (&mut dont_care_offset, index),
-        };
-
-        /* Respect the additional offset that the options requested. */
-        if let Some(offset) = offset.as_mut() {
-            *offset = *offset + options.additional_offset;
-        }
-        
-        /* Adjust the offset and index. */
-        match &change.ty {
-            change::ChangeType::AlterNode { .. } => {},
-            
-            change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
-                /* A new child was added to the node we're on. */
-                if *index == *affected_index && options.prefer_after_new_node {
-                    /* options said we should place after the new node, so do so. */
-                    *index+= 1;
-                    *offset = Some(new_childhood.end());
-                } else if let Some(offset) = offset.as_mut() {
-                    if new_childhood.extent().includes(*offset) {
-                        /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
-                        self.descend(if is_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
-
-                        *index = 0;
-                        *offset-= new_childhood.offset.to_size();
-                    } else if *index >= *affected_index {
-                        *index+= 1;
-                    }
-                } else if *index >= *affected_index {
-                    /* If the new node was inserted before the child we were on, need to bump our child index unless we already descended into the inserted child. */
-                    *index+= 1;
-                }
-            },
-            
-            change::ChangeType::Nest { parent, first_child, last_child, extent, props: _ } if parent == &stack_state.current_path => {
-                /* Children were nested on this node */
-                let new_nest = &self.node.children[*first_child];
-                
-                if (*first_child..=*last_child).contains(index) || offset.map_or(false, |o| extent.includes(o)) {
-                    if options.prefer_after_new_node {
-                        /* options said we should place after the new node, so do so. */
-                        *index = first_child + 1;
-                        *offset = Some(new_nest.end());
-                    } else {
-                        /* descend into the new node. */
-                        let new_nest_offset = new_nest.offset;
-                        
-                        self.descend(if is_summary { TokenizerDescent::ChildSummary(*first_child) } else { TokenizerDescent::Child(*first_child) }, TokenizerState::End);
-
-                        // TODO: is there something more helpful we could do here?
-                        *index = 0;
-                        
-                        if let Some(offset) = offset.as_mut() {
-                            *offset-= new_nest_offset.to_size();
-                        }
-                    }
-                } else if *index > *last_child {
-                    /* If the new node was nested before the child we were on, need to adjust our child index */
-                    *index-= last_child-first_child;
-                }
-            },
-
-            change::ChangeType::Destructure { parent, .. } if parent == &stack_state.current_path => {
-                /* Handled by PortStackMode::Destructuring, so we don't have to deal with it here. */
-            },
-
-            /* If the node we were on (or an ancestor of it) were deleted, that was already handled by port_recurse. Here we're only worried about our direct children (that we're not positioned on) being deleted. */
-            change::ChangeType::DeleteRange { parent, first_child, last_child } if parent == &stack_state.current_path => {
-                if (*first_child..=*last_child).contains(index) {
-                    *index = *first_child;
-                } else if *index > *last_child {
-                    *index-= last_child-first_child+1;
-                }
-            },
-            
-            /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
-            change::ChangeType::Nest { .. } => {},
-            change::ChangeType::Destructure { .. } => {},
-            change::ChangeType::InsertNode { .. } => {},
-            change::ChangeType::DeleteRange { .. } => {},
-        };
-
-        /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
-        let children = &self.node.children;
-        self.state = match intermediate_state {
-            /* This should've been handled earlier, but whatever. */
-            IntermediatePortState::Finished(finalized_state) => finalized_state,
-
-            IntermediatePortState::NormalContent(offset, index) => TokenizerState::MetaContent(self.get_line_begin(offset.unwrap_or_else(|| children[index].offset), index), index),
-
-            /* Real TokenizerState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
-            IntermediatePortState::SummaryLabel(index) if index < children.len() => TokenizerState::SummaryLabel(index),
-            IntermediatePortState::SummarySeparator(index) if index < children.len() => TokenizerState::SummarySeparator(index),
-            IntermediatePortState::SummaryLabel(_) => TokenizerState::SummaryCloser,
-            IntermediatePortState::SummarySeparator(_) => TokenizerState::SummaryCloser,
-        };
-
-        /* Adjust our stream position to actually be on a token. */
-        while match self.gen_token() {
-            TokenGenerationResult::Skip => true,
-            _ => false
-        } {
-            self.move_next();
-        }
-    }
-
-    /// Used to recurse to the base of the tokenizer stack so we can start porting from the top down. Returns whether or not to keep going.
-    #[instrument]
-    fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> PortStackState {
-        match &tok.stack {
-            Some(parent) => {
-                let mut state = Self::port_recurse(parent, new_root, change);
-                Self::port_stack_entry(&mut state, tok, change);
-                state
-            },
-            None => {
-                /* reached root */
-                let mut state = PortStackState::new(new_root.clone());
-                Self::port_stack_entry(&mut state, tok, change);
-                state
-            }
-        }
-    }
-
-    /// Applies a change to a single item in the tokenizer stack. If we need to stop descending in the middle of the stack, return the 
-    #[instrument]
-    fn port_stack_entry(state: &mut PortStackState, old_tok: &TokenizerStackEntry, change: &change::Change) {
-        /* This logic more-or-less mirrors change::update_path */
-        let child_index = match old_tok.descent {
-            TokenizerDescent::Child(child_index) | TokenizerDescent::ChildSummary(child_index) => child_index,
-            
-            /* This is handled implicitly by PortStackState::push behavior. */
-            TokenizerDescent::MySummary => return,
-        };
-        
-        match &change.ty {
-            change::ChangeType::AlterNode { .. } => state.push(child_index),
-            change::ChangeType::InsertNode { parent: path, index: after_child, child: _ } => {
-                if path == &state.current_path && child_index >= *after_child {
-                    state.push(child_index + 1);
-                } else {
-                    state.push(child_index);
-                }
-            },
-            change::ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } => {
-                if parent == &state.current_path {
-                    if (*first_child..=*last_child).contains(&child_index) {
-                        state.push(*first_child);
-                        state.push(child_index - first_child);
-                    } else if child_index > *last_child {
-                        state.push(child_index - (last_child-first_child));
-                    }
-                } else {
-                    state.push(child_index);
-                }
-            },
-            change::ChangeType::Destructure { parent, child_index: destructured_child, num_grandchildren, offset } => {
-                if parent == &state.current_path {
-                    state.destructured(*destructured_child, child_index, *num_grandchildren, *offset, &old_tok.node.children[*destructured_child]);
-                } else {
-                    state.push(child_index);
-                }
-            },
-            change::ChangeType::DeleteRange { parent, first_child, last_child } => {
-                if parent == &state.current_path {
-                    if (*first_child..=*last_child).contains(&child_index) {
-                        state.deleted(*first_child, child_index, &old_tok.node);
-                    } else if child_index > *last_child {
-                        state.push(child_index - (last_child-first_child+1));
-                    }
-                } else {
-                    state.push(child_index);
-                }
-            },
-        }
-    }
-
     fn seek_in_node_to_offset(&mut self, offset: addr::Address) {
+        todo!();
+
+        /*
         let index = self.node.children.partition_point(|ch| ch.offset < offset);
         
         self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
@@ -586,463 +106,53 @@ impl Tokenizer {
             _ => false
         } {
             self.move_next();
-        }
+    }
+        */
     }
     
     /// Creates a new tokenizer seeked to the end of the token stream.
     pub fn at_end(root: &sync::Arc<structure::Node>) -> Tokenizer {
         Tokenizer {
             stack: None,
-            state: TokenizerState::End,
-            depth: 0,
-            node: root.clone(),
-            node_addr: addr::unit::NULL,
+            mode: Mode::Normal(normal::State::End),
+            common: CommonFields {
+                node: root.clone(),
+                node_addr: addr::unit::NULL,
+                actual_depth: 0,
+                visual_depth: 0,
+            },
         }
     }
 
     /// Returns the token at the current position, or Skip if the current position in the stream doesn't generate a token.
     pub fn gen_token(&self) -> TokenGenerationResult {
-        match self.state {
-            TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Empty,
-                        accepts_cursor: false,
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
-                    newline: true,
-                })
-            } else {
-                TokenGenerationResult::Skip
-            },
-            TokenizerState::Title => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Title,
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-                newline: !self.node.props.title_display.is_inline(),
-            }),
-            
-            TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump(extent, _) => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Hexdump(extent),
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth + 1,
-                newline: true,
-            }),
-            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Hexstring(extent),
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth + 1,
-                newline: true,
-            }),
-            
-            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::OpenBracket,
-                    accepts_cursor: true,
-                },
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-                newline: false,
-            }),
-            TokenizerState::SummaryLabel(i) => {
-                let ch = &self.node.children[i];
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::SummaryLabel,
-                    node: ch.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr + ch.offset.to_size(),
-                    depth: self.depth,
-                    newline: false,
-                })
-            },
-            TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
-                TokenGenerationResult::Ok(token::Token {  
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Comma,
-                        accepts_cursor: false,
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
-                    newline: false,
-                })
-            } else {
-                TokenGenerationResult::Skip
-            },
-            TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::CloseBracket,
-                    accepts_cursor: true,
-                },
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-                newline: false,
-            }),
-            TokenizerState::SummaryNewline => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::Empty,
-                    accepts_cursor: false,
-                },
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-                newline: true,
-            }),
-            
-            TokenizerState::SummaryValueBegin => TokenGenerationResult::Skip,
-            TokenizerState::SummaryLeaf => {
-                let limit = std::cmp::min(16.into(), self.node.size);
-                let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
-                
-                TokenGenerationResult::Ok(token::Token {
-                    class: match self.node.props.content_display {
-                        structure::ContentDisplay::None => token::TokenClass::Punctuation {
-                            class: token::PunctuationClass::Empty,
-                            accepts_cursor: true,
-                        },
-                        structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexdump(extent),
-                        structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
-                    newline: false,
-                })
-            },
-            TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
-
-            TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Empty,
-                        accepts_cursor: true,
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth + 1,
-                    newline: true,
-                })
-            } else {
-                TokenGenerationResult::Skip
-            },
-            TokenizerState::End => TokenGenerationResult::Skip,
+        match self.mode {
+            Mode::Normal(ns) => ns.gen_token(&self.common),
+            Mode::SummaryBranch(sbs) => sbs.gen_token(&self.common),
+            Mode::SummaryLeaf(sls) => sls.gen_token(&self.common),
         }
-    }
-
-    fn get_line_begin(&self, offset: addr::Address, index: usize) -> addr::Address {
-        /* Where would we *like* to begin, as decided by our content's preferred pitch? */
-        let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * (offset.to_size() / pitch)).to_addr()
-        });
-
-        /* Figure out whether there are any children that we need to not intrude upon. */
-        let prev_child_option = match index {
-            0 => None,
-            /* Something is seriously wrong if index was farther than one-past-the-end. */
-            i => Some((i-1, &self.node.children[i-1]))
-        };
-
-        /* Where can we not begin before? */
-        let limit = match prev_child_option {
-            /* Can't include data from the child, so need to stop after its end. */
-            Some((_, prev_child)) => prev_child.end(),
-            /* Can't include data that belongs to the parent, so need to stop before our begin. */
-            None => addr::unit::NULL,
-        };
-        
-        /* Pick a place to begin this line. */
-        preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit))
-    }
-
-    fn get_line_end(&self, offset: addr::Address, index: usize) -> addr::Address {
-        /* Where would we *like* to end, as decided by our content's preferred pitch? */
-        let preferred_end = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
-        });
-
-        /* Figure out whether there are any children that we need to not intrude upon. */
-        let next_child_option = self.node.children.get(index).map(|child| (index, child));
-
-        /* Where can we not end beyond? */
-        let limit = match next_child_option {
-            /* Can't include data from the child, so need to stop before it begins. */
-            Some((_, next_child)) => next_child.offset,
-            /* Can't include data that belongs to the parent, so need to stop before we end. */
-            None => self.node.size.to_addr(),
-        };
-
-        /* Pick a place to end this line. */
-        preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit))
     }
     
     /// Moves one position backwards in the stream.
-    /// Returns true when successful, or false if hit the beginning of the token stream.
-    fn move_prev(&mut self) -> bool {
-        match self.state {
-            TokenizerState::PreBlank => {
-                self.try_ascend(AscendDirection::Prev)
-            },
-            TokenizerState::Title => {
-                self.state = TokenizerState::PreBlank;
-                true
-            },
-            
-            TokenizerState::MetaContent(offset, index) => {
-                let prev_child_option = match index {
-                    0 => None,
-                    /* Something is seriously wrong if index was farther than one-past-the-end. */
-                    i => Some((i-1, &self.node.children[i-1]))
-                };
-
-                /* Descend, if we can. */
-                if let Some((prev_child_index, prev_child)) = prev_child_option {
-                    if prev_child.end() >= offset {
-                        self.descend(
-                            TokenizerDescent::Child(prev_child_index),
-                            /* Descend to thse end of the child. */
-                            TokenizerState::End);
-
-                        return true;
-                    }
-                }
-
-                /* Emit content, if we can. */
-                if offset > addr::unit::NULL {
-                    let extent = addr::Extent::between(self.get_line_begin(offset - addr::unit::BIT, index), offset);
-                        
-                    self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
-                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
-                    };
-                    
-                    return true;
-                }
-                
-                /* We're pointed at the beginning. Emit the title block. */
-                self.state = TokenizerState::Title;
-                true
-            },
-            TokenizerState::Hexstring(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.begin, index);
-                true
-            },
-            TokenizerState::Hexdump(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.begin, index);
-                true
-            },
-
-            TokenizerState::SummaryOpener => {
-                self.try_ascend(AscendDirection::Prev)
-            },
-            TokenizerState::SummaryLabel(i) => {
-                if i == 0 {
-                    self.state = TokenizerState::SummaryOpener;
-                } else {
-                    self.state = TokenizerState::SummarySeparator(i-1);
-                }
-                true
-            },
-            TokenizerState::SummarySeparator(i) => {
-                self.descend(
-                    TokenizerDescent::ChildSummary(i),
-                    TokenizerState::SummaryValueEnd);
-                true
-            },
-            TokenizerState::SummaryCloser => {
-                if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryOpener;
-                } else {
-                    self.state = TokenizerState::SummarySeparator(self.node.children.len()-1);
-                }
-                true
-            },
-            TokenizerState::SummaryNewline => {
-                self.descend(
-                    TokenizerDescent::MySummary,
-                    TokenizerState::SummaryCloser);
-                true
-            },
-            
-            TokenizerState::SummaryValueBegin => {
-                // should take us to SummaryLabel(i)
-                self.try_ascend(AscendDirection::Prev)
-            },
-            TokenizerState::SummaryLeaf => {
-                self.state = TokenizerState::SummaryValueBegin;
-                true
-            },
-            TokenizerState::SummaryValueEnd => {
-                if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryLeaf;
-                } else {
-                    self.state = TokenizerState::SummaryCloser;
-                }
-                true
-            },
-
-            TokenizerState::PostBlank => {
-                match self.node.props.children_display {
-                    structure::ChildrenDisplay::None => {
-                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
-                    },
-                    structure::ChildrenDisplay::Summary => {
-                        self.state = TokenizerState::SummaryNewline;
-                    },
-                    structure::ChildrenDisplay::Full => {
-                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
-                    },
-                }
-                true
-            },
-            TokenizerState::End => {
-                self.state = TokenizerState::PostBlank;
-                true
-            },
+    fn move_prev(&mut self) -> MovementResult {
+        match mem::replace(&mut self.mode, Mode::Invalid) {
+            Mode::Normal(ns) => ns.move_prev(self),
+            Mode::SummaryBranch(sbs) => sbs.move_prev(self),
+            Mode::SummaryLeaf(sls) => sls.move_prev(self)
         }
     }
 
     /// Moves one position forwards in the stream.
-    /// Returns true when successful, or false if hit the end of the token stream.
-    fn move_next(&mut self) -> bool {
-        match self.state {
-            TokenizerState::PreBlank => {
-                self.state = TokenizerState::Title;
-                true
-            },
-            TokenizerState::Title => {
-                match self.node.props.children_display {
-                    structure::ChildrenDisplay::None => {
-                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
-                    },
-                    structure::ChildrenDisplay::Summary => {
-                        self.descend(
-                            TokenizerDescent::MySummary,
-                            TokenizerState::SummaryOpener);
-                    },
-                    structure::ChildrenDisplay::Full => {
-                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
-                    },
-                }
-                true
-            },
-            TokenizerState::MetaContent(offset, index) => {
-                let next_child_option = self.node.children.get(index).map(|child| (index, child));
-                
-                /* Descend, if we can. */
-                if let Some((next_child_index, next_child)) = next_child_option {
-                    if next_child.offset <= offset {
-                        self.descend(
-                            TokenizerDescent::Child(next_child_index),
-                            /* Descend to the beginning of the child. */
-                            TokenizerState::PreBlank);
-
-                        return true;
-                    }
-                }
-
-                /* Emit content, if we can. */
-                if offset < self.node.size.to_addr() {
-                    let extent = addr::Extent::between(offset, self.get_line_end(offset, index));
-
-                    self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.end, index),
-                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
-                    };
-
-                    return true;
-                }
-
-                /* We were pointed at (or past!) the end. */
-                self.state = TokenizerState::PostBlank;
-                true
-            },
-            TokenizerState::Hexstring(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.end, index);
-                true
-            },
-            TokenizerState::Hexdump(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.end, index);
-                true
-            },
-
-            TokenizerState::SummaryOpener => {
-                if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryCloser;
-                } else {
-                    self.state = TokenizerState::SummaryLabel(0);
-                }
-                true
-            },
-            TokenizerState::SummaryLabel(i) => {
-                self.descend(
-                    TokenizerDescent::ChildSummary(i),
-                    TokenizerState::SummaryValueBegin);
-                true
-            },
-            TokenizerState::SummarySeparator(i) => {
-                if self.node.children.len() == i + 1 {
-                    self.state = TokenizerState::SummaryCloser;
-                } else {
-                    self.state = TokenizerState::SummaryLabel(i+1);
-                }
-                true
-            },
-            TokenizerState::SummaryCloser => {
-                self.try_ascend(AscendDirection::Next)
-            },
-            TokenizerState::SummaryNewline => {
-                self.state = TokenizerState::PostBlank;
-                true
-            },
-
-            TokenizerState::SummaryValueBegin => {
-                if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryLeaf;
-                } else {
-                    self.state = TokenizerState::SummaryOpener;
-                }
-                true
-            },
-            TokenizerState::SummaryLeaf => {
-                self.state = TokenizerState::SummaryValueEnd;
-                true
-            },
-            TokenizerState::SummaryValueEnd => {
-                self.try_ascend(AscendDirection::Next)
-            },
-
-            TokenizerState::PostBlank => {
-                self.state = TokenizerState::End;
-                true
-            },
-            TokenizerState::End => {
-                self.try_ascend(AscendDirection::Next)
-            },
+    fn move_next(&mut self) -> MovementResult {
+        match mem::replace(&mut self.mode, Mode::Invalid) {
+            Mode::Normal(ns) => ns.move_next(self),
+            Mode::SummaryBranch(sbs) => sbs.move_next(self),
+            Mode::SummaryLeaf(sls) => sls.move_next(self)
         }
     }
     
     pub fn prev(&mut self) -> Option<token::Token> {
-        while self.move_prev() {
+        while self.move_prev() == MovementResult::Ok {
             match self.gen_token() {
                 TokenGenerationResult::Ok(token) => return Some(token),
                 TokenGenerationResult::Skip => continue,
@@ -1053,9 +163,7 @@ impl Tokenizer {
     }
     /// Use this when you're trying to have the tokenizer's position represent an element.
     pub fn next_preincrement(&mut self) -> Option<token::Token> {
-        while {
-            self.move_next()
-        } {
+        while self.move_next() == MovementResult::Ok {
             match self.gen_token() {
                 TokenGenerationResult::Ok(token) => return Some(token),
                 TokenGenerationResult::Skip => continue,
@@ -1070,7 +178,7 @@ impl Tokenizer {
         let mut token;
         while {
             token = self.gen_token();
-            self.move_next()
+            self.move_next() == MovementResult::Ok
         } {
             match token {
                 TokenGenerationResult::Ok(token) => return Some(token),
@@ -1915,5 +1023,41 @@ mod tests {
                 PortOptionsBuilder::new().build()
             ),
         ]);
+    }
+}
+
+
+struct TokenizerStackDebugHelper<'a>(&'a Option<sync::Arc<TokenizerStackEntry>>);
+
+impl std::fmt::Debug for Tokenizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tokenizer")
+            .field("state", &self.state)
+            .field("node", &self.node.props.name)
+            .field("stack", &TokenizerStackDebugHelper(&self.stack))
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut dl = f.debug_list();
+        let mut i = self.0;
+
+        while let Some(entry) = i {
+            dl.entry(entry);
+            i = &entry.stack;
+        }
+
+        dl.finish()
+    }
+}
+
+impl std::fmt::Debug for TokenizerStackEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Entry")
+            .field("descent", &self.descent)
+            .field("node", &self.node.props.name)
+            .finish_non_exhaustive()
     }
 }
