@@ -20,7 +20,7 @@
       <indent>
 	<hexstring node="hexstring" begin="0x0" end="0x10" nl="true" />
       </indent>
+      <null node="root" nl="true" cursor="true" />
     </indent>
-    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>

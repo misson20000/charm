@@ -1739,7 +1739,7 @@ mod tests {
             },
             token::Token {
                 class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: true },
-                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 1, newline: true
+                node: child.clone(), node_path: vec![0], node_addr: 0x32.into(), depth: 2, newline: true
             },
             /* root */
             token::Token {
@@ -1756,7 +1756,7 @@ mod tests {
             },
             token::Token {
                 class: token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor: true },
-                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 0, newline: true
+                node: root.clone(), node_path: vec![], node_addr: 0.into(), depth: 1, newline: true
             },
         ];
 

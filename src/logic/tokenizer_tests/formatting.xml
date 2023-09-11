@@ -25,7 +25,7 @@
       <hexdump node="root" begin="0x40" end="0x50" nl="true" />
       <hexdump node="root" begin="0x50" end="0x60" nl="true" />
       <hexdump node="root" begin="0x60" end="0x70" nl="true" />
+      <null node="root" nl="true" cursor="true" />
     </indent>
-    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>

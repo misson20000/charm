@@ -72,8 +72,8 @@
 
       <hexdump node="root" begin="0x30" end="0x40" nl="true" />
       <hexdump node="root" begin="0x40" end="0x50" nl="true" />
+
+      <null node="root" nl="true" cursor="true" />
     </indent>
-    
-    <null node="root" nl="true" cursor="true" />
   </tokens>
 </testcase>
