@@ -6,14 +6,31 @@ use crate::model::document::structure;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
+#[derive(Clone)]
+pub struct Selection {
+    pub document: sync::Arc<document::Document>,
+    root: SparseNode,
+
+    version: versioned::Version<Selection>,
+}
+
+pub struct TreeIter<'a> {
+    selection: &'a Selection,
+    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a sync::Arc<structure::Node>)>,
+    current_sparse: SparseNodeOrAllGrandchildren<'a>,
+    current_struct: &'a sync::Arc<structure::Node>,
+    child_index: Option<usize>,
+}
+
+
 #[derive(Clone, Debug)]
-pub struct SparseNode {
+struct SparseNode {
     self_selected: bool,
     children_selected: ChildrenMode,
 }
 
 #[derive(Clone, Debug)]
-pub enum ChildrenMode {
+enum ChildrenMode {
     None,
 
     Mixed(Vec<SparseNode>),
@@ -25,25 +42,9 @@ pub enum ChildrenMode {
     AllGrandchildren,
 }
 
-#[derive(Clone)]
-pub struct Selection {
-    pub document: sync::Arc<document::Document>,
-    pub root: SparseNode,
-
-    version: versioned::Version<Selection>,
-}
-
 enum SparseNodeOrAllGrandchildren<'a> {
     Node(&'a SparseNode),
     AllGrandchildren
-}
-
-pub struct TreeIter<'a> {
-    selection: &'a Selection,
-    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a sync::Arc<structure::Node>)>,
-    current_sparse: SparseNodeOrAllGrandchildren<'a>,
-    current_struct: &'a sync::Arc<structure::Node>,
-    child_index: Option<usize>,
 }
 
 impl Selection {
