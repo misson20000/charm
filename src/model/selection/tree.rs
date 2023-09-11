@@ -227,6 +227,7 @@ pub enum Change {
     
     SetSingle(sync::Arc<document::Document>, structure::Path),
     AddSingle(sync::Arc<document::Document>, structure::Path),
+    RemoveSingle(sync::Arc<document::Document>, structure::Path),
         
     SelectAll,
 }
@@ -310,6 +311,27 @@ impl versioned::Change<Selection> for Change {
 
                 /* Apply change */
                 selection.root.add_single(&document.root, &path[..]);
+                
+                cr.selection_changed = true;
+                
+                cr
+            },
+            
+            Change::RemoveSingle(document, path) => {
+                /* Handle outdated Selection document */
+                let mut cr = selection.update_document(document);
+
+                /* Handle outdated Change document */
+                selection.document.changes_since_fallible(&document.clone(), &mut |doc, change| {
+                    *document = doc.clone();
+                    match change.update_path(path) {
+                        doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => Ok(()),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => Err(ApplyError::NodeDeleted),
+                    }
+                })?;
+
+                /* Apply change */
+                selection.root.remove_single(&document.root, &path[..]);
                 
                 cr.selection_changed = true;
                 
@@ -400,6 +422,39 @@ impl SparseNode {
 
                 ChildrenMode::Mixed(vec) => {
                     vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                },
+            }
+        }
+
+        self.canonicalize(node);
+    }
+
+    fn remove_single(&mut self, node: &structure::Node, remaining_path: structure::PathSlice) {
+        if remaining_path.len() == 0 {
+            self.self_selected = false;
+        } else {
+            match &mut self.children_selected {
+                /* Nothing needs to be done. */
+                ChildrenMode::None => (),
+
+                ChildrenMode::Mixed(vec) => {
+                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                },
+
+                ChildrenMode::AllDirect => {
+                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    self.children_selected = ChildrenMode::Mixed(vec);
+                },
+
+                ChildrenMode::AllGrandchildren => {
+                    let mut vec = Vec::new();
+                    vec.resize(node.children.len(), Self {
+                        self_selected: true,
+                        children_selected: ChildrenMode::AllGrandchildren,
+                    });
+                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    self.children_selected = ChildrenMode::Mixed(vec);
                 },
             }
         }
@@ -536,14 +591,74 @@ mod tests {
             vec![1, 0, 2],
         ];
 
-        let mut paths_in_selection = vec![];
-        let mut selection = Selection::new(document.clone());
+        {
+            let mut paths_in_selection = vec![];
+            let mut selection = Selection::new(document.clone());
 
-        for path in &paths {
-            paths_in_selection.push(path);
-            selection.root.add_single(&document.root, &path[..]);
-            
-            itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
+            for path in paths.iter() {
+                paths_in_selection.push(path);
+                selection.root.add_single(&document.root, &path[..]);
+                
+                itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
+            }
+        }
+
+        {
+            let mut paths_in_selection = vec![];
+            let mut selection = Selection::new(document.clone());
+
+            for path in paths.iter().rev() {
+                paths_in_selection.insert(0, path);
+                selection.root.add_single(&document.root, &path[..]);
+                
+                itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
+            }
+        }        
+    }
+
+    #[test]
+    fn test_remove_single() {
+        let root = create_simple_test_structure();
+        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+
+        let paths = vec![
+            vec![],
+            vec![0],
+            vec![1],
+            vec![1, 0],
+            vec![1, 0, 0],
+            vec![1, 0, 1],
+            vec![1, 0, 2],
+        ];
+
+        {
+            let mut paths_in_selection: Vec<&Vec<usize>> = paths.iter().collect();
+            let mut selection = Selection::new(document.clone());
+            selection.root.self_selected = true;
+            selection.root.children_selected = ChildrenMode::AllGrandchildren;
+
+            for path in paths.iter() {
+                paths_in_selection.retain(|candidate| !std::ptr::eq(*candidate, path));
+                
+                selection.root.remove_single(&document.root, &path[..]);
+                
+                itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
+            }
+        }
+
+        {
+            let mut paths_in_selection: Vec<&Vec<usize>> = paths.iter().collect();
+            let mut selection = Selection::new(document.clone());
+            selection.root.self_selected = true;
+            selection.root.children_selected = ChildrenMode::AllGrandchildren;
+
+            for path in paths.iter().rev() {
+                paths_in_selection.retain(|candidate| !std::ptr::eq(*candidate, path));
+                
+                selection.root.remove_single(&document.root, &path[..]);
+                
+                itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
+            }
         }
     }
     
