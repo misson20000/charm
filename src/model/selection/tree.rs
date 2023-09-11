@@ -315,6 +315,45 @@ impl SparseNode {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_create_sparse_node_for_single() {
+        let root = structure::Node::builder()
+            .name("root")
+            .child(0x0, |b| b
+                   .name("child0"))
+            .child(0x0, |b| b
+                   .name("child1")
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .child(0x0, |b| b
+                                 .name("child1.0.0"))
+                          .child(0x0, |b| b
+                                 .name("child1.0.1"))
+                          .child(0x0, |b| b
+                                 .name("child1.0.2"))))
+            .build();
+
+        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+
+        for path in [
+            /* Test SparseNode::new_single for each of these paths */
+            vec![0],
+            vec![1],
+            vec![1, 0],
+            vec![1, 0, 0],
+            vec![1, 0, 1],
+            vec![1, 0, 2],
+        ] {
+            /* We'll test it by making a selection with the SparseNode and iterating over all the nodes in the
+             * selection. There should only ever be one. */
+            itertools::assert_equal(Selection {
+                document: document.clone(),
+                root: SparseNode::new_single(&document.root, &path),
+                version: Default::default(),
+            }.node_iter().map(|node| sync::Arc::as_ptr(node)), [sync::Arc::as_ptr(document.lookup_node(&path).0)]);
+        }
+    }
+    
     mod iter {
         use super::*;
         
