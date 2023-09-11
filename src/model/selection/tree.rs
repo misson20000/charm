@@ -35,9 +35,9 @@ enum SparseNodeOrAllGrandchildren<'a> {
 
 pub struct TreeIter<'a> {
     selection: &'a Selection,
-    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a structure::Node)>,
+    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a sync::Arc<structure::Node>)>,
     current_sparse: SparseNodeOrAllGrandchildren<'a>,
-    current_struct: &'a structure::Node,
+    current_struct: &'a sync::Arc<structure::Node>,
     child_index: Option<usize>,
 }
 
@@ -88,7 +88,7 @@ impl Selection {
 }
 
 impl<'a> Iterator for TreeIter<'a> {
-    type Item = &'a structure::Node;
+    type Item = &'a sync::Arc<structure::Node>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
