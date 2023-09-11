@@ -6,17 +6,22 @@ use crate::model::document::structure;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SparseNode {
     self_selected: bool,
     children_selected: ChildrenMode,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ChildrenMode {
     None,
+
     Mixed(Vec<SparseNode>),
+
+    /// For nodes with one child and no grandchildren, we use this as the canonical form to make it easier to compact the tree.
     AllDirect,
+
+    /// For nodes with no children, there isn't really any difference between any of these modes. In order to make it easier to compact the tree, we use this as the canonical choice.
     AllGrandchildren,
 }
 
@@ -82,6 +87,28 @@ impl Selection {
         }
     }
 
+    /// Upgrades the internal document reference if it's out of date, but doesn't bother trying to maintain state and just resets it. Returns a ChangeRecord that indicates the selection was changed.
+    fn reset_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
+        if self.document.is_outdated(new_doc) {
+            let from_generation = self.document.generation();
+            self.document = new_doc.clone();
+            self.root = SparseNode {
+                self_selected: false,
+                children_selected: ChildrenMode::None,
+            };
+
+            ChangeRecord {
+                document_updated: Some((from_generation, new_doc.clone())),
+                selection_changed: true
+            }
+        } else {
+            ChangeRecord {
+                document_updated: None,
+                selection_changed: true
+            }
+        }
+    }
+    
     fn port_doc_change(&mut self, _new_doc: &sync::Arc<document::Document>, _change: &doc_change::Change) -> bool {
         todo!();
     }
@@ -250,21 +277,44 @@ impl versioned::Change<Selection> for Change {
             },
 
             Change::SetSingle(document, path) => {
-                let document_updated = match selection.document.generation() {
-                    old_gen if old_gen == document.generation() => None,
-                    old_gen => Some((old_gen, document.clone())),
-                };
+                /* Handle outdated Selection document */
+                let cr = selection.reset_document(document);
+
+                /* Handle outdated Change document */
+                selection.document.changes_since_fallible(&document.clone(), &mut |doc, change| {
+                    *document = doc.clone();
+                    match change.update_path(path) {
+                        doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => Ok(()),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => Err(ApplyError::NodeDeleted),
+                    }
+                })?;
                 
-                selection.document = document.clone();
+                /* Apply change */
                 selection.root = SparseNode::new_single(&document.root, &path[..]);
 
-                ChangeRecord {
-                    document_updated,
-                    selection_changed: true,
-                }
+                cr
             },
 
-            Change::AddSingle(_document, _path) => todo!(),
+            Change::AddSingle(document, path) => {
+                /* Handle outdated Selection document */
+                let mut cr = selection.update_document(document);
+
+                /* Handle outdated Change document */
+                selection.document.changes_since_fallible(&document.clone(), &mut |doc, change| {
+                    *document = doc.clone();
+                    match change.update_path(path) {
+                        doc_change::UpdatePathResult::Unmoved | doc_change::UpdatePathResult::Moved => Ok(()),
+                        doc_change::UpdatePathResult::Deleted | doc_change::UpdatePathResult::Destructured => Err(ApplyError::NodeDeleted),
+                    }
+                })?;
+
+                /* Apply change */
+                selection.root.add_single(&document.root, &path[..]);
+                
+                cr.selection_changed = true;
+                
+                cr
+            },
             
             Change::SelectAll => {
                 selection.root = SparseNode {
@@ -284,10 +334,25 @@ impl versioned::Change<Selection> for Change {
 }
 
 impl SparseNode {
-    fn new() -> Self {
+    fn new_canonical_unselected(node: &structure::Node) -> Self {
         Self {
             self_selected: false,
-            children_selected: ChildrenMode::None,
+            children_selected: if node.children.len() == 0 {
+                ChildrenMode::AllGrandchildren
+            } else {
+                ChildrenMode::None
+            },
+        }
+    }
+    
+    fn new_canonical_selected(node: &structure::Node) -> Self {
+        Self {
+            self_selected: true,
+            children_selected: if node.children.len() == 0 {
+                ChildrenMode::AllGrandchildren
+            } else {
+                ChildrenMode::None
+            },
         }
     }
     
@@ -295,12 +360,14 @@ impl SparseNode {
         if remaining_path.len() == 0 {
             Self {
                 self_selected: true,
-                children_selected: ChildrenMode::None,
+                children_selected: if node.children.len() == 0 {
+                    ChildrenMode::AllGrandchildren
+                } else {
+                    ChildrenMode::None
+                },
             }
         } else {
-            let mut vec = Vec::new();
-            vec.resize(node.children.len(), Self::new());
-
+            let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
             vec[remaining_path[0]] = Self::new_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
             
             Self {
@@ -309,15 +376,112 @@ impl SparseNode {
             }
         }
     }
+
+    fn add_single(&mut self, node: &structure::Node, remaining_path: structure::PathSlice) {
+        if remaining_path.len() == 0 {
+            self.self_selected = true;
+        } else {
+            match &mut self.children_selected {
+                /* Nothing needs to be done. */
+                ChildrenMode::AllGrandchildren => (),
+                ChildrenMode::AllDirect if remaining_path.len() == 1 => (),
+
+                ChildrenMode::None => {
+                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                    vec[remaining_path[0]] = Self::new_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    self.children_selected = ChildrenMode::Mixed(vec);
+                },
+
+                ChildrenMode::AllDirect => {
+                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                    vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    self.children_selected = ChildrenMode::Mixed(vec);
+                },
+
+                ChildrenMode::Mixed(vec) => {
+                    vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                },
+            }
+        }
+
+        self.canonicalize(node);
+    }
+
+    fn descendants_maybe_selected(&self, node: &structure::Node) -> bool {
+        match (node.children.len(), &self.children_selected) {
+            (0, _) => false,
+            (_, ChildrenMode::None) => false,
+            _ => true
+        }
+    }
+    
+    fn canonicalize(&mut self, node: &structure::Node) {
+        loop {
+            match &mut self.children_selected {
+                /* If we don't have any children, then the children mode doesn't matter. Upgrade it as much as possible. */
+                _ if node.children.len() == 0 => {
+                    self.children_selected = ChildrenMode::AllGrandchildren;
+                    return;
+                }
+
+                /* If we don't have any grandchildren, upgrade AllDirect to AllGrandchildren. */
+                ChildrenMode::AllDirect if node.children.iter().all(|ch| ch.node.children.len() == 0) => {
+                    self.children_selected = ChildrenMode::AllGrandchildren;
+                    return;
+                },
+
+                ChildrenMode::Mixed(vec) => {
+                    /* If none of our mixed entries are selected or might have children selected, change to None. */
+                    if !vec.iter().zip(node.children.iter()).any(
+                        |(sparse_child, struct_child)|
+                        sparse_child.descendants_maybe_selected(&struct_child.node) ||
+                            sparse_child.self_selected) {
+                        self.children_selected = ChildrenMode::None;
+                        continue;
+                    }
+
+                    /* If all of our mixed entries are selected and AllGrandchildren, propagate AllGrandchildren to us. */
+                    if vec.iter().all(
+                        |sparse_child|
+                        sparse_child.self_selected && sparse_child.children_selected.is_all_grandchildren()) {
+                        self.children_selected = ChildrenMode::AllGrandchildren;
+                        continue;
+                    }
+                    
+                    /* If all of our mixed entries are selected but none of their descendants are, change to AllDirect. */
+                    if vec.iter().zip(node.children.iter()).all(
+                        |(sparse_child, struct_child)|
+                        sparse_child.self_selected &&
+                            !sparse_child.descendants_maybe_selected(&struct_child.node)) {
+                        self.children_selected = ChildrenMode::AllDirect;
+                        continue;
+                    }
+
+                    return;
+                },
+
+                /* No more optimizations to run. */
+                _ => return,
+            }
+        }
+    }
+}
+
+impl ChildrenMode {
+    fn is_all_grandchildren(&self) -> bool {
+        match self {
+            ChildrenMode::AllGrandchildren => true,
+            _ => false
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_create_sparse_node_for_single() {
-        let root = structure::Node::builder()
+    fn create_simple_test_structure() -> sync::Arc<structure::Node> {
+        structure::Node::builder()
             .name("root")
             .child(0x0, |b| b
                    .name("child0"))
@@ -331,8 +495,12 @@ mod tests {
                                  .name("child1.0.1"))
                           .child(0x0, |b| b
                                  .name("child1.0.2"))))
-            .build();
-
+            .build()
+    }
+    
+    #[test]
+    fn test_create_sparse_node_for_single() {
+        let root = create_simple_test_structure();
         let document = sync::Arc::new(document::Document::new_for_structure_test(root));
 
         for path in [
@@ -351,6 +519,31 @@ mod tests {
                 root: SparseNode::new_single(&document.root, &path),
                 version: Default::default(),
             }.node_iter().map(|node| sync::Arc::as_ptr(node)), [sync::Arc::as_ptr(document.lookup_node(&path).0)]);
+        }
+    }
+
+    #[test]
+    fn test_add_single() {
+        let root = create_simple_test_structure();
+        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+
+        let paths = [
+            vec![0],
+            vec![1],
+            vec![1, 0],
+            vec![1, 0, 0],
+            vec![1, 0, 1],
+            vec![1, 0, 2],
+        ];
+
+        let mut paths_in_selection = vec![];
+        let mut selection = Selection::new(document.clone());
+
+        for path in &paths {
+            paths_in_selection.push(path);
+            selection.root.add_single(&document.root, &path[..]);
+            
+            itertools::assert_equal(selection.node_iter().map(|node| sync::Arc::as_ptr(node)), paths_in_selection.iter().map(|path| sync::Arc::as_ptr(document.lookup_node(&path[..]).0)));
         }
     }
     
