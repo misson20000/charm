@@ -16,8 +16,8 @@ use crate::view::window;
 
 struct PropsInterior {
     document_host: sync::Arc<document::DocumentHost>,
-    selection_host: sync::Arc<selection::hierarchy::Host>,
-    selection: sync::Arc<selection::HierarchySelection>,
+    selection_host: sync::Arc<selection::tree::Host>,
+    selection: sync::Arc<selection::TreeSelection>,
 
     current: Option<(structure::Path, structure::Properties)>,
     
@@ -142,8 +142,8 @@ impl PropsEditor {
     }
     
     pub fn bind(self: &Rc<Self>, ctx: &window::WindowContext) {
-        let selection_host = ctx.hierarchy_selection_host.clone();
-        let selection = ctx.hierarchy_selection_host.get();
+        let selection_host = ctx.tree_selection_host.clone();
+        let selection = ctx.tree_selection_host.get();
 
         let mut interior = PropsInterior {
             document_host: ctx.document_host.clone(),
@@ -152,28 +152,25 @@ impl PropsEditor {
 
             current: None,
 
-            subscriber: helpers::subscribe_to_updates(Rc::downgrade(self), selection_host, selection.clone(), |pe, new_sel| pe.selection_updated_bulk(new_sel)),
+            subscriber: helpers::subscribe_to_updates(Rc::downgrade(self), selection_host, selection.clone(), |pe, new_sel| pe.update_selection(new_sel)),
         };
         
-        self.selection_updated(&mut interior, selection, true);
+        self.update_selection_internal(&mut interior, selection, true);
         *self.interior.borrow_mut() = Some(interior);
     }
 
-    pub fn selection_updated_bulk(&self, selection: &sync::Arc<selection::HierarchySelection>) {
+    pub fn update_selection(&self, selection: &sync::Arc<selection::TreeSelection>) {
         self.in_update.set(true);
         let mut interior_guard = self.interior.borrow_mut();
         if let Some(interior) = interior_guard.as_mut() {
-            selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.selection_updated(interior, selection.clone(), record.selection_changed));
+            selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.update_selection_internal(interior, selection.clone(), record.selection_changed));
         }
         drop(interior_guard);
         self.in_update.set(false);
     }
 
-    fn selection_updated(&self, interior: &mut PropsInterior, selection: sync::Arc<selection::HierarchySelection>, changed: bool) {
-        let path = match &selection.mode {
-            selection::hierarchy::Mode::Single(path) => Some(path),
-            _ => None
-        };
+    fn update_selection_internal(&self, interior: &mut PropsInterior, selection: sync::Arc<selection::TreeSelection>, changed: bool) {
+        let path = selection.single_selected();
 
         interior.selection = selection.clone();
         

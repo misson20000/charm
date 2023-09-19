@@ -7,70 +7,62 @@ use gtk::glib::clone;
 use gtk::gio;
 
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::selection;
 use crate::view::helpers;
 use crate::view::window;
 
 struct DestructureAction {
     document_host: sync::Arc<document::DocumentHost>,
-    selection_host: sync::Arc<selection::hierarchy::Host>,
-    selection: cell::RefCell<sync::Arc<selection::HierarchySelection>>,
+    selection_host: sync::Arc<selection::tree::Host>,
+    path: cell::RefCell<(sync::Arc<selection::TreeSelection>, Option<structure::Path>)>,
     window: rc::Weak<window::CharmWindow>,
     
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
-    let selection = window_context.hierarchy_selection_host.get();
+    let selection = window_context.tree_selection_host.get();
     
     let action_impl = rc::Rc::new(DestructureAction {
         document_host: window_context.document_host.clone(),
-        selection_host: window_context.hierarchy_selection_host.clone(),
-        selection: cell::RefCell::new(selection.clone()),
+        selection_host: window_context.tree_selection_host.clone(),
+        path: cell::RefCell::new((selection.clone(), selection.single_selected())),
         window: window_context.window.clone(),
         subscriber: Default::default(),
     });
     
     let action = helpers::create_simple_action_strong(action_impl.clone(), "destructure", |action| action.activate());
-
-    update_enabled(&action, &selection);
+    action.set_enabled(action_impl.enabled());
     
     action_impl.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action_impl), action_impl.selection_host.clone(), selection, clone!(@weak action => move |action_impl, selection| {
-        *action_impl.selection.borrow_mut() = selection.clone();
-        update_enabled(&action, selection);
+        action_impl.update_path(selection.clone());
+        action.set_enabled(action_impl.enabled());
     }))).unwrap();
     
     action
 }
 
-fn update_enabled(action: &gio::SimpleAction, selection: &selection::HierarchySelection) {
-    action.set_enabled(match &selection.mode {
-        selection::hierarchy::Mode::Empty => false,
-        selection::hierarchy::Mode::Single(path) => !path.is_empty(),
-        selection::hierarchy::Mode::SiblingRange(_, _, _) => false,
-        selection::hierarchy::Mode::All => false,
-    });
-}
-
-impl DestructureAction {    
+impl DestructureAction {
+    fn enabled(&self) -> bool {
+        self.path.borrow().1.as_ref().map_or(false, |path| path.len() > 0)
+    }
+    
+    fn update_path(&self, selection: sync::Arc<selection::TreeSelection>) {
+        let single = selection.single_selected();
+        *self.path.borrow_mut() = (selection, single);
+    }
+    
     fn activate(&self) {
-        let selection = self.selection.borrow();
-
-        let path = match &selection.mode {
-            selection::hierarchy::Mode::Single(path) if !path.is_empty() => path,
-            _ => {
-                // TODO: find a way to issue a warning for this
-                return;
-            }
-        };
-
-        let _ = match self.document_host.change(selection.document.destructure(path).unwrap()) {
-            Ok(new_doc) => new_doc,
-            Err(e) => {
-                // TODO: better failure feedback
-                println!("failed to change document: {:?}", e);
-                return;
-            }
-        };
+        if let (selection, Some(path)) = &*self.path.borrow() {
+            let _ = match self.document_host.change(selection.document.destructure(path).unwrap()) {
+                Ok(new_doc) => new_doc,
+                Err(e) => {
+                    // TODO: better failure feedback
+                    println!("failed to change document: {:?}", e);
+                    return;
+                }
+            };
+        }
     }
 }

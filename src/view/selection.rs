@@ -1,3 +1,3 @@
-pub mod hierarchy;
+pub mod tree;
 
-pub use hierarchy::HierarchySelectionModel;
+pub use tree::TreeSelectionModel;

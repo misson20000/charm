@@ -53,7 +53,7 @@ pub enum Change {
     SelectAll,
     ConvertToStructure,
     ConvertToAddress,
-    AssignFromHierarchy(sync::Arc<super::HierarchySelection>),
+    AssignFromTree(sync::Arc<super::TreeSelection>),
     AssignStructure(StructureRange),
     AssignAddress(addr::Extent),
     UnionStructure(StructureRange),
@@ -161,7 +161,7 @@ impl versioned::Change<Selection> for Change {
                     Mode::Address(addr::unit::UNBOUNDED),
             },
 
-                Change::AssignFromHierarchy(sync::Arc<super::HierarchySelection>) => todo!(),
+                Change::AssignFromTree(sync::Arc<super::TreeSelection>) => todo!(),
             */
         };
 

@@ -13,18 +13,18 @@ use crate::view::window;
 
 struct DeleteNodeAction {
     document_host: sync::Arc<document::DocumentHost>,
-    selection_host: sync::Arc<selection::hierarchy::Host>,
-    selection: cell::RefCell<sync::Arc<selection::HierarchySelection>>,
+    selection_host: sync::Arc<selection::tree::Host>,
+    selection: cell::RefCell<sync::Arc<selection::TreeSelection>>,
     
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
-    let selection = window_context.hierarchy_selection_host.get();
+    let selection = window_context.tree_selection_host.get();
     
     let action_impl = rc::Rc::new(DeleteNodeAction {
         document_host: window_context.document_host.clone(),
-        selection_host: window_context.hierarchy_selection_host.clone(),
+        selection_host: window_context.tree_selection_host.clone(),
         selection: cell::RefCell::new(selection.clone()),
         subscriber: Default::default(),
     });
@@ -41,30 +41,17 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     action
 }
 
-fn update_enabled(action: &gio::SimpleAction, selection: &selection::HierarchySelection) {
-    action.set_enabled(match &selection.mode {
-        selection::hierarchy::Mode::Empty => false,
-        selection::hierarchy::Mode::Single(path) => !path.is_empty(),
-        selection::hierarchy::Mode::SiblingRange(_, _, _) => true,
-        selection::hierarchy::Mode::All => false,
-    });
+fn update_enabled(action: &gio::SimpleAction, selection: &selection::TreeSelection) {
+    action.set_enabled(selection.any_selected() && !selection.root_selected());
 }
 
 impl DeleteNodeAction {    
     fn activate(&self) {
-        let selection = self.selection.borrow();
+        //let selection = self.selection.borrow();
 
-        let (parent, first_sibling, last_sibling) = match &selection.mode {
-            selection::hierarchy::Mode::Empty => return,
-            selection::hierarchy::Mode::Single(path) if !path.is_empty() => (&path[0..path.len()-1], *path.last().unwrap(), *path.last().unwrap()),
-            selection::hierarchy::Mode::SiblingRange(path, begin, end) => (&path[..], *begin, *end),
-            selection::hierarchy::Mode::All | selection::hierarchy::Mode::Single(_) => {
-                // TODO: find a way to issue a warning for this
-                return;
-            }
-        };
-
+        todo!();
+        
         // TODO: failure feedback
-        let _ = self.document_host.change(selection.document.delete_range(parent.to_vec(), first_sibling, last_sibling));
+        //let _ = self.document_host.change(selection.document.delete_range(parent.to_vec(), first_sibling, last_sibling));
     }
 }

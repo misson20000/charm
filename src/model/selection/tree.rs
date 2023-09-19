@@ -69,7 +69,32 @@ impl Selection {
             child_index: None,
         }
     }
-    
+
+    /// Returns whether or not the node at the specified path is selected.
+    pub fn path_selected(&self, path: structure::PathSlice) -> bool {
+        self.root.path_selected(path)
+    }
+
+    /// Returns whether or not the root node is selected. Equivalent to calling `path_selected(&[])`.
+    pub fn root_selected(&self) -> bool {
+        self.root.self_selected
+    }
+
+    /// Returns true if the selection is not completely empty.
+    pub fn any_selected(&self) -> bool {
+        self.root.any_selected(&self.document.root)
+    }
+
+    /// If only one node is selected, returns the path to it.
+    pub fn single_selected(&self) -> Option<structure::Path> {
+        self.root.single_selected(&self.document.root, vec![])
+    }
+
+    /// If a contiguous range of siblings within a single node (and either none or all of their grandchildren) are selected, return their common parent and the start and end (inclusive) indices of the range of siblings.
+    pub fn siblings_selected(&self) -> Option<(structure::Path, usize, usize)> {
+        self.root.siblings_selected(&self.document.root, vec![])
+    }
+
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
         if self.document.is_outdated(new_doc) {
             let from_generation = self.document.generation();
@@ -110,8 +135,22 @@ impl Selection {
         }
     }
     
-    fn port_doc_change(&mut self, _new_doc: &sync::Arc<document::Document>, _change: &doc_change::Change) -> bool {
-        todo!();
+    fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> bool {
+        self.document = new_doc.clone();
+
+        match change.ty {
+            doc_change::ChangeType::AlterNode { .. } => false,
+            
+            _ => {
+                // TODO: actually handle structural changes
+                self.root = SparseNode {
+                    self_selected: false,
+                    children_selected: ChildrenMode::None,
+                };
+
+                true
+            }
+        }
     }
 }
 
@@ -518,6 +557,142 @@ impl SparseNode {
 
                 /* No more optimizations to run. */
                 _ => return,
+            }
+        }
+    }
+
+    fn path_selected(&self, remaining_path: structure::PathSlice) -> bool {
+        if remaining_path.len() == 0 {
+            self.self_selected
+        } else {
+            match &self.children_selected {
+                ChildrenMode::None => false,
+                ChildrenMode::Mixed(vec) => vec[remaining_path[0]].path_selected(&remaining_path[1..]),
+                ChildrenMode::AllDirect if remaining_path.len() == 1 => true,
+                ChildrenMode::AllDirect => false,
+                ChildrenMode::AllGrandchildren => true,
+            }
+        }
+    }
+
+    fn any_selected(&self, node: &structure::Node) -> bool {
+        self.self_selected || match &self.children_selected {
+            ChildrenMode::None => false,
+            ChildrenMode::Mixed(vec) => vec.iter().zip(node.children.iter()).any(|(sp, st)| sp.any_selected(&st.node)),
+            ChildrenMode::AllDirect => node.children.len() > 0,
+            ChildrenMode::AllGrandchildren => node.children.len() > 0,
+        }
+    }
+
+    fn none_selected(&self, node: &structure::Node) -> bool {
+        !self.any_selected(node)
+    }
+
+    fn single_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::Path> {
+        match (self.self_selected, &self.children_selected) {
+            (true, ChildrenMode::None) => Some(path),
+            (true, _) if node.children.len() == 0 => Some(path),
+
+            (false, ChildrenMode::AllDirect) if node.children.len() == 1 => {
+                path.push(0);
+                Some(path)
+            },
+
+            (false, ChildrenMode::AllGrandchildren) if node.children.len() == 1 && node.children[0].node.children.len() == 0 => {
+                path.push(0);
+                Some(path)
+            },
+
+            (false, ChildrenMode::Mixed(vec)) => {
+                let mut single_found = None;
+                for (i, (sparse_child, struct_child)) in vec.iter().zip(node.children.iter()).enumerate() {
+                    if sparse_child.self_selected || sparse_child.descendants_maybe_selected(&struct_child.node) {
+                        if single_found.is_some() {
+                            /* More than one child was selected. */
+                            return None;
+                        } else {
+                            single_found = Some((i, sparse_child, &struct_child.node));
+                        }
+                    }
+                }
+                
+                single_found.and_then(|(i, sparse_child, struct_child)| {
+                    path.push(i);
+                    sparse_child.single_selected(struct_child, path)
+                })
+            },
+
+            _ => None,
+        }
+    }
+
+    fn siblings_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<(structure::Path, usize, usize)> {
+        if self.self_selected {
+            None
+        } else {
+            match &self.children_selected {
+                ChildrenMode::None => None,
+                ChildrenMode::Mixed(vec) => {
+                    let mut start = None;
+                    let mut end = None;
+
+                    for (i, (sparse_child, struct_child)) in vec.iter().zip(node.children.iter()).enumerate() {
+                        match start {
+                            None => {
+                                if !sparse_child.self_selected && sparse_child.descendants_maybe_selected(&struct_child.node) {
+                                    path.push(i);
+                                    return sparse_child.siblings_selected(&struct_child.node, path);
+                                }
+                                
+                                if sparse_child.self_selected {
+                                    if !match &sparse_child.children_selected {
+                                        /* Is this sparse child suitable for being part of a sibling range? */
+                                        ChildrenMode::None => true,
+                                        ChildrenMode::Mixed(_) => false,
+                                        ChildrenMode::AllDirect => false,
+                                        ChildrenMode::AllGrandchildren => true,
+                                    } {
+                                        return None;
+                                    }
+
+                                    start = Some((i, sparse_child.children_selected.is_all_grandchildren()));
+                                }
+                            },
+                            Some((_, all_grandchildren)) => {
+                                /* If we think we've already found the end of the range, we need to make sure nothing beyond that end is selected. */
+                                if end.is_some() {
+                                    if sparse_child.self_selected || sparse_child.descendants_maybe_selected(&struct_child.node) {
+                                        return None;
+                                    } else {
+                                        continue;
+                                    }
+                                }
+                                
+                                if sparse_child.self_selected {
+                                    /* Is this sparse child suitable for being part of the sibling range we already started? */
+                                    if !match &sparse_child.children_selected {
+                                        ChildrenMode::None => !all_grandchildren,
+                                        ChildrenMode::Mixed(_) => false,
+                                        ChildrenMode::AllDirect => false,
+                                        ChildrenMode::AllGrandchildren => all_grandchildren || struct_child.node.children.len() == 0,
+                                    } {
+                                        return None;
+                                    }
+                                } else if !sparse_child.any_selected(&struct_child.node) {
+                                    /* Not selected, and none of its children are. Must be the end. */
+                                    end = Some(i-1);
+                                } else {
+                                    /* Not selected, but some children were, so invalid. */
+                                    return None;
+                                }
+                            },
+                        }
+                    }
+
+                    start.map(|(begin, _)| (path, begin, end.unwrap_or(node.children.len()-1)))
+                },
+                ChildrenMode::AllDirect => Some((path, 0, node.children.len()-1)),
+                ChildrenMode::AllGrandchildren => Some((path, 0, node.children.len()-1)),
             }
         }
     }
