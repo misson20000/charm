@@ -12,45 +12,14 @@ use crate::model::document;
 use crate::model::document::change;
 use crate::model::document::structure;
 use crate::model::versioned::Versioned;
-use crate::view::helpers;
 
+/// Our TreeListModel doesn't update itself. This is so that we can guarantee that the selection model updates first by having it be the one that subscribes to SelectionHost updates and informs us when the document updates. We still need a document_host though so we can change the document when properties are edited.
 pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, document: sync::Arc<document::Document>, autoexpand: bool) -> gtk::TreeListModel {
-    let root_model = gio::ListStore::new(NodeItem::static_type());
-
-    let root_item = NodeItem::new(NodeInfo {
-        path: vec![],
-        node: document.root.clone(),
-        props: document.root.props.clone(),
-        offset: addr::unit::NULL,
-        address: addr::unit::NULL,
-        document_host: document_host.clone(),
-        document: document.clone(),
-    });
-    
-    root_model.append(&root_item);
+    let root_model = RootListModel::new(document_host, document);
     
     let model = gtk::TreeListModel::new(root_model, false, autoexpand, |obj| {
-        Some(StructureListModel::from_node_info(
-            &obj.downcast_ref::<NodeItem>().unwrap().imp().info.get().unwrap().borrow()
-        ).upcast())
+        Some(obj.downcast_ref::<NodeItem>().unwrap().imp().expand().upcast())
     });
-
-    let subscriber = helpers::subscribe_to_updates(root_item.downgrade(), document_host.clone(), document, move |root_item, new_document| {
-        root_item.stage(NodeInfo {
-            path: vec![],
-            node: new_document.root.clone(),
-            props: new_document.root.props.clone(),
-            offset: addr::unit::NULL,
-            address: addr::unit::NULL,
-            document: new_document.clone(),
-            document_host: document_host.clone(),
-        });
-        root_item.update();
-    });
-
-    /* The root item lasts forever. */
-    /* TODO: no it doesn't; you can close and reopen the window. */
-    std::mem::forget(subscriber);
     
     model
 }
@@ -83,7 +52,6 @@ mod imp {
     use crate::model::addr;
     use crate::model::document;
     use crate::model::document::structure;
-    use crate::view::helpers;
 
     use super::NodeInfo;
 
@@ -94,7 +62,6 @@ mod imp {
         pub address: addr::Address,
         pub document_host: sync::Arc<document::DocumentHost>,
         pub document: sync::Arc<document::Document>,
-        pub subscriber: helpers::AsyncSubscriber,
         pub deleted: bool,
     }
 
@@ -134,6 +101,7 @@ mod imp {
     pub struct NodeItem {
         pub info: once_cell::unsync::OnceCell<cell::RefCell<NodeInfo>>,
         pub staged_info: cell::RefCell<Option<NodeInfo>>,
+        pub expansion: cell::RefCell<glib::object::WeakRef<super::StructureListModel>>
     }
 
     #[glib::object_subclass]
@@ -182,7 +150,7 @@ mod imp {
                 println!("failed to alter node: {:?}", e);
                 std::mem::drop(info);
                 self.obj().stage(old_info);
-                self.obj().update();
+                self.obj().trigger_notifies();
             }
         }
 
@@ -200,11 +168,60 @@ mod imp {
                 _ => unimplemented!(),
             }
         }
-    }    
+    }
+
+    impl NodeItem {
+        pub fn expand(&self) -> super::StructureListModel {
+            let expansion = self.expansion.borrow_mut();
+            match expansion.upgrade() {
+                Some(slm) => slm,
+                None => {
+                    let slm = super::StructureListModel::from_node_info(&*self.info.get().unwrap().borrow());
+                    expansion.set(Some(&slm));
+                    slm
+                }
+            }
+        }
+    }
+
+    #[derive(Default)]
+    pub struct RootListModel {
+        pub root_item: once_cell::unsync::OnceCell<super::NodeItem>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for RootListModel {
+        const NAME: &'static str = "CharmRootListModel";
+        type Type = super::RootListModel;
+        type Interfaces = (gio::ListModel,);
+    }
+
+    impl ObjectImpl for RootListModel {
+    }
+
+    impl ListModelImpl for RootListModel {
+        fn item_type(&self) -> glib::Type {
+            super::NodeItem::static_type()
+        }
+
+        fn n_items(&self) -> u32 {
+            1
+        }
+
+        fn item(&self, position: u32) -> Option<glib::Object> {
+            assert_eq!(position, 0);
+            self.root_item.get().map(|ch| ch.clone().upcast())
+        }
+    }
 }
 
 glib::wrapper! {
     pub struct StructureListModel(ObjectSubclass<imp::StructureListModel>)
+        @implements gio::ListModel;
+}
+
+glib::wrapper! {
+    pub struct RootListModel(ObjectSubclass<imp::RootListModel>)
         @implements gio::ListModel;
 }
 
@@ -216,10 +233,6 @@ glib::wrapper! {
 impl StructureListModel {
     fn from_node_info(info: &NodeInfo) -> Self {
         let model: Self = glib::Object::builder().build();
-
-        let subscriber = helpers::subscribe_to_updates(model.downgrade(), info.document_host.clone(), info.document.clone(), move |model, new_document| {
-            model.update(new_document);
-        });
 
         model.imp().interior.set(cell::RefCell::new(imp::StructureListModelInterior {
             path: info.path.clone(),
@@ -242,7 +255,6 @@ impl StructureListModel {
             address: info.address,
             document_host: info.document_host.clone(),
             document: info.document.clone(),
-            subscriber,
             deleted: false,
         })).unwrap();
         
@@ -390,7 +402,8 @@ impl StructureListModel {
              * updates before deciding whether to filter them out or not. */
             
             for item in &self.imp().interior.get().unwrap().borrow().children {
-                item.update();
+                item.update_document(new_doc);
+                item.trigger_notifies();                
             }
         }
     }
@@ -410,8 +423,14 @@ impl NodeItem {
     pub fn info(&self) -> cell::Ref<'_, NodeInfo> {
         self.imp().info.get().unwrap().borrow()
     }
+
+    fn update_document(&self, new_doc: &sync::Arc<document::Document>) {
+        if let Some(slm) = self.imp().expansion.borrow().upgrade() {
+            slm.update(new_doc);
+        }
+    }
     
-    fn update(&self) {
+    fn trigger_notifies(&self) {
         if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
             let mut info = self.imp().info.get().unwrap().borrow_mut();
 
@@ -430,5 +449,40 @@ impl NodeItem {
             if changed_offset { self.notify("offset"); }
             if changed_address { self.notify("address"); }
         }
+    }
+}
+
+impl RootListModel {
+    fn new(document_host: sync::Arc<document::DocumentHost>, document: sync::Arc<document::Document>) -> Self {
+        let model: Self = glib::Object::builder().build();
+
+        model.imp().root_item.set(NodeItem::new(NodeInfo {
+            path: vec![],
+            node: document.root.clone(),
+            props: document.root.props.clone(),
+            offset: addr::unit::NULL,
+            address: addr::unit::NULL,
+            document: document.clone(),
+            document_host: document_host.clone(),
+        })).unwrap();
+
+        model
+    }
+
+    pub fn update_document(&self, new_document: &sync::Arc<document::Document>) {
+        let root_item = self.imp().root_item.get().unwrap();
+        
+        root_item.stage(NodeInfo {
+            path: vec![],
+            node: new_document.root.clone(),
+            props: new_document.root.props.clone(),
+            offset: addr::unit::NULL,
+            address: addr::unit::NULL,
+            document: new_document.clone(),
+            document_host: root_item.info().document_host.clone(),
+        });
+
+        root_item.update_document(new_document);
+        root_item.trigger_notifies();
     }
 }

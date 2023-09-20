@@ -66,7 +66,7 @@ mod imp {
 
         fn change(&self, interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, change: tree_model::Change) {
             if let Ok(new_selection) = interior.selection_host.change(change) {
-                self.obj().update(interior, new_selection)
+                self.obj().update_selection(interior, new_selection)
             } else {
                 // TODO: these shouldn't really fail... log this somewhere?
             }            
@@ -181,11 +181,13 @@ impl TreeSelectionModel {
         let model: TreeSelectionModel = glib::Object::builder().build();
 
         let gtk_model = hierarchy::create_tree_list_model(document_host.clone(), selection.document.clone(), true);
-        gtk_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| model.items_changed(pos, removed, added)));
+        gtk_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| {
+            model.items_changed(pos, removed, added)
+        }));
 
         let selection_subscriber = helpers::subscribe_to_updates(model.downgrade(), selection_host.clone(), selection.clone(), move |model, new_selection| {
             if let Some(interior) = model.imp().borrow_interior_mut() {
-                model.update(interior, new_selection.clone());
+                model.update_selection(interior, new_selection.clone());
             }
         });
         
@@ -203,15 +205,24 @@ impl TreeSelectionModel {
     pub fn selection(&self) -> sync::Arc<selection::TreeSelection> {
         self.imp().borrow_interior().unwrap().selection.clone()
     }
+    
+    fn update_selection(&self, mut interior: std::cell::RefMut<'_, imp::TreeSelectionModelInterior>, new_selection: sync::Arc<selection::TreeSelection>) {
+        let mut selection_changed = false;
+        
+        new_selection.changes_since(&interior.selection.clone(), &mut |new_selection, record| {
+            interior.selection = new_selection.clone();
+            selection_changed = selection_changed || record.selection_changed;
+        });
 
-    fn update(&self, mut interior: std::cell::RefMut<'_, imp::TreeSelectionModelInterior>, new_selection: sync::Arc<selection::TreeSelection>) {
-        if interior.selection.is_outdated(&*new_selection) {
-            interior.selection = new_selection;
+        let tlm = interior.gtk_model.clone();
+        let rlm = interior.gtk_model.model().downcast::<hierarchy::RootListModel>().unwrap();
+        let document = interior.selection.document.clone();
+        drop(interior);
         
-            let n_items = interior.gtk_model.n_items();
-            drop(interior);
-        
-            self.selection_changed(0, n_items);
+        rlm.update_document(&document);
+
+        if selection_changed {
+            self.selection_changed(0, tlm.n_items());
         }
     }
 }
