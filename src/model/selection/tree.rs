@@ -90,11 +90,24 @@ impl Selection {
         self.root.single_selected(&self.document.root, vec![])
     }
 
-    /// If only one contiguous range of siblings within a single node (and either none or all of their grandchildren) is selected, return the siblins' common parent and the start and end (inclusive) indices of the range of siblings.
+    /// If only one contiguous range of siblings within a single node (and either none or all of their grandchildren) is
+    /// selected, return the siblins' common parent and the start and end (inclusive) indices of the range of siblings.
     pub fn one_range_selected(&self) -> Option<(structure::Path, usize, usize)> {
         self.root.one_range_selected(&self.document.root, vec![])
     }
 
+    /// Invokes the callback for every range of contiguous selected siblings with no selected ancestors. The callback's arguments are the
+    /// path to the siblings' common parent and the start and end (inclusive) indices of the range of siblings within
+    /// that parent.
+    ///
+    /// Because the root node doesn't have a parent, it can't be represented by this function's interface and is ignored.
+    ///
+    /// The callback can cause an early return by returning a [Result::Err].
+    pub fn ancestor_ranges_selected<E, F>(&self, mut cb: F) -> Result<(), E>
+    where F: FnMut(structure::PathSlice, usize, usize) -> Result<(), E> {
+        self.root.ancestor_ranges_selected(&self.document.root, &mut vec![], &mut cb)
+    }
+    
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
         if self.document.is_outdated(new_doc) {
             let from_generation = self.document.generation();
@@ -632,6 +645,9 @@ impl SparseNode {
         } else {
             match &self.children_selected {
                 ChildrenMode::None => None,
+                ChildrenMode::AllDirect if node.children.len() == 0 => None,
+                ChildrenMode::AllGrandchildren if node.children.len() == 0 => None,
+                
                 ChildrenMode::Mixed(vec) => {
                     let mut start = None;
                     let mut end = None;
@@ -691,9 +707,66 @@ impl SparseNode {
 
                     start.map(|(begin, _)| (path, begin, end.unwrap_or(node.children.len()-1)))
                 },
+                
                 ChildrenMode::AllDirect => Some((path, 0, node.children.len()-1)),
                 ChildrenMode::AllGrandchildren => Some((path, 0, node.children.len()-1)),
             }
+        }
+    }
+
+    /// This function can mutate path, but has to put it back to the way it was before returning.
+    pub fn ancestor_ranges_selected<E, F>(&self, node: &structure::Node, path: &mut structure::Path, cb: &mut F) -> Result<(), E>
+    where F: FnMut(structure::PathSlice, usize, usize) -> Result<(), E> {
+        match &self.children_selected {
+            ChildrenMode::None => Ok(()),
+            ChildrenMode::AllDirect if node.children.len() == 0 => Ok(()),
+            ChildrenMode::AllGrandchildren if node.children.len() == 0 => Ok(()),
+            
+            ChildrenMode::Mixed(vec) => {
+                let mut range = None;
+
+                for (i, (sparse_child, struct_child)) in vec.iter().zip(node.children.iter()).enumerate() {
+                    match range {
+                        /* Not part of a range. */
+                        None if !sparse_child.self_selected => {
+                            path.push(i);
+                            let r = sparse_child.ancestor_ranges_selected(&struct_child.node, path, cb);
+                            path.pop();
+                            r?;
+                        },
+                        
+                        /* Start of a range */
+                        None => {
+                            range = Some((i, i));
+                        },
+
+                        /* Middle of a range */
+                        Some((start_index, _)) if sparse_child.self_selected => {
+                            range = Some((start_index, i));
+                        },
+
+                        /* End of a range */
+                        Some((start_index, end_index)) => {
+                            cb(&path[..], start_index, end_index)?;
+                            range = None;
+
+                            path.push(i);
+                            let r = sparse_child.ancestor_ranges_selected(&struct_child.node, path, cb);
+                            path.pop();
+                            r?;
+                        },
+                    }
+                }
+
+                if let Some((start_index, end_index)) = range {
+                    cb(&path[..], start_index, end_index)?;
+                }
+
+                Ok(())
+            },
+
+            ChildrenMode::AllDirect => cb(&path[..], 0, node.children.len()-1),
+            ChildrenMode::AllGrandchildren => cb(&path[..], 0, node.children.len()-1),
         }
     }
 }
