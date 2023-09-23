@@ -90,9 +90,9 @@ impl Selection {
         self.root.single_selected(&self.document.root, vec![])
     }
 
-    /// If a contiguous range of siblings within a single node (and either none or all of their grandchildren) are selected, return their common parent and the start and end (inclusive) indices of the range of siblings.
-    pub fn siblings_selected(&self) -> Option<(structure::Path, usize, usize)> {
-        self.root.siblings_selected(&self.document.root, vec![])
+    /// If only one contiguous range of siblings within a single node (and either none or all of their grandchildren) is selected, return the siblins' common parent and the start and end (inclusive) indices of the range of siblings.
+    pub fn one_range_selected(&self) -> Option<(structure::Path, usize, usize)> {
+        self.root.one_range_selected(&self.document.root, vec![])
     }
 
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
@@ -626,7 +626,7 @@ impl SparseNode {
         }
     }
 
-    fn siblings_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<(structure::Path, usize, usize)> {
+    fn one_range_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<(structure::Path, usize, usize)> {
         if self.self_selected {
             None
         } else {
@@ -641,7 +641,7 @@ impl SparseNode {
                             None => {
                                 if !sparse_child.self_selected && sparse_child.descendants_maybe_selected(&struct_child.node) {
                                     path.push(i);
-                                    return sparse_child.siblings_selected(&struct_child.node, path);
+                                    return sparse_child.one_range_selected(&struct_child.node, path);
                                 }
                                 
                                 if sparse_child.self_selected {

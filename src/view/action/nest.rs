@@ -29,7 +29,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     let action_impl = rc::Rc::new(NestAction {
         document_host: window_context.document_host.clone(),
         selection_host: window_context.tree_selection_host.clone(),
-        selection: cell::RefCell::new((selection.clone(), selection.siblings_selected())),
+        selection: cell::RefCell::new((selection.clone(), selection.one_range_selected())),
         window: window_context.window.clone(),
         subscriber: Default::default(),
     });
@@ -38,7 +38,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     action.set_enabled(action_impl.enabled());
     
     action_impl.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action_impl), action_impl.selection_host.clone(), selection, clone!(@weak action => move |action_impl, selection| {
-        *action_impl.selection.borrow_mut() = (selection.clone(), selection.siblings_selected());
+        *action_impl.selection.borrow_mut() = (selection.clone(), selection.one_range_selected());
         action.set_enabled(action_impl.enabled());
     }))).unwrap();
     
