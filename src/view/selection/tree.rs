@@ -71,6 +71,14 @@ mod imp {
                 // TODO: these shouldn't really fail... log this somewhere?
             }            
         }
+
+        fn change_multiple<F: FnOnce(&mut TreeSelectionModelInterior) -> Result<sync::Arc<tree_model::Selection>, tree_model::ApplyError>>(&self, mut interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, cb: F) {
+            if let Ok(new_selection) = cb(&mut *interior) {
+                self.obj().update_selection(interior, new_selection);
+            } else {
+                // TODO: these shouldn't really fail... log this somewhere?
+            }
+        }
     }
 
     impl SelectionModelImpl for TreeSelectionModel {
@@ -126,8 +134,33 @@ mod imp {
             }
         }
 
-        fn select_range(&self, _position: u32, _n_items: u32, _unselect_rest: bool) -> bool {
-            false
+        fn select_range(&self, position: u32, n_items: u32, unselect_rest: bool) -> bool {
+            if let Some(interior) = self.borrow_interior_mut() {
+                self.change_multiple(interior, |interior| {
+                    let mut sel = if unselect_rest {
+                        interior.selection_host.change(tree_model::Change::Clear)?
+                    } else {
+                        interior.selection.clone()
+                    };
+                    
+                    for i in position..(position+n_items) {
+                        let item = match interior.item(i) {
+                            Some(item) => item,
+                            None => continue
+                        };
+
+                        let info = item.imp().info.get().unwrap().borrow();
+
+                        sel = interior.selection_host.change(tree_model::Change::AddSingle(info.document.clone(), info.path.clone()))?;
+                    }
+
+                    Ok(sel)
+                });
+
+                true
+            } else {
+                true
+            }
         }
 
         fn set_selection(&self, _selected: &gtk::Bitset, _mask: &gtk::Bitset) -> bool {
