@@ -433,20 +433,20 @@ impl Tokenizer {
                 }
             },
             
-            change::ChangeType::Nest { parent, first_child, last_child, extent, props: _ } if parent == &stack_state.current_path => {
+            change::ChangeType::Nest { range, extent, props: _ } if range.parent == stack_state.current_path => {
                 /* Children were nested on this node */
-                let new_nest = &self.node.children[*first_child];
+                let new_nest = &self.node.children[range.first];
                 
-                if (*first_child..=*last_child).contains(index) || offset.map_or(false, |o| extent.includes(o)) {
+                if range.contains_index(*index) || offset.map_or(false, |o| extent.includes(o)) {
                     if options.prefer_after_new_node {
                         /* options said we should place after the new node, so do so. */
-                        *index = first_child + 1;
+                        *index = range.first + 1;
                         *offset = Some(new_nest.end());
                     } else {
                         /* descend into the new node. */
                         let new_nest_offset = new_nest.offset;
                         
-                        self.descend(if is_summary { TokenizerDescent::ChildSummary(*first_child) } else { TokenizerDescent::Child(*first_child) }, TokenizerState::End);
+                        self.descend(if is_summary { TokenizerDescent::ChildSummary(range.first) } else { TokenizerDescent::Child(range.first) }, TokenizerState::End);
 
                         // TODO: is there something more helpful we could do here?
                         *index = 0;
@@ -455,9 +455,9 @@ impl Tokenizer {
                             *offset-= new_nest_offset.to_size();
                         }
                     }
-                } else if *index > *last_child {
+                } else if *index > range.last {
                     /* If the new node was nested before the child we were on, need to adjust our child index */
-                    *index-= last_child-first_child;
+                    *index-= range.count() - 1;
                 }
             },
 
@@ -466,11 +466,11 @@ impl Tokenizer {
             },
 
             /* If the node we were on (or an ancestor of it) were deleted, that was already handled by port_recurse. Here we're only worried about our direct children (that we're not positioned on) being deleted. */
-            change::ChangeType::DeleteRange { parent, first_child, last_child } if parent == &stack_state.current_path => {
-                if (*first_child..=*last_child).contains(index) {
-                    *index = *first_child;
-                } else if *index > *last_child {
-                    *index-= last_child-first_child+1;
+            change::ChangeType::DeleteRange { range } if range.parent == stack_state.current_path => {
+                if range.contains_index(*index) {
+                    *index = range.first;
+                } else if *index > range.last {
+                    *index-= range.count();
                 }
             },
             
@@ -543,13 +543,13 @@ impl Tokenizer {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } => {
-                if parent == &state.current_path {
-                    if (*first_child..=*last_child).contains(&child_index) {
-                        state.push(*first_child);
-                        state.push(child_index - first_child);
-                    } else if child_index > *last_child {
-                        state.push(child_index - (last_child-first_child));
+            change::ChangeType::Nest { range, extent: _, props: _ } => {
+                if range.parent == state.current_path {
+                    if range.contains_index(child_index) {
+                        state.push(range.first);
+                        state.push(child_index - range.first);
+                    } else if child_index > range.last {
+                        state.push(child_index - (range.count() - 1));
                     }
                 } else {
                     state.push(child_index);
@@ -562,12 +562,12 @@ impl Tokenizer {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::DeleteRange { parent, first_child, last_child } => {
-                if parent == &state.current_path {
-                    if (*first_child..=*last_child).contains(&child_index) {
-                        state.deleted(*first_child, child_index, &old_tok.node);
-                    } else if child_index > *last_child {
-                        state.push(child_index - (last_child-first_child+1));
+            change::ChangeType::DeleteRange { range } => {
+                if range.parent == state.current_path {
+                    if range.contains_index(child_index) {
+                        state.deleted(range.first, child_index, &old_tok.node);
+                    } else if child_index > range.last {
+                        state.push(child_index - range.count());
                     }
                 } else {
                     state.push(child_index);
@@ -1868,7 +1868,7 @@ mod tests {
  
         let old_doc = document::Document::new_for_structure_test(root);
         let mut new_doc = old_doc.clone();
-        new_doc.change_for_debug(old_doc.delete_range(vec![1], 1, 2)).unwrap();
+        new_doc.change_for_debug(old_doc.delete_range(structure::SiblingRange::new(vec![1], 1, 2))).unwrap();
         
         let (o_child_1_2, o_child_1_2_addr) = old_doc.lookup_node(&vec![1, 2]);
         let (o_child_1_3, o_child_1_3_addr) = old_doc.lookup_node(&vec![1, 3]);

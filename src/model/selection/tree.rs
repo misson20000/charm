@@ -91,20 +91,17 @@ impl Selection {
     }
 
     /// If only one contiguous range of siblings within a single node (and either none or all of their grandchildren) is
-    /// selected, return the siblins' common parent and the start and end (inclusive) indices of the range of siblings.
-    pub fn one_range_selected(&self) -> Option<(structure::Path, usize, usize)> {
+    /// selected, return that range.
+    pub fn one_range_selected(&self) -> Option<structure::SiblingRange> {
         self.root.one_range_selected(&self.document.root, vec![])
     }
 
-    /// Invokes the callback for every range of contiguous selected siblings with no selected ancestors. The callback's arguments are the
-    /// path to the siblings' common parent and the start and end (inclusive) indices of the range of siblings within
-    /// that parent.
-    ///
-    /// Because the root node doesn't have a parent, it can't be represented by this function's interface and is ignored.
+    /// Invokes the callback for every range of contiguous selected siblings with no selected ancestors.  Because the
+    /// root node doesn't have a parent, it can't be represented by this function's interface and is ignored.
     ///
     /// The callback can cause an early return by returning a [Result::Err].
     pub fn ancestor_ranges_selected<E, F>(&self, mut cb: F) -> Result<(), E>
-    where F: FnMut(structure::PathSlice, usize, usize) -> Result<(), E> {
+    where F: FnMut(&structure::SiblingRange) -> Result<(), E> {
         self.root.ancestor_ranges_selected(&self.document.root, &mut vec![], &mut cb)
     }
     
@@ -639,7 +636,7 @@ impl SparseNode {
         }
     }
 
-    fn one_range_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<(structure::Path, usize, usize)> {
+    fn one_range_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::SiblingRange> {
         if self.self_selected {
             None
         } else {
@@ -705,18 +702,18 @@ impl SparseNode {
                         }
                     }
 
-                    start.map(|(begin, _)| (path, begin, end.unwrap_or(node.children.len()-1)))
+                    start.map(|(begin, _)| structure::SiblingRange::new(path, begin, end.unwrap_or(node.children.len()-1)))
                 },
                 
-                ChildrenMode::AllDirect => Some((path, 0, node.children.len()-1)),
-                ChildrenMode::AllGrandchildren => Some((path, 0, node.children.len()-1)),
+                ChildrenMode::AllDirect => Some(structure::SiblingRange::new(path, 0, node.children.len()-1)),
+                ChildrenMode::AllGrandchildren => Some(structure::SiblingRange::new(path, 0, node.children.len()-1)),
             }
         }
     }
 
     /// This function can mutate path, but has to put it back to the way it was before returning.
     pub fn ancestor_ranges_selected<E, F>(&self, node: &structure::Node, path: &mut structure::Path, cb: &mut F) -> Result<(), E>
-    where F: FnMut(structure::PathSlice, usize, usize) -> Result<(), E> {
+    where F: FnMut(&structure::SiblingRange) -> Result<(), E> {
         match &self.children_selected {
             ChildrenMode::None => Ok(()),
             ChildrenMode::AllDirect if node.children.len() == 0 => Ok(()),
@@ -747,7 +744,11 @@ impl SparseNode {
 
                         /* End of a range */
                         Some((start_index, end_index)) => {
-                            cb(&path[..], start_index, end_index)?;
+                            let range_obj = structure::SiblingRange::new(std::mem::replace(path, Vec::new()), start_index, end_index);
+                            cb(&range_obj)?;
+                            /* Fish the vector back out so we can use it again. */
+                            *path = range_obj.parent;
+                            
                             range = None;
 
                             path.push(i);
@@ -759,14 +760,21 @@ impl SparseNode {
                 }
 
                 if let Some((start_index, end_index)) = range {
-                    cb(&path[..], start_index, end_index)?;
+                    let range_obj = structure::SiblingRange::new(std::mem::replace(path, Vec::new()), start_index, end_index);
+                    cb(&range_obj)?;
+                    *path = range_obj.parent;
                 }
 
                 Ok(())
             },
 
-            ChildrenMode::AllDirect => cb(&path[..], 0, node.children.len()-1),
-            ChildrenMode::AllGrandchildren => cb(&path[..], 0, node.children.len()-1),
+            ChildrenMode::AllDirect | ChildrenMode::AllGrandchildren => {
+                let range_obj = structure::SiblingRange::new(std::mem::replace(path, Vec::new()), 0, node.children.len()-1);
+                cb(&range_obj)?;
+                *path = range_obj.parent;
+
+                Ok(())
+            },
         }
     }
 }

@@ -23,9 +23,7 @@ pub enum ChangeType {
 
     /// Wraps a node's children (range inclusive) in a new node.
     Nest {
-        parent: structure::Path,
-        first_child: usize,
-        last_child: usize,
+        range: structure::SiblingRange,
         extent: addr::Extent,
         props: structure::Properties
     },
@@ -44,9 +42,7 @@ pub enum ChangeType {
 
     /// Deletes some of a node's (range inclusive) children.
     DeleteRange {
-        parent: structure::Path,
-        first_child: usize,
-        last_child: usize
+        range: structure::SiblingRange,
     },
 }
 
@@ -82,6 +78,7 @@ pub enum UpdateError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyErrorType {
     UpdateFailed(UpdateError),
+    InvalidRange(structure::RangeInvalidity),
     InvalidParameters(&'static str),
 }
 
@@ -110,16 +107,16 @@ impl Change {
                     UpdatePathResult::Unmoved
                 }
             },
-            ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } => {
-                if path.len() > parent.len() && &path[0..parent.len()] == &parent[..] {
-                    let child_index = &mut path[parent.len()];
+            ChangeType::Nest { range, extent: _, props: _ } => {
+                if path.len() > range.parent.len() && &path[0..range.parent.len()] == &range.parent[..] {
+                    let child_index = &mut path[range.parent.len()];
                     
-                    if *child_index >= *first_child && *child_index <= *last_child {
-                        *child_index-= first_child;
-                        path.insert(parent.len(), *first_child);
+                    if range.contains_index(*child_index) {
+                        *child_index-= range.first;
+                        path.insert(range.parent.len(), range.first);
                         UpdatePathResult::Moved
-                    } else if *child_index > *last_child {
-                        *child_index-= last_child-first_child;
+                    } else if *child_index > range.last {
+                        *child_index-= range.count() - 1;
                         UpdatePathResult::Moved
                     } else {
                         UpdatePathResult::Unmoved
@@ -162,16 +159,16 @@ impl Change {
                     UpdatePathResult::Unmoved
                 }
             },
-            ChangeType::DeleteRange { parent, first_child, last_child } => {
-                if path.len() > parent.len() && &path[0..parent.len()] == &parent[..] {
-                    let child_index = &mut path[parent.len()];
+            ChangeType::DeleteRange { range } => {
+                if path.len() > range.parent.len() && &path[0..range.parent.len()] == &range.parent[..] {
+                    let child_index = &mut path[range.parent.len()];
                     
-                    if *child_index >= *first_child && *child_index <= *last_child {
-                        path.truncate(parent.len());
+                    if range.contains_index(*child_index) {
+                        path.truncate(range.parent.len());
 
                         UpdatePathResult::Deleted
-                    } else if *child_index > *last_child {
-                        *child_index-= last_child-first_child+1;
+                    } else if *child_index > range.last {
+                        *child_index-= range.count();
 
                         UpdatePathResult::Moved
                     } else {
@@ -247,30 +244,24 @@ impl Change {
 
                 Ok(())
             })?),
-            ChangeType::Nest { parent, first_child, last_child, extent, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
-                /* Check indices. */
-                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
-                    return Err(ApplyErrorType::InvalidParameters("attempted to nest children that don't exist"));
-                }
-
-                if last_child < first_child {
-                    return Err(ApplyErrorType::InvalidParameters("last child was before first child"));
-                }
+            ChangeType::Nest { range, extent, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, range.parent.iter().cloned(), |parent_node| {
+                /* Check range validity. */
+                range.check_validity(parent_node)?;
 
                 /* Check that children are all contained within the extent */
-                let children_extent = addr::Extent::between(parent_node.children[*first_child].offset, parent_node.children[*last_child].end());
+                let children_extent = addr::Extent::between(parent_node.children[range.first].offset, parent_node.children[range.last].end());
                 if !extent.contains(children_extent) {
                     return Err(ApplyErrorType::InvalidParameters("data extent does not contain all nested children"));
                 }
 
                 /* Preconditions passed; do the deed. */
-                let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
+                let mut children: Vec<structure::Childhood> = parent_node.children.splice(range.indices(), [structure::Childhood::default()]).collect();
 
                 for child in &mut children {
                     child.offset-= extent.begin.to_size();
                 }
 
-                let new_node = &mut parent_node.children[*first_child];
+                let new_node = &mut parent_node.children[range.first];
                 new_node.offset = extent.begin;
                 new_node.node = sync::Arc::new(structure::Node {
                     size: extent.length(),
@@ -308,18 +299,12 @@ impl Change {
 
                 Ok(())
             })?),
-            ChangeType::DeleteRange { parent, first_child, last_child } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
-                /* Check indices. */
-                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
-                    return Err(ApplyErrorType::InvalidParameters("attempted to delete children that don't exist"));
-                }
-
-                if last_child < first_child {
-                    return Err(ApplyErrorType::InvalidParameters("last child was before first child"));
-                }
+            ChangeType::DeleteRange { range } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, range.parent.iter().cloned(), |parent_node| {
+                /* Check range validity. */
+                range.check_validity(parent_node)?;
 
                 /* Preconditions passed; do the deed. */
-                parent_node.children.splice(first_child..=last_child, []);
+                parent_node.children.splice(range.indices(), []);
 
                 Ok(())
             })?),
@@ -329,8 +314,8 @@ impl Change {
     }
 }
 
-fn rebuild_node_tree<F, E, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, E> where
-    F: FnOnce(&mut structure::Node) -> Result<(), E> {
+fn rebuild_node_tree<F, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, ApplyErrorType> where
+    F: FnOnce(&mut structure::Node) -> Result<(), ApplyErrorType> {
     match path_segment.next() {
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
@@ -371,6 +356,12 @@ impl ApplyErrorType {
             ty: self,
             change,
         }
+    }
+}
+
+impl From<structure::RangeInvalidity> for ApplyErrorType {
+    fn from(invalidity: structure::RangeInvalidity) -> ApplyErrorType {
+        ApplyErrorType::InvalidRange(invalidity)
     }
 }
 
@@ -434,7 +425,7 @@ mod tests {
         /* siblings before but not including the path */
         let mut path = vec![1, 0, 2];
         assert_eq!(Change {
-            ty: ChangeType::Nest { parent: vec![1, 0], first_child: 0, last_child: 1, extent, props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1, 0], 0, 1), extent, props: structure::Properties::default() },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Moved);
         assert_eq!(path, vec![1, 0, 1]);
@@ -442,7 +433,7 @@ mod tests {
         /* siblings after but not including the path */
         let mut path = vec![1, 0, 2];
         assert_eq!(Change {
-            ty: ChangeType::Nest { parent: vec![1, 0], first_child: 3, last_child: 10, extent, props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1, 0], 3, 10), extent, props: structure::Properties::default() },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Unmoved);
         assert_eq!(path, vec![1, 0, 2]);
@@ -450,7 +441,7 @@ mod tests {
         /* including the path */
         let mut path = vec![1, 0, 5];
         assert_eq!(Change {
-            ty: ChangeType::Nest { parent: vec![1, 0], first_child: 3, last_child: 10, extent, props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1, 0], 3, 10), extent, props: structure::Properties::default() },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Moved);
         assert_eq!(path, vec![1, 0, 3, 2]);
@@ -458,7 +449,7 @@ mod tests {
         /* ancestor of the path */
         let mut path = vec![1, 0, 5, 4];
         assert_eq!(Change {
-            ty: ChangeType::Nest { parent: vec![1, 0], first_child: 3, last_child: 10, extent, props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1, 0], 3, 10), extent, props: structure::Properties::default() },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Moved);
         assert_eq!(path, vec![1, 0, 3, 2, 4]);        
@@ -466,7 +457,7 @@ mod tests {
         /* unrelated path */
         let mut path = vec![1, 0, 5, 4];
         assert_eq!(Change {
-            ty: ChangeType::Nest { parent: vec![1, 1], first_child: 3, last_child: 10, extent, props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1, 1], 3, 10), extent, props: structure::Properties::default() },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Unmoved);
         assert_eq!(path, vec![1, 0, 5, 4]);
@@ -538,7 +529,7 @@ mod tests {
         /* siblings before but not including the path */
         let mut path = vec![1, 0, 2];
         assert_eq!(Change {
-            ty: ChangeType::DeleteRange { parent: vec![1, 0], first_child: 0, last_child: 1 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1, 0], 0, 1) },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Moved);
         assert_eq!(path, vec![1, 0, 0]);
@@ -546,7 +537,7 @@ mod tests {
         /* siblings after but not including the path */
         let mut path = vec![1, 0, 2];
         assert_eq!(Change {
-            ty: ChangeType::DeleteRange { parent: vec![1, 0], first_child: 3, last_child: 10 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1, 0], 3, 10) },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Unmoved);
         assert_eq!(path, vec![1, 0, 2]);
@@ -554,7 +545,7 @@ mod tests {
         /* including the path */
         let mut path = vec![1, 0, 5];
         assert_eq!(Change {
-            ty: ChangeType::DeleteRange { parent: vec![1, 0], first_child: 3, last_child: 10 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1, 0], 3, 10) },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Deleted);
         /* don't care what the path is */
@@ -562,7 +553,7 @@ mod tests {
         /* ancestor of the path */
         let mut path = vec![1, 0, 5, 4];
         assert_eq!(Change {
-            ty: ChangeType::DeleteRange { parent: vec![1, 0], first_child: 3, last_child: 10 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1, 0], 3, 10) },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Deleted);
         /* don't care what the path is */
@@ -570,7 +561,7 @@ mod tests {
         /* unrelated path */
         let mut path = vec![1, 0, 5, 4];
         assert_eq!(Change {
-            ty: ChangeType::DeleteRange { parent: vec![1, 1], first_child: 3, last_child: 10 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1, 1], 3, 10) },
             generation: 0,
         }.update_path(&mut path), UpdatePathResult::Unmoved);
         assert_eq!(path, vec![1, 0, 5, 4]);
@@ -731,22 +722,22 @@ mod tests {
         let doc = create_test_document_1();
 
         assert_matches!(Change {
-            ty: ChangeType::Nest { parent: vec![1], first_child: 0, last_child: 2, extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1], 0, 2), extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to nest children that don't exist"), .. }));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidRange(structure::RangeInvalidity::IndexExceedsNumberOfChildren), .. }));
 
         assert_matches!(Change {
-            ty: ChangeType::Nest { parent: vec![1], first_child: 1, last_child: 0, extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1], 1, 0), extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("last child was before first child"), .. }));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidRange(structure::RangeInvalidity::Inverted), .. }));
 
         assert_matches!(Change {
-            ty: ChangeType::Nest { parent: vec![1], first_child: 1, last_child: 1, extent: addr::Extent::between(0x5, 0x20), props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1], 1, 1), extent: addr::Extent::between(0x5, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
         }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("data extent does not contain all nested children"), .. }));
 
         assert_matches!(Change {
-            ty: ChangeType::Nest { parent: vec![1], first_child: 0, last_child: 1, extent: addr::Extent::between(0x0, 0x13), props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1], 0, 1), extent: addr::Extent::between(0x0, 0x13), props: structure::Properties::default() },
             generation: doc.generation(),
         }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("data extent does not contain all nested children"), .. }));
     }
@@ -761,7 +752,7 @@ mod tests {
 
         let mut new_doc = doc.clone();
         Change {
-            ty: ChangeType::Nest { parent: vec![1], first_child: 1, last_child: 2, extent: addr::Extent::between(0x2, 0x18), props: structure::Properties::default() },
+            ty: ChangeType::Nest { range: structure::SiblingRange::new(vec![1], 1, 2), extent: addr::Extent::between(0x2, 0x18), props: structure::Properties::default() },
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 
@@ -845,7 +836,7 @@ mod tests {
         /* try deleting just child1 */
         let mut new_doc = doc.clone();
         Change {
-            ty: ChangeType::DeleteRange { parent: vec![], first_child: 1, last_child: 1 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![], 1, 1) },
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 
@@ -856,7 +847,7 @@ mod tests {
         /* try deleting child1.1 through child1.2 */
         let mut new_doc = doc.clone();
         Change {
-            ty: ChangeType::DeleteRange { parent: vec![1], first_child: 1, last_child: 2 },
+            ty: ChangeType::DeleteRange { range: structure::SiblingRange::new(vec![1], 1, 2) },
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 

@@ -163,9 +163,9 @@ impl Document {
     }
 
     #[must_use]
-    pub fn nest(&self, parent: structure::Path, first_child: usize, last_child: usize, extent: addr::Extent, props: structure::Properties) -> change::Change {
+    pub fn nest(&self, range: structure::SiblingRange, extent: addr::Extent, props: structure::Properties) -> change::Change {
         change::Change {
-            ty: change::ChangeType::Nest { parent, first_child, last_child, extent, props },
+            ty: change::ChangeType::Nest { range, extent, props },
             generation: self.generation(),
         }
     }
@@ -191,9 +191,9 @@ impl Document {
     }
     
     #[must_use]
-    pub fn delete_range(&self, parent: structure::Path, first_child: usize, last_child: usize) -> change::Change {
+    pub fn delete_range(&self, range: structure::SiblingRange) -> change::Change {
         change::Change {
-            ty: change::ChangeType::DeleteRange { parent, first_child, last_child },
+            ty: change::ChangeType::DeleteRange { range },
             generation: self.generation(),
         }
     }

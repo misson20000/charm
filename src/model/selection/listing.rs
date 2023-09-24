@@ -199,26 +199,25 @@ impl StructureRange {
                     self
                 }
                 doc_change::ChangeType::InsertNode { .. } => self,
-                doc_change::ChangeType::Nest { parent: affected_path, first_child: nested_first, last_child: nested_last, extent: nested_extent, props: _ } if affected_path == &self.path => {
-                    let nested = *nested_first..=*nested_last;
-                    let new_child = &new_doc.lookup_node(affected_path).0.children[*nested_first];
+                doc_change::ChangeType::Nest { range, extent: nested_extent, props: _ } if range.parent == self.path => {
+                    let new_child = &new_doc.lookup_node(&range.parent).0.children[range.first];
                         
-                    if nested.contains(&self.begin.1) && nested.contains(&self.end.1) && nested_extent.contains(self.extent()) {
+                    if range.contains_index(self.begin.1) && range.contains_index(self.end.1) && nested_extent.contains(self.extent()) {
                         /* The entire range was nested, so just select the same range in the child. */
-                        self.path.push(*nested_first);
+                        self.path.push(range.first);
                         self.begin.0-= new_child.offset.to_size();
-                        self.begin.1-= *nested_first;
-                        self.end.1-= *nested_first;
+                        self.begin.1-= range.first;
+                        self.end.1-= range.first;
                     } else {
                         /* If the beginning was part of the nested range, adjust it to the beginning of the nest. */
                         if nested_extent.includes(self.begin.0) {
                             self.begin.0 = nested_extent.begin;
                         }
 
-                        if nested.contains(&self.begin.1) {
-                            self.begin.1 = *nested_first;
-                        } else if self.begin.1 > *nested_last {
-                            self.begin.1-= nested_last-nested_first;
+                        if range.contains_index(self.begin.1) {
+                            self.begin.1 = range.first;
+                        } else if self.begin.1 > range.last {
+                            self.begin.1-= range.count() - 1;
                         }
 
                         /* If the end was part of the nested range, adjust it to the end of the nest. */
@@ -226,10 +225,10 @@ impl StructureRange {
                             self.end.0 = nested_extent.end;
                         }
 
-                        if nested.contains(&self.end.1) {
-                            self.end.1 = nested_first + 1;
-                        } else if self.end.1 > *nested_last {
-                            self.end.1-= nested_last-nested_first;
+                        if range.contains_index(self.end.1) {
+                            self.end.1 = range.first + 1;
+                        } else if self.end.1 > range.last {
+                            self.end.1-= range.count() - 1;
                         }
                     }
 
@@ -248,21 +247,20 @@ impl StructureRange {
                     self
                 },
                 doc_change::ChangeType::Destructure { .. } => self,
-                doc_change::ChangeType::DeleteRange { parent: affected_path, first_child: deleted_first, last_child: deleted_last } if affected_path == &self.path => {
-                    let deleted = *deleted_first..=*deleted_last;
-                    if deleted.contains(&self.begin.1) && deleted.contains(&self.end.1) {
+                doc_change::ChangeType::DeleteRange { range } if range.parent == self.path => {
+                    if range.contains_index(self.begin.1) && range.contains_index(self.end.1) {
                         return StructureMode::Empty;
                     } else {
-                        if deleted.contains(&self.begin.1) {
-                            self.begin.1 = *deleted_first;
-                        } else if self.begin.1 > *deleted_last {
-                            self.begin.1-= (*deleted_last-*deleted_first)+1;
+                        if range.contains_index(self.begin.1) {
+                            self.begin.1 = range.first;
+                        } else if self.begin.1 > range.last {
+                            self.begin.1-= range.count();
                         }
                         
-                        if deleted.contains(&self.end.1) {
-                            self.end.1 = *deleted_first-1;
-                        } else if self.end.1 > *deleted_last {
-                            self.end.1-= (*deleted_last-*deleted_first)+1;
+                        if range.contains_index(self.end.1) {
+                            self.end.1 = range.first-1;
+                        } else if self.end.1 > range.last {
+                            self.end.1-= range.count();
                         }
 
                         self

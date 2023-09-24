@@ -324,11 +324,11 @@ impl StructureListModel {
             change::ChangeType::InsertNode { .. } => None,
 
             /* Were some of our children nested? */
-            change::ChangeType::Nest { parent, first_child, last_child, extent: _, props: _ } if parent[..] == i.path[..] => {
-                let childhood = &new_node.children[*first_child];
+            change::ChangeType::Nest { range, extent: _, props: _ } if range.parent == i.path => {
+                let childhood = &new_node.children[range.first];
                 let document_host = i.document_host.clone();
                 
-                let count_removed = i.children.splice(first_child..=last_child, [NodeItem::new(NodeInfo {
+                let count_removed = i.children.splice(range.indices(), [NodeItem::new(NodeInfo {
                     path: vec![], /* will be fixed up later */
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
@@ -338,7 +338,7 @@ impl StructureListModel {
                     document_host,
                 })]).count();
 
-                Some((*first_child as u32, count_removed as u32, 1))
+                Some((range.first as u32, count_removed as u32, 1))
             },
             change::ChangeType::Nest { .. } => None,
 
@@ -361,10 +361,10 @@ impl StructureListModel {
             change::ChangeType::Destructure { .. } => None,
 
             /* Were some of our children deleted? */
-            change::ChangeType::DeleteRange { parent, first_child, last_child } if parent[..] == i.path[..] => {
-                let count_removed = i.children.splice(first_child..=last_child, []).count();
+            change::ChangeType::DeleteRange { range } if range.parent == i.path => {
+                let count_removed = i.children.splice(range.indices(), []).count();
 
-                Some((*first_child as u32, count_removed as u32, 0))
+                Some((range.first as u32, count_removed as u32, 0))
             },
             change::ChangeType::DeleteRange { .. } => None,
         };

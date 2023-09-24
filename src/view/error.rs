@@ -92,7 +92,6 @@ impl Error {
                 write!(msg, "Failed to apply change to document.\n")?;
                 
                 match &error.ty {
-                    document::change::ApplyErrorType::InvalidParameters(message) => write!(msg, "Parameters were invalid: {}\n", message)?,
                     document::change::ApplyErrorType::UpdateFailed(update_error) => {
                         write!(msg, "Change was originated against an older version of the document and conflicts with a newer change.\n")?;
                         // TODO: get details about the conflicting change?
@@ -103,6 +102,11 @@ impl Error {
                             document::change::UpdateError::NodeDeleted => write!(msg, "A node referenced by this change was been deleted.")?,
                         };
                     },
+                    document::change::ApplyErrorType::InvalidRange(reason) => write!(msg, "Range was invalid: {}.\n", match reason {
+                        document::structure::RangeInvalidity::IndexExceedsNumberOfChildren => "the start or end index exceeded the number of children in the node",
+                        document::structure::RangeInvalidity::Inverted => "the end index was before the start index",
+                    })?,
+                    document::change::ApplyErrorType::InvalidParameters(message) => write!(msg, "Parameters were invalid: {}\n", message)?,
                 };
                 
                 write!(msg, "\n")?;
@@ -210,9 +214,9 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Offset: {}\n", child.offset)?;
             write!(msg, "Properties: {:?}\n", child.node.props)?;
         },
-        document::change::ChangeType::Nest { parent, first_child, last_child, extent, props } => {
-            write!(msg, "Nest children under {}\n", SafePathDescription::new(document, &parent))?;
-            write!(msg, "Indices: {}-{} (inclusive)\n", first_child, last_child)?;
+        document::change::ChangeType::Nest { range, extent, props } => {
+            write!(msg, "Nest children under {}\n", SafePathDescription::new(document, &range.parent))?;
+            write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
             write!(msg, "Extent: {:?}\n", extent)?;
             write!(msg, "Properties: {:?}\n", props)?;
         },
@@ -222,9 +226,9 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Num grandchildren: {}\n", num_grandchildren)?;
             write!(msg, "Offset: {}\n", offset)?;
         },
-        document::change::ChangeType::DeleteRange { parent, first_child, last_child } => {
-            write!(msg, "Delete children under {}\n", SafePathDescription::new(document, &parent))?;
-            write!(msg, "Indices: {}-{} (inclusive)\n", first_child, last_child)?;
+        document::change::ChangeType::DeleteRange { range } => {
+            write!(msg, "Delete children under {}\n", SafePathDescription::new(document, &range.parent))?;
+            write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
         },
     };
 

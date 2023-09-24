@@ -18,7 +18,7 @@ use crate::view::window;
 struct NestAction {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::tree::Host>,
-    selection: cell::RefCell<(sync::Arc<selection::TreeSelection>, Option<(structure::Path, usize, usize)>)>,
+    selection: cell::RefCell<(sync::Arc<selection::TreeSelection>, Option<structure::SiblingRange>)>,
     window: rc::Weak<window::CharmWindow>,
     
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
@@ -53,11 +53,11 @@ impl NestAction {
 
     fn activate(&self) {
         if let Some(window) = self.window.upgrade() {
-            if let (selection, Some((parent, first_sibling, last_sibling))) = &*self.selection.borrow() {
-                let parent_node = selection.document.lookup_node(parent).0;
-                let extent = addr::Extent::between(parent_node.children[*first_sibling].offset, parent_node.children[*last_sibling].end());
+            if let (selection, Some(range)) = &*self.selection.borrow() {
+                let parent_node = selection.document.lookup_node(&range.parent).0;
+                let extent = addr::Extent::between(parent_node.children[range.first].offset, parent_node.children[range.last].end());
                 
-                let new_doc = match self.document_host.change(selection.document.nest(parent.to_vec(), *first_sibling, *last_sibling, extent, parent_node.props.clone_rename("".to_string()))) {
+                let new_doc = match self.document_host.change(selection.document.nest(range.clone(), extent, parent_node.props.clone_rename("".to_string()))) {
                     Ok(new_doc) => new_doc,
                     Err((error, attempted_version)) => {
                         /* Inform the user that their action failed. */
@@ -79,9 +79,9 @@ impl NestAction {
                  * possible we had an outdated copy of the document when we submitted the change. */
                 let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
                 let nested_node_path = match record {
-                    document::change::Change { ty: document::change::ChangeType::Nest { parent, first_child, .. }, .. } => {
-                        let mut path = parent.clone();
-                        path.push(*first_child);
+                    document::change::Change { ty: document::change::ChangeType::Nest { range, .. }, .. } => {
+                        let mut path = range.parent.clone();
+                        path.push(range.first);
                         path
                     },
                     _ => panic!("change was transmuted into a different type?")

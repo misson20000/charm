@@ -57,8 +57,8 @@ impl DeleteNodeAction {
         if let Some(window) = self.window.upgrade() {
             let selection = self.selection.borrow();
 
-            if let Err((error, attempted_version)) = selection.ancestor_ranges_selected(|parent, first_sibling, last_sibling| {
-                self.document_host.change(selection.document.delete_range(parent.to_vec(), first_sibling, last_sibling)).map(|_| ())
+            if let Err((error, attempted_version)) = selection.ancestor_ranges_selected(|range| {
+                self.document_host.change(selection.document.delete_range(range.clone())).map(|_| ())
             }) {
                 /* Inform the user that their action failed. */
                 window.report_error(error::Error {
