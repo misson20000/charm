@@ -9,6 +9,7 @@ use crate::model::selection as selection_model;
 use crate::model::space;
 use crate::view;
 use crate::view::action;
+use crate::view::error;
 use crate::view::helpers;
 use crate::view::hierarchy;
 use crate::view::selection;
@@ -348,6 +349,11 @@ impl CharmWindow {
         // TODO: error handling
         self.attach_context(Some(WindowContext::new(self, document::Document::new(space))));
     }
+
+    pub fn report_error(&self, error: error::Error) {
+        let dialog = error.create_dialog(self);
+        dialog.present();
+    }
 }
 
 impl WindowContext {
@@ -357,15 +363,45 @@ impl WindowContext {
         let tree_selection_host = sync::Arc::new(selection_model::tree::Host::new(selection_model::TreeSelection::new(document.clone())));
         let listing_selection_host = sync::Arc::new(selection_model::listing::Host::new(selection_model::ListingSelection::new(document.clone())));
 
-        let document_subscriber_for_tree_selection_update = helpers::subscribe_to_updates(sync::Arc::downgrade(&tree_selection_host), document_host.clone(), document.clone(), |tree_selection_host, new_document| {
-            // TODO: catch panics, rescue by reopening document
-            tree_selection_host.change(selection_model::tree::Change::DocumentUpdated(new_document.clone())).unwrap();
-        });
+        let document_subscriber_for_tree_selection_update = helpers::subscribe_to_updates(
+            sync::Arc::downgrade(&tree_selection_host),
+            document_host.clone(),
+            document.clone(),
+            clone!(@weak window => move |tree_selection_host, new_document| {
+                // TODO: catch panics, rescue by reopening document
+                if let Err((error, attempted_version)) = tree_selection_host.change(selection_model::tree::Change::DocumentUpdated(new_document.clone())) {
+                    /* tree::Change::DocumentUpdated should never fail, but if it ever does, report it as a bug. */
+                    window.report_error(error::Error {
+                        while_attempting: error::Action::TreeSelectionDocumentUpdate,
+                        trouble: error::Trouble::TreeSelectionUpdateFailure {
+                            error,
+                            attempted_version,
+                        },
+                        level: error::Level::Warning,
+                        is_bug: true,
+                    });
+                }
+            }));
 
-        let document_subscriber_for_listing_selection_update = helpers::subscribe_to_updates(sync::Arc::downgrade(&listing_selection_host), document_host.clone(), document.clone(), |listing_selection_host, new_document| {
-            // TODO: catch panics, rescue by reopening document
-            listing_selection_host.change(selection_model::listing::Change::DocumentUpdated(new_document.clone())).unwrap();
-        });
+        let document_subscriber_for_listing_selection_update = helpers::subscribe_to_updates(
+            sync::Arc::downgrade(&listing_selection_host),
+            document_host.clone(),
+            document.clone(),
+            clone!(@weak window => move |listing_selection_host, new_document| {
+                // TODO: catch panics, rescue by reopening document
+                if let Err((error, attempted_version)) = listing_selection_host.change(selection_model::listing::Change::DocumentUpdated(new_document.clone())) {
+                    /* listing::Change::DocumentUpdated should never fail, but if it ever does, report it as a bug. */
+                    window.report_error(error::Error {
+                        while_attempting: error::Action::ListingSelectionDocumentUpdate,
+                        trouble: error::Trouble::ListingSelectionUpdateFailure {
+                            error,
+                            attempted_version,
+                        },
+                        level: error::Level::Warning,
+                        is_bug: true,
+                    });
+                }
+            }));
         
         let lw = view::listing::ListingWidget::new();
         lw.init(
@@ -375,7 +411,7 @@ impl WindowContext {
         );
         
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
-        let tree_selection_model = selection::TreeSelectionModel::new(tree_selection_host.clone(), document_host.clone());
+        let tree_selection_model = selection::TreeSelectionModel::new(window, tree_selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
             document_host,

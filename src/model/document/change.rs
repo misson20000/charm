@@ -75,13 +75,20 @@ pub enum UpdatePathResult {
 pub enum UpdateError {
     NoCommonAncestor,
     NotUpdatable,
+    NotYetImplemented,
     NodeDeleted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ApplyError {
+pub enum ApplyErrorType {
     UpdateFailed(UpdateError),
     InvalidParameters(&'static str),
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplyError {
+    pub ty: ApplyErrorType,
+    pub change: Change,
 }
 
 impl Change {
@@ -177,7 +184,7 @@ impl Change {
         }
     }
 
-    pub fn rebase(mut self, to: &document::Document) -> Result<Self, UpdateError> {
+    pub fn rebase(mut self, to: &document::Document) -> Result<Self, (UpdateError, Self)> {
         if self.generation == to.generation() {
             return Ok(self)
         }
@@ -192,22 +199,138 @@ impl Change {
                     ty: match self.ty {
                         ChangeType::AlterNode { mut path, props } => ChangeType::AlterNode { path: match doc_change.update_path(&mut path) {
                             UpdatePathResult::Unmoved | UpdatePathResult::Moved => path,
-                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => return Err(UpdateError::NodeDeleted),
+                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => return Err((UpdateError::NodeDeleted, Change {ty: ChangeType::AlterNode { path, props }, generation: self.generation })),
                         }, props },
-                        ChangeType::InsertNode { .. } => return Err(UpdateError::NotUpdatable),
-                        ChangeType::Nest { .. } => return Err(UpdateError::NotUpdatable),
-                        ChangeType::Destructure { .. } => return Err(UpdateError::NotUpdatable),
-                        ChangeType::DeleteRange { .. } => return Err(UpdateError::NotUpdatable),
+                        ChangeType::InsertNode { .. } => return Err((UpdateError::NotYetImplemented, self)),
+                        ChangeType::Nest { .. } => return Err((UpdateError::NotYetImplemented, self)),
+                        ChangeType::Destructure { .. } => return Err((UpdateError::NotYetImplemented, self)),
+                        ChangeType::DeleteRange { .. } => return Err((UpdateError::NotYetImplemented, self)),
                     },
                     generation: to.generation()
                 })
-            }, None => Err(UpdateError::NoCommonAncestor)
+            }, None => Err((UpdateError::NoCommonAncestor, self))
         }
+    }
+
+    fn apply_impl(&self, document: &mut document::Document) -> Result<(), ApplyErrorType> {
+        match &self.ty {
+            ChangeType::AlterNode { path, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
+                target.props = props.clone();
+                Ok(())
+            })?),
+            ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
+                /* Check at_child to make sure it's not farther than one-past the end. */
+                if *at_child > target.children.len() {
+                    return Err(ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"));
+                }
+
+                /* Check offset to make sure it's within bounds. */
+                // TODO: automatically grow parents?
+                if childhood.offset > target.size.to_addr() {
+                    return Err(ApplyErrorType::InvalidParameters("attempted to insert node beginning beyond parent's size"));
+                }
+
+                /* Check child size to make sure it's within bounds. */
+                // TODO: automatically grow parents?
+                if childhood.offset + childhood.node.size > target.size.to_addr() {
+                    return Err(ApplyErrorType::InvalidParameters("attempted to insert node extending beyond parent's size"));
+                }
+                
+                /* Keep child offsets monotonic. */
+                if (*at_child > 0 && target.children[at_child-1].offset > childhood.offset) || (*at_child < target.children.len() && target.children[*at_child].offset < childhood.offset) {
+                    println!("rejecting insert at position {}, offset {} into children {:?}", at_child, childhood.offset, target.children);
+                    return Err(ApplyErrorType::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"));
+                }
+
+                /* Preconditions passed; do the deed. */
+                target.children.insert(*at_child, childhood.clone());
+
+                Ok(())
+            })?),
+            ChangeType::Nest { parent, first_child, last_child, extent, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
+                /* Check indices. */
+                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
+                    return Err(ApplyErrorType::InvalidParameters("attempted to nest children that don't exist"));
+                }
+
+                if last_child < first_child {
+                    return Err(ApplyErrorType::InvalidParameters("last child was before first child"));
+                }
+
+                /* Check that children are all contained within the extent */
+                let children_extent = addr::Extent::between(parent_node.children[*first_child].offset, parent_node.children[*last_child].end());
+                if !extent.contains(children_extent) {
+                    return Err(ApplyErrorType::InvalidParameters("data extent does not contain all nested children"));
+                }
+
+                /* Preconditions passed; do the deed. */
+                let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
+
+                for child in &mut children {
+                    child.offset-= extent.begin.to_size();
+                }
+
+                let new_node = &mut parent_node.children[*first_child];
+                new_node.offset = extent.begin;
+                new_node.node = sync::Arc::new(structure::Node {
+                    size: extent.length(),
+                    children: children,
+                    props: props.clone(),
+                });
+
+                Ok(())
+            })?),
+            ChangeType::Destructure { parent, child_index, num_grandchildren, offset } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
+                /* Check that we're trying to destructure a child that actually exists. */
+                if *child_index >= parent_node.children.len() {
+                    return Err(ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"));
+                }
+
+                /* Check that num_grandchildren is correct. */
+                if *num_grandchildren != parent_node.children[*child_index].node.children.len() {
+                    return Err(ApplyErrorType::InvalidParameters("num_grandchildren was wrong when attempting to destructure node"));
+                }
+
+                /* Check that offset is correct. */
+                if *offset != parent_node.children[*child_index].offset {
+                    return Err(ApplyErrorType::InvalidParameters("offset was wrong when attempting to destructure node"));
+                }
+
+                /* Preconditions passed; do the deed. */
+                let destructured_child = parent_node.children.remove(*child_index);
+                
+                parent_node.children.splice(*child_index..*child_index, destructured_child.node.children.iter().map(|childhood| {
+                    /* Don't forget to shift offsets. */
+                    let mut childhood = childhood.clone();
+                    childhood.offset+= offset.to_size();
+                    childhood
+                }));
+
+                Ok(())
+            })?),
+            ChangeType::DeleteRange { parent, first_child, last_child } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
+                /* Check indices. */
+                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
+                    return Err(ApplyErrorType::InvalidParameters("attempted to delete children that don't exist"));
+                }
+
+                if last_child < first_child {
+                    return Err(ApplyErrorType::InvalidParameters("last child was before first child"));
+                }
+
+                /* Preconditions passed; do the deed. */
+                parent_node.children.splice(first_child..=last_child, []);
+
+                Ok(())
+            })?),
+        };
+
+        Ok(())
     }
 }
 
-fn rebuild_node_tree<F, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, ApplyError> where
-    F: FnOnce(&mut structure::Node) -> Result<(), ApplyError> {
+fn rebuild_node_tree<F, E, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, E> where
+    F: FnOnce(&mut structure::Node) -> Result<(), E> {
     match path_segment.next() {
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
@@ -231,123 +354,23 @@ impl versioned::Change<document::Document> for Change {
     type ApplyRecord = Self;
     
     fn apply(mut self, document: &mut document::Document) -> Result<(Change, Change), ApplyError> {
-        self = self.rebase(document).map_err(ApplyError::UpdateFailed)?;
+        self = self.rebase(document).map_err(|(update_error, change)| ApplyErrorType::UpdateFailed(update_error).complete(change))?;
 
         assert_eq!(self.generation, document.generation());
 
-        match &self.ty {
-            ChangeType::AlterNode { path, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
-                target.props = props.clone();
-                Ok(())
-            })?),
-            ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
-                /* Check at_child to make sure it's not farther than one-past the end. */
-                if *at_child > target.children.len() {
-                    return Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index"));
-                }
-
-                /* Check offset to make sure it's within bounds. */
-                // TODO: automatically grow parents?
-                if childhood.offset > target.size.to_addr() {
-                    return Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size"));
-                }
-
-                /* Check child size to make sure it's within bounds. */
-                // TODO: automatically grow parents?
-                if childhood.offset + childhood.node.size > target.size.to_addr() {
-                    return Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size"));
-                }
-                
-                /* Keep child offsets monotonic. */
-                if (*at_child > 0 && target.children[at_child-1].offset > childhood.offset) || (*at_child < target.children.len() && target.children[*at_child].offset < childhood.offset) {
-                    println!("rejecting insert at position {}, offset {} into children {:?}", at_child, childhood.offset, target.children);
-                    return Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"));
-                }
-
-                /* Preconditions passed; do the deed. */
-                target.children.insert(*at_child, childhood.clone());
-
-                Ok(())
-            })?),
-            ChangeType::Nest { parent, first_child, last_child, extent, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
-                /* Check indices. */
-                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
-                    return Err(ApplyError::InvalidParameters("attempted to nest children that don't exist"));
-                }
-
-                if last_child < first_child {
-                    return Err(ApplyError::InvalidParameters("last child was before first child"));
-                }
-
-                /* Check that children are all contained within the extent */
-                let children_extent = addr::Extent::between(parent_node.children[*first_child].offset, parent_node.children[*last_child].end());
-                if !extent.contains(children_extent) {
-                    return Err(ApplyError::InvalidParameters("data extent does not contain all nested children"));
-                }
-
-                /* Preconditions passed; do the deed. */
-                let mut children: Vec<structure::Childhood> = parent_node.children.splice(first_child..=last_child, [structure::Childhood::default()]).collect();
-
-                for child in &mut children {
-                    child.offset-= extent.begin.to_size();
-                }
-
-                let new_node = &mut parent_node.children[*first_child];
-                new_node.offset = extent.begin;
-                new_node.node = sync::Arc::new(structure::Node {
-                    size: extent.length(),
-                    children: children,
-                    props: props.clone(),
-                });
-
-                Ok(())
-            })?),
-            ChangeType::Destructure { parent, child_index, num_grandchildren, offset } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
-                /* Check that we're trying to destructure a child that actually exists. */
-                if *child_index >= parent_node.children.len() {
-                    return Err(ApplyError::InvalidParameters("attemped to destructure child that doesn't exist"));
-                }
-
-                /* Check that num_grandchildren is correct. */
-                if *num_grandchildren != parent_node.children[*child_index].node.children.len() {
-                    return Err(ApplyError::InvalidParameters("num_grandchildren was wrong when attempting to destructure node"));
-                }
-
-                /* Check that offset is correct. */
-                if *offset != parent_node.children[*child_index].offset {
-                    return Err(ApplyError::InvalidParameters("offset was wrong when attempting to destructure node"));
-                }
-
-                /* Preconditions passed; do the deed. */
-                let destructured_child = parent_node.children.remove(*child_index);
-                
-                parent_node.children.splice(*child_index..*child_index, destructured_child.node.children.iter().map(|childhood| {
-                    /* Don't forget to shift offsets. */
-                    let mut childhood = childhood.clone();
-                    childhood.offset+= offset.to_size();
-                    childhood
-                }));
-
-                Ok(())
-            })?),
-            ChangeType::DeleteRange { parent, first_child, last_child } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
-                /* Check indices. */
-                if *first_child >= parent_node.children.len() || *last_child >= parent_node.children.len() {
-                    return Err(ApplyError::InvalidParameters("attempted to delete children that don't exist"));
-                }
-
-                if last_child < first_child {
-                    return Err(ApplyError::InvalidParameters("last child was before first child"));
-                }
-
-                /* Preconditions passed; do the deed. */
-                parent_node.children.splice(first_child..=last_child, []);
-
-                Ok(())
-            })?),
+        match self.apply_impl(document) {
+            Ok(()) => Ok((self.clone(), self)),
+            Err(ty) => Err(ty.complete(self)),
         }
+    }
+}
 
-        Ok((self.clone(), self))
+impl ApplyErrorType {
+    fn complete(self, change: Change) -> ApplyError {
+        ApplyError {
+            ty: self,
+            change,
+        }
     }
 }
 
@@ -647,7 +670,7 @@ mod tests {
             assert_matches!(Change {
                 ty: ChangeType::InsertNode { parent: vec![], index: 4, child: builder.build_child(addr::Address::from(0x100)) },
                 generation: doc.generation(),
-            }.apply(&mut doc), Err(ApplyError::InvalidParameters("attempted to insert node at out-of-bounds index")));
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"), .. }));
             assert!(doc.lookup_node(&vec![0]).0.size < 0x21.into());
         }
 
@@ -656,7 +679,7 @@ mod tests {
             assert_matches!(Change {
                 ty: ChangeType::InsertNode { parent: vec![0], index: 0, child: builder.build_child(addr::Address::from(0x21)) },
                 generation: doc.generation(),
-            }.apply(&mut doc), Err(ApplyError::InvalidParameters("attempted to insert node beginning beyond parent's size")));
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node beginning beyond parent's size"), .. }));
             assert_eq!(doc.lookup_node(&vec![0]).0.size, 0x20.into());
         }
 
@@ -665,7 +688,7 @@ mod tests {
             assert_matches!(Change {
                 ty: ChangeType::InsertNode { parent: vec![0], index: 0, child: builder.build_child(addr::Address::from(0x11)) },
                 generation: doc.generation(),
-            }.apply(&mut doc), Err(ApplyError::InvalidParameters("attempted to insert node extending beyond parent's size")));
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node extending beyond parent's size"), .. }));
             assert_eq!(doc.lookup_node(&vec![1, 1]).1, addr::Address::from(0x18));
         }
 
@@ -674,7 +697,7 @@ mod tests {
             assert_matches!(Change {
                 ty: ChangeType::InsertNode { parent: vec![1], index: 0, child: builder.build_child(addr::Address::from(0x2)) },
                 generation: doc.generation(),
-            }.apply(&mut doc), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"), .. }));
         }
 
         {
@@ -682,7 +705,7 @@ mod tests {
             assert_matches!(Change {
                 ty: ChangeType::InsertNode { parent: vec![1], index: 2, child: builder.build_child(addr::Address::from(0x2)) },
                 generation: doc.generation(),
-            }.apply(&mut doc), Err(ApplyError::InvalidParameters("attempted to insert node at an index that would break offset monotonicity")));
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at an index that would break offset monotonicity"), .. }));
         }
     }
     
@@ -710,22 +733,22 @@ mod tests {
         assert_matches!(Change {
             ty: ChangeType::Nest { parent: vec![1], first_child: 0, last_child: 2, extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("attempted to nest children that don't exist")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to nest children that don't exist"), .. }));
 
         assert_matches!(Change {
             ty: ChangeType::Nest { parent: vec![1], first_child: 1, last_child: 0, extent: addr::Extent::between(0x0, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("last child was before first child")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("last child was before first child"), .. }));
 
         assert_matches!(Change {
             ty: ChangeType::Nest { parent: vec![1], first_child: 1, last_child: 1, extent: addr::Extent::between(0x5, 0x20), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("data extent does not contain all nested children")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("data extent does not contain all nested children"), .. }));
 
         assert_matches!(Change {
             ty: ChangeType::Nest { parent: vec![1], first_child: 0, last_child: 1, extent: addr::Extent::between(0x0, 0x13), props: structure::Properties::default() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("data extent does not contain all nested children")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("data extent does not contain all nested children"), .. }));
     }
 
     #[test]
@@ -776,17 +799,17 @@ mod tests {
         assert_matches!(Change {
             ty: ChangeType::Destructure { parent: vec![], child_index: 1, num_grandchildren: 4, offset: 0x13.into() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("offset was wrong when attempting to destructure node")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("offset was wrong when attempting to destructure node"), .. }));
 
         assert_matches!(Change {
             ty: ChangeType::Destructure { parent: vec![], child_index: 1, num_grandchildren: 5, offset: 0x14.into() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("num_grandchildren was wrong when attempting to destructure node")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("num_grandchildren was wrong when attempting to destructure node"), .. }));
 
         assert_matches!(Change {
             ty: ChangeType::Destructure { parent: vec![], child_index: 30, num_grandchildren: 5, offset: 0x14.into() },
             generation: doc.generation(),
-        }.apply(&mut doc.clone()), Err(ApplyError::InvalidParameters("attemped to destructure child that doesn't exist")));
+        }.apply(&mut doc.clone()), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"), .. }));
     }
     
     #[test]

@@ -261,7 +261,7 @@ impl Cursor {
         self.document.clone()
     }
     
-    pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), document::change::ApplyError> {
+    pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), (document::change::ApplyError, sync::Arc<document::Document>)> {
         host.change(
             self.document.insert_node(
                 self.structure_path(),

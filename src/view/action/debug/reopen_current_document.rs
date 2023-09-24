@@ -27,8 +27,6 @@ impl ReopenCurrentDocumentAction {
     fn activate(&self) {
         if let Some(window) = self.window.upgrade() {
             window.attach_context(Some(window::WindowContext::new(&window, (**self.document_host.borrow()).clone())));
-        } else {
-            // TODO: figure out how to log this error
         }
     }
 }

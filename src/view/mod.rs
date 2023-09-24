@@ -4,6 +4,7 @@ use gtk::prelude::*;
 
 pub mod action;
 pub mod config;
+pub mod error;
 pub mod ext;
 pub mod window;
 pub mod helpers;

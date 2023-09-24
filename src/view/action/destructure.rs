@@ -9,6 +9,7 @@ use gtk::gio;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
+use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
 
@@ -54,15 +55,21 @@ impl DestructureAction {
     }
     
     fn activate(&self) {
-        if let (selection, Some(path)) = &*self.path.borrow() {
-            let _ = match self.document_host.change(selection.document.destructure(path).unwrap()) {
-                Ok(new_doc) => new_doc,
-                Err(e) => {
-                    // TODO: better failure feedback
-                    println!("failed to change document: {:?}", e);
-                    return;
+        if let Some(window) = self.window.upgrade() {
+            if let (selection, Some(path)) = &*self.path.borrow() {
+                if let Err((error, attempted_version)) = self.document_host.change(selection.document.destructure(path).unwrap()) {
+                    /* Inform the user that their action failed. */
+                    window.report_error(error::Error {
+                        while_attempting: error::Action::DestructureNode,
+                        trouble: error::Trouble::DocumentUpdateFailure {
+                            error,
+                            attempted_version
+                        },
+                        level: error::Level::Error,
+                        is_bug: false,
+                    });
                 }
-            };
+            }
         }
     }
 }

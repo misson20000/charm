@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.14.0 -->
+<interface>
+  <requires lib="gtk" version="4.6"/>
+  <object class="GtkBox" id="toplevel">
+    <property name="margin-bottom">15</property>
+    <property name="margin-end">15</property>
+    <property name="margin-start">15</property>
+    <property name="margin-top">15</property>
+    <property name="orientation">vertical</property>
+    <property name="spacing">15</property>
+    <child>
+      <object class="GtkLabel" id="message">
+        <property name="halign">start</property>
+        <property name="label">Failed to perform some action.</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkExpander">
+        <property name="hexpand">True</property>
+        <property name="label">Details</property>
+        <property name="vexpand">True</property>
+        <child>
+          <object class="GtkScrolledWindow">
+            <property name="height-request">200</property>
+            <property name="hscrollbar-policy">never</property>
+            <property name="width-request">600</property>
+            <child>
+              <object class="GtkTextView" id="detail">
+                <property name="buffer">
+                  <object class="GtkTextBuffer" id="detail_buffer">
+                    <property name="enable-undo">False</property>
+                    <property name="text">Details regarding some error that happened.</property>
+                  </object>
+                </property>
+                <property name="cursor-visible">False</property>
+                <property name="editable">False</property>
+                <property name="hexpand">True</property>
+                <property name="monospace">True</property>
+                <property name="vexpand">True</property>
+                <property name="wrap-mode">word</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel" id="bug_label">
+        <property name="hexpand">True</property>
+        <property name="justify">center</property>
+        <property name="label">&lt;i&gt;This error should not happen and means there is a bug in Charm. Please report it.&lt;/i&gt;</property>
+        <property name="use-markup">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="ok_button">
+        <property name="action-name">window.close</property>
+        <property name="halign">end</property>
+        <property name="label">Ok</property>
+        <property name="valign">end</property>
+      </object>
+    </child>
+  </object>
+</interface>

@@ -23,7 +23,7 @@ macro_rules! declare_config {
     [ $typename:ident {
         $( $description:literal $name:ident : $type:path = $default:expr),* $(,)?
     } ] => {
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub struct $typename {
             $(
                 pub $name: $type,

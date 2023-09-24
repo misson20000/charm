@@ -5,6 +5,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::view::error;
 use crate::view::helpers;
 use crate::view::listing;
 use crate::view::window;
@@ -19,6 +20,7 @@ struct InsertNodeAction {
     activation: cell::RefCell<Option<Activation>>,
 
     lw: listing::ListingWidget,
+    window: rc::Weak<window::CharmWindow>,
     
     dialog: gtk::ApplicationWindow,
     
@@ -59,6 +61,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         document_host: window_context.document_host.clone(),
         activation: cell::RefCell::new(None),
         lw: window_context.lw.clone(),
+        window: window_context.window.clone(),
         dialog: dialog.clone(),
         
         name_entry,
@@ -87,38 +90,78 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
 
 impl InsertNodeAction {
     fn do_insert(&self) {
-        let name = self.name_entry.text().as_str().to_string();
-        
-        let size = match addr::Address::parse(self.size_entry.text().as_str()) {
-            Ok(a) => a,
-            Err(e) => { println!("TODO: failed to parse address: {:?}", e); return }
-        }.to_size();
-        
-        let offset = match addr::Address::parse(self.offset_entry.text().as_str()) {
-            Ok(a) => a,
-            Err(e) => { println!("TODO: failed to parse address: {:?}", e); return }
-        };
+        if let Some(window) = self.window.upgrade() {
+            let name = self.name_entry.text().as_str().to_string();
 
-        let activation = match self.activation.take() {
-            Some(a) => a,
-            None => { println!("calling do_insert when action wasn't previously activated?"); return }
-        };
-        
-        let parent_node = activation.document.lookup_node(&activation.path).0;
-        let index = self.order_entry.selected() as usize;
+            let size_text = self.size_entry.text();
+            let size = match addr::Address::parse(size_text.as_str()) {
+                Ok(a) => a,
+                Err(e) => {
+                    window.report_error(error::Error {
+                        while_attempting: error::Action::InsertNodeParseSize,
+                        trouble: error::Trouble::AddressParseFailed {
+                            error: e,
+                            address: size_text.to_string(),
+                        },
+                        level: error::Level::Error,
+                        is_bug: false,
+                    });
+                    return;
+                }
+            }.to_size();
 
-        self.document_host.change(activation.document.insert_node(
-            activation.path,
-            index,
-            structure::Childhood::new(
-                sync::Arc::new(structure::Node {
-                    props: parent_node.props.clone_rename(name),
-                    children: Vec::new(),
-                    size,
-                }),
-                offset
-            )
-        )).expect("TODO: handle this");
+            let offset_text = self.offset_entry.text();
+            let offset = match addr::Address::parse(offset_text.as_str()) {
+                Ok(a) => a,
+                Err(e) => {
+                    window.report_error(error::Error {
+                        while_attempting: error::Action::InsertNodeParseOffset,
+                        trouble: error::Trouble::AddressParseFailed {
+                            error: e,
+                            address: size_text.to_string(),
+                        },
+                        level: error::Level::Error,
+                        is_bug: false,
+                    });
+                    return;
+                }
+            };
+
+            let activation = match self.activation.take() {
+                Some(a) => a,
+                None => {
+                    /* This shouldn't happen. */
+                    return;
+                }
+            };
+            
+            let parent_node = activation.document.lookup_node(&activation.path).0;
+            let index = self.order_entry.selected() as usize;
+
+            if let Err((error, attempted_version)) = self.document_host.change(activation.document.insert_node(
+                activation.path,
+                index,
+                structure::Childhood::new(
+                    sync::Arc::new(structure::Node {
+                        props: parent_node.props.clone_rename(name),
+                        children: Vec::new(),
+                        size,
+                    }),
+                    offset
+                )
+            )) {
+                /* Inform the user that their action failed. */
+                window.report_error(error::Error {
+                    while_attempting: error::Action::InsertNode,
+                    trouble: error::Trouble::DocumentUpdateFailure {
+                        error,
+                        attempted_version
+                    },
+                    level: error::Level::Error,
+                    is_bug: false,
+                });
+            }
+        }
     }
     
     pub fn activate(&self) {
@@ -171,6 +214,7 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
     let action = gio::SimpleAction::new(&format!("insert_{}", name), None);
     let size = size.into();
     let name = name.to_string();
+    let window = window_context.window.clone();
 
     action.connect_activate(move |_, _| {
         let mut cursor = lw.cursor_mut();
@@ -187,8 +231,27 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
             size,
         })) {
             Ok(()) => {},
-            Err(e) => {
-                println!("failed to insert node at cursor: {:?}", e);
+            Err((error, attempted_version)) => {
+                let report_error = match &error.ty {
+                    /* don't bother popping up the dialog for this */
+                    document::change::ApplyErrorType::InvalidParameters(_) => false,
+                    _ => true
+                };
+
+                if report_error {
+                    if let Some(window) = window.upgrade() {
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::InsertNode,
+                            trouble: error::Trouble::DocumentUpdateFailure {
+                                error,
+                                attempted_version
+                            },
+                            level: error::Level::Error,
+                            is_bug: false,
+                        });
+                    }
+                }
+                
                 std::mem::drop(cursor);
                 lw.bonk();
             },

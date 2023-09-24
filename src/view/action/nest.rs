@@ -11,6 +11,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
+use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
 
@@ -51,44 +52,64 @@ impl NestAction {
     }
 
     fn activate(&self) {
-        if let (selection, Some((parent, first_sibling, last_sibling))) = &*self.selection.borrow() {
-            let parent_node = selection.document.lookup_node(parent).0;
-            let extent = addr::Extent::between(parent_node.children[*first_sibling].offset, parent_node.children[*last_sibling].end());
-        
-            let new_doc = match self.document_host.change(selection.document.nest(parent.to_vec(), *first_sibling, *last_sibling, extent, parent_node.props.clone_rename("".to_string()))) {
-                Ok(new_doc) => new_doc,
-                Err(e) => {
-                    // TODO: better failure feedback
-                    println!("failed to change document: {:?}", e);
-                    return;
-                }
-            };
+        if let Some(window) = self.window.upgrade() {
+            if let (selection, Some((parent, first_sibling, last_sibling))) = &*self.selection.borrow() {
+                let parent_node = selection.document.lookup_node(parent).0;
+                let extent = addr::Extent::between(parent_node.children[*first_sibling].offset, parent_node.children[*last_sibling].end());
+                
+                let new_doc = match self.document_host.change(selection.document.nest(parent.to_vec(), *first_sibling, *last_sibling, extent, parent_node.props.clone_rename("".to_string()))) {
+                    Ok(new_doc) => new_doc,
+                    Err((error, attempted_version)) => {
+                        /* Inform the user that their action failed. */
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::Nest,
+                            trouble: error::Trouble::DocumentUpdateFailure {
+                                error,
+                                attempted_version
+                            },
+                            level: error::Level::Error,
+                            is_bug: false,
+                        });
+                        
+                        return;
+                    }
+                };
 
-            /* We need to dig the information about where the nested node wound up out of the change record since it's
-             * possible we had an outdated copy of the document when we submitted the change. */
-            let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
-            let nested_node_path = match record {
-                document::change::Change { ty: document::change::ChangeType::Nest { parent, first_child, .. }, .. } => {
-                    let mut path = parent.clone();
-                    path.push(*first_child);
-                    path
-                },
-                _ => panic!("change was transmuted into a different type?")
-            };
-        
-            let new_sel = match self.selection_host.change(selection::tree::Change::SetSingle(new_doc, nested_node_path)) {
-                Ok(new_sel) => new_sel,
-                Err(e) => {
-                    // TODO: better failure feedback
-                    println!("failed to update selection: {:?}", e);
-                    return;
-                }
-            };
+                /* We need to dig the information about where the nested node wound up out of the change record since it's
+                 * possible we had an outdated copy of the document when we submitted the change. */
+                let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
+                let nested_node_path = match record {
+                    document::change::Change { ty: document::change::ChangeType::Nest { parent, first_child, .. }, .. } => {
+                        let mut path = parent.clone();
+                        path.push(*first_child);
+                        path
+                    },
+                    _ => panic!("change was transmuted into a different type?")
+                };
+                
+                let new_sel = match self.selection_host.change(selection::tree::Change::SetSingle(new_doc, nested_node_path)) {
+                    Ok(new_sel) => new_sel,
+                    Err((error, attempted_version)) => {
+                        /* This shouldn't happen. */
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::Nest,
+                            trouble: error::Trouble::TreeSelectionUpdateFailure {
+                                error,
+                                attempted_version
+                            },
+                            level: error::Level::Informational,
+                            is_bug: true,
+                        });
+                        
+                        return;
+                    }
+                };
 
-            if let Some(w) = self.window.upgrade() {
-                /* Force the properties editor to update to the new selection synchronously */
-                w.props_editor.update_selection(&new_sel);
-                w.props_editor.focus_name();
+                if let Some(w) = self.window.upgrade() {
+                    /* Force the properties editor to update to the new selection synchronously */
+                    w.props_editor.update_selection(&new_sel);
+                    w.props_editor.focus_name();
+                }
             }
         }
     }

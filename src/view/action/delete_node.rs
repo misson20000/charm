@@ -8,6 +8,7 @@ use gtk::gio;
 
 use crate::model::document;
 use crate::model::selection;
+use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
 
@@ -15,6 +16,7 @@ struct DeleteNodeAction {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::tree::Host>,
     selection: cell::RefCell<sync::Arc<selection::TreeSelection>>,
+    window: rc::Weak<window::CharmWindow>,
     
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
@@ -26,6 +28,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         document_host: window_context.document_host.clone(),
         selection_host: window_context.tree_selection_host.clone(),
         selection: cell::RefCell::new(selection.clone()),
+        window: window_context.window.clone(),
         subscriber: Default::default(),
     });
     
@@ -51,11 +54,23 @@ impl DeleteNodeAction {
     }
     
     fn activate(&self) {
-        let selection = self.selection.borrow();
+        if let Some(window) = self.window.upgrade() {
+            let selection = self.selection.borrow();
 
-        // TODO: failure feedback
-        let _ = selection.ancestor_ranges_selected(|parent, first_sibling, last_sibling| {
-            self.document_host.change(selection.document.delete_range(parent.to_vec(), first_sibling, last_sibling)).map(|_| ())
-        });
+            if let Err((error, attempted_version)) = selection.ancestor_ranges_selected(|parent, first_sibling, last_sibling| {
+                self.document_host.change(selection.document.delete_range(parent.to_vec(), first_sibling, last_sibling)).map(|_| ())
+            }) {
+                /* Inform the user that their action failed. */
+                window.report_error(error::Error {
+                    while_attempting: error::Action::DeleteNode,
+                    trouble: error::Trouble::DocumentUpdateFailure {
+                        error,
+                        attempted_version
+                    },
+                    level: error::Level::Error,
+                    is_bug: false,
+                });
+            }
+        }
     }
 }

@@ -169,10 +169,16 @@ impl<Object: Versioned> Host<Object> {
         self.current.load_full()
     }
 
-    pub fn change(&self, change: Object::Change) -> Result<sync::Arc<Object>, <<Object as Versioned>::Change as Change<Object>>::ApplyError> {
+    /// Attempts to apply a change to the most recent version of the object. If successful, returns the new version of
+    /// the object after the change was applied. If unsuccessful, returns a tuple of the error from the change's apply
+    /// function and the version of the object that the change was attempted to be applied to.
+    pub fn change(&self, change: Object::Change) -> Result<sync::Arc<Object>, (<<Object as Versioned>::Change as Change<Object>>::ApplyError, sync::Arc<Object>)> {
         let old = self.current.load();
         let mut object = (**old).clone();
-        let (change, record) = change.apply(&mut object)?;
+        let (change, record) = match change.apply(&mut object) {
+            Ok(x) => x,
+            Err(e) => return Err((e, old.clone())),
+        };
 
         let version = object.version_mut();
         version.previous = Some((old.clone(), record));
