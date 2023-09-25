@@ -34,7 +34,7 @@ pub type Path = vec::Vec<usize>;
 pub type PathSlice<'a> = &'a [usize];
 pub type PathIter<'a> = std::vec::IntoIter<usize>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiblingRange {
     pub parent: Path,
     pub first: usize,

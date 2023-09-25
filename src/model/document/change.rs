@@ -68,11 +68,33 @@ pub enum UpdatePathResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateRangeResult {
+    /// The range wasn't affected by this change at all.
+    Unmoved(structure::SiblingRange),
+
+    /// The range was moved or shifted somewhere else.
+    Moved(structure::SiblingRange),
+
+    /// An ancestor of the range was deleted.
+    ParentDeleted,
+
+    /// All the children referred to by the range were deleted.
+    AllDeleted,
+    
+    /// Some children referred to by the range were deleted or moved elsewhere, but not all of them.
+    Split,
+
+    /// Another child was inserted in the middle of the range.
+    Inserted { range: structure::SiblingRange, absolute_index: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateError {
     NoCommonAncestor,
     NotUpdatable,
     NotYetImplemented,
     NodeDeleted,
+    RangeSplit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,7 +129,7 @@ impl Change {
                     UpdatePathResult::Unmoved
                 }
             },
-            ChangeType::Nest { range, extent: _, props: _ } => {
+            ChangeType::Nest { range, .. } => {
                 if path.len() > range.parent.len() && &path[0..range.parent.len()] == &range.parent[..] {
                     let child_index = &mut path[range.parent.len()];
                     
@@ -125,7 +147,7 @@ impl Change {
                     UpdatePathResult::Unmoved
                 }
             },
-            ChangeType::Destructure { parent, child_index, num_grandchildren, offset: _ } => {
+            ChangeType::Destructure { parent, child_index, num_grandchildren, .. } => {
                 if path.len() > parent.len() && &path[0..parent.len()] == &parent[..] {
                     if path[parent.len()] < *child_index {
                         /* Path was pointing to a sibling of the node being destructured that comes before it */
@@ -181,6 +203,79 @@ impl Change {
         }
     }
 
+    #[must_use]
+    pub fn update_range(&self, mut subject: structure::SiblingRange) -> UpdateRangeResult {
+        match &self.ty {
+            ChangeType::AlterNode { .. } => UpdateRangeResult::Unmoved(subject),
+            
+            ChangeType::InsertNode { parent, index, .. } => {
+                if subject.parent[..] == parent[..] {
+                    if subject.contains_index(*index) {
+                        subject.last+= 1;
+                        UpdateRangeResult::Inserted { range: subject, absolute_index: *index }
+                    } else if *index < subject.first {
+                        subject.first+= 1;
+                        subject.last+= 1;
+                        UpdateRangeResult::Moved(subject)
+                    } else {
+                        UpdateRangeResult::Unmoved(subject)
+                    }
+                } else if subject.parent.len() > parent.len() && parent[0..subject.parent.len()] == subject.parent[..] {
+                    let path_index = &mut subject.parent[parent.len()];
+
+                    if *path_index >= *index {
+                        *path_index+= 1;
+                        UpdateRangeResult::Moved(subject)
+                    } else {
+                        UpdateRangeResult::Unmoved(subject)
+                    }
+                } else {
+                    UpdateRangeResult::Unmoved(subject)
+                }
+            },
+            
+            ChangeType::Nest { .. } => todo!(),
+
+            ChangeType::Destructure { .. } => todo!(),
+
+            ChangeType::DeleteRange { range } => {
+                if subject.parent == range.parent {
+                    if range.last < subject.first {
+                        /* Siblings before the subject range were deleted. Shift indices. */
+                        subject.first-= range.count();
+                        subject.last-= range.count();
+                        UpdateRangeResult::Moved(subject)
+                    } else if range.first > subject.last {
+                        /* Siblings after the subject range were deleted. Don't care. */
+                        UpdateRangeResult::Unmoved(subject)
+                    } else if range.indices() == subject.indices() {
+                        /* The same range was deleted. */
+                        UpdateRangeResult::AllDeleted
+                    } else {
+                        /* Ranges overlapped. Sad times. */
+                        UpdateRangeResult::Split
+                    }
+                } else if subject.parent.len() > range.parent.len() && subject.parent[0..range.parent.len()] == range.parent[..] {
+                    /* An ancestor or ancestor's sibling was deleted. */
+                    let child_index = &mut subject.parent[range.parent.len()];
+
+                    if range.contains_index(*child_index) {
+                        /* Ancestor was deleted. */
+                        UpdateRangeResult::ParentDeleted
+                    } else if *child_index > range.last {
+                        /* Ancestor's sibling before ancestor was deleted, need to fixup path. */
+                        *child_index-= range.count();
+                        UpdateRangeResult::Moved(subject)
+                    } else {
+                        UpdateRangeResult::Unmoved(subject)
+                    }
+                } else {
+                    UpdateRangeResult::Unmoved(subject)
+                }
+            },
+        }
+    }
+    
     pub fn rebase(mut self, to: &document::Document) -> Result<Self, (UpdateError, Self)> {
         if self.generation == to.generation() {
             return Ok(self)
@@ -192,17 +287,43 @@ impl Change {
             Some((prev_document, doc_change)) => {
                 self = self.rebase(prev_document)?;
 
+                let backup = self.clone();
+                
                 Ok(Change {
                     ty: match self.ty {
-                        ChangeType::AlterNode { mut path, props } => ChangeType::AlterNode { path: match doc_change.update_path(&mut path) {
-                            UpdatePathResult::Unmoved | UpdatePathResult::Moved => path,
-                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => return Err((UpdateError::NodeDeleted, Change {ty: ChangeType::AlterNode { path, props }, generation: self.generation })),
-                        }, props },
-                        ChangeType::InsertNode { .. } => return Err((UpdateError::NotYetImplemented, self)),
-                        ChangeType::Nest { .. } => return Err((UpdateError::NotYetImplemented, self)),
-                        ChangeType::Destructure { .. } => return Err((UpdateError::NotYetImplemented, self)),
-                        ChangeType::DeleteRange { .. } => return Err((UpdateError::NotYetImplemented, self)),
-                    },
+                        ChangeType::AlterNode { ref mut path, .. } => match doc_change.update_path(path) {
+                            UpdatePathResult::Unmoved | UpdatePathResult::Moved => Ok(self.ty),
+                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
+                        },
+                        ChangeType::InsertNode { .. } => Err(UpdateError::NotYetImplemented),
+                        ChangeType::Nest { range, extent, props } => match doc_change.update_range(range) {
+                            UpdateRangeResult::Unmoved(range)
+                                | UpdateRangeResult::Moved(range)
+                                | UpdateRangeResult::Inserted { range, .. }
+                            => Ok(ChangeType::Nest { range, extent, props }),
+                            
+                            UpdateRangeResult::ParentDeleted
+                                | UpdateRangeResult::AllDeleted
+                                => Err(UpdateError::NodeDeleted),
+                            
+                            UpdateRangeResult::Split
+                                => Err(UpdateError::RangeSplit),
+                        },
+                        ChangeType::Destructure { .. } => Err(UpdateError::NotYetImplemented),
+                        ChangeType::DeleteRange { range } => match doc_change.update_range(range) {
+                            UpdateRangeResult::Unmoved(range)
+                                | UpdateRangeResult::Moved(range)
+                                => Ok(ChangeType::DeleteRange { range }),
+                            
+                            UpdateRangeResult::ParentDeleted
+                                | UpdateRangeResult::AllDeleted
+                                => Err(UpdateError::NodeDeleted),
+                            
+                            UpdateRangeResult::Split
+                                | UpdateRangeResult::Inserted { .. }
+                            => Err(UpdateError::RangeSplit),
+                        },
+                    }.map_err(|e| (e, backup))?,
                     generation: to.generation()
                 })
             }, None => Err((UpdateError::NoCommonAncestor, self))

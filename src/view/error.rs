@@ -100,6 +100,7 @@ impl Error {
                             document::change::UpdateError::NotUpdatable => write!(msg, "This type of change must always be applied to the latest version of the document.")?,
                             document::change::UpdateError::NotYetImplemented => write!(msg, "This type of change can't automatically update itself to newer versions of the document yet because it hasn't been implemented.")?,
                             document::change::UpdateError::NodeDeleted => write!(msg, "A node referenced by this change was been deleted.")?,
+                            document::change::UpdateError::RangeSplit => write!(msg, "The range of nodes this change was meant to affect got split up.")?,
                         };
                     },
                     document::change::ApplyErrorType::InvalidRange(reason) => write!(msg, "Range was invalid: {}.\n", match reason {
