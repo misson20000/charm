@@ -11,7 +11,7 @@ A hex editor that "isn't bad".
 1. Install dependencies:
 
 ```
-sudo apt-get install libgtk-3-dev libgdk-pixbuf2.0-dev libatk1.0-dev libcairo2-dev libjpeg8-dev libpango1.0-dev libgif-dev build-essential g++
+sudo apt-get install libgtk-4-dev libgdk-pixbuf2.0-dev libatk1.0-dev libcairo2-dev libjpeg8-dev libpango1.0-dev libgif-dev build-essential g++
 ```
 
 2. Build:
