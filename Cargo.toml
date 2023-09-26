@@ -33,6 +33,7 @@ tracing-subscriber = "0.3.17"
 [dev-dependencies]
 pretty_assertions = "1.4.0"
 assert_matches = "1.5"
+rusty-fork = "0.3.0"
 
 [[bin]]
 name = "gtk"

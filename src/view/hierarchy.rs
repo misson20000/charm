@@ -491,7 +491,8 @@ impl RootListModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use rusty_fork::rusty_fork_test;
+    
     fn assert_tlr_node_correct(document: &sync::Arc<document::Document>, node: &sync::Arc<structure::Node>, iter: &mut impl std::iter::Iterator<Item = gtk::TreeListRow>) {
         let tlr = iter.next().expect("tree list model ended early");
         let item = tlr.item().unwrap().downcast::<NodeItem>().unwrap();
@@ -519,39 +520,42 @@ mod tests {
     fn tree_list_node_items_iter(tlm: &gtk::TreeListModel) -> impl std::iter::Iterator<Item = NodeItem> + '_ {
         tlm.iter::<gtk::TreeListRow>().map(|tlr| tlr.unwrap().item().unwrap().downcast::<NodeItem>().unwrap())
     }
-    
-    #[test]
-    fn test_reexpand() {
-        gtk::init().unwrap();
 
-        let root = structure::Node::builder()
-            .name("root")
-            .size(0x40)
-            .child(0x0, |b| b
-                   .name("container")
-                   .size(0x40)
-                   .child(0x0, |b| b
-                          .name("child0")
-                          .size(0x8))
-                   .child(0x8, |b| b
-                          .name("child1")
-                          .size(0x8)))
-            .build();
-        
-        let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::new_for_structure_test(root)));
-        let mut document = document_host.get();
-        
-        let tlm = create_tree_list_model(document_host.clone(), document.clone(), true);
-        assert_tlm_correct(&document, &tlm);
+    /* GTK doesn't like being initialized in a process more than once. */
+    rusty_fork_test! {
+        #[test]
+        fn test_reexpand() {
+            gtk::init().unwrap();
 
-        document = document_host.change(document.delete_range(structure::SiblingRange::new(vec![0], 0, 0))).unwrap();
-        tlm.model().downcast::<RootListModel>().unwrap().update_document(&document);
-        assert_tlm_correct(&document, &tlm);
+            let root = structure::Node::builder()
+                .name("root")
+                .size(0x40)
+                .child(0x0, |b| b
+                       .name("container")
+                       .size(0x40)
+                       .child(0x0, |b| b
+                              .name("child0")
+                              .size(0x8))
+                       .child(0x8, |b| b
+                              .name("child1")
+                              .size(0x8)))
+                .build();
+            
+            let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::new_for_structure_test(root)));
+            let mut document = document_host.get();
+            
+            let tlm = create_tree_list_model(document_host.clone(), document.clone(), true);
+            assert_tlm_correct(&document, &tlm);
 
-        tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(false);
-        assert_tlm_correct(&document, &tlm);
+            document = document_host.change(document.delete_range(structure::SiblingRange::new(vec![0], 0, 0))).unwrap();
+            tlm.model().downcast::<RootListModel>().unwrap().update_document(&document);
+            assert_tlm_correct(&document, &tlm);
 
-        tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(true);
-        assert_tlm_correct(&document, &tlm);
+            tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(false);
+            assert_tlm_correct(&document, &tlm);
+
+            tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(true);
+            assert_tlm_correct(&document, &tlm);
+        }
     }
 }
