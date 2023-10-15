@@ -45,7 +45,7 @@ pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::traits::Ac
 where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
-    let action = gio::SimpleAction::new_stateful(id, None, initial_state.to_variant());
+    let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
     action.connect_change_state(clone!(@weak obj => move |action, state| {
         cb(action, obj, state.and_then(|var| S::from_variant(var)))
     }));

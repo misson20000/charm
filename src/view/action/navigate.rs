@@ -50,7 +50,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         .default_widget(&list)
         .build();
 
-    let store = gio::ListStore::new(HitItem::static_type());
+    let store = gio::ListStore::new::<HitItem>();
     
     let action = rc::Rc::new(NavigateAction {
         document_host: window_context.document_host.clone(),

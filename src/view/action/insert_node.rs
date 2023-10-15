@@ -80,9 +80,9 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         action.deactivate();
     });
 
-    dialog.connect_close_request(clone!(@weak action => @default-return gtk::Inhibit(false), move |_| {
+    dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
         action.deactivate();
-        gtk::Inhibit(false)
+        glib::Propagation::Proceed
     }));
     
     helpers::create_simple_action_strong(action, "insert_node", |ina| ina.activate())

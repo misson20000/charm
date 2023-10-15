@@ -230,7 +230,7 @@ impl CharmWindow {
              * would otherwise keep the process alive. */
             w.close_file();
 
-            gtk::Inhibit(false)
+            glib::Propagation::Proceed
         }));
 
         w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| {
@@ -253,14 +253,14 @@ impl CharmWindow {
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
-                act.set_state(vis.to_variant());
+                act.set_state(&vis.to_variant());
             }
         });
         
         helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
             if let Some(vis) = state {
                 w.config_editor_frame.set_visible(vis);
-                act.set_state(vis.to_variant());
+                act.set_state(&vis.to_variant());
             }
         });
 

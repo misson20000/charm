@@ -299,29 +299,29 @@ impl ListingWidget {
 
         /* Register keybaord event controller */
         let ec_key = gtk::EventControllerKey::new();
-        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_eck, keyval, keycode, modifier| {
-            let inhibit = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
-            inhibit
+        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| {
+            let propagation = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
+            propagation
         }));
         self.add_controller(ec_key);
 
         /* Register scroll event controller */
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return gtk::Inhibit(false), move |_ecs, dx, dy| {
-            let inhibit = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
-            inhibit
+        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_ecs, dx, dy| {
+            let propagation = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
+            propagation
         }));
         self.add_controller(ec_scroll);
 
         /* Register motion event controller */
         let ec_motion = gtk::EventControllerMotion::new();
         ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| {
-            let inhibit = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
-            inhibit
+            let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
+            propagation
         }));
         ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| {
-            let inhibit = lw.imp().interior.get().unwrap().write().hover(&lw, None);
-            inhibit
+            let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, None);
+            propagation
         }));
         self.add_controller(ec_motion);
         
@@ -497,7 +497,7 @@ impl Interior {
         self.scroll.collect_events(widget, &self.work_notifier);
     }
     
-    fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::Continue {
+    fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::ControlFlow {
         let frame_time = frame_clock.frame_time(); // in microseconds
 
         if frame_time - self.last_frame > (MICROSECONDS_PER_SECOND as i64) {
@@ -514,28 +514,28 @@ impl Interior {
         
         self.last_frame = frame_time;
         
-        glib::Continue(true)
+        glib::ControlFlow::Continue
     }
 
-    fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
+    fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
     where F: FnOnce(&mut facet::cursor::CursorView) {
         cb(&mut self.cursor);
         self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
-        gtk::Inhibit(true)
+        glib::Propagation::Stop
     }
 
     // TODO: bring back ensure cursor in view
-    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> gtk::Inhibit
+    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
     where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
         if cb(&mut self.cursor) {
             self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
-            gtk::Inhibit(true)
+            glib::Propagation::Stop
         } else {
-            gtk::Inhibit(false)
+            glib::Propagation::Proceed
         }
     }
 
-    fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> gtk::Inhibit {
+    fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> glib::Propagation {
         let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
             (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
@@ -550,11 +550,11 @@ impl Interior {
             //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll   key         shift  ctrl  */
-            (gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); gtk::Inhibit(true) },
-            (gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); gtk::Inhibit(true) },
+            (gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); glib::Propagation::Stop },
+            (gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); glib::Propagation::Stop },
             
             //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), facet::scroll::EnsureCursorInViewDirection::Any),
-            _ => gtk::Inhibit(false),
+            _ => glib::Propagation::Proceed,
         };
 
         self.collect_events(widget);
@@ -562,12 +562,12 @@ impl Interior {
         r
     }
 
-    fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> gtk::Inhibit {
+    fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> glib::Propagation {
         self.scroll.scroll_wheel_impulse(dy);
         
         self.collect_events(widget);
         
-        gtk::Inhibit(true)
+        glib::Propagation::Stop
     }
 
     fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
