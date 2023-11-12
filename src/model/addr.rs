@@ -60,6 +60,14 @@ pub enum AddressParseError {
     TooManyBits,
 }
 
+#[derive(Debug)]
+pub enum ExtentParseError {
+    MissingBegin,
+    MissingEnd,
+    MalformedBegin(AddressParseError),
+    MalformedEnd(AddressParseError),
+}
+
 impl Address {
     fn normalize_signed(bytes: u64, bits: i64) -> Address {
         let mut nbytes = bytes;
@@ -85,6 +93,10 @@ impl Address {
         }
     }
 
+    /// Parses a string of the form "[0x]1234[.5]" into an address. Addresses
+    /// are always assumed to be in hexadecimal, regardless of whether the "0x"
+    /// prefix is included or not. A bit offset can optionally be specified. If
+    /// unspecified, it is assumed to be zero.
     pub fn parse(string: &str) -> Result<Address, AddressParseError> {
         let mut i = string.splitn(2, '.');
 
@@ -160,6 +172,33 @@ impl Size {
     pub fn to_addr(&self) -> Address {
         Address { byte: self.bytes, bit: self.bits }
     }
+
+
+    /// Parses a string of the form "[0x]1234[.5]" into a size. Unlike
+    /// addresses, sizes are NOT always assumed to be in hexadecimal and will
+    /// parse as decimal if the "0x" prefix is not included. A bit offset can
+    /// optionally be specified. If unspecified, it is assumed to be zero.
+    pub fn parse(string: &str) -> Result<Size, AddressParseError> {
+        let mut i = string.splitn(2, '.');
+
+        let bytes = i.next().ok_or(AddressParseError::MissingBytes)?;
+
+        let bytes = match bytes.strip_prefix("0x") {
+            Some(hex_byte) => u64::from_str_radix(hex_byte, 16).map_err(AddressParseError::MalformedBytes)?,
+            None => u64::from_str_radix(bytes, 10).map_err(AddressParseError::MalformedBytes)?,
+        };
+
+        let bits = i.next()
+            .map(|s| u8::from_str(s)
+                 .map_err(AddressParseError::MalformedBits)
+                 .and_then(|v| if v < 8 { Ok(v) } else { Err(AddressParseError::TooManyBits) }))
+            .unwrap_or(Ok(0))?;
+        
+        Ok(Size {
+            bytes,
+            bits,
+        })
+    }
 }
 
 impl Extent {
@@ -224,6 +263,23 @@ impl Extent {
 
     pub fn debase(&self, base: Address) -> Extent {
         Extent { begin: base - self.begin.to_size(), end: base - self.end.to_size() }
+    }
+
+    /// Parses an extent of the form "<begin>:(<end>|+<size>)", such as
+    /// "0x100:+0x10" or "0x100:110". If the plus sign is included, the part
+    /// after the colon is interpreted as a size instead of an end
+    /// address. Remember that addresses always parse as hex, but sizes only
+    /// parse as hex if "0x" is included.
+    pub fn parse(string: &str) -> Result<Extent, ExtentParseError> {
+        let mut i = string.splitn(2, ':');
+
+        let begin = i.next().ok_or(ExtentParseError::MissingBegin).and_then(|b| Address::parse(b).map_err(ExtentParseError::MalformedBegin))?;
+        let end = i.next().ok_or(ExtentParseError::MissingEnd)?;
+
+        Ok(match end.strip_prefix("+") {
+            Some(stripped) => Self::sized(begin, Size::parse(stripped).map_err(ExtentParseError::MalformedEnd)?),
+            None => Self::between(begin, Address::parse(end).map_err(ExtentParseError::MalformedEnd)?),
+        })
     }
 }
 
