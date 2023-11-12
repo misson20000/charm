@@ -14,6 +14,7 @@ use gtk::graphene;
 pub fn render(
     token_view: &mut TokenView,
     extent: addr::Extent,
+    line: addr::Extent,
     snapshot: &gtk::Snapshot,
     cursor: &CursorView,
     has_cursor: bool,
@@ -26,12 +27,7 @@ pub fn render(
         _ => None,
     };
 
-    let offset_in_line = match token_view.token.node.props.content_display {
-        structure::ContentDisplay::Hexdump { line_pitch, .. } => {
-            (extent.begin.to_size() % line_pitch).bytes as i64
-        },
-        _ => 0
-    };
+    let offset_in_line = (extent.begin - line.begin).bytes as i64;
 
     let (_, logical_space) = render.gsc_mono.get(gsc::Entry::Space).unwrap().clone().extents(&render.font_mono);
     
@@ -89,7 +85,17 @@ pub fn render(
     }
 }
 
-pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapshot: &gtk::Snapshot, _cursor: &CursorView, _has_cursor: bool, selection: selection::listing::TokenIntersection, render: &listing::RenderDetail, pos: &mut graphene::Point) {
+pub fn render_asciidump(
+    token_view: &mut TokenView,
+    extent: addr::Extent,
+    _line: addr::Extent,
+    snapshot: &gtk::Snapshot,
+    _cursor: &CursorView,
+    _has_cursor: bool,
+    selection: selection::listing::TokenIntersection,
+    render: &listing::RenderDetail,
+    pos: &mut graphene::Point
+) {
     let offset_in_line = match token_view.token.node.props.content_display {
         structure::ContentDisplay::Hexdump { line_pitch, .. } => {
             (extent.begin.to_size() % line_pitch).bytes as i32
@@ -117,6 +123,7 @@ pub fn render_asciidump(token_view: &mut TokenView, extent: addr::Extent, snapsh
 pub fn pick_position(
     _token_view: &TokenView,
     _extent: addr::Extent,
+    _line: addr::Extent,
     _x: f32) -> Option<(structure::Path, addr::Address, usize)> {
     todo!();
 }

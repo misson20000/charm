@@ -100,7 +100,6 @@ impl Cache {
     pub fn get(&self, entry: Entry) -> Option<&pango::GlyphString> {
         match entry {
             Entry::Punctuation(punct) => match punct {
-                token::PunctuationClass::Empty => None,
                 token::PunctuationClass::Space => Some(&self.gs_space),
                 token::PunctuationClass::Comma => Some(&self.gs_comma),
                 token::PunctuationClass::OpenBracket => Some(&self.gs_open),

@@ -10,11 +10,13 @@ struct Line {
     tokens: vec::Vec<token::Token>
 }
 
-impl layout::Line for Line {
+impl layout::LineView for Line {
     type TokenIterator = vec::IntoIter<token::Token>;
     type BorrowingTokenIterator<'a> = std::slice::Iter<'a, token::Token>;
     
-    fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
+    fn from_line(line: layout::Line) -> Self {
+        let tokens: vec::Vec<token::Token> = line.to_tokens().collect();
+        
         Line {
             indent: tokens[0].depth,
             tokens,
@@ -41,7 +43,7 @@ fn main() {
 
     window.resize(150);
 
-    for line in window.lines {
+    for line in window.line_views {
         for _ in 0..line.indent {
             print!("  ");
         }

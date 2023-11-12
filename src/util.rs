@@ -62,3 +62,34 @@ impl Default for Notifier {
         Self::new()
     }
 }
+
+pub enum PhiIterator<Item, I1: Iterator<Item = Item>, I2: Iterator<Item = Item>, I3: Iterator<Item = Item>, I4: Iterator<Item = Item>> {
+    I1(I1),
+    I2(I2),
+    I3(I3),
+    I4(I4),
+}
+
+impl<Item, I1: Iterator<Item = Item>, I2: Iterator<Item = Item>, I3: Iterator<Item = Item>, I4: Iterator<Item = Item>> Iterator for PhiIterator<Item, I1, I2, I3, I4> {
+    type Item = Item;
+
+    fn next(&mut self) -> Option<Item> {
+        match self {
+            Self::I1(i) => i.next(),
+            Self::I2(i) => i.next(),
+            Self::I3(i) => i.next(),
+            Self::I4(i) => i.next(),
+        }
+    }
+}
+
+impl<Item, I1: DoubleEndedIterator<Item = Item>, I2: DoubleEndedIterator<Item = Item>, I3: DoubleEndedIterator<Item = Item>, I4: DoubleEndedIterator<Item = Item>> DoubleEndedIterator for PhiIterator<Item, I1, I2, I3, I4> {
+    fn next_back(&mut self) -> Option<Item> {
+        match self {
+            Self::I1(i) => i.next_back(),
+            Self::I2(i) => i.next_back(),
+            Self::I3(i) => i.next_back(),
+            Self::I4(i) => i.next_back(),
+        }
+    }
+}

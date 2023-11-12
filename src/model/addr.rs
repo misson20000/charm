@@ -245,7 +245,7 @@ impl Extent {
         other.begin >= self.begin && other.end <= self.end
     }
 
-    /// Returns the intersection of this extent and the other, if they overlap. If they abut, None is returned.
+    /// Returns the intersection of this extent and the other, if they overlap. If they abut or don't overlap, None is returned.
     pub fn intersection(&self, other: Extent) -> Option<Extent> {
         let begin = std::cmp::max(self.begin, other.begin);
         let end = std::cmp::min(self.end, other.end);

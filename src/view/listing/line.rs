@@ -29,18 +29,18 @@ pub struct Line {
     render_node: Option<gsk::RenderNode>,
 }
 
-impl layout::Line for Line {
+impl layout::LineView for Line {
     type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
     type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token_view::TokenView>, fn(&'a token_view::TokenView) -> &'a token::Token>;
     
-    fn from_tokens(tokens: vec::Vec<token::Token>) -> Self {
+    fn from_line(line: layout::Line) -> Self {
         Line {
             ev_draw: facet::Event::new(),
             ev_work: facet::Event::new_wanted(),
 
             current_document: None,
             
-            tokens: tokens.into_iter().map(token_view::TokenView::from).collect(),
+            tokens: line.to_tokens().map(token_view::TokenView::from).collect(),
             render_serial: 0,
             selection_hash: 0,
             render_node: None,

@@ -18,7 +18,7 @@ trait TokenExt {
 impl TokenExt for token::Token {
     fn hexdump_extent(&self) -> addr::Extent {
         match self.class {
-            token::TokenClass::Hexdump(e) => e,
+            token::TokenClass::Hexdump { extent, .. } => extent,
             _ => panic!("expected hexdump token")
         }
     }

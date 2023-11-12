@@ -150,7 +150,7 @@ impl WidgetImpl for ListingWidgetImp {
 
         let pick = interior.hover.and_then(|(_x, y)| interior.pick_line(y));
         
-        for (i, line) in interior.window.lines.iter_mut().enumerate() {
+        for (i, line) in interior.window.line_views.iter_mut().enumerate() {
             if let Some((j, _)) = pick {
                 if i == j {
                     snapshot.append_color(&gdk::RGBA::bytes(hex_literal::hex!("ff000080")), &graphene::Rect::new(
@@ -475,7 +475,7 @@ impl Interior {
 
         self.document.datapath.poll(cx);
         
-        for line in self.window.lines.iter_mut() {
+        for line in self.window.line_views.iter_mut() {
             line.work(&self.document, cx);
 
             if line.wants_draw().collect() {
@@ -591,7 +591,7 @@ impl Interior {
 
     fn pick_token(&self, x: f64, y: f64) -> Option<(&token_view::TokenView, f32)> {
         let (lineno, y) = self.pick_line(y)?;
-        let line = self.window.lines.get(lineno)?;
+        let line = self.window.line_views.get(lineno)?;
         line.pick_token(x, y)
     }
 }

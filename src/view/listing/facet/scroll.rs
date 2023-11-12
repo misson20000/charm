@@ -5,7 +5,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::layout;
-use crate::model::listing::layout::Line;
+use crate::model::listing::layout::LineView;
 use crate::view::listing::facet;
 use crate::view::listing::line;
 
@@ -179,7 +179,7 @@ impl Scroller {
         let bottom_super_threshold = window.get_window_height() as isize + f64::max(0.0, self.position) as isize - 2 * cfg.lookahead as isize;
         let bottom_threshold = bottom_super_threshold - cfg.page_navigation_leadup as isize;
         
-        let line_no = window.lines.iter().enumerate().find(|(_, line)| line.iter_tokens().any(|token| cursor_view.cursor.is_over(token))).map(|(i, _)| i as isize);
+        let line_no = window.line_views.iter().enumerate().find(|(_, line)| line.iter_tokens().any(|token| cursor_view.cursor.is_over(token))).map(|(i, _)| i as isize);
         
         self.cursor_direction = dir;
         

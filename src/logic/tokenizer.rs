@@ -23,9 +23,14 @@ enum TokenizerState {
     Title,
     
     MetaContent(addr::Address, usize),
-    Hexdump(addr::Extent, usize),
+    Hexdump {
+        extent: addr::Extent,
+        line_extent: addr::Extent,
+        index: usize
+    },
     Hexstring(addr::Extent, usize),
-    
+
+    SummaryPreamble,
     SummaryOpener,
     /// The argument here is an index for which child is being labelled. Does not tolerate one-past-the-end.
     SummaryLabel(usize),
@@ -34,7 +39,7 @@ enum TokenizerState {
     /// we just suppress that token when it comes time to generate it.
     SummarySeparator(usize),
     SummaryCloser,
-    SummaryNewline,
+    SummaryEpilogue,
 
     SummaryValueBegin,
     SummaryLeaf,
@@ -302,7 +307,7 @@ impl Tokenizer {
             PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent, summary: false } => {
                 let offset_within_child = match &self.state {
                     TokenizerState::MetaContent(offset, _) => *offset,
-                    TokenizerState::Hexdump(extent, _) => extent.begin,
+                    TokenizerState::Hexdump { extent, .. } => extent.begin,
                     TokenizerState::Hexstring(extent, _) => extent.begin,
                     _ => addr::unit::NULL
                 };
@@ -313,16 +318,16 @@ impl Tokenizer {
 
             /* We were in a child that got destructured. Our old state tells us about where we were in that child. */
             PortStackMode::Destructuring { destructured_childhood, destructured_child_index, summary: false } => match &self.state {
-                TokenizerState::PreBlank | TokenizerState::Title | TokenizerState::SummaryOpener | TokenizerState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                TokenizerState::PreBlank | TokenizerState::Title | TokenizerState::SummaryPreamble | TokenizerState::SummaryOpener | TokenizerState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
                 
                 TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
-                TokenizerState::Hexdump(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                TokenizerState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
 
                 TokenizerState::SummaryLabel(i) | TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
 
-                TokenizerState::SummaryValueEnd | TokenizerState::SummaryNewline | TokenizerState::SummaryCloser | TokenizerState::PostBlank | TokenizerState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
+                TokenizerState::SummaryValueEnd | TokenizerState::SummaryEpilogue | TokenizerState::SummaryCloser | TokenizerState::PostBlank | TokenizerState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
             },
             // TODO: try harder here
             PortStackMode::Destructuring { destructured_child_index, summary: true, .. } => IntermediatePortState::SummaryLabel(*destructured_child_index),
@@ -334,14 +339,15 @@ impl Tokenizer {
                     IntermediatePortState::Finished(TokenizerState::Title),
                 
                 TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
-                TokenizerState::Hexdump(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                TokenizerState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
                 TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
+                TokenizerState::SummaryPreamble => IntermediatePortState::Finished(TokenizerState::Title),
                 TokenizerState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
                 TokenizerState::SummaryLabel(i) => IntermediatePortState::NormalContent(None, *i),
                 TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, *i),
                 TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::End),
-                TokenizerState::SummaryNewline => IntermediatePortState::Finished(TokenizerState::PostBlank),
+                TokenizerState::SummaryEpilogue => IntermediatePortState::Finished(TokenizerState::PostBlank),
                 TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::Title),
                 TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
                 TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::End),
@@ -357,19 +363,20 @@ impl Tokenizer {
                     IntermediatePortState::Finished(TokenizerState::Title),
                 
                 TokenizerState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
-                TokenizerState::Hexdump(_, index) => IntermediatePortState::SummaryLabel(*index),
+                TokenizerState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
                 TokenizerState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
 
+                TokenizerState::SummaryPreamble => IntermediatePortState::Finished(TokenizerState::SummaryPreamble),
                 TokenizerState::SummaryOpener => IntermediatePortState::Finished(TokenizerState::SummaryOpener),
                 TokenizerState::SummaryLabel(i) => IntermediatePortState::SummaryLabel(*i),
                 TokenizerState::SummarySeparator(i) => IntermediatePortState::SummarySeparator(*i),
                 TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
-                TokenizerState::SummaryNewline => IntermediatePortState::Finished(TokenizerState::SummaryNewline),
+                TokenizerState::SummaryEpilogue => IntermediatePortState::Finished(TokenizerState::SummaryEpilogue),
                 TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::SummaryValueBegin),
                 TokenizerState::SummaryLeaf => IntermediatePortState::Finished(TokenizerState::SummaryLeaf),
                 TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::SummaryValueEnd),
 
-                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::SummaryNewline),
+                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::SummaryEpilogue),
                 TokenizerState::End => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
             }
         };
@@ -487,7 +494,7 @@ impl Tokenizer {
             /* This should've been handled earlier, but whatever. */
             IntermediatePortState::Finished(finalized_state) => finalized_state,
 
-            IntermediatePortState::NormalContent(offset, index) => TokenizerState::MetaContent(self.get_line_begin(offset.unwrap_or_else(|| children[index].offset), index), index),
+            IntermediatePortState::NormalContent(offset, index) => TokenizerState::MetaContent(self.estimate_line_begin(offset, index), index),
 
             /* Real TokenizerState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
             IntermediatePortState::SummaryLabel(index) if index < children.len() => TokenizerState::SummaryLabel(index),
@@ -579,7 +586,7 @@ impl Tokenizer {
     fn seek_in_node_to_offset(&mut self, offset: addr::Address) {
         let index = self.node.children.partition_point(|ch| ch.offset < offset);
         
-        self.state = TokenizerState::MetaContent(self.get_line_begin(offset, index), index);
+        self.state = TokenizerState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
 
         while match self.gen_token() {
             TokenGenerationResult::Skip => true,
@@ -605,15 +612,13 @@ impl Tokenizer {
         match self.state {
             TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Empty,
+                    class: token::TokenClass::BlankLine {
                         accepts_cursor: false,
                     },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
-                    newline: true,
                 })
             } else {
                 TokenGenerationResult::Skip
@@ -624,17 +629,15 @@ impl Tokenizer {
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
-                newline: !self.node.props.title_display.is_inline(),
             }),
             
             TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump(extent, _) => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Hexdump(extent),
+            TokenizerState::Hexdump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::Hexdump {extent, line: line_extent },
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth + 1,
-                newline: true,
             }),
             TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
                 class: token::TokenClass::Hexstring(extent),
@@ -642,19 +645,21 @@ impl Tokenizer {
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth + 1,
-                newline: true,
             }),
-            
-            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::OpenBracket,
-                    accepts_cursor: true,
-                },
+
+            TokenizerState::SummaryPreamble => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::SummaryPreamble,
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
-                newline: false,
+            }),
+            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::OpenBracket),
+                node: self.node.clone(),
+                node_path: self.structure_path(),
+                node_addr: self.node_addr,
+                depth: self.depth,
             }),
             TokenizerState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
@@ -664,45 +669,32 @@ impl Tokenizer {
                     node_path: self.structure_path(),
                     node_addr: self.node_addr + ch.offset.to_size(),
                     depth: self.depth,
-                    newline: false,
                 })
             },
             TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
                 TokenGenerationResult::Ok(token::Token {  
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Comma,
-                        accepts_cursor: false,
-                    },
+                    class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma),
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
-                    newline: false,
                 })
             } else {
                 TokenGenerationResult::Skip
             },
             TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::CloseBracket,
-                    accepts_cursor: true,
-                },
+                class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::CloseBracket),
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
-                newline: false,
             }),
-            TokenizerState::SummaryNewline => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Punctuation {
-                    class: token::PunctuationClass::Empty,
-                    accepts_cursor: false,
-                },
+            TokenizerState::SummaryEpilogue => TokenGenerationResult::Ok(token::Token {
+                class: token::TokenClass::SummaryEpilogue,
                 node: self.node.clone(),
                 node_path: self.structure_path(),
                 node_addr: self.node_addr,
                 depth: self.depth,
-                newline: true,
             }),
             
             TokenizerState::SummaryValueBegin => TokenGenerationResult::Skip,
@@ -712,33 +704,28 @@ impl Tokenizer {
                 
                 TokenGenerationResult::Ok(token::Token {
                     class: match self.node.props.content_display {
-                        structure::ContentDisplay::None => token::TokenClass::Punctuation {
-                            class: token::PunctuationClass::Empty,
-                            accepts_cursor: true,
-                        },
-                        structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexdump(extent),
+                        structure::ContentDisplay::None => token::TokenClass::SummaryPunctuation(token::PunctuationClass::Space),
+                        // Disallow hexdumps in summaries. This is a little nasty. Review later.
+                        structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexstring(extent),
                         structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
                     },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth,
-                    newline: false,
                 })
             },
             TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
 
             TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::Punctuation {
-                        class: token::PunctuationClass::Empty,
+                    class: token::TokenClass::BlankLine {
                         accepts_cursor: true,
                     },
                     node: self.node.clone(),
                     node_path: self.structure_path(),
                     node_addr: self.node_addr,
                     depth: self.depth + 1,
-                    newline: true,
                 })
             } else {
                 TokenGenerationResult::Skip
@@ -747,61 +734,74 @@ impl Tokenizer {
         }
     }
 
-    fn get_line_begin(&self, offset: addr::Address, index: usize) -> addr::Address {
-        /* Where would we *like* to begin, as decided by our content's preferred pitch? */
-        let preferred_begin = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * (offset.to_size() / pitch)).to_addr()
-        });
+    /// Return the extent of the line containing the given address, biased downwards.
+    fn get_line_extent(&self, offset: addr::Address, pitch: addr::Size) -> addr::Extent {
+        addr::Extent::sized((pitch * (offset.to_size() / pitch)).to_addr(), pitch)
+    }
 
-        /* Figure out whether there are any children that we need to not intrude upon. */
+    fn try_get_natural_line_extent(&self, offset: addr::Address) -> Option<addr::Extent> {
+        self.node.props.content_display.preferred_pitch().map(|pitch| self.get_line_extent(offset, pitch))
+    }
+
+    /// Returns the boundaries of the children at index-1 and index. This is not an [addr::Extent] because the latter
+    /// child may begin at a lower address than the former child ends at.
+    fn get_interstitial(&self, index: usize) -> (addr::Address, addr::Address) {
+        /* Find the children. */
         let prev_child_option = match index {
             0 => None,
             /* Something is seriously wrong if index was farther than one-past-the-end. */
             i => Some((i-1, &self.node.children[i-1]))
         };
+        let next_child_option = self.node.children.get(index).map(|child| (index, child));
 
-        /* Where can we not begin before? */
-        let limit = match prev_child_option {
+        /* Find the limits */
+        let lower_limit = match prev_child_option {
             /* Can't include data from the child, so need to stop after its end. */
             Some((_, prev_child)) => prev_child.end(),
             /* Can't include data that belongs to the parent, so need to stop before our begin. */
             None => addr::unit::NULL,
         };
-        
-        /* Pick a place to begin this line. */
-        preferred_begin.map_or(limit, |pb| std::cmp::max(pb, limit))
-    }
-
-    fn get_line_end(&self, offset: addr::Address, index: usize) -> addr::Address {
-        /* Where would we *like* to end, as decided by our content's preferred pitch? */
-        let preferred_end = self.node.props.content_display.preferred_pitch().map(|pitch| {
-            (pitch * ((offset.to_size() / pitch) + 1)).to_addr()
-        });
-
-        /* Figure out whether there are any children that we need to not intrude upon. */
-        let next_child_option = self.node.children.get(index).map(|child| (index, child));
 
         /* Where can we not end beyond? */
-        let limit = match next_child_option {
+        let upper_limit = match next_child_option {
             /* Can't include data from the child, so need to stop before it begins. */
             Some((_, next_child)) => next_child.offset,
             /* Can't include data that belongs to the parent, so need to stop before we end. */
             None => self.node.size.to_addr(),
         };
 
-        /* Pick a place to end this line. */
-        preferred_end.map_or(limit, |pe| std::cmp::min(pe, limit))
+        (lower_limit, upper_limit)
+    }
+
+    /// Despite the name, this must return exactly the same boundary that move_next and move_prev would so that we don't
+    /// seek to different tokens than what scrolling would've produced.
+    fn estimate_line_begin(&self, offset: Option<addr::Address>, index: usize) -> addr::Address {
+        let interstitial = self.get_interstitial(index);
+
+        if let Some(offset) = offset {
+            match self.try_get_natural_line_extent(offset) {
+                Some(le) => std::cmp::max(le.begin, interstitial.0),
+                None => interstitial.0
+            }
+                
+        } else {
+            interstitial.0
+        }
     }
     
     /// Moves one position backwards in the stream.
     /// Returns true when successful, or false if hit the beginning of the token stream.
-    fn move_prev(&mut self) -> bool {
+    pub fn move_prev(&mut self) -> bool {
         match self.state {
             TokenizerState::PreBlank => {
                 self.try_ascend(AscendDirection::Prev)
             },
             TokenizerState::Title => {
                 self.state = TokenizerState::PreBlank;
+                true
+            },
+            TokenizerState::SummaryPreamble => {
+                self.state = TokenizerState::Title;
                 true
             },
             
@@ -826,12 +826,22 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset > addr::unit::NULL {
-                    let extent = addr::Extent::between(self.get_line_begin(offset - addr::unit::BIT, index), offset);
-                        
+                    let interstitial = self.get_interstitial(index);
+                    assert!(interstitial.1 > interstitial.0);
+                    let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
+                    
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.begin, index),
-                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(interstitial.begin, index),
+                        structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
+                            let line_extent = self.get_line_extent(offset - addr::unit::BIT, line_pitch);
+
+                            TokenizerState::Hexdump {
+                                extent: addr::Extent::between(std::cmp::max(interstitial.begin, line_extent.begin), offset),
+                                line_extent,
+                                index
+                            }
+                        }
+                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(interstitial, index),
                     };
                     
                     return true;
@@ -845,7 +855,7 @@ impl Tokenizer {
                 self.state = TokenizerState::MetaContent(extent.begin, index);
                 true
             },
-            TokenizerState::Hexdump(extent, index) => {
+            TokenizerState::Hexdump { extent, index, .. } => {
                 self.state = TokenizerState::MetaContent(extent.begin, index);
                 true
             },
@@ -875,7 +885,7 @@ impl Tokenizer {
                 }
                 true
             },
-            TokenizerState::SummaryNewline => {
+            TokenizerState::SummaryEpilogue => {
                 self.descend(
                     TokenizerDescent::MySummary,
                     TokenizerState::SummaryCloser);
@@ -905,7 +915,7 @@ impl Tokenizer {
                         self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
                     },
                     structure::ChildrenDisplay::Summary => {
-                        self.state = TokenizerState::SummaryNewline;
+                        self.state = TokenizerState::SummaryEpilogue;
                     },
                     structure::ChildrenDisplay::Full => {
                         self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
@@ -922,7 +932,7 @@ impl Tokenizer {
 
     /// Moves one position forwards in the stream.
     /// Returns true when successful, or false if hit the end of the token stream.
-    fn move_next(&mut self) -> bool {
+    pub fn move_next(&mut self) -> bool {
         match self.state {
             TokenizerState::PreBlank => {
                 self.state = TokenizerState::Title;
@@ -934,15 +944,20 @@ impl Tokenizer {
                         self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
                     },
                     structure::ChildrenDisplay::Summary => {
-                        self.descend(
-                            TokenizerDescent::MySummary,
-                            TokenizerState::SummaryOpener);
+                        self.state = TokenizerState::SummaryPreamble;
                     },
                     structure::ChildrenDisplay::Full => {
                         self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
                     },
                 }
                 true
+            },
+            TokenizerState::SummaryPreamble => {
+                self.descend(
+                    TokenizerDescent::MySummary,
+                    TokenizerState::SummaryOpener);
+                true
+
             },
             TokenizerState::MetaContent(offset, index) => {
                 let next_child_option = self.node.children.get(index).map(|child| (index, child));
@@ -961,12 +976,22 @@ impl Tokenizer {
 
                 /* Emit content, if we can. */
                 if offset < self.node.size.to_addr() {
-                    let extent = addr::Extent::between(offset, self.get_line_end(offset, index));
+                    let interstitial = self.get_interstitial(index);
+                    assert!(interstitial.1 > interstitial.0);
+                    let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
 
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(extent.end, index),
-                        structure::ContentDisplay::Hexdump { .. } => TokenizerState::Hexdump(extent, index),
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(extent, index),
+                        structure::ContentDisplay::None => TokenizerState::MetaContent(interstitial.end, index),
+                        structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
+                            let line_extent = self.get_line_extent(offset, line_pitch);
+                            
+                            TokenizerState::Hexdump {
+                                extent: addr::Extent::between(offset, std::cmp::min(line_extent.end, interstitial.end)),
+                                line_extent,
+                                index
+                            }
+                        },
+                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(interstitial, index),
                     };
 
                     return true;
@@ -980,7 +1005,7 @@ impl Tokenizer {
                 self.state = TokenizerState::MetaContent(extent.end, index);
                 true
             },
-            TokenizerState::Hexdump(extent, index) => {
+            TokenizerState::Hexdump { extent, index, .. } => {
                 self.state = TokenizerState::MetaContent(extent.end, index);
                 true
             },
@@ -1010,7 +1035,7 @@ impl Tokenizer {
             TokenizerState::SummaryCloser => {
                 self.try_ascend(AscendDirection::Next)
             },
-            TokenizerState::SummaryNewline => {
+            TokenizerState::SummaryEpilogue => {
                 self.state = TokenizerState::PostBlank;
                 true
             },
@@ -1051,6 +1076,7 @@ impl Tokenizer {
         }
         None
     }
+    
     /// Use this when you're trying to have the tokenizer's position represent an element.
     pub fn next_preincrement(&mut self) -> Option<token::Token> {
         while {
@@ -1160,11 +1186,12 @@ impl Tokenizer {
     pub fn structure_position_child(&self) -> usize {
         match self.state {
             TokenizerState::MetaContent(_, ch) => ch,
-            TokenizerState::Hexdump(_, ch) => ch,
+            TokenizerState::Hexdump { index: ch, .. } => ch,
             TokenizerState::Hexstring(_, ch) => ch,
             TokenizerState::SummaryLabel(ch) => ch,
             TokenizerState::SummarySeparator(ch) => ch,
             TokenizerState::SummaryCloser => self.node.children.len(),
+            TokenizerState::SummaryEpilogue => self.node.children.len(),
             TokenizerState::PostBlank => self.node.children.len(),
             TokenizerState::End => self.node.children.len(),
             _ => 0,
@@ -1174,8 +1201,9 @@ impl Tokenizer {
     pub fn structure_position_offset(&self) -> addr::Address {
         match self.state {
             TokenizerState::MetaContent(offset, _) => offset,
-            TokenizerState::Hexdump(extent, _) => extent.begin,
+            TokenizerState::Hexdump { extent, .. } => extent.begin,
             TokenizerState::Hexstring(extent, _) => extent.begin,
+            TokenizerState::SummaryEpilogue => self.node.size.to_addr(),
             TokenizerState::PostBlank => self.node.size.to_addr(),
             TokenizerState::End => self.node.size.to_addr(),
             // TODO: probably some missing here, need to figure out what is intuitive to the user.
@@ -1207,7 +1235,7 @@ impl TokenizerDescent {
         match self {
             TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].offset, *i),
             TokenizerDescent::ChildSummary(i) => TokenizerState::SummaryLabel(*i),
-            TokenizerDescent::MySummary => TokenizerState::Title,
+            TokenizerDescent::MySummary => TokenizerState::SummaryPreamble,
         }
     }
 
@@ -1215,7 +1243,7 @@ impl TokenizerDescent {
         match self {
             TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
             TokenizerDescent::ChildSummary(i) => TokenizerState::SummarySeparator(*i),
-            TokenizerDescent::MySummary => TokenizerState::SummaryNewline,
+            TokenizerDescent::MySummary => TokenizerState::SummaryEpilogue,
         }
     }
 
@@ -1398,7 +1426,6 @@ pub mod xml {
         class: token::TokenClass,
         node_name: String,
         depth: usize,
-        newline: bool,
     }
 
     impl Testcase {
@@ -1449,31 +1476,33 @@ pub mod xml {
                 
                 collection.push(TokenDef {
                     class: match c.tag_name().name() {
-                        "null" => token::TokenClass::Punctuation { class: token::PunctuationClass::Empty, accepts_cursor },
-                        "open" => token::TokenClass::Punctuation { class: token::PunctuationClass::OpenBracket, accepts_cursor },
-                        "comma" => token::TokenClass::Punctuation { class: token::PunctuationClass::Comma, accepts_cursor },
-                        "close" => token::TokenClass::Punctuation { class: token::PunctuationClass::CloseBracket, accepts_cursor },
+                        "null" => token::TokenClass::BlankLine { accepts_cursor },
+                        "open" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::OpenBracket),
+                        "comma" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma),
+                        "close" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::CloseBracket),
                         "title" => token::TokenClass::Title,
                         "summlabel" => token::TokenClass::SummaryLabel,
-                        "hexdump" => token::TokenClass::Hexdump(inflate_extent(&c)),
+                        "preamble" => token::TokenClass::SummaryPreamble,
+                        "epilogue" => token::TokenClass::SummaryEpilogue,
+                        "hexdump" => token::TokenClass::Hexdump { extent: inflate_extent(&c), line: inflate_line_extent(&c) },
                         "hexstring" => token::TokenClass::Hexstring(inflate_extent(&c)),
                         tn => panic!("invalid token def: '{}'", tn)
                     },
                     node_name: c.attribute("node").unwrap().to_string(),
                     depth,
-                    newline: c.attribute("nl").unwrap().eq("true"),
                 })
             }
         }
     }
 
     fn inflate_extent(xml: &roxmltree::Node) -> addr::Extent {
-        addr::Extent::between(
-            addr::Address::parse(xml.attribute("begin").unwrap()).unwrap(),
-            addr::Address::parse(xml.attribute("end").unwrap()).unwrap()
-        )
+        addr::Extent::parse(xml.attribute("extent").unwrap()).unwrap()
     }
-        
+
+    fn inflate_line_extent(xml: &roxmltree::Node) -> addr::Extent {
+        addr::Extent::parse(xml.attribute("line").unwrap()).unwrap()
+    }
+    
     fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, child_path: structure::Path, map: &mut collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> structure::Childhood {
         let offset = match xml.attribute("offset") {
             Some(addr) => addr::Address::parse(addr).unwrap(),
@@ -1546,7 +1575,6 @@ pub mod xml {
                 node_path: lookup_result.1.clone(),
                 node_addr: lookup_result.0,
                 depth: self.depth,
-                newline: self.newline
             }
         }
     }
@@ -1763,40 +1791,48 @@ mod tests {
         assert_port_functionality(&old_doc, &new_doc, &[
             (
                 token::Token {
-                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0x8)),
+                    class: token::TokenClass::Hexdump {
+                        extent: addr::Extent::sized_u64(0x10, 0x8),
+                        line: addr::Extent::sized_u64(0x10, 0x10),
+                    },
                     node: o_child_1_2.clone(),
                     node_path: vec![1, 2],
                     node_addr: o_child_1_2_addr,
                     depth: 3,
-                    newline: true
                 },
                 token::Token {
-                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x40, 0x8)),
+                    class: token::TokenClass::Hexdump {
+                        extent: addr::Extent::sized_u64(0x40, 0x8),
+                        line: addr::Extent::sized_u64(0x40, 0x10)
+                    },
                     node: n_child_1.clone(),
                     node_path: vec![1],
                     node_addr: n_child_1_addr,
                     depth: 2,
-                    newline: true
                 },
                 PortOptionsBuilder::new().build()
             ),
             (
                 token::Token {
-                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
+                    class: token::TokenClass::Hexdump {
+                        extent: addr::Extent::sized_u64(0x10, 0xc),
+                        line: addr::Extent::sized_u64(0x10, 0x10)
+                    },
                     node: o_child_1_3.clone(),
                     node_path: vec![1, 3],
                     node_addr: o_child_1_3_addr,
                     depth: 3,
-                    newline: true
                 },
                 token::Token {
-                    class: token::TokenClass::Hexdump(addr::Extent::sized_u64(0x10, 0xc)),
+                    class: token::TokenClass::Hexdump {
+                        extent: addr::Extent::sized_u64(0x10, 0xc),
+                        line: addr::Extent::sized_u64(0x10, 0x10)
+                    },
                     /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
                     node: o_child_1_3.clone(),
                     node_path: vec![1, 3],
                     node_addr: o_child_1_3_addr,
                     depth: 3,
-                    newline: true
                 },
                 PortOptionsBuilder::new().build()
             ),

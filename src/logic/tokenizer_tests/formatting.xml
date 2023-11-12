@@ -6,26 +6,26 @@
     </node>
   </node>
   <tokens>
-    <null node="root" nl="true" />
-    <title node="root" nl="true" />
+    <null node="root" />
+    <title node="root" />
     <indent>
-      <hexdump node="root" begin="0x0" end="0x10" nl="true" />
-      <title node="inline32" nl="false" />
+      <hexdump node="root" extent="00:10" line="00:+0x10" />
+      <title node="inline32" />
       <indent>
-	<hexstring node="inline32" begin="0x0" end="0x4" nl="true" />
+	<hexstring node="inline32" extent="00:04" />
       </indent>
-      <hexdump node="root" begin="0x14" end="0x20" nl="true" />
-      <title node="inlinedump" nl="false" />
+      <hexdump node="root" extent="14:20" line="10:+0x10" />
+      <title node="inlinedump" />
       <indent>
-	<hexdump node="inlinedump" begin="0x0" end="0x8" nl="true" />
-	<hexdump node="inlinedump" begin="0x8" end="0x10" nl="true" />
-	<hexdump node="inlinedump" begin="0x10" end="0x18" nl="true" />
-	<hexdump node="inlinedump" begin="0x18" end="0x20" nl="true" />
+	<hexdump node="inlinedump" extent="00:08" line="00:+8" />
+	<hexdump node="inlinedump" extent="08:10" line="08:+8" />
+	<hexdump node="inlinedump" extent="10:18" line="10:+8" />
+	<hexdump node="inlinedump" extent="18:20" line="18:+8" />
       </indent>
-      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
-      <hexdump node="root" begin="0x50" end="0x60" nl="true" />
-      <hexdump node="root" begin="0x60" end="0x70" nl="true" />
-      <null node="root" nl="true" cursor="true" />
+      <hexdump node="root" extent="40:50" line="40:+0x10" />
+      <hexdump node="root" extent="50:60" line="50:+0x10" />
+      <hexdump node="root" extent="60:70" line="60:+0x10" />
+      <null node="root" cursor="true" />
     </indent>
   </tokens>
 </testcase>

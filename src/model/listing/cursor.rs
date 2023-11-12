@@ -284,8 +284,10 @@ impl CursorClass {
     fn new_placement(token: token::Token, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
         match token.class {
             token::TokenClass::Title => title::Cursor::new_placement(token, offset, hint).map(CursorClass::Title),
-            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump),
-            token::TokenClass::Punctuation { class: _, accepts_cursor: true } => punctuation::Cursor::new_placement(token, offset, hint).map(CursorClass::Punctuation),
+            token::TokenClass::Hexdump { .. } => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump),
+            token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma) => Err(token),
+            token::TokenClass::SummaryPunctuation(_) => punctuation::Cursor::new_placement(token, offset, hint).map(CursorClass::Punctuation),
+            token::TokenClass::BlankLine { accepts_cursor: true } => punctuation::Cursor::new_placement(token, offset, hint).map(CursorClass::Punctuation),
             _ => Err(token)
         }
     }
@@ -295,8 +297,10 @@ impl CursorClass {
     fn new_transition(token: token::Token, hint: &TransitionHint) -> Result<CursorClass, token::Token> {
         match token.class {
             token::TokenClass::Title => title::Cursor::new_transition(token, hint).map(CursorClass::Title),
-            token::TokenClass::Hexdump(_) => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump),
-            token::TokenClass::Punctuation { class: _, accepts_cursor: true } => punctuation::Cursor::new_transition(token, hint).map(CursorClass::Punctuation),
+            token::TokenClass::Hexdump { .. } => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump),
+            token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma) => Err(token),
+            token::TokenClass::SummaryPunctuation(_) => punctuation::Cursor::new_transition(token, hint).map(CursorClass::Punctuation),
+            token::TokenClass::BlankLine { accepts_cursor: true} => punctuation::Cursor::new_transition(token, hint).map(CursorClass::Punctuation),
             _ => Err(token)
         }
     }
@@ -440,12 +444,14 @@ mod tests {
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
+                line: addr::Extent::sized(addr::unit::NULL, 16.into())
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
 
@@ -472,12 +478,14 @@ mod tests {
 
         /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(4.into(), 12.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(4.into(), 12.into()),
+                line: addr::Extent::sized(0.into(), 16.into())
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
 
@@ -504,12 +512,14 @@ mod tests {
         
         /* make sure it winds up after the second new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(8.into(), 8.into()),
+                line: addr::Extent::sized(0.into(), 16.into()),
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
     }
@@ -522,12 +532,14 @@ mod tests {
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
+                line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
 
@@ -538,12 +550,14 @@ mod tests {
 
         /* make sure it winds up in the correct position on the correct token */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(addr::unit::NULL, 16.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
+                line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Size::from(4) && hxc.low_nybble == false);
 
@@ -570,12 +584,14 @@ mod tests {
         
         /* make sure it winds up after the new node */
         assert_eq!(cursor.class.get_token(), &token::Token {
-            class: token::TokenClass::Hexdump(addr::Extent::sized(8.into(), 8.into())),
+            class: token::TokenClass::Hexdump {
+                extent: addr::Extent::sized(8.into(), 8.into()),
+                line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            },
             node: document.root.clone(),
             node_path: structure::Path::default(),
             node_addr: addr::unit::NULL,
             depth: 1,
-            newline: true,
         });
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
     }

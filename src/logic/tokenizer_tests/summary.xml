@@ -13,67 +13,67 @@
     </node>
   </node>
   <tokens>
-    <null node="root" nl="true" />
-    <title node="root" nl="true" />
+    <null node="root" />
+    <title node="root" />
     <indent>
-      <title node="entity" nl="false" />
-      <open node="entity" nl="false" cursor="true" />
+      <title node="entity" />
+      <preamble node="entity" />
+      <open node="entity" />
       
-      <summlabel node="type" nl="false" />
+      <summlabel node="type" />
       <indent>
-	<hexdump node="type" begin="0x0" end="0x8" nl="false" />
+	<hexstring node="type" extent="00:08" />
       </indent>
       
-      <comma node="entity" nl="false" />
+      <comma node="entity" />
 
-      <summlabel node="pos" nl="false" />
+      <summlabel node="pos" />
       <indent>
-	<open node="pos" nl="false" cursor="true" />
+	<open node="pos" />
 
-	<summlabel node="x1" nl="false" />
+	<summlabel node="x1" />
 	<indent>
-	  <hexstring node="x1" begin="0x0" end="0x8" nl="false" />
+	  <hexstring node="x1" extent="00:08" />
 	</indent>
 	
-	<comma node="pos" nl="false" />
+	<comma node="pos" />
 	
-	<summlabel node="y1" nl="false" />
+	<summlabel node="y1" />
 	<indent>
-	  <hexstring node="y1" begin="0x0" end="0x8" nl="false" />
+	  <hexstring node="y1" extent="00:08" />
 	</indent>
 
-	<close node="pos" nl="false" cursor="true" />
+	<close node="pos" />
       </indent>
       
-      <comma node="entity" nl="false" />
+      <comma node="entity" />
 
-      <summlabel node="target" nl="false" />
+      <summlabel node="target" />
       <indent>
-	<open node="target" nl="false" cursor="true" />
+	<open node="target" />
 
-	<summlabel node="x2" nl="false" />
+	<summlabel node="x2" />
 	<indent>
-	  <hexstring node="x2" begin="0x0" end="0x8" nl="false" />
+	  <hexstring node="x2" extent="00:08" />
 	</indent>
 	
-	<comma node="target" nl="false" />
+	<comma node="target" />
 	
-	<summlabel node="y2" nl="false" />
+	<summlabel node="y2" />
 	<indent>
-	  <hexstring node="y2" begin="0x0" end="0x8" nl="false" />
+	  <hexstring node="y2" extent="00:08" />
 	</indent>
 
-	<close node="target" nl="false" cursor="true" />
+	<close node="target" />
       </indent>
 
-      <close node="entity" nl="false" cursor="true" />
-      
-      <null node="entity" nl="true" />
+      <close node="entity" />
+      <epilogue node="entity" />
 
-      <hexdump node="root" begin="0x30" end="0x40" nl="true" />
-      <hexdump node="root" begin="0x40" end="0x50" nl="true" />
+      <hexdump node="root" extent="30:40" line="30:+0x10" />
+      <hexdump node="root" extent="40:50" line="40:+0x10" />
 
-      <null node="root" nl="true" cursor="true" />
+      <null node="root" cursor="true" />
     </indent>
   </tokens>
 </testcase>
