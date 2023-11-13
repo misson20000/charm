@@ -9,7 +9,7 @@ use crate::model::addr;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
-use crate::model::listing::layout;
+use crate::model::listing::layout as layout_model;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
@@ -25,9 +25,11 @@ use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
+mod bucket;
 pub mod facet;
 mod token_view;
 mod line;
+mod layout;
 
 use facet::Facet;
 
@@ -61,7 +63,7 @@ struct Interior {
     document: sync::Arc<document::Document>,
     selection: sync::Arc<selection::ListingSelection>,
     
-    window: layout::Window<line::Line>,
+    window: layout_model::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
@@ -232,7 +234,7 @@ impl ListingWidget {
             selection_host: selection_host.clone(),
             selection: selection.clone(),
 
-            window: layout::Window::new(document.clone()),
+            window: layout_model::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,

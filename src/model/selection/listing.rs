@@ -4,7 +4,6 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change as doc_change;
 use crate::model::document::structure;
-use crate::model::listing::token;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -70,7 +69,7 @@ pub enum ApplyError {
 }
 
 #[derive(Clone, Copy, Debug, Hash)]
-pub enum TokenIntersection {
+pub enum NodeIntersection {
     None,
     Partial(addr::Extent),
     Total,
@@ -339,32 +338,32 @@ impl StructureMode {
 }
 
 impl Mode {
-    pub fn token_intersection(&self, token: &token::Token) -> TokenIntersection {
+    pub fn node_intersection(&self, node: &structure::Node, node_path: &structure::Path, node_addr: addr::Address) -> NodeIntersection {
         match self {
-            Mode::Structure(StructureMode::Empty) => TokenIntersection::None,
-            Mode::Structure(StructureMode::All) => TokenIntersection::Total,
+            Mode::Structure(StructureMode::Empty) => NodeIntersection::None,
+            Mode::Structure(StructureMode::All) => NodeIntersection::Total,
             Mode::Structure(StructureMode::Range(range)) => {
-                if token.node_path.len() >= range.path.len() && token.node_path[0..range.path.len()] == range.path[..] {
-                    if token.node_path.len() == range.path.len() {
-                        TokenIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0))
-                    } else if (range.begin.1..range.end.1).contains(&token.node_path[range.path.len()]) {
-                        TokenIntersection::Total
+                if node_path.len() >= range.path.len() && node_path[0..range.path.len()] == range.path[..] {
+                    if node_path.len() == range.path.len() {
+                        NodeIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0))
+                    } else if (range.begin.1..range.end.1).contains(&node_path[range.path.len()]) {
+                        NodeIntersection::Total
                     } else {
-                        TokenIntersection::None
+                        NodeIntersection::None
                     }
                 } else {
-                    TokenIntersection::None
+                    NodeIntersection::None
                 }
             }
             Mode::Address(extent) => {
-                let token_extent = addr::Extent::sized(token.node_addr, token.node.size);
+                let node_extent = addr::Extent::sized(node_addr, node.size);
 
-                if extent.contains(token_extent) {
-                    TokenIntersection::Total
+                if extent.contains(node_extent) {
+                    NodeIntersection::Total
                 } else {
-                    match extent.intersection(token_extent) {
-                        Some(e) => TokenIntersection::Partial(e.debase(token.node_addr)),
-                        None => TokenIntersection::None,
+                    match extent.intersection(node_extent) {
+                        Some(e) => NodeIntersection::Partial(e.debase(node_addr)),
+                        None => NodeIntersection::None,
                     }
                 }
             },
@@ -372,11 +371,11 @@ impl Mode {
     }
 }
 
-impl TokenIntersection {
-    pub fn includes(&self, extent: addr::Extent) -> bool {
+impl NodeIntersection {
+    pub fn includes(&self, addr: addr::Address) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e) => e.contains(extent),
+            Self::Partial(e) => e.includes(addr),
             Self::Total => true,
         }
     }

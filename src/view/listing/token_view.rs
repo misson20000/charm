@@ -19,8 +19,7 @@ use gtk::graphene;
 use gtk::gsk;
 use gtk::gdk;
 
-mod hexdump;
-
+// TODO: after Token-type refactor, make it so this can't represent hexdump tokens.
 pub struct TokenView {
     token: token::Token,
     
@@ -28,7 +27,6 @@ pub struct TokenView {
     data_pending: bool,
     
     logical_bounds: Option<graphene::Rect>,
-    logical_bounds_asciidump: Option<graphene::Rect>,
 }
 
 impl TokenView {
@@ -40,7 +38,6 @@ impl TokenView {
             data_pending: true,
             
             logical_bounds: None,
-            logical_bounds_asciidump: None,
         }
     }
 
@@ -91,12 +88,12 @@ impl TokenView {
             );
         }
     }
-    
+
     pub fn render(
         &mut self,
         snapshot: &gtk::Snapshot,
         cursor: &CursorView,
-        selection: selection::listing::TokenIntersection,
+        selection: selection::listing::NodeIntersection,
         render: &listing::RenderDetail,
         origin: &graphene::Point
     ) -> graphene::Point {
@@ -157,14 +154,14 @@ impl TokenView {
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::Hexdump { extent, line } => {
-                hexdump::render(self, extent, line, snapshot, cursor, has_cursor, selection, render, &mut pos);
+            token::TokenClass::Hexdump { .. } => {
+                panic!("hexdump tokens should not be rendered via this codepath");
             },
             token::TokenClass::Hexstring(extent) => {
                 for i in 0..extent.length().bytes {
                     let j = i as u8;
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(extent);
-                    let selected = byte_extent.map_or(false, |be| selection.includes(be));
+                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     
                     render.gsc_mono.begin_iter([
                         gsc::Entry::Digit((j & 0xf0) >> 4),
@@ -182,48 +179,12 @@ impl TokenView {
         
         self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y() + helpers::pango_unscale(render.metrics.descent()), pos.x(), pos.y()));
 
-        pos
+        graphene::Point::new(origin.x() + pos.x(), 0.0)
     }
 
-    pub fn render_asciidump(
-        &mut self,
-        snapshot: &gtk::Snapshot,
-        cursor: &CursorView,
-        selection: selection::listing::TokenIntersection,
-        render: &listing::RenderDetail,
-        origin: &graphene::Point
-    ) -> graphene::Point {
-        let lh = helpers::pango_unscale(render.metrics.height());
-        
-        snapshot.translate(origin);
-
-        let mut pos = graphene::Point::new(0.0, lh);
-        
-        let has_cursor = cursor.cursor.is_over(&self.token);
-        
-        match self.token.class {
-            token::TokenClass::SummaryPunctuation(..) => { },
-            token::TokenClass::Title => { },
-            token::TokenClass::SummaryLabel => { },
-            token::TokenClass::Hexdump { extent, line } => {
-                hexdump::render_asciidump(self, extent, line, snapshot, cursor, has_cursor, selection, render, &mut pos);
-            },
-            token::TokenClass::Hexstring(_) => { },
-            token::TokenClass::BlankLine { .. } | token::TokenClass::SummaryPreamble | token::TokenClass::SummaryEpilogue => { },
-        }
-        
-        self.logical_bounds_asciidump = Some(graphene::Rect::new(origin.x(), origin.y(), pos.x(), pos.y()));
-
-        pos
-    }
-
-    pub fn pick_position(&self, x: f32, _y: f32) -> Option<(structure::Path, addr::Address, usize)> {
-        match self.token.class {
-            token::TokenClass::Hexdump { extent, line } => {
-                hexdump::pick_position(self, extent, line, x)
-            },
-            _ => None, // TODO
-        }
+    pub fn pick_position(&self, _x: f32, _y: f32) -> Option<(structure::Path, addr::Address, usize)> {
+        // TODO
+        None
     }
     
     pub fn invalidate_data(&mut self) {

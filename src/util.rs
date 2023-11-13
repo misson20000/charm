@@ -63,14 +63,59 @@ impl Default for Notifier {
     }
 }
 
-pub enum PhiIterator<Item, I1: Iterator<Item = Item>, I2: Iterator<Item = Item>, I3: Iterator<Item = Item>, I4: Iterator<Item = Item>> {
+pub enum Never {
+}
+
+pub struct NeverIterator<T>(Never, std::marker::PhantomData<T>);
+
+impl<T> Iterator for NeverIterator<T> {
+    type Item = T;
+    
+    fn next(&mut self) -> Option<T> {
+        match self.0 {
+        }
+    }
+}
+
+impl<T> DoubleEndedIterator for NeverIterator<T> {
+    fn next_back(&mut self) -> Option<T> {
+        match self.0 {
+        }
+    }
+}
+pub enum PhiIterator
+    <Item,
+     I1: Iterator<Item = Item> = NeverIterator<Item>,
+     I2: Iterator<Item = Item> = NeverIterator<Item>,
+     I3: Iterator<Item = Item> = NeverIterator<Item>,
+     I4: Iterator<Item = Item> = NeverIterator<Item>,
+     I5: Iterator<Item = Item> = NeverIterator<Item>,
+     I6: Iterator<Item = Item> = NeverIterator<Item>
+> {
     I1(I1),
     I2(I2),
     I3(I3),
     I4(I4),
+    I5(I5),
+    I6(I6),
 }
 
-impl<Item, I1: Iterator<Item = Item>, I2: Iterator<Item = Item>, I3: Iterator<Item = Item>, I4: Iterator<Item = Item>> Iterator for PhiIterator<Item, I1, I2, I3, I4> {
+impl<Item,
+     I1: Iterator<Item = Item>,
+     I2: Iterator<Item = Item>,
+     I3: Iterator<Item = Item>,
+     I4: Iterator<Item = Item>,
+     I5: Iterator<Item = Item>,
+     I6: Iterator<Item = Item>
+     > Iterator for PhiIterator
+    <Item,
+     I1,
+     I2,
+     I3,
+     I4,
+     I5,
+     I6
+     > {
     type Item = Item;
 
     fn next(&mut self) -> Option<Item> {
@@ -79,17 +124,36 @@ impl<Item, I1: Iterator<Item = Item>, I2: Iterator<Item = Item>, I3: Iterator<It
             Self::I2(i) => i.next(),
             Self::I3(i) => i.next(),
             Self::I4(i) => i.next(),
+            Self::I5(i) => i.next(),
+            Self::I6(i) => i.next(),
         }
     }
 }
 
-impl<Item, I1: DoubleEndedIterator<Item = Item>, I2: DoubleEndedIterator<Item = Item>, I3: DoubleEndedIterator<Item = Item>, I4: DoubleEndedIterator<Item = Item>> DoubleEndedIterator for PhiIterator<Item, I1, I2, I3, I4> {
+impl<Item,
+     I1: DoubleEndedIterator<Item = Item>,
+     I2: DoubleEndedIterator<Item = Item>,
+     I3: DoubleEndedIterator<Item = Item>,
+     I4: DoubleEndedIterator<Item = Item>,
+     I5: DoubleEndedIterator<Item = Item>,
+     I6: DoubleEndedIterator<Item = Item>
+     > DoubleEndedIterator for PhiIterator
+    <Item,
+     I1,
+     I2,
+     I3,
+     I4,
+     I5,
+     I6
+     > {
     fn next_back(&mut self) -> Option<Item> {
         match self {
             Self::I1(i) => i.next_back(),
             Self::I2(i) => i.next_back(),
             Self::I3(i) => i.next_back(),
             Self::I4(i) => i.next_back(),
+            Self::I5(i) => i.next_back(),
+            Self::I6(i) => i.next_back(),
         }
     }
 }

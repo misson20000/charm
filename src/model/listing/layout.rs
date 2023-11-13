@@ -22,6 +22,8 @@ pub enum LineType {
     Hexdump {
         title: Option<token::Token>,
         node: sync::Arc<structure::Node>,
+        node_path: structure::Path,
+        node_addr: addr::Address,
         line_extent: addr::Extent,
         tokens: collections::VecDeque<token::Token>
     },
@@ -44,7 +46,7 @@ enum LinePushResult {
 
 #[derive(Clone)]
 pub struct Line {
-    ty: LineType,
+    pub ty: LineType,
 }
 
 pub trait LineView {
@@ -311,6 +313,8 @@ impl Line {
             (LineType::Empty, token::TokenClass::Hexdump { line, .. }) => (LineType::Hexdump {
                 title: None,
                 node: token.node.clone(),
+                node_path: token.node_path.clone(),
+                node_addr: token.node_addr,
                 line_extent: *line,
                 tokens: collections::VecDeque::from([token])
             }, LinePushResult::Accepted),
@@ -319,22 +323,30 @@ impl Line {
             (LineType::Hexdump {
                 title: None,
                 node,
+                node_path,
+                node_addr,
                 line_extent,
                 tokens
             }, token::TokenClass::Title)
                 if sync::Arc::ptr_eq(&token.node, &node)
+                && node_path == token.node_path
+                && node_addr == token.node_addr
                 && token.node.props.title_display.is_inline()
                 => (LineType::Hexdump {
                     title: Some(token),
                     node,
+                    node_path,
+                    node_addr,
                     line_extent,
                     tokens
                 }, LinePushResult::Accepted),
 
             /* Multiple hexdump tokens can coexist on a line under certain conditions. */
-            (LineType::Hexdump { title, node: line_node, line_extent, mut tokens },
+            (LineType::Hexdump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
              token::TokenClass::Hexdump { extent: token_extent, line: token_line_extent })
                 if sync::Arc::ptr_eq(&line_node, &token.node)
+                && node_path == token.node_path
+                && node_addr == token.node_addr
                 && *token_line_extent == line_extent
                 => {
                     /* Must be monotonic and non-overlapping. */
@@ -354,6 +366,8 @@ impl Line {
                     (LineType::Hexdump {
                         title,
                         node: line_node,
+                        node_path,
+                        node_addr,
                         line_extent,
                         tokens
                     }, result)
@@ -429,6 +443,8 @@ impl Line {
             (LineType::Empty, token::TokenClass::Hexdump { line, .. }) => (LineType::Hexdump {
                 title: None,
                 node: token.node.clone(),
+                node_path: token.node_path.clone(),
+                node_addr: token.node_addr,
                 line_extent: *line,
                 tokens: collections::VecDeque::from([token])
             }, LinePushResult::Accepted),
@@ -439,15 +455,19 @@ impl Line {
                 && title_token.node.props.title_display.is_inline()
                 => (LineType::Hexdump {
                     node: title_token.node.clone(),
+                    node_path: token.node_path.clone(),
+                    node_addr: token.node_addr,
                     title: Some(title_token),
                     line_extent: *line,
                     tokens: collections::VecDeque::from([token]),
                 }, LinePushResult::Accepted),
                 
             /* Multiple hexdump tokens can coexist on a line under certain conditions. */
-            (LineType::Hexdump { title, node: line_node, line_extent, mut tokens },
+            (LineType::Hexdump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
              token::TokenClass::Hexdump { extent: token_extent, line: token_line_extent })
                 if sync::Arc::ptr_eq(&line_node, &token.node)
+                && node_path == token.node_path
+                && node_addr == token.node_addr
                 && *token_line_extent == line_extent
                 => {
                     /* Must be monotonic and non-overlapping. */
@@ -467,6 +487,8 @@ impl Line {
                     (LineType::Hexdump {
                         title,
                         node: line_node,
+                        node_path,
+                        node_addr,
                         line_extent,
                         tokens
                     }, result)
@@ -595,10 +617,15 @@ impl PartialEq for Line {
             (LineType::Title(tok1), LineType::Title(tok2)) => tok1.eq(tok2),
             
             (LineType::Hexdump {
-                title: title1, node: node1, line_extent: line_extent1, tokens: tokens1
+                title: title1, node: node1, node_path: node_path1, node_addr: node_addr1, line_extent: line_extent1, tokens: tokens1
             }, LineType::Hexdump {
-                title: title2, node: node2, line_extent: line_extent2, tokens: tokens2
-            }) => title1.eq(title2) && sync::Arc::ptr_eq(node1, node2) && line_extent1.eq(line_extent2) && tokens1.iter().eq(tokens2.iter()),
+                title: title2, node: node2, node_path: node_path2, node_addr: node_addr2, line_extent: line_extent2, tokens: tokens2
+            }) => title1.eq(title2)
+                && sync::Arc::ptr_eq(node1, node2)
+                && node_path1 == node_path2
+                && node_addr1 == node_addr2
+                && line_extent1.eq(line_extent2)
+                && tokens1.iter().eq(tokens2.iter()),
 
             (LineType::Hexstring {
                 title: title1, token: token1
