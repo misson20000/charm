@@ -44,7 +44,7 @@ enum LinePushResult {
 
 #[derive(Clone)]
 pub struct Line {
-    ty: LineType,
+    pub ty: LineType,
 }
 
 pub trait LineView {

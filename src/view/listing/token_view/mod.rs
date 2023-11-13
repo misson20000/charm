@@ -31,6 +31,17 @@ pub struct TokenView {
     logical_bounds_asciidump: Option<graphene::Rect>,
 }
 
+struct CommonContext<'a> {
+    snapshot: &'a gtk::Snapshot,
+    cursor: &'a CursorView,
+    selection: &'a selection::listing::Mode,
+    render: &'a listing::RenderDetail
+}
+
+trait RenderForBucket<Bucket> {
+    fn render(&mut self, ctx: &CommonContext<'_>, bucket: &mut Bucket);
+}
+
 impl TokenView {
     pub fn from(token: token::Token) -> TokenView {
         TokenView {
@@ -91,6 +102,12 @@ impl TokenView {
             );
         }
     }
+
+    pub fn render_for_blank();
+    pub fn render_for_title();
+    pub fn render_for_hexdump();
+    pub fn render_for_hexstring();
+    pub fn render_for_summary();
     
     pub fn render(
         &mut self,
