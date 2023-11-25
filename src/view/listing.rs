@@ -25,6 +25,7 @@ use gtk::pango;
 use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
+mod bucket;
 pub mod facet;
 mod token_view;
 mod line;

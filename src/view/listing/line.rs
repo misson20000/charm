@@ -1,18 +1,17 @@
 use std::iter;
 use std::sync;
 use std::task;
-use std::vec;
 
-use crate::model::addr;
 use crate::model::document;
-use crate::model::document::structure;
+use crate::model::listing::cursor;
 use crate::model::listing::layout;
 use crate::model::listing::token;
 use crate::model::selection;
 use crate::util;
-use crate::view::gsc;
 use crate::view::helpers;
 use crate::view::listing;
+use crate::view::listing::bucket;
+use crate::view::listing::bucket::Bucket;
 use crate::view::listing::facet;
 use crate::view::listing::token_view;
 
@@ -22,21 +21,19 @@ use gtk::gsk;
 
 enum LineViewType {
     Empty,
-    Blank(token_view::TokenView),
-    Title(token_view::TokenView),
+    Blank(bucket::SingleTokenBucket<bucket::BlankMarker>),
+    Title(bucket::SingleTokenBucket<bucket::TitleMarker>),
     Hexdump {
-        title: Option<token_view::TokenView>,
-        node: sync::Arc<structure::Node>,
-        line_extent: addr::Extent,
-        tokens: Vec<token_view::TokenView>,
+        title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
+        hexdump: bucket::HexdumpBucket,
     },
     Hexstring {
-        title: Option<token_view::TokenView>,
-        token: token_view::TokenView,
+        title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
+        hexstring: bucket::SingleTokenBucket<bucket::HexstringMarker>,
     },
     Summary {
-        title: Option<token_view::TokenView>,
-        tokens: Vec<token_view::TokenView>,
+        title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
+        content: bucket::MultiTokenBucket<bucket::SummaryMarker>,
     },
 }
 
@@ -81,43 +78,53 @@ impl layout::LineView for Line {
     }
 }
 
-type LineViewBorrowingTokenIterator<'a> = iter::Map
-    <util::PhiIterator
-     <&'a token_view::TokenView,
-      iter::Empty<&'a token_view::TokenView>,
-      iter::Once<&'a token_view::TokenView>,
-      iter::Chain<std::option::Iter<'a, token_view::TokenView>, std::slice::Iter<'a, token_view::TokenView>>,
-      iter::Chain<std::option::Iter<'a, token_view::TokenView>, iter::Once<&'a token_view::TokenView>>>,
-     fn(&'a token_view::TokenView) -> &'a token::Token>;
+type LineViewBorrowingTokenIterator<'a> = util::PhiIterator
+    <&'a token::Token,
+     iter::Empty<&'a token::Token>,
+     <bucket::SingleTokenBucket<bucket::BlankMarker> as Bucket>::BorrowingTokenIterator<'a>,
+     <bucket::SingleTokenBucket<bucket::TitleMarker> as Bucket>::BorrowingTokenIterator<'a>,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::BorrowingTokenIterator<'a>,
+        <bucket::HexdumpBucket as Bucket>::BorrowingTokenIterator<'a>>,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::BorrowingTokenIterator<'a>,
+        <bucket::SingleTokenBucket<bucket::HexstringMarker> as Bucket>::BorrowingTokenIterator<'a>>,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::BorrowingTokenIterator<'a>,
+        <bucket::MultiTokenBucket<bucket::SummaryMarker> as Bucket>::BorrowingTokenIterator<'a>>>;
 
-type LineViewTokenIterator = iter::Map
-    <util::PhiIterator
-     <token_view::TokenView,
-      iter::Empty<token_view::TokenView>,
-      iter::Once<token_view::TokenView>,
-      iter::Chain<std::option::IntoIter<token_view::TokenView>, vec::IntoIter<token_view::TokenView>>,
-      iter::Chain<std::option::IntoIter<token_view::TokenView>, iter::Once<token_view::TokenView>>>,
-     fn(token_view::TokenView) -> token::Token>;
+type LineViewTokenIterator = util::PhiIterator
+    <token::Token,
+     iter::Empty<token::Token>,
+     <bucket::SingleTokenBucket<bucket::BlankMarker> as Bucket>::TokenIterator,
+     <bucket::SingleTokenBucket<bucket::TitleMarker> as Bucket>::TokenIterator,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::TokenIterator,
+        <bucket::HexdumpBucket as Bucket>::TokenIterator>,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::TokenIterator,
+        <bucket::SingleTokenBucket<bucket::HexstringMarker> as Bucket>::TokenIterator>,
+     iter::Chain
+       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as Bucket>::TokenIterator,
+        <bucket::MultiTokenBucket<bucket::SummaryMarker> as Bucket>::TokenIterator>>;
 
 impl LineViewType {
     fn from(line: layout::Line) -> Self {
         match line.ty {
             layout::LineType::Empty => Self::Empty,
-            layout::LineType::Blank(tok) => Self::Blank(token_view::TokenView::from(tok)),
-            layout::LineType::Title(tok) => Self::Title(token_view::TokenView::from(tok)),
+            layout::LineType::Blank(tok) => Self::Blank(tok.into()),
+            layout::LineType::Title(tok) => Self::Title(tok.into()),
             layout::LineType::Hexdump { title, node, line_extent, tokens } => Self::Hexdump {
-                title: title.map(token_view::TokenView::from),
-                node,
-                line_extent,
-                tokens: tokens.into_iter().map(token_view::TokenView::from).collect()
+                title: title.into(),
+                hexdump: bucket::HexdumpBucket::new(node, line_extent, tokens.into_iter())
             },
             layout::LineType::Hexstring { title, token } => Self::Hexstring {
-                title: title.map(token_view::TokenView::from),
-                token: token_view::TokenView::from(token),
+                title: title.into(),
+                hexstring: token.into()
             },
             layout::LineType::Summary { title, tokens } => Self::Summary {
-                title: title.map(token_view::TokenView::from),
-                tokens: tokens.into_iter().map(token_view::TokenView::from).collect()
+                title: title.into(),
+                content: bucket::MultiTokenBucket::from_tokens(tokens.into_iter())
             },
         }
     }
@@ -125,46 +132,31 @@ impl LineViewType {
     fn iter_tokens(&self) -> LineViewBorrowingTokenIterator<'_> {
         match &self {
             Self::Empty => util::PhiIterator::I1(iter::empty()),
-            Self::Blank(t) | Self::Title(t) => util::PhiIterator::I2(iter::once(t)),
-            Self::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.iter().chain(tokens.iter())),
-            Self::Hexstring { title, token, .. } => util::PhiIterator::I4(title.iter().chain(iter::once(token))),
-            Self::Summary { title, tokens, .. } => util::PhiIterator::I3(title.iter().chain(tokens.iter())),
-        }.map(token_view::TokenView::token)
+            Self::Blank(bucket) => util::PhiIterator::I2(bucket.iter_tokens()),
+            Self::Title(bucket) => util::PhiIterator::I3(bucket.iter_tokens()),
+            Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.iter_tokens().chain(hexdump.iter_tokens())),
+            Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.iter_tokens().chain(hexstring.iter_tokens())),
+            Self::Summary { title, content } => util::PhiIterator::I6(title.iter_tokens().chain(content.iter_tokens())),
+        }
     }
 
     fn to_tokens(self) -> LineViewTokenIterator {
         match self {
             Self::Empty => util::PhiIterator::I1(iter::empty()),
-            Self::Blank(t) | Self::Title(t) => util::PhiIterator::I2(iter::once(t)),
-            Self::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.into_iter().chain(tokens.into_iter())),
-            Self::Hexstring { title, token, .. } => util::PhiIterator::I4(title.into_iter().chain(iter::once(token))),
-            Self::Summary { title, tokens, .. } => util::PhiIterator::I3(title.into_iter().chain(tokens.into_iter())),
-        }.map(token_view::TokenView::into_token)
+            Self::Blank(bucket) => util::PhiIterator::I2(bucket.to_tokens()),
+            Self::Title(bucket) => util::PhiIterator::I3(bucket.to_tokens()),
+            Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.to_tokens().chain(hexdump.to_tokens())),
+            Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.to_tokens().chain(hexstring.to_tokens())),
+            Self::Summary { title, content } => util::PhiIterator::I6(title.to_tokens().chain(content.to_tokens())),
+        }
     }
 
     fn contains_cursor(&self, cursor: &cursor::Cursor) -> bool {
-        match self {
-            Self::Empty => false,
-            Self::Blank(t) | Self::Title(t) => cursor.is_over(t.token()),
-            Self::Hexdump { title, tokens, .. } => title.map_or(false, |tv| cursor.is_over(tv.token())) || tokens.iter().any(|tv| cursor.is_over(tv.token())),
-            Self::Hexstring { title, token, .. } => title.map_or(false, |tv| cursor.is_over(tv.token())) || cursor.is_over(token.token()),
-            Self::Summary { title, tokens, .. } => title.map_or(false, |tv| cursor.is_over(tv.token())) || tokens.iter().any(|tv| cursor.is_over(tv.token())),
-        }
+        self.iter_tokens().any(|t| cursor.is_over(t))
     }
 
     fn indentation(&self) -> usize {
-        match self {
-            Self::Empty => 0,
-            Self::Blank(t) | Self::Title(t) => t.token().depth,
-            
-            Self::Hexdump { title: Some(t), .. } => t.token().depth,
-            Self::Hexstring { title: Some(t), .. } => t.token().depth,
-            Self::Summary { title: Some(t), .. } => t.token().depth,
-
-            Self::Hexdump { tokens, .. } => tokens[0].token().depth,
-            Self::Hexstring { token, .. } => token.token().depth,
-            Self::SUmmary { tokens, .. } => tokens[0].token().depth,
-        }
+        self.iter_tokens().next().map_or(0, |t| t.depth)
     }
 }
 
@@ -207,9 +199,6 @@ impl Line {
                 self.ty.indentation() as f32 *
                 render.config.indentation_width *
                 helpers::pango_unscale(render.gsc_mono.space_width()));
-        }
-
-        let mut visible_address = None;
 
         /* render tokens */
         for token in &mut self.tokens {
@@ -228,18 +217,17 @@ impl Line {
             
             main_position.set_x(main_position.x() + main_advance.x());
             ascii_position.set_x(ascii_position.x() + ascii_advance.x());
-
-            /* pick the address from the first token that should display an address */
-            if visible_address.is_none() {
-                visible_address = token.visible_address();
-            }
         }
 
+        // TODO: address pane
+        
         /* if any of our tokens wanted to show an address, render the first one into the address pane */
+        /*
         if let Some(addr) = visible_address {
             let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, helpers::pango_unscale(render.metrics.height()));
             gsc::begin_text(&render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos).render_right_aligned(&snapshot);
-        }
+    }
+        */
 
         if !has_cursor {
             self.selection_hash = selection_hash;
