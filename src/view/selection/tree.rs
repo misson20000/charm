@@ -150,10 +150,15 @@ mod imp {
 
                 let info = item.imp().info.get().unwrap().borrow();
                 
+                let document = info.document.clone();
+                let path = info.path.clone();
+
+                std::mem::drop(info);
+                
                 self.change(interior, if unselect_rest {
-                    tree_model::Change::SetSingle(info.document.clone(), info.path.clone())
+                    tree_model::Change::SetSingle(document, path)
                 } else {
-                    tree_model::Change::AddSingle(info.document.clone(), info.path.clone())
+                    tree_model::Change::AddSingle(document, path)
                 });
                 
                 true
