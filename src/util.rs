@@ -5,6 +5,8 @@ use std::vec;
 
 use std::fmt::Write;
 
+use seq_macro::seq;
+
 pub fn nybble_to_hex(nyb: u8) -> char {
     (if nyb < 10 {
         b'0' + nyb
@@ -66,6 +68,7 @@ impl Default for Notifier {
 pub enum Never {
 }
 
+// TODO: get rid of me when never type is stabilized.
 pub struct NeverIterator<T>(Never, std::marker::PhantomData<T>);
 
 impl<T> Iterator for NeverIterator<T> {
@@ -83,77 +86,36 @@ impl<T> DoubleEndedIterator for NeverIterator<T> {
         }
     }
 }
-pub enum PhiIterator
-    <Item,
-     I1: Iterator<Item = Item> = NeverIterator<Item>,
-     I2: Iterator<Item = Item> = NeverIterator<Item>,
-     I3: Iterator<Item = Item> = NeverIterator<Item>,
-     I4: Iterator<Item = Item> = NeverIterator<Item>,
-     I5: Iterator<Item = Item> = NeverIterator<Item>,
-     I6: Iterator<Item = Item> = NeverIterator<Item>
-> {
-    I1(I1),
-    I2(I2),
-    I3(I3),
-    I4(I4),
-    I5(I5),
-    I6(I6),
-}
 
-impl<Item,
-     I1: Iterator<Item = Item>,
-     I2: Iterator<Item = Item>,
-     I3: Iterator<Item = Item>,
-     I4: Iterator<Item = Item>,
-     I5: Iterator<Item = Item>,
-     I6: Iterator<Item = Item>
-     > Iterator for PhiIterator
-    <Item,
-     I1,
-     I2,
-     I3,
-     I4,
-     I5,
-     I6
-     > {
-    type Item = Item;
+// TODO: fix me up when we get variadic generics
+// TODO: remove me when we get anonymous sum types
+seq!(N in 1..=6 {
+    pub enum PhiIterator<Item, #(I~N: Iterator<Item = Item> = NeverIterator<Item>,)*> {
+        #(I~N(I~N),)*
+    }
 
-    fn next(&mut self) -> Option<Item> {
-        match self {
-            Self::I1(i) => i.next(),
-            Self::I2(i) => i.next(),
-            Self::I3(i) => i.next(),
-            Self::I4(i) => i.next(),
-            Self::I5(i) => i.next(),
-            Self::I6(i) => i.next(),
+    impl<Item, #(I~N: Iterator<Item = Item>,)*> Iterator for PhiIterator<Item, #(I~N,)*> {
+        type Item = Item;
+
+        fn next(&mut self) -> Option<Item> {
+            match self {
+                #(Self::I~N(i) => i.next(),)*
+            }
         }
     }
-}
 
-impl<Item,
-     I1: DoubleEndedIterator<Item = Item>,
-     I2: DoubleEndedIterator<Item = Item>,
-     I3: DoubleEndedIterator<Item = Item>,
-     I4: DoubleEndedIterator<Item = Item>,
-     I5: DoubleEndedIterator<Item = Item>,
-     I6: DoubleEndedIterator<Item = Item>
-     > DoubleEndedIterator for PhiIterator
-    <Item,
-     I1,
-     I2,
-     I3,
-     I4,
-     I5,
-     I6
-     > {
-    fn next_back(&mut self) -> Option<Item> {
-        match self {
-            Self::I1(i) => i.next_back(),
-            Self::I2(i) => i.next_back(),
-            Self::I3(i) => i.next_back(),
-            Self::I4(i) => i.next_back(),
-            Self::I5(i) => i.next_back(),
-            Self::I6(i) => i.next_back(),
+    impl<Item, #(I~N: DoubleEndedIterator<Item = Item>,)*> DoubleEndedIterator for PhiIterator<Item, #(I~N,)*> {
+        fn next_back(&mut self) -> Option<Item> {
+            match self {
+                #(Self::I~N(i) => i.next_back(),)*
+            }
         }
     }
-}
+
+    // TODO: get rid of me once never type and never type fallback is stabilized.
+    #(
+        seq!(M in 1..=N {
+            pub type PhiIteratorOf~N<Item, #(I~M,)*> = PhiIterator<Item, #(I~M,)*>;
+        });
+    )*
+});
