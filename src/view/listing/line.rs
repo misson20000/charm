@@ -113,12 +113,6 @@ type LineViewTokenIterator = util::PhiIterator
        <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::TokenIterator,
         <bucket::MultiTokenBucket<bucket::SummaryMarker> as TokenIterableBucket>::TokenIterator>>;
 
-type LineViewBorrowingMutableBucketIterator<'a> = util::PhiIterator
-    <&'a mut dyn Bucket,
-     iter::Empty<&'a mut dyn Bucket>,
-     iter::Once<&'a mut dyn Bucket>,
-     std::array::IntoIter<&'a mut dyn Bucket, 2>>;
-
 impl LineViewType {
     fn from(line: layout::Line) -> Self {
         match line.ty {
@@ -162,14 +156,14 @@ impl LineViewType {
         }
     }
 
-    fn iter_buckets_mut(&mut self) -> LineViewBorrowingMutableBucketIterator<'_> {
+    fn iter_buckets_mut(&mut self) -> impl Iterator<Item = &mut dyn bucket::Bucket> {
         match self {
-            Self::Empty => util::PhiIterator::I1(iter::empty()),
-            Self::Blank(bucket) => util::PhiIterator::I2(iter::once(bucket)),
-            Self::Title(bucket) => util::PhiIterator::I2(iter::once(bucket)),
-            Self::Hexdump { title, hexdump } => util::PhiIterator::I3([title.as_bucket_mut(), hexdump.as_bucket_mut()].into_iter()),
-            Self::Hexstring { title, hexstring } => util::PhiIterator::I3([title.as_bucket_mut(), hexstring.as_bucket_mut()].into_iter()),
-            Self::Summary { title, content } => util::PhiIterator::I3([title.as_bucket_mut(), content.as_bucket_mut()].into_iter()),
+            Self::Empty => util::PhiIteratorOf3::I1(iter::empty()),
+            Self::Blank(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket_mut())),
+            Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket_mut())),
+            Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexdump.as_bucket_mut()].into_iter()),
+            Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexstring.as_bucket_mut()].into_iter()),
+            Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), content.as_bucket_mut()].into_iter()),
         }
     }
     
