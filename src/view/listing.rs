@@ -17,7 +17,6 @@ use crate::view;
 use crate::view::error;
 use crate::view::gsc;
 use crate::view::helpers;
-use crate::view::ext::RGBAExt;
 
 use gtk::gdk;
 use gtk::glib;
@@ -167,7 +166,7 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.save();
         snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
 
-        for (i, line) in interior.window.line_views.iter_mut().enumerate() {
+        for line in interior.window.line_views.iter_mut() {
             if let Some(node) = line.render(&interior.cursor, selection, &*render) {
                 snapshot.append_node(node);
             }
