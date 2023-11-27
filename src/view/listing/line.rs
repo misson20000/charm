@@ -17,7 +17,6 @@ use crate::view::listing::bucket::Bucket;
 use crate::view::listing::bucket::TokenIterableBucket;
 use crate::view::listing::bucket::WorkableBucket;
 use crate::view::listing::facet;
-use crate::view::listing::token_view;
 use crate::view::listing::layout::LayoutController;
 
 use gtk::prelude::*;
@@ -156,6 +155,17 @@ impl LineViewType {
         }
     }
 
+    fn iter_buckets(&self) -> impl Iterator<Item = &dyn bucket::Bucket> {
+        match self {
+            Self::Empty => util::PhiIteratorOf3::I1(iter::empty()),
+            Self::Blank(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket())),
+            Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket())),
+            Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket(), hexdump.as_bucket()].into_iter()),
+            Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket(), hexstring.as_bucket()].into_iter()),
+            Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket(), content.as_bucket()].into_iter()),
+        }
+    }
+    
     fn iter_buckets_mut(&mut self) -> impl Iterator<Item = &mut dyn bucket::Bucket> {
         match self {
             Self::Empty => util::PhiIteratorOf3::I1(iter::empty()),
@@ -259,18 +269,10 @@ impl Line {
         }
     }
 
-    /* This is really crummy and will have to change later, but I just want to get something working first. */
-    pub fn pick_token(&self, _x: f64, _y: f64) -> Option<(&token_view::TokenView, f32)> {
-        // TODO: picking
-        /*
-        let token = self.tokens.iter().find(
-            |token| token.logical_bounds().map_or(
-                false,
-                |lb| lb.x() < x as f32))
-            .or(self.tokens.first());
-        token.and_then(|t| t.logical_bounds().map(|lb| (t, x as f32 - lb.x())))
-            */
-        None
+    pub fn pick(&self, x: f64, y: f64) -> Option<listing::PickResult> {
+        let point = graphene::Point::new(x as f32, y as f32);
+        
+        self.ty.iter_buckets().find_map(|bucket| bucket.pick(&point))
     }
 }
 

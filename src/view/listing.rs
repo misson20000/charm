@@ -1,5 +1,6 @@
 use std::future;
 use std::pin;
+use std::rc;
 use std::sync;
 use std::task;
 
@@ -13,6 +14,7 @@ use crate::model::listing::layout as layout_model;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::error;
 use crate::view::gsc;
 use crate::view::helpers;
 use crate::view::ext::RGBAExt;
@@ -62,11 +64,13 @@ struct Interior {
     
     document: sync::Arc<document::Document>,
     selection: sync::Arc<selection::ListingSelection>,
-    
+
+    charm_window: rc::Weak<view::window::CharmWindow>,
     window: layout_model::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
+    rubber_band_begin: Option<PickResult>,
     
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -76,6 +80,19 @@ struct Interior {
     config_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_notifier: util::Notifier,
+}
+
+#[derive(Clone, Debug)]
+pub enum PickOffsetOrIndex {
+    Offset(addr::Address),
+    Index(usize)
+}
+
+#[derive(Clone, Debug)]
+pub struct PickResult {
+    begin: (structure::Path, PickOffsetOrIndex),
+    middle: (structure::Path, PickOffsetOrIndex),
+    end: (structure::Path, PickOffsetOrIndex),
 }
 
 #[derive(Default)]
@@ -150,18 +167,7 @@ impl WidgetImpl for ListingWidgetImp {
         snapshot.save();
         snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
 
-        let pick = interior.hover.and_then(|(_x, y)| interior.pick_line(y));
-        
         for (i, line) in interior.window.line_views.iter_mut().enumerate() {
-            if let Some((j, _)) = pick {
-                if i == j {
-                    snapshot.append_color(&gdk::RGBA::bytes(hex_literal::hex!("ff000080")), &graphene::Rect::new(
-                        0.0, helpers::pango_unscale(render.metrics.descent()),
-                        1000.0, helpers::pango_unscale(render.metrics.height())
-                    ));
-                }
-            }
-            
             if let Some(node) = line.render(&interior.cursor, selection, &*render) {
                 snapshot.append_node(node);
             }
@@ -181,8 +187,7 @@ impl WidgetImpl for ListingWidgetImp {
                     "hover: {:?}, pick: {:?}",
                     interior.hover,
                     interior.hover
-                        .and_then(|(x, y)| interior.pick_token(x, y))
-                        .map(|(tv, x)| (x, tv.token()))
+                        .and_then(|(x, y)| interior.pick(x, y))
                 ), &mut pos).render(snapshot);
         }
     }
@@ -215,7 +220,7 @@ impl ListingWidget {
     
     pub fn init(
         &self,
-        _window: &view::window::CharmWindow,
+        window: &rc::Rc<view::window::CharmWindow>,
         document_host: sync::Arc<document::DocumentHost>,
         selection_host: sync::Arc<selection::listing::Host>
     ) {
@@ -234,10 +239,12 @@ impl ListingWidget {
             selection_host: selection_host.clone(),
             selection: selection.clone(),
 
+            charm_window: rc::Rc::downgrade(window),
             window: layout_model::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,
+            rubber_band_begin: None,
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -329,9 +336,14 @@ impl ListingWidget {
         
         /* Focus on click */
         let gesture = gtk::GestureClick::new();
-        gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, _x, _y| {
+        gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
             lw.grab_focus();
+            lw.imp().interior.get().unwrap().write().pressed(&lw, x, y);
             gesture.set_state(gtk::EventSequenceState::Claimed);
+        }));
+        gesture.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+            lw.imp().interior.get().unwrap().write().released(&lw, x, y);
+            gesture.set_state(gtk::EventSequenceState::Claimed);            
         }));
         gesture.set_button(0);
         gesture.set_exclusive(true);
@@ -436,6 +448,7 @@ impl Interior {
         self.window.update(new_document);
         self.cursor.cursor.update(new_document);
         self.document = new_document.clone();
+        self.rubber_band_begin = None;
 
         self.work_notifier.notify();
     }
@@ -575,9 +588,38 @@ impl Interior {
     fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
         self.hover = hover;
 
+        if let (Some(rbb), Some(rbe)) = (&self.rubber_band_begin, hover.and_then(|(x, y)| self.pick(x, y))) {
+            match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_range(&self.document, rbb, &rbe))) {
+                Ok(new_selection) => { self.selection_updated(&new_selection); },
+                Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                    while_attempting: error::Action::RubberBandSelection,
+                    trouble: error::Trouble::ListingSelectionUpdateFailure {
+                        error,
+                        attempted_version,
+                    },
+                    level: error::Level::Warning,
+                    is_bug: true,
+                })); }
+            }
+        }
+        
         widget.queue_draw();
     }
 
+    fn pressed(&mut self, widget: &ListingWidget, x: f64, y: f64) {
+        self.rubber_band_begin = self.pick(x, y);
+        self.hover = Some((x, y));
+
+        widget.queue_draw();
+    }
+
+    fn released(&mut self, widget: &ListingWidget, x: f64, y: f64) {
+        self.rubber_band_begin = None;
+        self.hover = Some((x, y));
+
+        widget.queue_draw();
+    }
+    
     fn pick_line(&self, y: f64) -> Option<(usize, f64)> {
         let descent = helpers::pango_unscale(self.render.metrics.descent()) as f64;
         let line_height = helpers::pango_unscale(self.render.metrics.height()) as f64;
@@ -591,10 +633,10 @@ impl Interior {
         }
     }
 
-    fn pick_token(&self, x: f64, y: f64) -> Option<(&token_view::TokenView, f32)> {
+    fn pick(&self, x: f64, y: f64) -> Option<PickResult> {
         let (lineno, y) = self.pick_line(y)?;
         let line = self.window.line_views.get(lineno)?;
-        line.pick_token(x, y)
+        line.pick(x, y)
     }
 }
 
@@ -607,6 +649,37 @@ impl future::Future for ListingWidgetWorkFuture {
             task::Poll::Pending
         } else {
             task::Poll::Ready(())
+        }
+    }
+}
+
+impl PickResult {
+    fn to_structure_range(document: &document::Document, a: &PickResult, b: &PickResult) -> selection::listing::StructureRange {
+        let a = &a.begin;
+        let b = &b.end;
+        
+        let path: Vec<usize> = std::iter::zip(a.0.iter(), b.0.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
+        let (node, _node_addr) = document.lookup_node(&path);
+
+        let a = match a.1 {
+            _ if path.len() < a.0.len() => (a.0[path.len()], node.children[a.0[path.len()]].offset),
+            PickOffsetOrIndex::Offset(offset) => (node.child_at_offset(offset), offset),
+            PickOffsetOrIndex::Index(index) => (index, node.children[index].offset),
+        };
+
+        let b = match b.1 {
+            _ if path.len() < b.0.len() => (b.0[path.len()], node.children[b.0[path.len()]].offset),
+            PickOffsetOrIndex::Offset(offset) => (node.child_at_offset(offset), offset),
+            PickOffsetOrIndex::Index(index) => (index, node.children[index].offset),
+        };
+
+        let (begin_index, begin_offset) = std::cmp::min(a, b);
+        let (end_index, end_offset) = std::cmp::max(a, b);
+
+        selection::listing::StructureRange {
+            path,
+            begin: (begin_offset, begin_index),
+            end: (end_offset, end_index),
         }
     }
 }

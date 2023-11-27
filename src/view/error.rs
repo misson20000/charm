@@ -24,6 +24,7 @@ pub enum Action {
     Nest,
 
     ModifyTreeSelection,
+    RubberBandSelection,
 }
 
 pub enum Trouble {
@@ -73,6 +74,7 @@ impl Error {
             Action::Nest => "Failed to nest nodes.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
+            Action::RubberBandSelection => "Failed to rubber-band select.",
         }.to_string()
     }
 

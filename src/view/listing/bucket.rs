@@ -32,6 +32,11 @@ pub struct RenderArgs<'a> {
 pub trait Bucket: WorkableBucket {
     fn render(&mut self, ctx: RenderArgs<'_>, layout: &mut LayoutController);
     fn visible_address(&self) -> Option<addr::Address>;
+    
+    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult> {
+        let _ = point;
+        None
+    }
 
     fn as_bucket(&self) -> &dyn Bucket where Self: Sized {
         self
@@ -134,6 +139,8 @@ pub struct HexdumpBucket {
 
     ascii_begin: graphene::Point,
     ascii_end: graphene::Point,
+
+    space_width: f32,
     
     node: sync::Arc<structure::Node>,
     node_path: structure::Path,
@@ -161,10 +168,6 @@ impl<Marker> From<token::Token> for SingleTokenBucket<Marker> {
 }
 
 impl<Marker> Bucket for SingleTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    fn visible_address(&self) -> Option<addr::Address> {
-        self.tv.visible_address()
-    }
-
     fn render(&mut self, ctx: RenderArgs<'_>, layout: &mut LayoutController) {
         let mut begin = self.begin.clone();
         let mut end = self.end.clone();
@@ -173,6 +176,10 @@ impl<Marker> Bucket for SingleTokenBucket<Marker> where LayoutController: Layout
         
         self.begin = begin;
         self.end = end;
+    }
+
+    fn visible_address(&self) -> Option<addr::Address> {
+        self.tv.visible_address()
     }
 }
 
@@ -312,6 +319,8 @@ impl HexdumpBucket {
             
             ascii_begin: graphene::Point::zero(),
             ascii_end: graphene::Point::zero(),
+
+            space_width: 1.0,
             
             node,
             node_path,
@@ -323,6 +332,9 @@ impl HexdumpBucket {
             
             toks: tokens.collect(),
         }
+    }
+    fn gutter_pitch(&self) -> addr::Size {
+        addr::Size::from(8)
     }
 }
 
@@ -343,19 +355,20 @@ impl Bucket for HexdumpBucket {
             
             let (_, logical_space) = ctx.render.gsc_mono.get(gsc::Entry::Space).unwrap().clone().extents(&ctx.render.font_mono);
             let space_width = helpers::pango_unscale(logical_space.width());
+            self.space_width = space_width;
             
-            let hex_cursor = match &ctx.cursor.cursor.class {
-                CursorClass::Hexdump(hxc) => Some(hxc),
-                _ => None,
-            };
-
-            let gutter_pitch = addr::Size::from(8);
+            let gutter_pitch = self.gutter_pitch();
             
             let mut offset = self.line_extent.begin;
             let mut next_gutter = offset + gutter_pitch;
 
             let mut token_iterator = self.toks.iter();
             let mut next_token = token_iterator.next();
+
+            let hex_cursor = match &ctx.cursor.cursor.class {
+                CursorClass::Hexdump(hxc) => Some(hxc),
+                _ => None,
+            };
             
             while offset < self.line_extent.end {
                 let mut gutter_width = None;
@@ -483,6 +496,119 @@ impl Bucket for HexdumpBucket {
             
             point
         });
+    }
+
+    fn pick(&self, pick_point: &graphene::Point) -> Option<listing::PickResult> {
+        if pick_point.x() >= self.hd_begin.x() && pick_point.x() < self.hd_end.x() {
+            let mut point = self.hd_begin.clone();
+            
+            let space_width = self.space_width;
+            let gutter_pitch = self.gutter_pitch();
+            
+            let mut offset = self.line_extent.begin;
+            let mut next_gutter = offset + gutter_pitch;
+
+            let mut token_iterator = self.toks.iter();
+            let mut next_token = token_iterator.next();
+
+            let mut last_valid_offset = None;
+
+            enum PickedPart {
+                Gutter { right: bool },
+                Octet,
+
+                Previous
+            }
+            
+            let mut has_picked = None;
+            
+            while offset < self.line_extent.end {
+                let next_offset = std::cmp::min(offset + addr::unit::BYTE, next_gutter);
+                
+                let mut gutter_width = None;
+                
+                if offset != self.line_extent.begin {
+                    /* put spaces between bytes */
+                    gutter_width = Some(space_width);
+                }
+
+                while offset >= next_gutter {
+                    /* additional gutters */
+                    next_gutter+= gutter_pitch;
+                    gutter_width = Some(gutter_width.unwrap_or(0.0) + space_width);
+                }
+
+                if let Some(w) = gutter_width {
+                    if pick_point.x() >= point.x() && pick_point.x() < point.x() + w {
+                        /* gutter is being picked */
+                        has_picked = has_picked.or_else(|| Some(PickedPart::Gutter { right: pick_point.x() - point.x() > w/2.0 }));
+                    }
+
+                    point.set_x(point.x() + w);
+                }
+
+                if pick_point.x() >= point.x() && pick_point.x() < point.x() + 2.0 * space_width {
+                    /* octet is being picked, but it may or may not be part of a token. */
+                    has_picked = has_picked.or_else(|| Some(PickedPart::Octet));
+                }
+
+                while next_token.map_or(false, |t| match t.class {
+                    token::TokenClass::Hexdump { extent, .. } => extent,
+                    _ => panic!("attempted to render non-hexdump token through hexdump bucket")                    
+                }.end <= offset) {
+                    next_token = token_iterator.next();
+                }
+
+                if let Some(token) = next_token {
+                    if match token.class {
+                        token::TokenClass::Hexdump { extent, .. } => extent,
+                        _ => panic!("attempted to render non-hexdump token through hexdump bucket")                    
+                    }.includes(offset) {
+                        /* Found token. */
+                        if let Some(picked_part) = has_picked {
+                            let begin = offset;
+                            let middle = match picked_part {
+                                PickedPart::Gutter { right: true } | PickedPart::Previous | PickedPart::Octet => offset,
+                                PickedPart::Gutter { right: false } => last_valid_offset.unwrap_or(offset),
+                            };
+                            let end = match picked_part {
+                                PickedPart::Gutter { .. } | PickedPart::Previous => offset,
+                                PickedPart::Octet => next_offset,
+                            };
+                            
+                            return Some(listing::PickResult {
+                                begin: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(begin)),
+                                middle: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(middle)),
+                                end: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(end)),
+                            });
+                        }
+                        
+                        last_valid_offset = Some(offset);
+                    } else {
+                        /* No token included this byte. Continue. */
+                    }
+                    point.set_x(point.x() + 2.0 * space_width);
+                } else {
+                    /* Out of tokens. */
+                    break;
+                }
+
+                has_picked = has_picked.map(|_| PickedPart::Previous);
+
+                offset = next_offset;
+            }
+
+            return last_valid_offset.map(|lvo| listing::PickResult {
+                begin: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(lvo)),
+                middle: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(lvo)),
+                end: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(lvo)),
+            });
+        } else if pick_point.x() >= self.ascii_begin.x() && pick_point.x() < self.ascii_end.x() {
+            // TODO: asciidump picking
+            None
+        } else {
+            None
+        }
     }
 }
     

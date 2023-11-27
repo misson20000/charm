@@ -239,6 +239,10 @@ impl Node {
     pub fn builder() -> builder::StructureBuilder {
         builder::StructureBuilder::default()
     }
+
+    pub fn child_at_offset(&self, offset: addr::Address) -> usize {
+        self.children.partition_point(|ch| ch.offset < offset)
+    }
 }
 
 impl Properties {

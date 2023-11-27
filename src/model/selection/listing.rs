@@ -131,6 +131,11 @@ impl versioned::Change<Selection> for Change {
         let record = match &mut self {
             Change::DocumentUpdated(new_document) => selection.update_document(new_document),
 
+            Change::AssignStructure(range) => {
+                selection.mode = Mode::Structure(StructureMode::Range(range.clone()));
+                ChangeRecord {}
+            },
+            
             _ => todo!(),
 
             /*
@@ -172,7 +177,7 @@ impl StructureRange {
     fn extent(&self) -> addr::Extent {
         addr::Extent::between(self.begin.0, self.end.0)
     }
-    
+
     fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> StructureMode {
         let ret = match change.update_path(&mut self.path) {
             doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match &change.ty {
