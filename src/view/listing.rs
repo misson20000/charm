@@ -613,6 +613,19 @@ impl Interior {
         self.rubber_band_begin = self.pick(x, y);
         self.hover = Some((x, y));
 
+        match self.selection_host.change(selection::listing::Change::Clear) {
+            Ok(new_selection) => { self.selection_updated(&new_selection); },
+            Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                while_attempting: error::Action::RubberBandSelection,
+                trouble: error::Trouble::ListingSelectionUpdateFailure {
+                    error,
+                    attempted_version,
+                },
+                level: error::Level::Warning,
+                is_bug: true,
+            })); }
+        }        
+
         widget.queue_draw();
     }
 

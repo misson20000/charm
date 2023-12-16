@@ -151,17 +151,16 @@ impl versioned::Change<Selection> for Change {
                 selection.mode = Mode::Structure(StructureMode::Range(range.clone()));
                 ChangeRecord {}
             },
-            
-            _ => todo!(),
 
-            /*
             Change::Clear => {
                 selection.mode = match selection.mode {
-                    Mode::Structure(_) => selection.mode = Mode::Structure(StructureMode::Empty),
-                    Mode::Address(_) => selection.mode = Mode::Address(addr::unit::EMPTY),
+                    Mode::Structure(_) => Mode::Structure(StructureMode::Empty),
+                    Mode::Address(_) => Mode::Address(addr::unit::EMPTY),
                 };
                 ChangeRecord {}
             },
+
+                        /*
             Change::SelectAll => {
                 selection.mode.select_all(),
             
@@ -182,7 +181,9 @@ impl versioned::Change<Selection> for Change {
             },
 
                 Change::AssignFromTree(sync::Arc<super::TreeSelection>) => todo!(),
-            */
+             */
+
+            _ => todo!(),
         };
 
         Ok((self, record))
