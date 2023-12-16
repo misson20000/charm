@@ -1,3 +1,4 @@
+use std::iter;
 use std::sync;
 use std::vec;
 
@@ -7,6 +8,7 @@ use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::listing::cursor::CursorClass;
 use crate::view::gsc;
 use crate::view::helpers;
@@ -35,16 +37,16 @@ pub struct HexdumpBucket {
     line_cache: vec::Vec<datapath::ByteRecord>,
     line_data_pending: bool,
     
-    toks: Vec<token::Token>
+    toks: Vec<token::HexdumpToken>
 }
 
 enum Part<'a> {
     Gap { width: usize, begin: Option<addr::Address>, end: addr::Address },
-    Octet { offset: addr::Address, next_offset: addr::Address, token: &'a token::Token },
+    Octet { offset: addr::Address, next_offset: addr::Address, token: &'a token::HexdumpToken },
 }
 
 impl HexdumpBucket {
-    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::Token>) -> Self {
+    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::HexdumpToken>) -> Self {
         HexdumpBucket {
             hd_begin: graphene::Point::zero(),
             hd_end: graphene::Point::zero(),
@@ -100,18 +102,12 @@ impl HexdumpBucket {
 
             let next_offset = std::cmp::min(offset + addr::unit::BYTE, next_gutter);
             
-            while next_token.map_or(false, |t| match t.class {
-                token::TokenClass::Hexdump { extent, .. } => extent,
-                _ => panic!("attempted to render non-hexdump token through hexdump bucket")                    
-            }.end <= offset) {
+            while next_token.map_or(false, |t| t.extent.end <= offset) {
                 next_token = token_iterator.next();
             }
 
             if let Some(token) = next_token {
-                if match token.class {
-                    token::TokenClass::Hexdump { extent, .. } => extent,
-                    _ => panic!("attempted to render non-hexdump token through hexdump bucket")                    
-                }.includes(offset) {
+                if token.extent.includes(offset) {
                     if gap_width > 0 {
                         if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, begin: gap_begin, end: offset }) {
                             return (column, Some(x));
@@ -192,7 +188,7 @@ impl bucket::Bucket for HexdumpBucket {
                     /* render nybbles */
                     for low_nybble in [false, true] {
                         let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
-                        let has_cursor = hex_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.node, &self.node) && hxc.extent.begin + hxc.offset == offset && hxc.low_nybble == low_nybble);
+                        let has_cursor = hex_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.node) && hxc.extent.begin + hxc.offset == offset && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
@@ -222,10 +218,7 @@ impl bucket::Bucket for HexdumpBucket {
             let mut next_token = token_iterator.next();
 
             for i in 0..self.line_extent.round_out().1 {
-                while next_token.map_or(false, |t| match t.class {
-                    token::TokenClass::Hexdump { extent, .. } => extent,
-                    _ => panic!("attempted to render non-hexdump token through hexdump bucket")                    
-                }.end <= self.line_extent.begin + addr::Size::from(i)) {
+                while next_token.map_or(false, |t| t.extent.end <= self.line_extent.begin + addr::Size::from(i)) {
                     next_token = token_iterator.next();
                 }
 
@@ -288,15 +281,15 @@ impl bucket::Bucket for HexdumpBucket {
 }
     
 impl bucket::TokenIterableBucket for HexdumpBucket {
-    type TokenIterator = vec::IntoIter<token::Token>;
-    type BorrowingTokenIterator<'a> = std::slice::Iter<'a, token::Token>;
+    type TokenIterator = iter::Map<vec::IntoIter<token::HexdumpToken>, fn(token::HexdumpToken) -> token::Token>;
+    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token::HexdumpToken>, fn(&'a token::HexdumpToken) -> token::TokenRef<'a>>;
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
-        self.toks.iter()
+        self.toks.iter().map(TokenKind::as_ref)
     }
 
     fn to_tokens(self) -> Self::TokenIterator {
-        self.toks.into_iter()
+        self.toks.into_iter().map(TokenKind::into_token)
     }
 }
 

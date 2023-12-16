@@ -1,6 +1,7 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 
 #[derive(Debug)]
 pub struct Cursor {
@@ -32,20 +33,20 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn is_over(&self, token: &token::Token) -> bool {
-        &self.token == token
+    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
+        self.token.as_ref() == token
     }
     
     fn get_addr(&self) -> addr::Address {
-        self.token.node_addr
+        self.token.common().node_addr
     }
 
     fn get_offset(&self) -> addr::Size {
         addr::unit::ZERO
     }
 
-    fn get_token(&self) -> &token::Token {
-        &self.token
+    fn get_token(&self) -> token::TokenRef<'_> {
+        self.token.as_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

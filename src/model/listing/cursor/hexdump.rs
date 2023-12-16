@@ -1,36 +1,19 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 
 #[derive(Debug)]
 pub struct Cursor {
-    pub token: token::Token,
+    pub token: token::HexdumpToken,
     pub extent: addr::Extent,
     pub offset: addr::Size,
     pub low_nybble: bool,
 }
 
-trait TokenExt {
-    fn hexdump_extent(&self) -> addr::Extent;
-    fn hexdump_absolute_extent(&self) -> addr::Extent;
-}
-
-impl TokenExt for token::Token {
-    fn hexdump_extent(&self) -> addr::Extent {
-        match self.class {
-            token::TokenClass::Hexdump { extent, .. } => extent,
-            _ => panic!("expected hexdump token")
-        }
-    }
-
-    fn hexdump_absolute_extent(&self) -> addr::Extent {
-        self.hexdump_extent().rebase(self.node_addr)
-    }
-}
-
 impl Cursor {
-    pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
-        let extent = token.hexdump_extent();
+    pub fn new_transition(token: token::HexdumpToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
+        let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
         
         Ok(Cursor {
@@ -60,8 +43,8 @@ impl Cursor {
         })
     }
     
-    pub fn new_placement(token: token::Token, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
-        let extent = token.hexdump_extent();
+    pub fn new_placement(token: token::HexdumpToken, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
+        let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
         
         Ok(Cursor {
@@ -81,20 +64,20 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn is_over(&self, token: &token::Token) -> bool {
-        &self.token == token
+    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
+        self.token.as_ref() == token
     }
 
     fn get_addr(&self) -> addr::Address {
-        self.token.hexdump_absolute_extent().begin + self.offset
+        self.token.absolute_extent().begin + self.offset
     }
 
     fn get_offset(&self) -> addr::Size {
         self.offset
     }
 
-    fn get_token(&self) -> &token::Token {
-        &self.token
+    fn get_token(&self) -> token::TokenRef<'_> {
+        self.token.as_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

@@ -5,6 +5,7 @@ use std::vec;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::selection;
 use crate::view::listing;
 use crate::view::listing::facet::cursor;
@@ -47,7 +48,7 @@ fn default_render<'a, Marker>(ctx: RenderArgs<'_>, layout: &mut LayoutController
         *begin = point.clone();
 
         for tv in tvs {
-            let selection = ctx.selection.node_intersection(&tv.token().node, &tv.token().node_path, tv.token().node_addr);
+            let selection = ctx.selection.node_intersection(tv.token().node(), tv.token().node_path(), tv.token().node_addr());
             point = tv.render(ctx.snapshot, ctx.cursor, selection, ctx.render, &point);
         }
 
@@ -67,7 +68,7 @@ pub trait WorkableBucket {
 /* This trait is separate from Bucket so we can take &dyn Bucket without specifying iterator types. */
 pub trait TokenIterableBucket: Bucket {
     type TokenIterator: iter::Iterator<Item = token::Token>;
-    type BorrowingTokenIterator<'a>: iter::Iterator<Item = &'a token::Token> where Self: 'a;
+    type BorrowingTokenIterator<'a>: iter::Iterator<Item = token::TokenRef<'a>> where Self: 'a;
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_>;
     fn to_tokens(self) -> Self::TokenIterator;
@@ -133,12 +134,12 @@ pub use hexdump::HexdumpBucket;
 impl<Marker> SingleTokenBucket<Marker> {
 }
 
-impl<Marker> From<token::Token> for SingleTokenBucket<Marker> {
-    fn from(token: token::Token) -> Self {
+impl<Marker, Token: token::TokenKind> From<Token> for SingleTokenBucket<Marker> {
+    fn from(token: Token) -> Self {
         SingleTokenBucket {
             begin: graphene::Point::zero(),
             end: graphene::Point::zero(),
-            tv: token_view::TokenView::from(token),
+            tv: token_view::TokenView::from(token.into_token()),
             marker: std::marker::PhantomData
         }
     }
@@ -162,7 +163,7 @@ impl<Marker> Bucket for SingleTokenBucket<Marker> where LayoutController: Layout
 
 impl<Marker> TokenIterableBucket for SingleTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
     type TokenIterator = iter::Once<token::Token>;
-    type BorrowingTokenIterator<'a> = iter::Once<&'a token::Token> where Marker: 'a;
+    type BorrowingTokenIterator<'a> = iter::Once<token::TokenRef<'a>> where Marker: 'a;
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
         iter::once(self.tv.token())
@@ -192,12 +193,12 @@ impl<Marker> MaybeTokenBucket<Marker> {
     }
 }
 
-impl<Marker> From<Option<token::Token>> for MaybeTokenBucket<Marker> {
-    fn from(token: Option<token::Token>) -> Self {
+impl<Marker, Token: token::TokenKind> From<Option<Token>> for MaybeTokenBucket<Marker> {
+    fn from(token: Option<Token>) -> Self {
         MaybeTokenBucket {
             begin: graphene::Point::zero(),
             end: graphene::Point::zero(),
-            tv: token.map(token_view::TokenView::from),
+            tv: token.map(TokenKind::into_token).map(token_view::TokenView::from),
             marker: std::marker::PhantomData
         }
     }
@@ -221,7 +222,7 @@ impl<Marker> Bucket for MaybeTokenBucket<Marker> where LayoutController: LayoutP
 
 impl<Marker> TokenIterableBucket for MaybeTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
     type TokenIterator = std::option::IntoIter<token::Token>;
-    type BorrowingTokenIterator<'a> = std::option::IntoIter<&'a token::Token> where Marker: 'a;
+    type BorrowingTokenIterator<'a> = std::option::IntoIter<token::TokenRef<'a>> where Marker: 'a;
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
         self.tv.as_ref().map(token_view::TokenView::token).into_iter()
@@ -269,7 +270,7 @@ impl<Marker> Bucket for MultiTokenBucket<Marker> where LayoutController: LayoutP
 
 impl<Marker> TokenIterableBucket for MultiTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
     type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
-    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token_view::TokenView>, fn(&'a token_view::TokenView) -> &'a token::Token> where Marker: 'a;
+    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token_view::TokenView>, fn(&'a token_view::TokenView) -> token::TokenRef<'a>> where Marker: 'a;
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
         self.tvs.iter().map(token_view::TokenView::token)

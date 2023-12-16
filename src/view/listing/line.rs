@@ -83,8 +83,8 @@ impl layout::LineView for Line {
 }
 
 type LineViewBorrowingTokenIterator<'a> = util::PhiIterator
-    <&'a token::Token,
-     iter::Empty<&'a token::Token>,
+    <token::TokenRef<'a>,
+     iter::Empty<token::TokenRef<'a>>,
      <bucket::SingleTokenBucket<bucket::BlankMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
      <bucket::SingleTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
      iter::Chain
@@ -182,7 +182,7 @@ impl LineViewType {
     }
 
     fn indentation(&self) -> usize {
-        self.iter_tokens().next().map_or(0, |t| t.depth)
+        self.iter_tokens().next().map_or(0, |t| t.common().depth)
     }
 
     fn visible_address(&self) -> Option<addr::Address> {

@@ -14,7 +14,7 @@ use gtk::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Entry {
-    Punctuation(token::PunctuationClass),
+    Punctuation(token::PunctuationKind),
     Digit(u8),
     PrintableAscii(u8),
     Dot,
@@ -69,9 +69,9 @@ impl Cache {
             font: font.clone(),
             
             gs_space,
-            gs_comma: Self::shape(pg, token::PunctuationClass::Comma.as_str()),
-            gs_open: Self::shape(pg, token::PunctuationClass::OpenBracket.as_str()),
-            gs_close: Self::shape(pg, token::PunctuationClass::CloseBracket.as_str()),
+            gs_comma: Self::shape(pg, token::PunctuationKind::Comma.as_str()),
+            gs_open: Self::shape(pg, token::PunctuationKind::OpenBracket.as_str()),
+            gs_close: Self::shape(pg, token::PunctuationKind::CloseBracket.as_str()),
             gs_digit: DIGIT_STRINGS.map(|d| Self::shape(pg, d)),
             gs_ascii: std::array::from_fn(|i| Self::shape(pg, std::str::from_utf8(&[0x20 + i as u8]).unwrap())),
             gs_dot: Self::shape(pg, "."),
@@ -100,10 +100,10 @@ impl Cache {
     pub fn get(&self, entry: Entry) -> Option<&pango::GlyphString> {
         match entry {
             Entry::Punctuation(punct) => match punct {
-                token::PunctuationClass::Space => Some(&self.gs_space),
-                token::PunctuationClass::Comma => Some(&self.gs_comma),
-                token::PunctuationClass::OpenBracket => Some(&self.gs_open),
-                token::PunctuationClass::CloseBracket => Some(&self.gs_close),
+                token::PunctuationKind::Space => Some(&self.gs_space),
+                token::PunctuationKind::Comma => Some(&self.gs_comma),
+                token::PunctuationKind::OpenBracket => Some(&self.gs_open),
+                token::PunctuationKind::CloseBracket => Some(&self.gs_close),
             },
             Entry::Digit(digit) => self.gs_digit.get(digit as usize),
             Entry::PrintableAscii(ord) if (0x20..0x7f).contains(&ord) => Some(&self.gs_ascii[ord as usize - 0x20]),

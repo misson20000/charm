@@ -1,16 +1,17 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 
 use tracing::instrument;
 
 #[derive(Debug)]
 pub struct Cursor {
-    token: token::Token,
+    token: token::TitleToken,
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
+    pub fn new_transition(token: token::TitleToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::TitleToken> {
         if hint.op.is_entry() {
             /* skip over title tokens for entry */
             Err(token)
@@ -21,7 +22,7 @@ impl Cursor {
         }
     }
     
-    pub fn new_placement(token: token::Token, _offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
+    pub fn new_placement(token: token::TitleToken, _offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::TitleToken> {
         match hint {
             /* we only place the cursor on a break header if explicitly requested;
              * otherwise, we prefer to place it on a content token. */
@@ -34,20 +35,20 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn is_over(&self, token: &token::Token) -> bool {
-        &self.token == token
+    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
+        self.token.as_ref() == token
     }
     
     fn get_addr(&self) -> addr::Address {
-        self.token.node_addr
+        self.token.node_addr()
     }
 
     fn get_offset(&self) -> addr::Size {
         addr::unit::ZERO
     }
 
-    fn get_token(&self) -> &token::Token {
-        &self.token
+    fn get_token(&self) -> token::TokenRef<'_> {
+        self.token.as_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

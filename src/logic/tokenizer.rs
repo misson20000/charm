@@ -12,6 +12,7 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::document::structure;
 use crate::model::document::change;
 
@@ -609,124 +610,99 @@ impl Tokenizer {
 
     /// Returns the token at the current position, or Skip if the current position in the stream doesn't generate a token.
     pub fn gen_token(&self) -> TokenGenerationResult {
+        let common = token::TokenCommon {
+            node: self.node.clone(),
+            node_path: self.structure_path(),
+            node_addr: self.node_addr,
+            depth: self.depth,
+        };
+        
         match self.state {
             TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::BlankLine {
-                        accepts_cursor: false,
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
-                })
+                TokenGenerationResult::Ok(token::BlankLineToken {
+                    common,
+                    accepts_cursor: false,
+                }.into_token())
             } else {
                 TokenGenerationResult::Skip
             },
-            TokenizerState::Title => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Title,
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-            }),
+            TokenizerState::Title => TokenGenerationResult::Ok(token::TitleToken {
+                common,
+            }.into_token()),
             
             TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Hexdump {extent, line: line_extent },
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth + 1,
-            }),
-            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::Hexstring(extent),
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth + 1,
-            }),
+            TokenizerState::Hexdump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
+                common: common.adjust_depth(1),
+                extent,
+                line: line_extent,
+            }.into_token()),
+            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken {
+                common: common.adjust_depth(1),
+                extent,
+            }.into_token()),
 
-            TokenizerState::SummaryPreamble => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::SummaryPreamble,
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-            }),
-            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::OpenBracket),
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-            }),
+            TokenizerState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
+                common,
+            }.into_token()),
+            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+                common,
+                kind: token::PunctuationKind::OpenBracket,
+            }.into_token()),
             TokenizerState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::SummaryLabel,
-                    node: ch.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr + ch.offset.to_size(),
-                    depth: self.depth,
-                })
+                TokenGenerationResult::Ok(token::SummaryLabelToken {
+                    common: token::TokenCommon {
+                        node: ch.node.clone(),
+                        node_path: self.structure_path(),
+                        node_addr: self.node_addr + ch.offset.to_size(),
+                        depth: self.depth,
+                    },
+                }.into_token())
             },
             TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
-                TokenGenerationResult::Ok(token::Token {  
-                    class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma),
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
-                })
+                TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+                    common,
+                    kind: token::PunctuationKind::Comma,
+                }.into_token())
             } else {
                 TokenGenerationResult::Skip
             },
-            TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::SummaryPunctuation(token::PunctuationClass::CloseBracket),
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-            }),
-            TokenizerState::SummaryEpilogue => TokenGenerationResult::Ok(token::Token {
-                class: token::TokenClass::SummaryEpilogue,
-                node: self.node.clone(),
-                node_path: self.structure_path(),
-                node_addr: self.node_addr,
-                depth: self.depth,
-            }),
+            TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+                common,
+                kind: token::PunctuationKind::CloseBracket,
+            }.into_token()),
+            TokenizerState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogueToken {
+                common,
+            }.into_token()),
             
             TokenizerState::SummaryValueBegin => TokenGenerationResult::Skip,
             TokenizerState::SummaryLeaf => {
                 let limit = std::cmp::min(16.into(), self.node.size);
                 let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
                 
-                TokenGenerationResult::Ok(token::Token {
-                    class: match self.node.props.content_display {
-                        structure::ContentDisplay::None => token::TokenClass::SummaryPunctuation(token::PunctuationClass::Space),
-                        // Disallow hexdumps in summaries. This is a little nasty. Review later.
-                        structure::ContentDisplay::Hexdump { .. } => token::TokenClass::Hexstring(extent),
-                        structure::ContentDisplay::Hexstring => token::TokenClass::Hexstring(extent),
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth,
+                TokenGenerationResult::Ok(match self.node.props.content_display {
+                    structure::ContentDisplay::None => token::SummaryPunctuationToken {
+                        common,
+                        kind: token::PunctuationKind::Space
+                    }.into_token(),
+                    // Disallow hexdumps in summaries. This is a little nasty. Review later.
+                    structure::ContentDisplay::Hexdump { .. } => token::HexstringToken {
+                        common,
+                        extent,
+                    }.into_token(),
+                    structure::ContentDisplay::Hexstring => token::HexstringToken {
+                        common,
+                        extent,
+                    }.into_token(),
                 })
             },
             TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
 
             TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::Token {
-                    class: token::TokenClass::BlankLine {
-                        accepts_cursor: true,
-                    },
-                    node: self.node.clone(),
-                    node_path: self.structure_path(),
-                    node_addr: self.node_addr,
-                    depth: self.depth + 1,
-                })
+                TokenGenerationResult::Ok(token::BlankLineToken {
+                    common: common.adjust_depth(1),
+                    accepts_cursor: true,
+                }.into_token())
             } else {
                 TokenGenerationResult::Skip
             },
@@ -1422,8 +1398,8 @@ pub mod xml {
         pub expected_tokens: vec::Vec<token::Token>,
     }
 
-    struct TokenDef {
-        class: token::TokenClass,
+    struct TokenDef<'a, 'input> {
+        node: roxmltree::Node<'a, 'input>,
         node_name: String,
         depth: usize,
     }
@@ -1467,28 +1443,14 @@ pub mod xml {
         }
     }
 
-    fn inflate_token_tree(xml: roxmltree::Node, collection: &mut vec::Vec<TokenDef>, depth: usize) {
+    fn inflate_token_tree<'a, 'input>(xml: roxmltree::Node<'a, 'input>, collection: &mut vec::Vec<TokenDef<'a, 'input>>, depth: usize) {
         for c in xml.children().filter(|c| c.is_element()) {
             if c.has_tag_name("indent") {
                 inflate_token_tree(c, collection, depth + 1)
             } else {
-                let accepts_cursor = c.attribute("cursor").map_or(false, |b| b.eq("true"));
-                
                 collection.push(TokenDef {
-                    class: match c.tag_name().name() {
-                        "null" => token::TokenClass::BlankLine { accepts_cursor },
-                        "open" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::OpenBracket),
-                        "comma" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::Comma),
-                        "close" => token::TokenClass::SummaryPunctuation(token::PunctuationClass::CloseBracket),
-                        "title" => token::TokenClass::Title,
-                        "summlabel" => token::TokenClass::SummaryLabel,
-                        "preamble" => token::TokenClass::SummaryPreamble,
-                        "epilogue" => token::TokenClass::SummaryEpilogue,
-                        "hexdump" => token::TokenClass::Hexdump { extent: inflate_extent(&c), line: inflate_line_extent(&c) },
-                        "hexstring" => token::TokenClass::Hexstring(inflate_extent(&c)),
-                        tn => panic!("invalid token def: '{}'", tn)
-                    },
                     node_name: c.attribute("node").unwrap().to_string(),
+                    node: c,
                     depth,
                 })
             }
@@ -1566,15 +1528,29 @@ pub mod xml {
         arc
     }
 
-    impl TokenDef {
+    impl<'a, 'input> TokenDef<'a, 'input> {
         fn into_token(self, lookup: &collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> token::Token {
             let lookup_result = lookup.get(&self.node_name).unwrap_or_else(|| panic!("expected a node named '{}'", self.node_name));
-            token::Token {
-                class: self.class,
+
+            let common = token::TokenCommon {
                 node: lookup_result.2.clone(),
                 node_path: lookup_result.1.clone(),
                 node_addr: lookup_result.0,
                 depth: self.depth,
+            };
+
+            match self.node.tag_name().name() {
+                "null" => token::BlankLineToken { common, accepts_cursor: self.node.attribute("cursor").map_or(false, |b| b.eq("true")) }.into_token(),
+                "open" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::OpenBracket }.into_token(),
+                "comma" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::Comma }.into_token(),
+                "close" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::CloseBracket }.into_token(),
+                "title" => token::TitleToken { common }.into_token(),
+                "summlabel" => token::SummaryLabelToken { common }.into_token(),
+                "preamble" => token::SummaryPreambleToken { common }.into_token(),
+                "epilogue" => token::SummaryEpilogueToken { common }.into_token(),
+                "hexdump" => token::HexdumpToken { common, extent: inflate_extent(&self.node), line: inflate_line_extent(&self.node) }.into_token(),
+                "hexstring" => token::HexstringToken { common, extent: inflate_extent(&self.node) }.into_token(),
+                tn => panic!("invalid token def: '{}'", tn)
             }
         }
     }
@@ -1790,50 +1766,50 @@ mod tests {
 
         assert_port_functionality(&old_doc, &new_doc, &[
             (
-                token::Token {
-                    class: token::TokenClass::Hexdump {
-                        extent: addr::Extent::sized_u64(0x10, 0x8),
-                        line: addr::Extent::sized_u64(0x10, 0x10),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: o_child_1_2.clone(),
+                        node_path: vec![1, 2],
+                        node_addr: o_child_1_2_addr,
+                        depth: 3,
                     },
-                    node: o_child_1_2.clone(),
-                    node_path: vec![1, 2],
-                    node_addr: o_child_1_2_addr,
-                    depth: 3,
-                },
-                token::Token {
-                    class: token::TokenClass::Hexdump {
-                        extent: addr::Extent::sized_u64(0x40, 0x8),
-                        line: addr::Extent::sized_u64(0x40, 0x10)
+                    extent: addr::Extent::sized_u64(0x10, 0x8),
+                    line: addr::Extent::sized_u64(0x10, 0x10),
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: n_child_1.clone(),
+                        node_path: vec![1],
+                        node_addr: n_child_1_addr,
+                        depth: 2,
                     },
-                    node: n_child_1.clone(),
-                    node_path: vec![1],
-                    node_addr: n_child_1_addr,
-                    depth: 2,
-                },
+                    extent: addr::Extent::sized_u64(0x40, 0x8),
+                    line: addr::Extent::sized_u64(0x40, 0x10)
+                }),
                 PortOptionsBuilder::new().build()
             ),
             (
-                token::Token {
-                    class: token::TokenClass::Hexdump {
-                        extent: addr::Extent::sized_u64(0x10, 0xc),
-                        line: addr::Extent::sized_u64(0x10, 0x10)
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: o_child_1_3.clone(),
+                        node_path: vec![1, 3],
+                        node_addr: o_child_1_3_addr,
+                        depth: 3,
                     },
-                    node: o_child_1_3.clone(),
-                    node_path: vec![1, 3],
-                    node_addr: o_child_1_3_addr,
-                    depth: 3,
-                },
-                token::Token {
-                    class: token::TokenClass::Hexdump {
-                        extent: addr::Extent::sized_u64(0x10, 0xc),
-                        line: addr::Extent::sized_u64(0x10, 0x10)
+                    extent: addr::Extent::sized_u64(0x10, 0xc),
+                    line: addr::Extent::sized_u64(0x10, 0x10)
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
+                        node: o_child_1_3.clone(),
+                        node_path: vec![1, 3],
+                        node_addr: o_child_1_3_addr,
+                        depth: 3,
                     },
-                    /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
-                    node: o_child_1_3.clone(),
-                    node_path: vec![1, 3],
-                    node_addr: o_child_1_3_addr,
-                    depth: 3,
-                },
+                    extent: addr::Extent::sized_u64(0x10, 0xc),
+                    line: addr::Extent::sized_u64(0x10, 0x10),
+                }),
                 PortOptionsBuilder::new().build()
             ),
         ]);

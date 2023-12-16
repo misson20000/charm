@@ -4,6 +4,7 @@ use std::vec;
 use charm::model::document;
 use charm::model::listing::layout;
 use charm::model::listing::token;
+use charm::model::listing::token::TokenKind;
 
 struct Line {
     indent: usize,
@@ -12,19 +13,19 @@ struct Line {
 
 impl layout::LineView for Line {
     type TokenIterator = vec::IntoIter<token::Token>;
-    type BorrowingTokenIterator<'a> = std::slice::Iter<'a, token::Token>;
+    type BorrowingTokenIterator<'a> = std::iter::Map<std::slice::Iter<'a, token::Token>, fn(&'a token::Token) -> token::TokenRef<'a>>;
     
     fn from_line(line: layout::Line) -> Self {
         let tokens: vec::Vec<token::Token> = line.to_tokens().collect();
         
         Line {
-            indent: tokens[0].depth,
+            indent: tokens[0].common().depth,
             tokens,
         }
     }
 
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
-        self.tokens.iter()
+        self.tokens.iter().map(TokenKind::as_ref)
     }
     
     fn to_tokens(self) -> Self::TokenIterator {
@@ -48,7 +49,7 @@ fn main() {
             print!("  ");
         }
         for token in line.tokens {
-            print!("{}", token::TokenTestFormat(&token));
+            print!("{}", token::TokenTestFormat(token.as_ref()));
         }
         println!();
     }

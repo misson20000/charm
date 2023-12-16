@@ -8,6 +8,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::selection;
 use crate::view::helpers;
 use crate::view::gsc;
@@ -45,25 +46,25 @@ impl TokenView {
         self.token
     }
 
-    pub fn token(&self) -> &token::Token {
-        &self.token
+    pub fn token(&self) -> token::TokenRef<'_> {
+        self.token.as_ref()
     }
     
     pub fn get_indentation(&self) -> usize {
-        self.token.depth
+        self.token.common().depth
     }
 
     pub fn visible_address(&self) -> Option<addr::Address> {
-        match self.token.class {
-            token::TokenClass::Title => Some(self.token.node_addr),
-            token::TokenClass::Hexdump { line, .. } => Some(self.token.node_addr + line.begin.to_size()),
-            token::TokenClass::Hexstring(e) => Some(self.token.node_addr + e.begin.to_size()),
+        match &self.token {
+            token::Token::Title(token) => Some(token.common.node_addr),
+            token::Token::Hexdump(token) => Some(token.common.node_addr + token.line.begin.to_size()),
+            token::Token::Hexstring(token) => Some(token.common.node_addr + token.extent.begin.to_size()),
             _ => None,
         }
     }
 
     pub fn contains_cursor(&self, cursor: &cursor::Cursor) -> bool {
-        cursor.is_over(&self.token)
+        cursor.is_over(self.token.as_ref())
     }
     
     pub fn contains(&self, point: &graphene::Point) -> bool {
@@ -103,27 +104,27 @@ impl TokenView {
 
         let mut pos = graphene::Point::new(0.0, lh);
         
-        let has_cursor = cursor.cursor.is_over(&self.token);
+        let has_cursor = cursor.cursor.is_over(self.token.as_ref());
         
-        match self.token.class {
-            token::TokenClass::BlankLine { accepts_cursor: true } if has_cursor => {
-                render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationClass::Space), &render.config.text_color, &mut pos)
+        match &self.token {
+            token::Token::BlankLine(token) if token.accepts_cursor && has_cursor => {
+                render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationKind::Space), &render.config.text_color, &mut pos)
                     .cursor(true, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::SummaryPunctuation(class) => {
-                render.gsc_mono.begin(gsc::Entry::Punctuation(class), &render.config.text_color, &mut pos)
+            token::Token::SummaryPunctuation(token) => {
+                render.gsc_mono.begin(gsc::Entry::Punctuation(token.kind), &render.config.text_color, &mut pos)
                     .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::Title => {
+            token::Token::Title(token) => {
                 gsc::begin_text(
                     &render.pango,
                     &render.font_bold,
                     &render.config.text_color,
-                    &self.token.node.props.name,
+                    &token.common.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
                     .selected(selection.is_total(), &render.config.selection_color)
@@ -136,12 +137,12 @@ impl TokenView {
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::SummaryLabel => {
+            token::Token::SummaryLabel(token) => {
                 gsc::begin_text(
                     &render.pango,
                     &render.font_bold,
                     &render.config.text_color,
-                    &self.token.node.props.name,
+                    &token.common.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor, &render.config.cursor_fg_color, &render.config.cursor_bg_color)
                     .selected(selection.is_total(), &render.config.selection_color)
@@ -154,13 +155,14 @@ impl TokenView {
                     .selected(selection.is_total(), &render.config.selection_color)
                     .render(snapshot);
             },
-            token::TokenClass::Hexdump { .. } => {
+            token::Token::Hexdump(_) => {
+                // TODO: enforce this with type system?
                 panic!("hexdump tokens should not be rendered via this codepath");
             },
-            token::TokenClass::Hexstring(extent) => {
-                for i in 0..extent.length().bytes {
+            token::Token::Hexstring(token) => {
+                for i in 0..token.extent.length().bytes {
                     let j = i as u8;
-                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(extent);
+                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     
                     render.gsc_mono.begin_iter([
@@ -174,7 +176,9 @@ impl TokenView {
             },
 
             /* Internal tokens that shouldn't be drawn. */
-            token::TokenClass::BlankLine { .. } | token::TokenClass::SummaryPreamble | token::TokenClass::SummaryEpilogue => {},
+            token::Token::BlankLine(_) => {},
+            token::Token::SummaryPreamble(_) => {},
+            token::Token::SummaryEpilogue(_) => {},
         }
         
         self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y() + helpers::pango_unscale(render.metrics.descent()), pos.x(), pos.y()));

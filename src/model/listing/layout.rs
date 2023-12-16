@@ -10,6 +10,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::versioned::Versioned;
 use crate::logic::tokenizer;
 use crate::util;
@@ -17,22 +18,22 @@ use crate::util;
 #[derive(Clone)]
 pub enum LineType {
     Empty,
-    Blank(token::Token),
-    Title(token::Token),
+    Blank(token::BlankLineToken),
+    Title(token::TitleToken),
     Hexdump {
-        title: Option<token::Token>,
+        title: Option<token::TitleToken>,
         node: sync::Arc<structure::Node>,
         node_path: structure::Path,
         node_addr: addr::Address,
         line_extent: addr::Extent,
-        tokens: collections::VecDeque<token::Token>
+        tokens: collections::VecDeque<token::HexdumpToken>
     },
     Hexstring {
-        title: Option<token::Token>,
-        token: token::Token,
+        title: Option<token::TitleToken>,
+        token: token::HexstringToken,
     },
     Summary {
-        title: Option<token::Token>,
+        title: Option<token::TitleToken>,
         tokens: collections::VecDeque<token::Token>
     },
 }
@@ -51,7 +52,7 @@ pub struct Line {
 
 pub trait LineView {
     type TokenIterator: iter::DoubleEndedIterator<Item = token::Token>;
-    type BorrowingTokenIterator<'a>: iter::Iterator<Item = &'a token::Token> where Self: 'a;
+    type BorrowingTokenIterator<'a>: iter::Iterator<Item = token::TokenRef<'a>> where Self: 'a;
     
     fn from_line(line: Line) -> Self;
     fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_>;
@@ -298,24 +299,24 @@ impl Line {
 
     /// Returns true on success
     fn push_front(&mut self, token: token::Token) -> LinePushResult {
-        let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), &token.class) {
+        let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), token) {
             /* A line with an Empty punctuation token on it can't have anything else on it. */
-            (LineType::Blank(tok), _) => (LineType::Blank(tok), LinePushResult::Rejected),
+            (LineType::Blank(token), _) => (LineType::Blank(token), LinePushResult::Rejected),
 
             /* BlankLine punctuation tokens can go onto Empty lines to convert them to Blank lines, but nothing else. */
-            (LineType::Empty, token::TokenClass::BlankLine { .. }) => (LineType::Blank(token), LinePushResult::Completed),
-            (lt, token::TokenClass::BlankLine { .. }) => (lt, LinePushResult::Rejected),
+            (LineType::Empty, token::Token::BlankLine(token)) => (LineType::Blank(token), LinePushResult::Completed),
+            (lt, token::Token::BlankLine(_)) => (lt, LinePushResult::Rejected),
 
             /* A title can end a line. */
-            (LineType::Empty, token::TokenClass::Title) => (LineType::Title(token), LinePushResult::Accepted),
+            (LineType::Empty, token::Token::Title(token)) => (LineType::Title(token), LinePushResult::Accepted),
 
             /* A hexdump token can end a line. */
-            (LineType::Empty, token::TokenClass::Hexdump { line, .. }) => (LineType::Hexdump {
+            (LineType::Empty, token::Token::Hexdump(token)) => (LineType::Hexdump {
                 title: None,
-                node: token.node.clone(),
-                node_path: token.node_path.clone(),
-                node_addr: token.node_addr,
-                line_extent: *line,
+                node: token.common.node.clone(),
+                node_path: token.common.node_path.clone(),
+                node_addr: token.common.node_addr,
+                line_extent: token.line.clone(),
                 tokens: collections::VecDeque::from([token])
             }, LinePushResult::Accepted),
 
@@ -327,11 +328,11 @@ impl Line {
                 node_addr,
                 line_extent,
                 tokens
-            }, token::TokenClass::Title)
-                if sync::Arc::ptr_eq(&token.node, &node)
-                && node_path == token.node_path
-                && node_addr == token.node_addr
-                && token.node.props.title_display.is_inline()
+            }, token::Token::Title(token))
+                if sync::Arc::ptr_eq(&token.common.node, &node)
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && token.common.node.props.title_display.is_inline()
                 => (LineType::Hexdump {
                     title: Some(token),
                     node,
@@ -343,18 +344,14 @@ impl Line {
 
             /* Multiple hexdump tokens can coexist on a line under certain conditions. */
             (LineType::Hexdump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
-             token::TokenClass::Hexdump { extent: token_extent, line: token_line_extent })
-                if sync::Arc::ptr_eq(&line_node, &token.node)
-                && node_path == token.node_path
-                && node_addr == token.node_addr
-                && *token_line_extent == line_extent
+             token::Token::Hexdump(token))
+                if sync::Arc::ptr_eq(&line_node, &token.common.node)
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && token.line == line_extent
                 => {
                     /* Must be monotonic and non-overlapping. */
-                    let result = if match tokens.front() {
-                        Some(token::Token { class: token::TokenClass::Hexdump { extent, .. }, .. }) => extent,
-                        Some(_) => panic!("all tokens in LineType::Hexdump.tokens should have TokenClass::Hexdump"),
-                        None => panic!("a LineType::Hexdump shouldn't be able to exist without at least one token"),
-                    }.begin < token_extent.end {
+                    let result = if tokens.front().expect("should have at least one token").extent.begin < token.extent.end {
                         // TODO: log properly
                         println!("Attempted to add a token to a LineType::Hexdump that would've broken monotonicity. This shouldn't really happen.");
                         LinePushResult::Rejected
@@ -374,39 +371,39 @@ impl Line {
                 },
 
             /* A hexstring token can end a line */
-            (LineType::Empty, token::TokenClass::Hexstring(_)) => (LineType::Hexstring {
+            (LineType::Empty, token::Token::Hexstring(token)) => (LineType::Hexstring {
                 title: None,
                 token
             }, LinePushResult::Completed),
 
             /* A title token can occur on the same line as a hexstring if the title is inline and there isn't already a title. */
-            (LineType::Hexstring { title: None, token: hexstring_token }, token::TokenClass::Title)
-                if sync::Arc::ptr_eq(&token.node, &hexstring_token.node)
-                && token.node.props.title_display.is_inline()
+            (LineType::Hexstring { title: None, token: hexstring_token }, token::Token::Title(token))
+                if sync::Arc::ptr_eq(&token.common.node, &hexstring_token.common.node)
+                && token.common.node.props.title_display.is_inline()
                 => (LineType::Hexstring {
                     title: Some(token),
                     token: hexstring_token,
                 }, LinePushResult::Accepted),
 
             /* Summaries... */
-            (LineType::Empty, token::TokenClass::SummaryEpilogue) => (LineType::Summary {
+            (LineType::Empty, token::Token::SummaryEpilogue(token)) => (LineType::Summary {
                 title: None,
-                tokens: collections::VecDeque::from([token]),
+                tokens: collections::VecDeque::from([token.into_token()]),
             }, LinePushResult::Accepted),
 
-            (LineType::Summary { title: None, tokens }, token::TokenClass::Title)
-                if token.node.props.title_display.is_inline()
+            (LineType::Summary { title: None, tokens }, token::Token::Title(token))
+                if token.node().props.title_display.is_inline()
                 => match tokens.front() {
-                    Some(token::Token { class: token::TokenClass::SummaryPreamble, node, .. }) if sync::Arc::ptr_eq(&node, &token.node) => (LineType::Summary { title: Some(token), tokens }, LinePushResult::Accepted),
+                    Some(token::Token::SummaryPreamble(preamble)) if sync::Arc::ptr_eq(preamble.node(), token.node()) => (LineType::Summary { title: Some(token), tokens }, LinePushResult::Accepted),
                     Some(_) => (LineType::Summary { title: None, tokens }, LinePushResult::Rejected),
                     None => panic!("LineType::Summary should have at least one token")
                 },
                 
-            (LineType::Summary { title, mut tokens }, _) => {
-                let result = match (tokens.front(), &token.class) {
-                    (Some(token::Token { class: token::TokenClass::SummaryPreamble, .. }), _) => LinePushResult::Rejected,
-                    (Some(_), token::TokenClass::SummaryPreamble) => { tokens.push_front(token); LinePushResult::Completed },
-                    (Some(_), _) => { tokens.push_front(token); LinePushResult::Accepted },
+            (LineType::Summary { title, mut tokens }, token) => {
+                let result = match (tokens.front(), token) {
+                    (Some(token::Token::SummaryPreamble(_)), _) => LinePushResult::Rejected,
+                    (Some(_), token::Token::SummaryPreamble(preamble)) => { tokens.push_front(preamble.into_token()); LinePushResult::Completed },
+                    (Some(_), token) => { tokens.push_front(token); LinePushResult::Accepted },
                     (None, _) => panic!("LineType::Summary should have at least one token")
                 };
 
@@ -428,54 +425,50 @@ impl Line {
 
     /// Returns true on success
     fn push_back(&mut self, token: token::Token) -> LinePushResult {
-        let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), &token.class) {
+        let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), token) {
             /* A line with an Empty punctuation token on it can't have anything else on it. */
             (LineType::Blank(tok), _) => (LineType::Blank(tok), LinePushResult::Rejected),
 
             /* BlankLine punctuation tokens can go onto Empty lines to convert them to Blank lines, but nothing else. */
-            (LineType::Empty, token::TokenClass::BlankLine { .. }) => (LineType::Blank(token), LinePushResult::Completed),
-            (lt, token::TokenClass::BlankLine { .. }) => (lt, LinePushResult::Rejected),
+            (LineType::Empty, token::Token::BlankLine(token)) => (LineType::Blank(token), LinePushResult::Completed),
+            (lt, token::Token::BlankLine(_)) => (lt, LinePushResult::Rejected),
                 
             /* A title can begin a line. */
-            (LineType::Empty, token::TokenClass::Title) => (LineType::Title(token), LinePushResult::Accepted),
+            (LineType::Empty, token::Token::Title(token)) => (LineType::Title(token), LinePushResult::Accepted),
 
             /* A hexdump token can begin a line. */
-            (LineType::Empty, token::TokenClass::Hexdump { line, .. }) => (LineType::Hexdump {
+            (LineType::Empty, token::Token::Hexdump(token)) => (LineType::Hexdump {
                 title: None,
-                node: token.node.clone(),
-                node_path: token.node_path.clone(),
-                node_addr: token.node_addr,
-                line_extent: *line,
+                node: token.node().clone(),
+                node_path: token.node_path().clone(),
+                node_addr: token.node_addr(),
+                line_extent: token.line,
                 tokens: collections::VecDeque::from([token])
             }, LinePushResult::Accepted),
 
             /* A hexdump token can occur on the same line as a title if the title is inline. */
-            (LineType::Title(title_token), token::TokenClass::Hexdump { extent: _, line })
-                if sync::Arc::ptr_eq(&title_token.node, &token.node)
-                && title_token.node.props.title_display.is_inline()
+            (LineType::Title(title_token), token::Token::Hexdump(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
                 => (LineType::Hexdump {
-                    node: title_token.node.clone(),
-                    node_path: token.node_path.clone(),
-                    node_addr: token.node_addr,
+                    node: title_token.node().clone(),
+                    node_path: token.node_path().clone(),
+                    node_addr: token.node_addr(),
                     title: Some(title_token),
-                    line_extent: *line,
+                    line_extent: token.line,
                     tokens: collections::VecDeque::from([token]),
                 }, LinePushResult::Accepted),
                 
             /* Multiple hexdump tokens can coexist on a line under certain conditions. */
             (LineType::Hexdump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
-             token::TokenClass::Hexdump { extent: token_extent, line: token_line_extent })
-                if sync::Arc::ptr_eq(&line_node, &token.node)
-                && node_path == token.node_path
-                && node_addr == token.node_addr
-                && *token_line_extent == line_extent
+             token::Token::Hexdump(token))
+                if sync::Arc::ptr_eq(&line_node, token.node())
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && line_extent == token.line
                 => {
                     /* Must be monotonic and non-overlapping. */
-                    let result = if match tokens.back() {
-                        Some(token::Token { class: token::TokenClass::Hexdump { extent, .. }, .. }) => extent,
-                        Some(_) => panic!("all tokens in LineType::Hexdump.tokens should have TokenClass::Hexdump"),
-                        None => panic!("a LineType::Hexdump shouldn't be able to exist without at least one token"),
-                    }.end > token_extent.begin {
+                    let result = if tokens.back().expect("should have at least one token").extent.end > token.extent.begin {
                         // TODO: log properly
                         println!("Attempted to add a token to a LineType::Hexdump that would've broken monotonicity. This shouldn't really happen.");
                         LinePushResult::Rejected
@@ -495,39 +488,39 @@ impl Line {
                 },
 
             /* A hexstring token can begin a line */
-            (LineType::Empty, token::TokenClass::Hexstring(_)) => (LineType::Hexstring {
+            (LineType::Empty, token::Token::Hexstring(token)) => (LineType::Hexstring {
                 title: None,
                 token
             }, LinePushResult::Completed),
 
             /* A hexstring token can occur on the same line as a title if the title is inline. */
-            (LineType::Title(title_token), token::TokenClass::Hexstring(_))
-                if sync::Arc::ptr_eq(&title_token.node, &token.node)
-                && title_token.node.props.title_display.is_inline()
+            (LineType::Title(title_token), token::Token::Hexstring(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
                 => (LineType::Hexstring {
                     title: Some(title_token),
                     token,
                 }, LinePushResult::Accepted),
             
             /* Summaries... */
-            (LineType::Empty, token::TokenClass::SummaryPreamble) => (LineType::Summary {
+            (LineType::Empty, token::Token::SummaryPreamble(token)) => (LineType::Summary {
                 title: None,
-                tokens: collections::VecDeque::from([token]),
+                tokens: collections::VecDeque::from([token.into_token()]),
             }, LinePushResult::Accepted),
             
-            (LineType::Title(title_token), token::TokenClass::SummaryPreamble)
-                if sync::Arc::ptr_eq(&title_token.node, &token.node)
-                && title_token.node.props.title_display.is_inline()
+            (LineType::Title(title_token), token::Token::SummaryPreamble(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
                 => (LineType::Summary {
                     title: Some(title_token),
-                    tokens: collections::VecDeque::from([token]),
+                    tokens: collections::VecDeque::from([token.into_token()]),
                 }, LinePushResult::Accepted),
 
-            (LineType::Summary { title, mut tokens }, _) => {
-                let result = match (tokens.back(), &token.class) {
-                    (Some(token::Token { class: token::TokenClass::SummaryEpilogue, .. }), _) => LinePushResult::Rejected,
-                    (Some(_), token::TokenClass::SummaryEpilogue) => { tokens.push_back(token); LinePushResult::Completed },
-                    (Some(_), _) => { tokens.push_back(token); LinePushResult::Accepted },
+            (LineType::Summary { title, mut tokens }, token) => {
+                let result = match (tokens.back(), token) {
+                    (Some(token::Token::SummaryEpilogue(_)), _) => LinePushResult::Rejected,
+                    (Some(_), token::Token::SummaryEpilogue(token)) => { tokens.push_back(token.into_token()); LinePushResult::Completed },
+                    (Some(_), token) => { tokens.push_back(token); LinePushResult::Accepted },
                     (None, _) => panic!("LineType::Summary should have at least one token")
                 };
 
@@ -555,41 +548,50 @@ impl Line {
     }
     
     fn iter_tokens(&self) -> LineBorrowingTokenIterator<'_> {
+        /* These need a little bit of help to coerce properly. This may be a compiler bug? */
+        let hexdump_mapper: for<'b> fn(&'b token::HexdumpToken) -> token::TokenRef<'b> = TokenKind::as_ref;
+        let token_mapper: for<'b> fn(&'b token::Token) -> token::TokenRef<'b> = TokenKind::as_ref;
+        
         match &self.ty {
             LineType::Empty => util::PhiIterator::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t)),
-            LineType::Title(t) => util::PhiIterator::I2(iter::once(t)),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.iter().chain(tokens.iter())),
-            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.iter().chain(iter::once(token))),
-            LineType::Summary { title, tokens, .. } => util::PhiIterator::I3(title.iter().chain(tokens.iter())),
+            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t.as_ref())),
+            LineType::Title(t) => util::PhiIterator::I2(iter::once(t.as_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIterator::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
         }
     }
 
     fn into_iter(self) -> LineTokenIterator {
+        /* These need a little bit of help to coerce properly. This may be a compiler bug? */
+        let hexdump_mapper: fn(token::HexdumpToken) -> token::Token = TokenKind::into_token;
+        
         match self.ty {
             LineType::Empty => util::PhiIterator::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t)),
-            LineType::Title(t) => util::PhiIterator::I2(iter::once(t)),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.into_iter().chain(tokens.into_iter())),
-            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.into_iter().chain(iter::once(token))),
-            LineType::Summary { title, tokens, .. } => util::PhiIterator::I3(title.into_iter().chain(tokens.into_iter())),
+            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t.into_token())),
+            LineType::Title(t) => util::PhiIterator::I2(iter::once(t.into_token())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIterator::I5(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
         }
     }
 }
 
 type LineBorrowingTokenIterator<'a> = util::PhiIterator
-    <&'a token::Token,
-     iter::Empty<&'a token::Token>,
-     iter::Once<&'a token::Token>,
-     iter::Chain<std::option::Iter<'a, token::Token>, collections::vec_deque::Iter<'a, token::Token>>,
-     iter::Chain<std::option::Iter<'a, token::Token>, iter::Once<&'a token::Token>>>;
+    <token::TokenRef<'a>,
+     iter::Empty<token::TokenRef<'a>>,
+     iter::Once<token::TokenRef<'a>>,
+     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Map<collections::vec_deque::Iter<'a, token::HexdumpToken>, for<'b> fn(&'b token::HexdumpToken) -> token::TokenRef<'b>>>,
+     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Once<token::TokenRef<'a>>>,
+     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Map<collections::vec_deque::Iter<'a, token::Token>, fn(&'a token::Token) -> token::TokenRef<'a>>>>;
 
 type LineTokenIterator = util::PhiIterator
     <token::Token,
      iter::Empty<token::Token>,
      iter::Once<token::Token>,
-     iter::Chain<std::option::IntoIter<token::Token>, collections::vec_deque::IntoIter<token::Token>>,
-     iter::Chain<std::option::IntoIter<token::Token>, iter::Once<token::Token>>>;
+     iter::Chain<std::option::IntoIter<token::Token>, iter::Map<collections::vec_deque::IntoIter<token::HexdumpToken>, fn(token::HexdumpToken) -> token::Token>>,
+     iter::Chain<std::option::IntoIter<token::Token>, iter::Once<token::Token>>,
+     iter::Chain<std::option::IntoIter<token::Token>, collections::vec_deque::IntoIter<token::Token>>>;
 
 impl LineView for Line {
     // TODO: clean me up when we get impl_trait_in_assoc_type
