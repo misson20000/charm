@@ -109,6 +109,22 @@ impl Selection {
             Mode::Address(extent) => Mode::Address(extent),
         };
     }
+
+    pub fn is_empty(&self) -> bool {
+        match &self.mode {
+            Mode::Structure(StructureMode::Empty) => true,
+            Mode::Address(extent) => extent.is_empty(),
+
+            _ => false,
+        }
+    }
+
+    pub fn is_structure(&self) -> bool {
+        match &self.mode {
+            Mode::Structure(_) => true,
+            _ => false
+        }
+    }
 }
 
 impl versioned::Versioned for Selection {
@@ -174,7 +190,7 @@ impl versioned::Change<Selection> for Change {
 }
 
 impl StructureRange {
-    fn extent(&self) -> addr::Extent {
+    pub fn extent(&self) -> addr::Extent {
         addr::Extent::between(self.begin.0, self.end.0)
     }
 

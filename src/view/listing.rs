@@ -358,15 +358,19 @@ impl ListingWidget {
         self.imp().init(interior);
     }
 
+    pub fn selection(&self) -> parking_lot::MappedRwLockReadGuard<'_, sync::Arc<selection::ListingSelection>> {
+        parking_lot::RwLockReadGuard::map(self.imp().interior.get().unwrap().read(), |int| &int.selection)
+    }
+    
     pub fn cursor(&self) -> parking_lot::MappedRwLockReadGuard<'_, crate::model::listing::cursor::Cursor> {
         parking_lot::RwLockReadGuard::map(self.imp().interior.get().unwrap().read(), |int| &int.cursor.cursor)
     }
-
+    
     pub fn cursor_mut(&self) -> parking_lot::MappedRwLockWriteGuard<'_, crate::model::listing::cursor::Cursor> {
         self.queue_draw();
         parking_lot::RwLockWriteGuard::map(self.imp().interior.get().unwrap().write(), |int| &mut int.cursor.cursor)
     }
-
+    
     pub fn bonk(&self) {
         self.imp().interior.get().unwrap().write().cursor.bonk();
     }

@@ -229,6 +229,10 @@ impl Extent {
     pub fn length(&self) -> Size {
         self.end - self.begin
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.end == self.begin
+    }
     
     pub fn round_out(&self) -> (u64, u64) { /* (addr, size) */
         let rd = self.begin.round_down();

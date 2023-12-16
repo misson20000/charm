@@ -5,6 +5,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::selection;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::listing;
@@ -165,14 +166,39 @@ impl InsertNodeAction {
     }
     
     pub fn activate(&self) {
-        let cursor = self.lw.cursor();
+        let selection = self.lw.selection();
 
+        match &selection.mode {
+            selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
+                self.activate_impl(
+                    selection.document.clone(),
+                    range.path.clone(),
+                    range.begin.0,
+                    range.begin.1,
+                    Some(range.extent().length()))
+            },
+
+            _ => {
+                std::mem::drop(selection);
+                let cursor = self.lw.cursor();
+                self.activate_impl(
+                    cursor.document(),
+                    cursor.structure_path(),
+                    cursor.structure_offset(),
+                    cursor.structure_child_index(),
+                    None)
+            }
+        }
+    }
+
+    fn activate_impl(&self, document: sync::Arc<document::Document>, path: structure::Path, offset: addr::Address, index: usize, size: Option<addr::Size>) {
         let activation = Activation {
-            document: cursor.document(),
-            path: cursor.structure_path(),
+            document,
+            path,
         };
 
-        self.offset_entry.set_text(&format!("{}", cursor.structure_offset()));
+        self.offset_entry.set_text(&format!("{}", offset));
+        self.size_entry.set_text(&size.map(|s| format!("{}", s.to_addr())).unwrap_or(String::new()));
         self.path_display.set_text(&activation.document.describe_path(&activation.path));
 
         let (node, _) = activation.document.lookup_node(&activation.path);
@@ -182,14 +208,14 @@ impl InsertNodeAction {
         }
         model.append("<end>");
         self.order_entry.set_model(Some(&model));
-        self.order_entry.set_selected(cursor.structure_child_index() as u32);
+        self.order_entry.set_selected(index as u32);
         
         self.activation.replace(Some(activation));
         
         self.name_entry.grab_focus();
         self.dialog.present();
     }
-
+    
     fn deactivate(&self) {
         self.order_entry.set_model(gio::ListModel::NONE);
         self.activation.take();
