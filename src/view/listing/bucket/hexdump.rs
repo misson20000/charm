@@ -140,7 +140,7 @@ impl HexdumpBucket {
 
 impl bucket::Bucket for HexdumpBucket {
     fn visible_address(&self) -> Option<addr::Address> {
-        Some(self.line_extent.begin)
+        Some(self.node_addr + self.line_extent.begin.to_size())
     }
 
     fn render(&mut self, ctx: bucket::RenderArgs<'_>, layout: &mut LayoutController) {
