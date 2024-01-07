@@ -217,31 +217,38 @@ impl bucket::Bucket for HexdumpBucket {
             let mut token_iterator = self.toks.iter();
             let mut next_token = token_iterator.next();
 
-            for i in 0..self.line_extent.round_out().1 {
+            let num_bytes = self.line_extent.round_out().1;
+            
+            for i in 0..num_bytes {
                 while next_token.map_or(false, |t| t.extent.end <= self.line_extent.begin + addr::Size::from(i)) {
                     next_token = token_iterator.next();
                 }
 
-                if let Some(_token) = next_token {
-                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).rebase(self.line_extent.begin).intersection(self.line_extent);
-                    let byte_record = self.line_cache.get(i as usize).copied().unwrap_or_default();
-                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
-                    let pending = byte_record.pending || !byte_record.loaded;
+                if let Some(token) = next_token {
+                    if let Some(byte_extent) = addr::Extent::sized(i.into(), addr::unit::BYTE).rebase(self.line_extent.begin).intersection(self.line_extent) {
+                        if token.extent.includes(byte_extent.begin) {
+                            let byte_record = self.line_cache.get(i as usize).copied().unwrap_or_default();
+                            let selected = selection.includes(byte_extent.begin);
+                            let pending = byte_record.pending || !byte_record.loaded;
                     
-                    let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte_record.value) };
+                            let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte_record.value) };
 
-                    ctx.render.gsc_mono.begin(digit, &ctx.render.config.text_color, &mut point)
-                        .selected(selected, &ctx.render.config.selection_color)
-                        .placeholder(pending, &ctx.render.config.placeholder_color)
-                        .render(ctx.snapshot);
+                            let mut char_point = graphene::Point::new(point.x() + space_width * i as f32, point.y());
+                        
+                            ctx.render.gsc_mono.begin(digit, &ctx.render.config.text_color, &mut char_point)
+                                .selected(selected, &ctx.render.config.selection_color)
+                                .placeholder(pending, &ctx.render.config.placeholder_color)
+                                .render(ctx.snapshot);
+                        }
+                    }
                 } else {
                     break;
                 }
             }
 
+            point.set_x(point.x() + space_width * num_bytes as f32);
+            
             self.ascii_end = point.clone();
-
-            point.set_y(self.hd_begin.y());
             
             point
         });
