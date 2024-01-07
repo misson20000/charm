@@ -1,6 +1,5 @@
 use std::iter;
 use std::sync;
-use std::vec;
 
 use crate::model::addr;
 use crate::model::document;
@@ -67,17 +66,12 @@ pub trait WorkableBucket {
 
 /* This trait is separate from Bucket so we can take &dyn Bucket without specifying iterator types. */
 pub trait TokenIterableBucket: Bucket {
-    type TokenIterator: iter::Iterator<Item = token::Token>;
-    type BorrowingTokenIterator<'a>: iter::Iterator<Item = token::TokenRef<'a>> where Self: 'a;
-
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_>;
-    fn to_tokens(self) -> Self::TokenIterator;
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>>;
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token>;
 }
 
 pub trait TokenViewIterableBucket: Bucket {
-    type BorrowingMutableTokenViewIterator<'a>: iter::Iterator<Item = &'a mut token_view::TokenView> where Self: 'a;
-    
-    fn iter_token_views_mut(&mut self) -> Self::BorrowingMutableTokenViewIterator<'_>;
+    fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView>;
 }
 
 impl<T: TokenViewIterableBucket> WorkableBucket for T {
@@ -162,22 +156,17 @@ impl<Marker> Bucket for SingleTokenBucket<Marker> where LayoutController: Layout
 }
 
 impl<Marker> TokenIterableBucket for SingleTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type TokenIterator = iter::Once<token::Token>;
-    type BorrowingTokenIterator<'a> = iter::Once<token::TokenRef<'a>> where Marker: 'a;
-
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         iter::once(self.tv.token())
     }
 
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         iter::once(self.tv.into_token())
     }
 }
 
 impl<Marker> TokenViewIterableBucket for SingleTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type BorrowingMutableTokenViewIterator<'a> = iter::Once<&'a mut token_view::TokenView> where Marker: 'a;
-    
-    fn iter_token_views_mut(&mut self) -> Self::BorrowingMutableTokenViewIterator<'_> {
+    fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         iter::once(&mut self.tv)
     }
 }
@@ -221,22 +210,17 @@ impl<Marker> Bucket for MaybeTokenBucket<Marker> where LayoutController: LayoutP
 }
 
 impl<Marker> TokenIterableBucket for MaybeTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type TokenIterator = std::option::IntoIter<token::Token>;
-    type BorrowingTokenIterator<'a> = std::option::IntoIter<token::TokenRef<'a>> where Marker: 'a;
-
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.tv.as_ref().map(token_view::TokenView::token).into_iter()
     }
 
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.tv.map(token_view::TokenView::into_token).into_iter()
     }
 }
 
 impl<Marker> TokenViewIterableBucket for MaybeTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type BorrowingMutableTokenViewIterator<'a> = std::option::IntoIter<&'a mut token_view::TokenView> where Marker: 'a;
-
-    fn iter_token_views_mut(&mut self) -> Self::BorrowingMutableTokenViewIterator<'_> {
+    fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         self.tv.as_mut().into_iter()
     }
 }
@@ -269,22 +253,17 @@ impl<Marker> Bucket for MultiTokenBucket<Marker> where LayoutController: LayoutP
 }
 
 impl<Marker> TokenIterableBucket for MultiTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type TokenIterator = iter::Map<vec::IntoIter<token_view::TokenView>, fn(token_view::TokenView) -> token::Token>;
-    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token_view::TokenView>, fn(&'a token_view::TokenView) -> token::TokenRef<'a>> where Marker: 'a;
-
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.tvs.iter().map(token_view::TokenView::token)
     }
 
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.tvs.into_iter().map(token_view::TokenView::into_token)
     }
 }
 
 impl<Marker> TokenViewIterableBucket for MultiTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    type BorrowingMutableTokenViewIterator<'a> = std::slice::IterMut<'a, token_view::TokenView> where Marker: 'a;
-
-    fn iter_token_views_mut(&mut self) -> Self::BorrowingMutableTokenViewIterator<'_> {
+    fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         self.tvs.iter_mut()
     }
 }

@@ -51,12 +51,9 @@ pub struct Line {
 }
 
 pub trait LineView {
-    type TokenIterator: iter::DoubleEndedIterator<Item = token::Token>;
-    type BorrowingTokenIterator<'a>: iter::Iterator<Item = token::TokenRef<'a>> where Self: 'a;
-    
     fn from_line(line: Line) -> Self;
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_>;
-    fn to_tokens(self) -> Self::TokenIterator;
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>>;
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token>;
 }
 
 /* This lets us swap out a simpler implementation for testing to help narrow down
@@ -594,19 +591,15 @@ type LineTokenIterator = util::PhiIterator
      iter::Chain<std::option::IntoIter<token::Token>, collections::vec_deque::IntoIter<token::Token>>>;
 
 impl LineView for Line {
-    // TODO: clean me up when we get impl_trait_in_assoc_type
-    type BorrowingTokenIterator<'a> = LineBorrowingTokenIterator<'a>;
-    type TokenIterator = LineTokenIterator;
-    
     fn from_line(line: Line) -> Self {
         line
     }
 
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.iter_tokens()
     }
     
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.into_iter()
     }
 }

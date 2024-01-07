@@ -55,9 +55,6 @@ pub struct Line {
 }
 
 impl layout::LineView for Line {
-    type BorrowingTokenIterator<'a> = LineViewBorrowingTokenIterator<'a>;
-    type TokenIterator = LineViewTokenIterator;
-    
     fn from_line(line: layout::Line) -> Self {
         Line {
             ev_draw: facet::Event::new(),
@@ -73,44 +70,14 @@ impl layout::LineView for Line {
         }
     }
 
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.ty.iter_tokens()
     }
     
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.ty.to_tokens()
     }
 }
-
-type LineViewBorrowingTokenIterator<'a> = util::PhiIterator
-    <token::TokenRef<'a>,
-     iter::Empty<token::TokenRef<'a>>,
-     <bucket::SingleTokenBucket<bucket::BlankMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
-     <bucket::SingleTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
-        <bucket::HexdumpBucket as TokenIterableBucket>::BorrowingTokenIterator<'a>>,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
-        <bucket::SingleTokenBucket<bucket::HexstringMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>>,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>,
-        <bucket::MultiTokenBucket<bucket::SummaryMarker> as TokenIterableBucket>::BorrowingTokenIterator<'a>>>;
-
-type LineViewTokenIterator = util::PhiIterator
-    <token::Token,
-     iter::Empty<token::Token>,
-     <bucket::SingleTokenBucket<bucket::BlankMarker> as TokenIterableBucket>::TokenIterator,
-     <bucket::SingleTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::TokenIterator,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::TokenIterator,
-        <bucket::HexdumpBucket as TokenIterableBucket>::TokenIterator>,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::TokenIterator,
-        <bucket::SingleTokenBucket<bucket::HexstringMarker> as TokenIterableBucket>::TokenIterator>,
-     iter::Chain
-       <<bucket::MaybeTokenBucket<bucket::TitleMarker> as TokenIterableBucket>::TokenIterator,
-        <bucket::MultiTokenBucket<bucket::SummaryMarker> as TokenIterableBucket>::TokenIterator>>;
 
 impl LineViewType {
     fn from(line: layout::Line) -> Self {
@@ -133,7 +100,7 @@ impl LineViewType {
         }
     }
 
-    fn iter_tokens(&self) -> LineViewBorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         match &self {
             Self::Empty => util::PhiIterator::I1(iter::empty()),
             Self::Blank(bucket) => util::PhiIterator::I2(bucket.iter_tokens()),
@@ -144,7 +111,7 @@ impl LineViewType {
         }
     }
 
-    fn to_tokens(self) -> LineViewTokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         match self {
             Self::Empty => util::PhiIterator::I1(iter::empty()),
             Self::Blank(bucket) => util::PhiIterator::I2(bucket.to_tokens()),

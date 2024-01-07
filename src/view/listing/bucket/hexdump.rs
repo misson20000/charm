@@ -281,14 +281,11 @@ impl bucket::Bucket for HexdumpBucket {
 }
     
 impl bucket::TokenIterableBucket for HexdumpBucket {
-    type TokenIterator = iter::Map<vec::IntoIter<token::HexdumpToken>, fn(token::HexdumpToken) -> token::Token>;
-    type BorrowingTokenIterator<'a> = iter::Map<std::slice::Iter<'a, token::HexdumpToken>, fn(&'a token::HexdumpToken) -> token::TokenRef<'a>>;
-
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.toks.iter().map(TokenKind::as_ref)
     }
 
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.toks.into_iter().map(TokenKind::into_token)
     }
 }

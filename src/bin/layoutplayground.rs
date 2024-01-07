@@ -1,3 +1,4 @@
+use std::iter;
 use std::sync;
 use std::vec;
 
@@ -12,9 +13,6 @@ struct Line {
 }
 
 impl layout::LineView for Line {
-    type TokenIterator = vec::IntoIter<token::Token>;
-    type BorrowingTokenIterator<'a> = std::iter::Map<std::slice::Iter<'a, token::Token>, fn(&'a token::Token) -> token::TokenRef<'a>>;
-    
     fn from_line(line: layout::Line) -> Self {
         let tokens: vec::Vec<token::Token> = line.to_tokens().collect();
         
@@ -24,11 +22,11 @@ impl layout::LineView for Line {
         }
     }
 
-    fn iter_tokens(&self) -> Self::BorrowingTokenIterator<'_> {
+    fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         self.tokens.iter().map(TokenKind::as_ref)
     }
     
-    fn to_tokens(self) -> Self::TokenIterator {
+    fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         self.tokens.into_iter()
     }
 }
