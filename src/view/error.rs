@@ -94,9 +94,8 @@ impl Error {
                 write!(msg, "Failed to apply change to document.\n")?;
                 
                 match &error.ty {
-                    document::change::ApplyErrorType::UpdateFailed(update_error) => {
+                    document::change::ApplyErrorType::UpdateFailed { error: update_error, incompatible_change } => {
                         write!(msg, "Change was originated against an older version of the document and conflicts with a newer change.\n")?;
-                        // TODO: get details about the conflicting change?
                         match update_error {
                             document::change::UpdateError::NoCommonAncestor => write!(msg, "Couldn't find common parent document.")?,
                             document::change::UpdateError::NotUpdatable => write!(msg, "This type of change must always be applied to the latest version of the document.")?,
@@ -104,6 +103,13 @@ impl Error {
                             document::change::UpdateError::NodeDeleted => write!(msg, "A node referenced by this change was been deleted.")?,
                             document::change::UpdateError::RangeSplit => write!(msg, "The range of nodes this change was meant to affect got split up.")?,
                         };
+                        write!(msg, "\n")?;
+                        if let Some(incompatible_change) = &incompatible_change {
+                            write!(msg, "Incompatible change: ")?;
+                            write_document_change_detail(msg, &document, incompatible_change)?;
+                        } else {
+                            write!(msg, "No information recorded about the incompatible newer change.\n")?;
+                        }
                     },
                     document::change::ApplyErrorType::InvalidRange(reason) => write!(msg, "Range was invalid: {}.\n", match reason {
                         document::structure::RangeInvalidity::IndexExceedsNumberOfChildren => "the start or end index exceeded the number of children in the node",

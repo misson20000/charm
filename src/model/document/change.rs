@@ -97,9 +97,12 @@ pub enum UpdateError {
     RangeSplit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ApplyErrorType {
-    UpdateFailed(UpdateError),
+    UpdateFailed {
+        error: UpdateError,
+        incompatible_change: Option<Change>,
+    },
     InvalidRange(structure::RangeInvalidity),
     InvalidParameters(&'static str),
 }
@@ -275,8 +278,10 @@ impl Change {
             },
         }
     }
-    
-    pub fn rebase(mut self, to: &document::Document) -> Result<Self, (UpdateError, Self)> {
+
+    /// Ok(updated change)
+    /// Err(why, non-updated self, other incompatible change that caused failure)
+    pub fn rebase(mut self, to: &document::Document) -> Result<Self, (UpdateError, Self, Option<Self>)> {
         if self.generation == to.generation() {
             return Ok(self)
         }
@@ -323,10 +328,10 @@ impl Change {
                                 | UpdateRangeResult::Inserted { .. }
                             => Err(UpdateError::RangeSplit),
                         },
-                    }.map_err(|e| (e, backup))?,
+                    }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
-            }, None => Err((UpdateError::NoCommonAncestor, self))
+            }, None => Err((UpdateError::NoCommonAncestor, self, None))
         }
     }
 
@@ -460,7 +465,7 @@ impl versioned::Change<document::Document> for Change {
     type ApplyRecord = Self;
     
     fn apply(mut self, document: &mut document::Document) -> Result<(Change, Change), ApplyError> {
-        self = self.rebase(document).map_err(|(update_error, change)| ApplyErrorType::UpdateFailed(update_error).complete(change))?;
+        self = self.rebase(document).map_err(|(update_error, change, incompatible_change)| ApplyErrorType::UpdateFailed { error: update_error, incompatible_change }.complete(change))?;
 
         assert_eq!(self.generation, document.generation());
 
