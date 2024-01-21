@@ -225,6 +225,8 @@ impl CharmWindow {
             context: cell::RefCell::new(None),
         });
 
+        w.props_editor.bind_window(&w);
+
         w.window.connect_close_request(clone!(@strong w => move |_| {
             /* This is especially important because it destroys actions which might have their own toplevel windows that
              * would otherwise keep the process alive. */

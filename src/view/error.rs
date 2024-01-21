@@ -22,6 +22,7 @@ pub enum Action {
     InsertNodeParseSize,
     InsertNode,
     Nest,
+    EditProperties,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -72,6 +73,7 @@ impl Error {
             Action::InsertNodeParseSize => "Failed to parse size.",
             Action::InsertNode => "Failed to insert node.",
             Action::Nest => "Failed to nest nodes.",
+            Action::EditProperties => "Failed to edit node properties.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
