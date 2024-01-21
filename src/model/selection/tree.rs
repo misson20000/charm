@@ -14,14 +14,30 @@ pub struct Selection {
     version: versioned::Version<Selection>,
 }
 
-pub struct TreeIter<'a> {
-    selection: &'a Selection,
-    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a sync::Arc<structure::Node>)>,
-    current_sparse: SparseNodeOrAllGrandchildren<'a>,
-    current_struct: &'a sync::Arc<structure::Node>,
-    child_index: Option<usize>,
+pub trait TreeVisitor<'a> {
+    type NodeContext: Sized + 'a;
+    type VisitResult: Sized + 'a;
+
+    fn root_context(&mut self, root: &'a sync::Arc<structure::Node>) -> Self::NodeContext;
+
+    /// Returning None skips descending.
+    fn descend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize, child_selected: bool) -> Option<Self::NodeContext>;
+    fn visit_child<'b>(&mut self, parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult;
+    fn visit<'b>(&mut self, context: &'b mut Self::NodeContext, node: &'a sync::Arc<structure::Node>) -> Self::VisitResult;
+    fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize);
 }
 
+pub struct TreeWalker<'a, Visitor: TreeVisitor<'a>> {
+    selection: &'a Selection,
+    stack: Vec<(usize, SparseNodeOrAllGrandchildren<'a>, &'a sync::Arc<structure::Node>, Visitor::NodeContext)>,
+    current_sparse: SparseNodeOrAllGrandchildren<'a>,
+    current_struct: &'a sync::Arc<structure::Node>,
+    current_context: Visitor::NodeContext,
+    child_index: Option<usize>,
+    visitor: Visitor,
+}
+
+pub struct TreeIter<'a>(TreeWalker<'a, ()>);
 
 #[derive(Clone, Debug)]
 struct SparseNode {
@@ -60,16 +76,59 @@ impl Selection {
         }
     }
 
-    pub fn node_iter(&self) -> TreeIter {
-        TreeIter {
+    pub fn walker<'a, Visitor: TreeVisitor<'a>>(&'a self, mut visitor: Visitor) -> TreeWalker<'a, Visitor> {
+        TreeWalker {
             selection: self,
             stack: Vec::new(),
             current_sparse: SparseNodeOrAllGrandchildren::Node(&self.root),
             current_struct: &self.document.root,
+            current_context: visitor.root_context(&self.document.root),
             child_index: None,
+            visitor,
         }
     }
 
+    /// If any descendants of the node pointed to by subtree_root are selected,
+    /// returns Ok with a TreeWalker that will visit only subtree_root and its
+    /// descendants. If no descendants are selected, returns Err with whether
+    /// the subtree root itself was selected or not.
+    pub fn subtree_walker<'a, Visitor: TreeVisitor<'a>>(&'a self, subtree_root: structure::PathSlice, mut visitor: Visitor) -> Result<TreeWalker<'a, Visitor>, bool> {
+        /* None means that the node is selected but none of its children are, so we should report Err(true) */
+        let mut sparse_node = Some(SparseNodeOrAllGrandchildren::Node(&self.root));
+        let mut struct_node = &self.document.root;
+
+        for child_index in subtree_root {
+            sparse_node = match sparse_node {
+                None => return Err(false),
+                Some(SparseNodeOrAllGrandchildren::Node(SparseNode { self_selected: _, children_selected: ChildrenMode::None })) => return Err(false),
+                Some(SparseNodeOrAllGrandchildren::Node(SparseNode { self_selected: _, children_selected: ChildrenMode::Mixed(vec) })) => Some(SparseNodeOrAllGrandchildren::Node(&vec[*child_index])),
+                Some(SparseNodeOrAllGrandchildren::Node(SparseNode { self_selected: _, children_selected: ChildrenMode::AllDirect })) => None,
+                Some(SparseNodeOrAllGrandchildren::Node(SparseNode { self_selected: _, children_selected: ChildrenMode::AllGrandchildren })) => Some(SparseNodeOrAllGrandchildren::AllGrandchildren),
+                Some(SparseNodeOrAllGrandchildren::AllGrandchildren) => Some(SparseNodeOrAllGrandchildren::AllGrandchildren),
+            };
+            struct_node = &struct_node.children[*child_index].node;
+        }
+
+        if let Some(current_sparse) = sparse_node {
+            Ok(TreeWalker {
+                selection: self,
+                stack: Vec::new(),
+                current_sparse,
+                current_struct: struct_node,
+                current_context: visitor.root_context(struct_node),
+                child_index: None,
+                visitor,
+            })
+        } else {
+            Err(true)
+        }
+    }
+    
+    pub fn node_iter(&self) -> TreeIter<'_> {
+        TreeIter(self.walker(()))
+    }
+
+    
     /// Returns whether or not the node at the specified path is selected.
     pub fn path_selected(&self, path: structure::PathSlice) -> bool {
         self.root.path_selected(path)
@@ -164,10 +223,12 @@ impl Selection {
     }
 }
 
-impl<'a> Iterator for TreeIter<'a> {
-    type Item = &'a sync::Arc<structure::Node>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
+    pub fn take(self) -> Visitor::NodeContext {
+        self.current_context
+    }
+    
+    pub fn visit_next(&mut self) -> Option<Visitor::VisitResult> {
         loop {
             match (self.child_index, &self.current_sparse) {
                 /* If we haven't considered yielding this node yet (self.child_index == None) and either
@@ -178,7 +239,7 @@ impl<'a> Iterator for TreeIter<'a> {
                     self_selected: true,
                 })) | (None, SparseNodeOrAllGrandchildren::AllGrandchildren) => {
                     self.child_index = Some(0);
-                    return Some(self.current_struct);
+                    return Some(self.visitor.visit(&mut self.current_context, self.current_struct));
                 },
 
                 /* We're considering yielding this node, but the above pattern didn't match so we should skip it and move on to its children. */
@@ -215,11 +276,16 @@ impl<'a> Iterator for TreeIter<'a> {
                 )) => {
                     /* Push current state onto the stack and descend into the child. */
                     let node = &self.current_struct.children[x].node;
-                    self.child_index = None;
-                    self.stack.push((
-                        x,
-                        std::mem::replace(&mut self.current_sparse, SparseNodeOrAllGrandchildren::Node(&vec[x])),
-                        std::mem::replace(&mut self.current_struct, node)));
+                    if let Some(new_context) = self.visitor.descend(&mut self.current_context, node, x, vec[x].self_selected) {
+                        self.child_index = None;
+                        self.stack.push((
+                            x,
+                            std::mem::replace(&mut self.current_sparse, SparseNodeOrAllGrandchildren::Node(&vec[x])),
+                            std::mem::replace(&mut self.current_struct, node),
+                            std::mem::replace(&mut self.current_context, new_context)));
+                    } else {
+                        self.child_index = Some(x + 1);
+                    }
                     continue;
                 },
 
@@ -231,7 +297,7 @@ impl<'a> Iterator for TreeIter<'a> {
                     }
                 )) => {
                     self.child_index = Some(x + 1);
-                    return Some(&self.current_struct.children[x].node);
+                    return Some(self.visitor.visit_child(&mut self.current_context, &self.current_struct.children[x].node, x));
                 },
 
                 
@@ -242,30 +308,67 @@ impl<'a> Iterator for TreeIter<'a> {
                     }
                 ) | SparseNodeOrAllGrandchildren::AllGrandchildren) => {
                     let node = &self.current_struct.children[x].node;
-                    self.child_index = None;
-                    self.stack.push((
-                        x,
-                        std::mem::replace(&mut self.current_sparse, SparseNodeOrAllGrandchildren::AllGrandchildren),
-                        std::mem::replace(&mut self.current_struct, node)));
+                    if let Some(new_context) = self.visitor.descend(&mut self.current_context, node, x, true) {
+                        self.child_index = None;
+                        self.stack.push((
+                            x,
+                            std::mem::replace(&mut self.current_sparse, SparseNodeOrAllGrandchildren::AllGrandchildren),
+                            std::mem::replace(&mut self.current_struct, node),
+                            std::mem::replace(&mut self.current_context, new_context)));
+                    } else {
+                        self.child_index = Some(x + 1);
+                    }
                     continue;
                 },
             }
         }
     }
-}
 
-impl<'a> TreeIter<'a> {
     /// Returns whether or not anything was able to be popped.
     fn try_pop(&mut self) -> bool {
         match self.stack.pop() {
             None => false,
-            Some((index, parent_sparse, parent_actual)) => {
+            Some((index, parent_sparse, parent_actual, parent_context)) => {
                 self.child_index = Some(index + 1);
                 self.current_sparse = parent_sparse;
                 self.current_struct = parent_actual;
+                let child_context = std::mem::replace(&mut self.current_context, parent_context);
+                self.visitor.ascend(&mut self.current_context, child_context, index);
                 true
             },
-        }        
+        }
+    }
+}
+
+impl<'a> TreeVisitor<'a> for () {
+    type NodeContext = ();
+    type VisitResult = &'a sync::Arc<structure::Node>;
+
+    fn root_context(&mut self, _root: &'a sync::Arc<structure::Node>) -> () {
+        ()
+    }
+
+    fn descend<'b>(&mut self, _parent: &'b mut Self::NodeContext, _child: &'a sync::Arc<structure::Node>, _child_index: usize, _child_selected: bool) -> Option<()> {
+        Some(())
+    }
+
+    fn visit_child<'b>(&mut self, _parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, _child_index: usize) -> Self::VisitResult {
+        child
+    }
+
+    fn visit<'b>(&mut self, _context: &'b mut Self::NodeContext, node: &'a sync::Arc<structure::Node>) -> Self::VisitResult {
+        node
+    }
+
+    fn ascend<'b>(&mut self, _parent: &'b mut Self::NodeContext, _child: Self::NodeContext, _child_index: usize) {
+    }
+}
+
+impl<'a> Iterator for TreeIter<'a> {
+    type Item = &'a sync::Arc<structure::Node>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.visit_next()
     }
 }
 
