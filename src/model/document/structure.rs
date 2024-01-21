@@ -1,3 +1,4 @@
+use std::iter;
 use std::sync;
 use std::vec;
 
@@ -128,6 +129,15 @@ pub struct Properties {
     pub locked: bool,    
 }
 
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct MaybeProperties {
+    pub name: Option<String>,
+    pub title_display: Option<TitleDisplay>,
+    pub children_display: Option<ChildrenDisplay>,
+    pub content_display: Option<ContentDisplay>,
+    pub locked: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     /* reference to parent causes a lot of problems, so we don't have one and
@@ -254,6 +264,105 @@ impl Properties {
             content_display: self.content_display.clone(),
             locked: self.locked,
         }
+    }
+
+    pub fn apply_changes(&mut self, changes: MaybeProperties) {
+        if let Some(name) = &changes.name { self.name = name.clone(); }
+        if let Some(title_display) = &changes.title_display { self.title_display = title_display.clone(); }
+        if let Some(children_display) = &changes.children_display { self.children_display = children_display.clone(); }
+        if let Some(content_display) = &changes.content_display { self.content_display = content_display.clone(); }
+        if let Some(locked) = &changes.locked { self.locked = locked.clone(); }
+    }
+}
+
+impl MaybeProperties {
+    pub fn new(props: Properties) -> MaybeProperties {
+        MaybeProperties {
+            name: Some(props.name),
+            title_display: Some(props.title_display),
+            children_display: Some(props.children_display),
+            content_display: Some(props.content_display),
+            locked: Some(props.locked),
+        }
+    }
+
+    pub fn common_between<'a>(i: impl iter::Iterator<Item = &'a sync::Arc<Node>>) -> Option<MaybeProperties> {
+        let mut props = Option::<MaybeProperties>::None;
+
+        for node in i {
+            if let Some(props) = props.as_mut() {
+                if props.empty() {
+                    break;
+                }
+                
+                props.merge(&node.props);
+            } else {
+                props = Some(Self::new(node.props.clone()));
+            }
+        }
+
+        props
+    }
+    
+    pub fn new_name(name: String) -> MaybeProperties {
+        let mut props = Self::default();
+        props.name = Some(name);
+        props
+    }
+
+    pub fn new_title_display(title_display: TitleDisplay) -> MaybeProperties {
+        let mut props = Self::default();
+        props.title_display = Some(title_display);
+        props
+    }
+
+    pub fn new_children_display(children_display: ChildrenDisplay) -> MaybeProperties {
+        let mut props = Self::default();
+        props.children_display = Some(children_display);
+        props
+    }
+
+    pub fn new_content_display(content_display: ContentDisplay) -> MaybeProperties {
+        let mut props = Self::default();
+        props.content_display = Some(content_display);
+        props
+    }
+
+    pub fn new_locked(locked: bool) -> MaybeProperties {
+        let mut props = Self::default();
+        props.locked = Some(locked);
+        props
+    }
+
+    fn keep_if_eq<T: PartialEq>(option: &mut Option<T>, other: &T) {
+        *option = match option.take() {
+            Some(x) if x.eq(other) => Some(x),
+            _ => None
+        };
+    }
+    
+    pub fn merge(&mut self, other: &Properties) {
+        Self::keep_if_eq(&mut self.name, &other.name);
+        Self::keep_if_eq(&mut self.title_display, &other.title_display);
+        Self::keep_if_eq(&mut self.children_display, &other.children_display);
+        Self::keep_if_eq(&mut self.content_display, &other.content_display);
+        Self::keep_if_eq(&mut self.locked, &other.locked);
+    }
+
+    pub fn apply_changes(&mut self, changes: MaybeProperties) {
+        if changes.name.is_some() { self.name = changes.name; }
+        if changes.title_display.is_some() { self.title_display = changes.title_display; }
+        if changes.children_display.is_some() { self.children_display = changes.children_display; }
+        if changes.content_display.is_some() { self.content_display = changes.content_display; }
+        if changes.locked.is_some() { self.locked = changes.locked; }
+    }
+    
+    pub fn empty(&self) -> bool {
+        self.name.is_none()
+            && self.title_display.is_none()
+            && self.children_display.is_none()
+            && self.content_display.is_none()
+            && self.locked.is_none()
     }
 }
 
