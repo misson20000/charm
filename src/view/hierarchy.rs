@@ -11,6 +11,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change;
 use crate::model::document::structure;
+use crate::model::selection;
 use crate::model::versioned::Versioned;
 
 /// Our TreeListModel doesn't update itself. This is so that we can guarantee that the selection model updates first by having it be the one that subscribes to SelectionHost updates and informs us when the document updates. We still need a document_host though so we can change the document when properties are edited.
@@ -303,7 +304,16 @@ impl StructureListModel {
                 None
             },
             change::ChangeType::AlterNode { .. } => None,
+            change::ChangeType::AlterNodesBulk { selection, prop_changes: _ } => {
+                let i = &mut *i;
+                if let Ok(mut walker) = selection.subtree_walker(&i.path, AlterNodesBulkNodeInfoUpdater(&mut i.children, &new_node)) {
+                    while walker.visit_next().is_some() {
+                    }
+                }
 
+                None
+            },
+            
             /* Did we get a new child? */
             change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: _ } if affected_path[..] == i.path[..] => {
                 let childhood = &new_node.children[*affected_index];
@@ -485,6 +495,48 @@ impl RootListModel {
 
         root_item.update_document(new_document);
         root_item.trigger_notifies();
+    }
+}
+
+struct AlterNodesBulkNodeInfoUpdater<'a>(&'a mut vec::Vec<NodeItem>, &'a structure::Node);
+
+impl<'tree, 'nodeinfo> selection::tree::TreeVisitor<'tree> for AlterNodesBulkNodeInfoUpdater<'nodeinfo> {
+    type NodeContext = ();
+    type VisitResult = ();
+
+    fn root_context(&mut self, _root: &'tree sync::Arc<structure::Node>) -> Self::NodeContext {
+        ()
+    }
+
+    /// Returning None skips descending.
+    fn descend<'b>(&mut self, _parent: &'b mut Self::NodeContext, _node: &'tree sync::Arc<structure::Node>, child_index: usize, child_selected: bool) -> Option<Self::NodeContext> {
+        if child_selected {
+            let child = &mut self.0[child_index];
+            let mut info = child.imp().info.get().unwrap().borrow().clone();
+
+            /* Need to fetch new props from node from *new* tree, not old tree that Selection and TreeVisitor know of */
+            info.props = self.1.children[child_index].node.props.clone();
+            
+            child.stage(info);
+        }
+        
+        None
+    }
+    
+    fn visit_child<'b>(&mut self, _parent_context: &'b mut Self::NodeContext, _node: &'tree sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult {
+        let child = &mut self.0[child_index];
+        let mut info = child.imp().info.get().unwrap().borrow().clone();
+
+        info.props = self.1.children[child_index].node.props.clone();
+        
+        child.stage(info);
+    }
+    
+    fn visit<'b>(&mut self, _context: &'b mut Self::NodeContext, _node: &'tree sync::Arc<structure::Node>) -> Self::VisitResult {
+        ()
+    }
+    
+    fn ascend<'b>(&mut self, _parent: &'b mut Self::NodeContext, _child: Self::NodeContext, _child_index: usize) {
     }
 }
 

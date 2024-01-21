@@ -199,6 +199,7 @@ impl StructureRange {
         let ret = match change.update_path(&mut self.path) {
             doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match &change.ty {
                 doc_change::ChangeType::AlterNode { .. } => self,
+                doc_change::ChangeType::AlterNodesBulk { .. } => self,
                 doc_change::ChangeType::InsertNode { parent: affected_path, index: insertion_index, child: childhood } if affected_path == &self.path => {
                     if self.begin.1 > *insertion_index || (self.begin.1 == *insertion_index && self.begin.0 > childhood.offset) {
                         self.begin.1+= 1;

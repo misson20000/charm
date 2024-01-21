@@ -163,6 +163,11 @@ impl Selection {
     where F: FnMut(&structure::SiblingRange) -> Result<(), E> {
         self.root.ancestor_ranges_selected(&self.document.root, &mut vec![], &mut cb)
     }
+
+    /// Given a mutable reference, adds a single path to the selection. Used mostly in unit tests.
+    pub fn add_single(&mut self, path: structure::PathSlice) {
+        self.root.add_single(&self.document.root, &path[..]);
+    }
     
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
         if self.document.is_outdated(new_doc) {
@@ -209,6 +214,7 @@ impl Selection {
 
         match change.ty {
             doc_change::ChangeType::AlterNode { .. } => false,
+            doc_change::ChangeType::AlterNodesBulk { .. } => false,
             
             _ => {
                 // TODO: actually handle structural changes

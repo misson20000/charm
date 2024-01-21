@@ -218,6 +218,10 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Alter node at {}\n", SafePathDescription::new(document, &path))?;
             write!(msg, "New properties: {:?}\n", props)?;
         },
+        document::change::ChangeType::AlterNodesBulk { selection: _, prop_changes } => {
+            write!(msg, "Alter nodes in bulk\n")?;
+            write!(msg, "Property changes: {:?}\n", prop_changes)?;
+        },
         document::change::ChangeType::InsertNode { parent, index, child } => {
             write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;
             write!(msg, "Index: {}\n", index)?;

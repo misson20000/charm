@@ -7,6 +7,7 @@ use std::vec;
 
 use crate::model::addr;
 use crate::model::datapath;
+use crate::model::selection;
 use crate::model::space::AddressSpace;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
@@ -150,6 +151,14 @@ impl Document {
     pub fn alter_node(&self, path: structure::Path, props: structure::Properties) -> change::Change {
         change::Change {
             ty: change::ChangeType::AlterNode { path, props },
+            generation: self.generation(),
+        }
+    }
+
+    #[must_use]
+    pub fn alter_nodes_bulk(&self, selection: sync::Arc<selection::TreeSelection>, prop_changes: structure::MaybeProperties) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::AlterNodesBulk { selection, prop_changes },
             generation: self.generation(),
         }
     }

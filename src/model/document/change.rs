@@ -3,6 +3,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::selection;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -14,6 +15,12 @@ pub enum ChangeType {
         props: structure::Properties
     },
 
+    /// Modifies the properties of all nodes specified by the selection.
+    AlterNodesBulk {
+        selection: sync::Arc<selection::TreeSelection>,
+        prop_changes: structure::MaybeProperties
+    },
+    
     /// Inserts the node as a child of the node referred to by the given path.
     InsertNode {
         parent: structure::Path,
@@ -118,6 +125,7 @@ impl Change {
     pub fn update_path(&self, path: &mut structure::Path) -> UpdatePathResult {
         match &self.ty {
             ChangeType::AlterNode { .. } => UpdatePathResult::Unmoved,
+            ChangeType::AlterNodesBulk { .. } => UpdatePathResult::Unmoved,
             ChangeType::InsertNode { parent, index: affected_index, child: _ } => {
                 if path.len() > parent.len() && path[0..parent.len()] == parent[..] {
                     let path_index = &mut path[parent.len()];
@@ -210,6 +218,7 @@ impl Change {
     pub fn update_range(&self, mut subject: structure::SiblingRange) -> UpdateRangeResult {
         match &self.ty {
             ChangeType::AlterNode { .. } => UpdateRangeResult::Unmoved(subject),
+            ChangeType::AlterNodesBulk { .. } => UpdateRangeResult::Unmoved(subject),
             
             ChangeType::InsertNode { parent, index, .. } => {
                 if subject.parent[..] == parent[..] {
@@ -300,6 +309,7 @@ impl Change {
                             UpdatePathResult::Unmoved | UpdatePathResult::Moved => Ok(self.ty),
                             UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
                         },
+                        ChangeType::AlterNodesBulk { .. } => Err(UpdateError::NotYetImplemented),
                         ChangeType::InsertNode { .. } => Err(UpdateError::NotYetImplemented),
                         ChangeType::Nest { range, extent, props } => match doc_change.update_range(range) {
                             UpdateRangeResult::Unmoved(range)
@@ -337,11 +347,21 @@ impl Change {
 
     fn apply_impl(&self, document: &mut document::Document) -> Result<(), ApplyErrorType> {
         match &self.ty {
-            ChangeType::AlterNode { path, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
+            ChangeType::AlterNode { path, props } => document.root = sync::Arc::new(rebuild_node_tree_visiting_path(&document.root, path.iter().cloned(), |target| {
                 target.props = props.clone();
                 Ok(())
             })?),
-            ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, path.iter().cloned(), |target| {
+            ChangeType::AlterNodesBulk { selection, prop_changes } => {
+                if !sync::Arc::ptr_eq(&selection.document.root, &document.root) {
+                    return Err(ApplyErrorType::InvalidParameters("selection was for a different document (or different version of the same document)"));
+                }
+                
+                document.root = sync::Arc::new(rebuild_node_tree_visiting_tree(selection, |target| {
+                    target.props.apply_changes(prop_changes.clone());
+                    Ok(())
+                })?);
+            }
+            ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => document.root = sync::Arc::new(rebuild_node_tree_visiting_path(&document.root, path.iter().cloned(), |target| {
                 /* Check at_child to make sure it's not farther than one-past the end. */
                 if *at_child > target.children.len() {
                     return Err(ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"));
@@ -370,7 +390,7 @@ impl Change {
 
                 Ok(())
             })?),
-            ChangeType::Nest { range, extent, props } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, range.parent.iter().cloned(), |parent_node| {
+            ChangeType::Nest { range, extent, props } => document.root = sync::Arc::new(rebuild_node_tree_visiting_path(&document.root, range.parent.iter().cloned(), |parent_node| {
                 /* Check range validity. */
                 range.check_validity(parent_node)?;
 
@@ -397,7 +417,7 @@ impl Change {
 
                 Ok(())
             })?),
-            ChangeType::Destructure { parent, child_index, num_grandchildren, offset } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, parent.iter().cloned(), |parent_node| {
+            ChangeType::Destructure { parent, child_index, num_grandchildren, offset } => document.root = sync::Arc::new(rebuild_node_tree_visiting_path(&document.root, parent.iter().cloned(), |parent_node| {
                 /* Check that we're trying to destructure a child that actually exists. */
                 if *child_index >= parent_node.children.len() {
                     return Err(ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"));
@@ -425,7 +445,7 @@ impl Change {
 
                 Ok(())
             })?),
-            ChangeType::DeleteRange { range } => document.root = sync::Arc::new(rebuild_node_tree(&document.root, range.parent.iter().cloned(), |parent_node| {
+            ChangeType::DeleteRange { range } => document.root = sync::Arc::new(rebuild_node_tree_visiting_path(&document.root, range.parent.iter().cloned(), |parent_node| {
                 /* Check range validity. */
                 range.check_validity(parent_node)?;
 
@@ -440,13 +460,13 @@ impl Change {
     }
 }
 
-fn rebuild_node_tree<F, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, ApplyErrorType> where
+fn rebuild_node_tree_visiting_path<F, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, ApplyErrorType> where
     F: FnOnce(&mut structure::Node) -> Result<(), ApplyErrorType> {
     match path_segment.next() {
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
             let child = &*target.children[index].node;
-            let new_child = rebuild_node_tree(child, path_segment, target_modifier)?;
+            let new_child = rebuild_node_tree_visiting_path(child, path_segment, target_modifier)?;
             let mut new_target = (*target).clone();
             new_target.children[index].node = sync::Arc::new(new_child);
             Ok(new_target)
@@ -458,6 +478,47 @@ fn rebuild_node_tree<F, Iter: std::iter::Iterator<Item = usize>>(target: &struct
             Ok(new_target)
         }
     }
+}
+
+struct TreeRewritingVisitor<F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType>>(F);
+
+impl<'a, F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType>> selection::tree::TreeVisitor<'a> for TreeRewritingVisitor<F> {
+    type NodeContext = structure::Node;
+    type VisitResult = Result<(), ApplyErrorType>;
+
+    fn root_context(&mut self, root: &'a sync::Arc<structure::Node>) -> Self::NodeContext {
+        (**root).clone()
+    }
+
+    fn descend<'b>(&mut self, _parent: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, _child_index: usize, _child_selected: bool) -> Option<Self::NodeContext> {
+        Some((**child).clone())
+    }
+
+    fn visit_child<'b>(&mut self, parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult {
+        let mut new_child = (**child).clone();
+        self.0(&mut new_child)?;
+        parent_context.children[child_index].node = sync::Arc::new(new_child);
+        Ok(())
+    }
+
+    fn visit<'b>(&mut self, context: &'b mut Self::NodeContext, _node: &'a sync::Arc<structure::Node>) -> Self::VisitResult {
+        self.0(context)
+    }
+
+    fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize) {
+        parent.children[child_index].node = sync::Arc::new(child);
+    }
+}
+
+fn rebuild_node_tree_visiting_tree<F>(tree: &selection::TreeSelection, target_visitor: F) -> Result<structure::Node, ApplyErrorType> where
+    F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType> {
+    let mut walker = tree.walker(TreeRewritingVisitor(target_visitor));
+
+    while let Some(r) = walker.visit_next() {
+        r?;
+    }
+
+    Ok(walker.take())
 }
 
 impl versioned::Change<document::Document> for Change {
@@ -511,6 +572,21 @@ mod tests {
         assert_eq!(path, vec![1, 0, 2]);
     }
 
+    #[test]
+    fn test_update_path_through_alter_nodes_bulk() {
+        let mut path = vec![1, 0, 2];
+
+        assert_eq!(Change {
+            ty: ChangeType::AlterNodesBulk {
+                selection: sync::Arc::new(selection::TreeSelection::new(sync::Arc::new(create_test_document_1()))),
+                prop_changes: structure::MaybeProperties::new(structure::Properties::default())
+            },
+            generation: 0,
+        }.update_path(&mut path), UpdatePathResult::Unmoved);
+        
+        assert_eq!(path, vec![1, 0, 2]);
+    }
+    
     #[test]
     fn test_update_path_through_insert_node() {
         let mut path = vec![1, 0, 2];
@@ -697,6 +773,7 @@ mod tests {
     fn update_path_exhaustiveness(ty: ChangeType) {
         match ty {
             ChangeType::AlterNode { .. } => test_update_path_through_alter_node(),
+            ChangeType::AlterNodesBulk { .. } => test_update_path_through_alter_nodes_bulk(),
             ChangeType::InsertNode { .. } => test_update_path_through_insert_node(),
             ChangeType::Nest { .. } => test_update_path_through_nest(),
             ChangeType::Destructure { .. } => test_update_path_through_destructure(),
@@ -759,6 +836,48 @@ mod tests {
         document::Document::new_for_structure_test(root)
     }
 
+    fn create_test_document_3() -> document::Document {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1.1")
+                          .size(0x10))
+                   .child(0x8, |b| b
+                          .name("child1.2")
+                          .size(0x10))
+                   .child(0xc, |b| b
+                          .name("child1.3")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4)
+                   .child(0x0, |b| b
+                          .name("child2.0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child2.1")
+                          .size(0x10))
+                   .child(0x8, |b| b
+                          .name("child2.2")
+                          .size(0x10))
+                   .child(0xc, |b| b
+                          .name("child2.3")
+                          .size(0x10)))
+            .build();
+
+        document::Document::new_for_structure_test(root)
+    }
+    
     #[test]
     fn test_structural_change_alter_node() {
         let mut doc = create_test_document_1();
@@ -776,6 +895,37 @@ mod tests {
         assert_eq!(doc.lookup_node(&vec![1, 0]).0.props.name, "modified");
     }
 
+    #[test]
+    fn test_structural_change_alter_nodes_bulk() {
+        let orig_doc = sync::Arc::new(create_test_document_3());
+
+        let mut selection = selection::TreeSelection::new(orig_doc.clone());
+        selection.add_single(&[]); /* root */
+        selection.add_single(&[1, 2]); /* child 1.2 */
+        selection.add_single(&[2]); /* child 2 */
+        
+        let props = structure::MaybeProperties::new_name("altered".to_string());
+        let mut doc = (*orig_doc).clone();
+        
+        Change {
+            ty: ChangeType::AlterNodesBulk { selection: sync::Arc::new(selection), prop_changes: props },
+            generation: doc.generation(),
+        }.apply(&mut doc).unwrap();
+
+        assert_eq!(doc.root.props.name, "altered");
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[0]).0, orig_doc.lookup_node(&[0]).0));
+        assert_eq!(doc.lookup_node(&[1]).0.props, orig_doc.lookup_node(&[1]).0.props);
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 0]).0, orig_doc.lookup_node(&[1, 0]).0));
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 1]).0, orig_doc.lookup_node(&[1, 1]).0));
+        assert_eq!(doc.lookup_node(&vec![1, 2]).0.props.name, "altered");
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 3]).0, orig_doc.lookup_node(&[1, 3]).0));
+        assert_eq!(doc.lookup_node(&vec![2]).0.props.name, "altered");
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 0]).0, orig_doc.lookup_node(&[2, 0]).0));
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 1]).0, orig_doc.lookup_node(&[2, 1]).0));
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 2]).0, orig_doc.lookup_node(&[2, 2]).0));
+        assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 3]).0, orig_doc.lookup_node(&[2, 3]).0));
+    }
+    
     #[test]
     fn test_structural_change_insert_node_preconditions() {
         let doc = create_test_document_1();
@@ -992,6 +1142,7 @@ mod tests {
     fn structural_change_exhaustiveness(ty: ChangeType) {
         match ty {
             ChangeType::AlterNode { .. } => test_structural_change_alter_node(),
+            ChangeType::AlterNodesBulk { .. } => test_structural_change_alter_nodes_bulk(),
             ChangeType::InsertNode { .. } => test_structural_change_insert_node(),
             ChangeType::Nest { .. } => test_structural_change_nest(),
             ChangeType::Destructure { .. } => test_structural_change_destructure(),

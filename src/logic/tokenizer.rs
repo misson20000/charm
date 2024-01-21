@@ -418,6 +418,7 @@ impl Tokenizer {
         /* Adjust the offset and index. */
         match &change.ty {
             change::ChangeType::AlterNode { .. } => {},
+            change::ChangeType::AlterNodesBulk { .. } => {},
             
             change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
                 /* A new child was added to the node we're on. */
@@ -544,6 +545,7 @@ impl Tokenizer {
         
         match &change.ty {
             change::ChangeType::AlterNode { .. } => state.push(child_index),
+            change::ChangeType::AlterNodesBulk { .. } => state.push(child_index),
             change::ChangeType::InsertNode { parent: path, index: after_child, child: _ } => {
                 if path == &state.current_path && child_index >= *after_child {
                     state.push(child_index + 1);
