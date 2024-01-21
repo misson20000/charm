@@ -896,6 +896,29 @@ impl ChildrenMode {
     }
 }
 
+impl std::fmt::Debug for Selection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TreeSelection [")?;
+
+        for (i, node) in self.node_iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            
+            if i > 5 {
+                f.write_str("...")?;
+                break;
+            }
+
+            f.write_fmt(format_args!("\"{}\"", node.props.name))?;
+        }
+
+        f.write_str("]")?;
+        
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
