@@ -370,16 +370,20 @@ impl WindowContext {
             clone!(@weak window => move |tree_selection_host, new_document| {
                 // TODO: catch panics, rescue by reopening document
                 if let Err((error, attempted_version)) = tree_selection_host.change(selection_model::tree::Change::DocumentUpdated(new_document.clone())) {
-                    /* tree::Change::DocumentUpdated should never fail, but if it ever does, report it as a bug. */
-                    window.report_error(error::Error {
-                        while_attempting: error::Action::TreeSelectionDocumentUpdate,
-                        trouble: error::Trouble::TreeSelectionUpdateFailure {
-                            error,
-                            attempted_version,
-                        },
-                        level: error::Level::Warning,
-                        is_bug: true,
-                    });
+                    match error {
+                        selection_model::tree::ApplyError::WasUpToDate => { /* ignore */ },
+
+                        /* DocumentUpdated shouldn't fail in any other way */
+                        error => window.report_error(error::Error {
+                            while_attempting: error::Action::TreeSelectionDocumentUpdate,
+                            trouble: error::Trouble::TreeSelectionUpdateFailure {
+                                error,
+                                attempted_version,
+                            },
+                            level: error::Level::Warning,
+                            is_bug: true,
+                        }),
+                    }
                 }
             }));
 

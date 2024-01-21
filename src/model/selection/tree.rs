@@ -393,7 +393,8 @@ pub struct ChangeRecord {
 
 #[derive(Debug, Clone)]
 pub enum ApplyError {
-    NodeDeleted
+    WasUpToDate,
+    NodeDeleted,
 }
 
 impl versioned::Versioned for Selection {
@@ -416,7 +417,11 @@ impl versioned::Change<Selection> for Change {
 
     fn apply(mut self, selection: &mut Selection) -> Result<(Change, ChangeRecord), ApplyError> {
         let record = match &mut self {
-            Change::DocumentUpdated(new_document) => selection.update_document(new_document),
+            Change::DocumentUpdated(new_document) => if selection.document.is_outdated(new_document) {
+                selection.update_document(new_document)
+            } else {
+                return Err(ApplyError::WasUpToDate);
+            },
 
             Change::Clear => {
                 selection.root = SparseNode {

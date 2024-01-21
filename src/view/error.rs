@@ -131,6 +131,7 @@ impl Error {
 
             Trouble::TreeSelectionUpdateFailure { error, attempted_version: _ } => {
                 match error {
+                    tree::ApplyError::WasUpToDate => write!(msg, "Attempted to update a selection to a new document version that it was already up to date with.\nThis should never be shown externally an error.")?,
                     tree::ApplyError::NodeDeleted => write!(msg, "Failed to make the requested change to the tree panel's selection because a requested node was deleted.\n")?,
                 }
             },
