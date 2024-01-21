@@ -139,27 +139,7 @@ impl<LV: LineView, Tokenizer: WindowTokenizer> Window<LV, Tokenizer> {
             return;
         }
 
-        let mut line = Line::new();
-
-        loop {
-            if !self.top.move_prev() {
-                break;
-            }
-
-            if match line.push_front(match self.top.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => continue,
-                tokenizer::TokenGenerationResult::Boundary => break,
-            }) {
-                LinePushResult::Accepted => continue,
-                LinePushResult::Completed => break,
-                LinePushResult::Rejected => true,
-                LinePushResult::BadPosition => false,
-            } {
-                assert!(self.top.move_next());
-                break;
-            }
-        }
+        let line = Line::prev_from_tokenizer(&mut self.top);
 
         if line.is_empty() {
             assert!(self.top.hit_top());
@@ -174,20 +154,7 @@ impl<LV: LineView, Tokenizer: WindowTokenizer> Window<LV, Tokenizer> {
             return;
         }
 
-        let mut line = Line::new();
-
-        loop {
-            match line.push_back(match self.bottom.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => if self.bottom.move_next() { continue } else { break },
-                tokenizer::TokenGenerationResult::Boundary => break,
-            }) {
-                LinePushResult::Accepted => self.bottom.move_next(),
-                LinePushResult::Completed => { self.bottom.move_next(); break },
-                LinePushResult::Rejected => break,
-                LinePushResult::BadPosition => self.bottom.move_next(),
-            };
-        }
+        let line = Line::next_from_tokenizer(&mut self.bottom);
         
         if line.is_empty() {
             assert!(self.bottom.hit_bottom());
@@ -288,12 +255,60 @@ impl<LV: LineView, Tokenizer: WindowTokenizer> Window<LV, Tokenizer> {
 }
 
 impl Line {
-    fn new() -> Self {
+    pub fn empty() -> Self {
         Line {
             ty: LineType::Empty
         }
     }
 
+    /// Returns the line ending at the tokenizer's current position, and moves the tokenizer to the beginning of that line.
+    pub fn prev_from_tokenizer(tokenizer: &mut impl WindowTokenizer) -> Self {
+        let mut line = Self::empty();
+
+        loop {
+            if !tokenizer.move_prev() {
+                break;
+            }
+
+            if match line.push_front(match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => token,
+                tokenizer::TokenGenerationResult::Skip => continue,
+                tokenizer::TokenGenerationResult::Boundary => break,
+            }) {
+                LinePushResult::Accepted => continue,
+                LinePushResult::Completed => break,
+                LinePushResult::Rejected => true,
+                LinePushResult::BadPosition => false,
+            } {
+                /* roll the state back */
+                assert!(tokenizer.move_next());
+                break;
+            }
+        }
+
+        line
+    }
+
+    /// Returns the line beginning at the tokenizer's current position, and moves the tokenizer to the end of that line.
+    pub fn next_from_tokenizer(tokenizer: &mut impl WindowTokenizer) -> Self {
+        let mut line = Line::empty();
+
+        loop {
+            match line.push_back(match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => token,
+                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
+                tokenizer::TokenGenerationResult::Boundary => break,
+            }) {
+                LinePushResult::Accepted => tokenizer.move_next(),
+                LinePushResult::Completed => { tokenizer.move_next(); break },
+                LinePushResult::Rejected => break,
+                LinePushResult::BadPosition => tokenizer.move_next(),
+            };
+        }
+
+        line
+    }
+    
     /// Returns true on success
     fn push_front(&mut self, token: token::Token) -> LinePushResult {
         let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), token) {
@@ -537,58 +552,42 @@ impl Line {
         result
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         match &self.ty {
             LineType::Empty => true,
             _ => false,
         }
     }
     
-    fn iter_tokens(&self) -> LineBorrowingTokenIterator<'_> {
+    pub fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
         /* These need a little bit of help to coerce properly. This may be a compiler bug? */
         let hexdump_mapper: for<'b> fn(&'b token::HexdumpToken) -> token::TokenRef<'b> = TokenKind::as_ref;
         let token_mapper: for<'b> fn(&'b token::Token) -> token::TokenRef<'b> = TokenKind::as_ref;
         
         match &self.ty {
-            LineType::Empty => util::PhiIterator::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t.as_ref())),
-            LineType::Title(t) => util::PhiIterator::I2(iter::once(t.as_ref())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIterator::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
+            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
+            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
         }
     }
 
-    fn into_iter(self) -> LineTokenIterator {
+    pub fn into_iter(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         /* These need a little bit of help to coerce properly. This may be a compiler bug? */
         let hexdump_mapper: fn(token::HexdumpToken) -> token::Token = TokenKind::into_token;
         
         match self.ty {
-            LineType::Empty => util::PhiIterator::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIterator::I2(iter::once(t.into_token())),
-            LineType::Title(t) => util::PhiIterator::I2(iter::once(t.into_token())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIterator::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIterator::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIterator::I5(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
+            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
+            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
         }
     }
 }
-
-type LineBorrowingTokenIterator<'a> = util::PhiIterator
-    <token::TokenRef<'a>,
-     iter::Empty<token::TokenRef<'a>>,
-     iter::Once<token::TokenRef<'a>>,
-     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Map<collections::vec_deque::Iter<'a, token::HexdumpToken>, for<'b> fn(&'b token::HexdumpToken) -> token::TokenRef<'b>>>,
-     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Once<token::TokenRef<'a>>>,
-     iter::Chain<std::option::IntoIter<token::TokenRef<'a>>, iter::Map<collections::vec_deque::Iter<'a, token::Token>, fn(&'a token::Token) -> token::TokenRef<'a>>>>;
-
-type LineTokenIterator = util::PhiIterator
-    <token::Token,
-     iter::Empty<token::Token>,
-     iter::Once<token::Token>,
-     iter::Chain<std::option::IntoIter<token::Token>, iter::Map<collections::vec_deque::IntoIter<token::HexdumpToken>, fn(token::HexdumpToken) -> token::Token>>,
-     iter::Chain<std::option::IntoIter<token::Token>, iter::Once<token::Token>>,
-     iter::Chain<std::option::IntoIter<token::Token>, collections::vec_deque::IntoIter<token::Token>>>;
 
 impl LineView for Line {
     fn from_line(line: Line) -> Self {
