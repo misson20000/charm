@@ -274,9 +274,17 @@ impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
                         self_selected: _,
                     }
                 )) => {
-                    /* Push current state onto the stack and descend into the child. */
+                    /* If neither the child nor any of its children are selected, skip as a special case. */
+                    /* This is sad, but helps TreeRewritingVisitor avoid rewriting parts of the tree that it doesn't have to. */
+                    let child_sparse = &vec[x];
                     let node = &self.current_struct.children[x].node;
-                    if let Some(new_context) = self.visitor.descend(&mut self.current_context, node, x, vec[x].self_selected) {
+                    if !child_sparse.self_selected && !child_sparse.descendants_maybe_selected(node) {
+                        self.child_index = Some(x + 1);
+                        continue;
+                    }
+                    
+                    /* Push current state onto the stack and descend into the child. */
+                    if let Some(new_context) = self.visitor.descend(&mut self.current_context, node, x, child_sparse.self_selected) {
                         self.child_index = None;
                         self.stack.push((
                             x,
