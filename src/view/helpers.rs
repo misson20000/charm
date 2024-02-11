@@ -33,7 +33,7 @@ where F: Fn(rc::Rc<T>) + 'static,
     action
 }
 
-pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
+pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::prelude::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = create_simple_action(obj, id, cb);
@@ -41,7 +41,7 @@ where F: Fn(rc::Rc<T>) + 'static,
     action
 }
 
-pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::traits::ActionMapExt, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
+pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::prelude::ActionMapExt, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
 where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {

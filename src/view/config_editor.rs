@@ -108,7 +108,7 @@ impl<'a> config::ItemVisitor<config::Config, gdk::RGBA> for ConfigEditorBuilder<
             .build();
 
         let changer = self.create_changer(&acc);
-        gtk::traits::ColorChooserExt::connect_rgba_notify(&cb, move |cb| changer(cb.rgba()));
+        gtk::prelude::ColorChooserExt::connect_rgba_notify(&cb, move |cb| changer(cb.rgba()));
 
         self.add_widget(acc, cb);
     }    

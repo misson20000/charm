@@ -158,10 +158,10 @@ mod imp {
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
             let info = self.info.get().unwrap().borrow();
             match pspec.name() {
-                "name" => glib::ToValue::to_value(&info.props.name),
-                "addr" => glib::ToValue::to_value(&format!("{}", info.address)),
-                "size" => glib::ToValue::to_value(&format!("{}", info.node.size)),
-                "children-display" => glib::ToValue::to_value(match info.props.children_display {
+                "name" => glib::value::ToValue::to_value(&info.props.name),
+                "addr" => glib::value::ToValue::to_value(&format!("{}", info.address)),
+                "size" => glib::value::ToValue::to_value(&format!("{}", info.node.size)),
+                "children-display" => glib::value::ToValue::to_value(match info.props.children_display {
                     structure::ChildrenDisplay::None => "n",
                     structure::ChildrenDisplay::Summary => "s",
                     structure::ChildrenDisplay::Full => "f",

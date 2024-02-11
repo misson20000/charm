@@ -186,7 +186,7 @@ mod imp {
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
             let interior = self.interior.get().unwrap();
             match pspec.name() {
-                "path-description" => glib::ToValue::to_value(&interior.path_description),
+                "path-description" => glib::value::ToValue::to_value(&interior.path_description),
                 _ => unimplemented!()
             }
         }
