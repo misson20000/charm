@@ -4,3 +4,4 @@ pub mod destructure;
 pub mod insert_node;
 pub mod navigate;
 pub mod nest;
+pub mod open_file;

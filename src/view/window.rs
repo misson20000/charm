@@ -251,7 +251,8 @@ impl CharmWindow {
         
         /* window actions */
 
-        helpers::bind_simple_action(&w, &w.window, "open", |w| w.action_open());
+        w.window.add_action(&action::open_file::create_action(&w));
+        
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
@@ -267,43 +268,6 @@ impl CharmWindow {
         });
 
         w
-    }
-    
-    fn action_open(self: &rc::Rc<Self>) {
-        let dialog = gtk::FileChooserDialog::new( // TODO (written pre gtk4): use FileChooserNative
-            Some("Charm: Open File"),
-            Option::<&gtk::ApplicationWindow>::None, // TODO: set this?
-            gtk::FileChooserAction::Open,
-            &[
-                ("_Cancel", gtk::ResponseType::Cancel),
-                ("_Open", gtk::ResponseType::Accept)
-            ]);
-        dialog.set_select_multiple(true);
-
-        dialog.connect_response(clone!(@strong self as window => move |dialog, response_type| {
-            match response_type {
-                gtk::ResponseType::Accept => {
-                    window.close_file();
-                    
-                    for file in &dialog.files() {
-                        let file = file.expect("list model should not be modified during iteration");
-                        
-                        if window.context.borrow().is_some() {
-                            /* open a new window if this window already has something open in it */
-                            let window = window.application.new_window();
-                            window.open_file(&file.downcast().unwrap());
-                            window.present();
-                        } else {
-                            window.open_file(&file.downcast().unwrap());
-                            window.present();
-                        }
-                    }
-                },
-                _ => {} /* we were cancelled, ignore */
-            }
-            dialog.close();
-        }));
-        dialog.present();
     }
     
     pub fn present(&self) {
@@ -330,6 +294,10 @@ impl CharmWindow {
             
             new_context.lw.grab_focus();
         }
+    }
+
+    pub fn has_file_open(&self) -> bool {
+        self.context.borrow().is_some()
     }
     
     pub fn close_file(&self) {
