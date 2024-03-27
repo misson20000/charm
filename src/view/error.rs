@@ -6,6 +6,7 @@ use crate::model;
 use crate::model::document;
 use crate::model::selection::listing;
 use crate::model::selection::tree;
+use crate::serialization;
 use crate::view::window;
 
 use gtk::prelude::*;
@@ -26,6 +27,9 @@ pub enum Action {
 
     ModifyTreeSelection,
     RubberBandSelection,
+
+    SaveProject,
+    OpenProject,
 }
 
 pub enum Trouble {
@@ -46,6 +50,9 @@ pub enum Trouble {
         error: model::addr::AddressParseError,
         address: String,
     },
+    GlibIoError(gtk::glib::Error),
+    ProjectSerializationFailure(serialization::SerializationError),
+    ProjectDeserializationFailure(serialization::DeserializationError),
 }
 
 pub enum Level {
@@ -77,6 +84,9 @@ impl Error {
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
+            
+            Action::SaveProject => "Failed to save project.",
+            Action::OpenProject => "Failed to open project.",
         }.to_string()
     }
 
@@ -147,8 +157,24 @@ impl Error {
                     model::addr::AddressParseError::TooManyBits => write!(msg, "a bit was specified outside of 0-7.\n")?,
                 }
             },
-        };
 
+            Trouble::GlibIoError(error) => {
+                write!(msg, "I/O error while writing to file: {}\n", error)?
+            },
+
+
+            Trouble::ProjectSerializationFailure(error) => {
+                write!(msg, "Failed to serialize project: {}\n", error)?
+            },
+
+            Trouble::ProjectDeserializationFailure(error) => {
+                match error {
+                    serialization::DeserializationError::InvalidMagic => write!(msg, "Invalid magic number. Is this file actually a charm project?\n")?,
+                    serialization::DeserializationError::UnsupportedVersion(v) => write!(msg, "Unsuppoted project version {}\n", v)?,
+                    serialization::DeserializationError::BincodeError(e) => write!(msg, "Corrupt project file: {}\n", e)?,
+                }
+            },
+        };
         Ok(())
     }
 

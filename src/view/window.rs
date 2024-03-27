@@ -14,6 +14,7 @@ use crate::view::helpers;
 use crate::view::hierarchy;
 use crate::view::selection;
 use crate::view::props_editor;
+use crate::serialization;
 
 use gtk::gio;
 use gtk::glib;
@@ -34,11 +35,14 @@ pub struct CharmWindow {
 }
 
 pub struct WindowContext {
+    /// The window this context belongs to.
+    pub window: rc::Weak<CharmWindow>,
+
+    /* Information about the file that is open. */
     pub document_host: sync::Arc<document::DocumentHost>,
     pub tree_selection_host: sync::Arc<selection_model::tree::Host>,
     pub listing_selection_host: sync::Arc<selection_model::listing::Host>,
-    
-    pub window: rc::Weak<CharmWindow>,
+    pub project_file: cell::RefCell<Option<gio::File>>,
     
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
@@ -66,6 +70,9 @@ impl CharmWindow {
                 let file_menu = gio::Menu::new();
                 file_menu.append(Some("New Window"), Some("app.new_window"));
                 file_menu.append(Some("Open File..."), Some("win.open"));
+                file_menu.append(Some("Open Project..."), Some("win.open_project"));
+                file_menu.append(Some("Save Project"), Some("win.save_project"));
+                file_menu.append(Some("Save Project As..."), Some("win.save_project_as"));
                 file_menu.append(Some("Export patches (IPS)..."), Some("listing.export_ips"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
@@ -252,6 +259,12 @@ impl CharmWindow {
         /* window actions */
 
         w.window.add_action(&action::open_file::create_action(&w));
+
+        let (action_save, action_save_as) = action::save_project::create_actions(&w);
+        w.window.add_action(&action_save);
+        w.window.add_action(&action_save_as);
+
+        w.window.add_action(&action::open_project::create_action(&w));
         
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
@@ -300,6 +313,10 @@ impl CharmWindow {
         self.context.borrow().is_some()
     }
     
+    pub fn context(&self) -> cell::Ref<Option<WindowContext>> {
+        self.context.borrow()
+    }
+
     pub fn close_file(&self) {
         self.attach_context(None);
     }
@@ -320,9 +337,40 @@ impl CharmWindow {
             .load_space(space)
             .build();
         
-        self.attach_context(Some(WindowContext::new(self, doc)));
+        self.attach_context(Some(WindowContext::new(self, doc, None)));
     }
 
+    pub fn open_project(self: &rc::Rc<Self>, project_file: gio::File) {
+        let e = match self.try_open_project(project_file) {
+            Ok(()) => return,
+            Err(e) => e
+        };
+
+        match e {
+            OpenProjectError::IoError(e) => self.report_error(error::Error {
+                while_attempting: error::Action::OpenProject,
+                trouble: error::Trouble::GlibIoError(e),
+                level: error::Level::Error,
+                is_bug: false,
+            }),
+            OpenProjectError::DeserializationError(e) => self.report_error(error::Error {
+                while_attempting: error::Action::OpenProject,
+                trouble: error::Trouble::ProjectDeserializationFailure(e),
+                level: error::Level::Error,
+                is_bug: false,
+            }),
+        };
+    }
+
+    fn try_open_project(self: &rc::Rc<Self>, project_file: gio::File) -> Result<(), OpenProjectError> {
+        let (bytes, _string) = project_file.load_bytes(gio::Cancellable::NONE)?;
+        let document = serialization::deserialize_project(bytes.as_ref())?;
+        
+        self.attach_context(Some(WindowContext::new(self, document, Some(project_file))));
+
+        Ok(())
+    }
+    
     pub fn report_error(&self, error: error::Error) {
         let dialog = error.create_dialog(self);
         dialog.present();
@@ -330,7 +378,7 @@ impl CharmWindow {
 }
 
 impl WindowContext {
-    pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document) -> WindowContext {
+    pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document, project_file: Option<gio::File>) -> WindowContext {
         let document_host = sync::Arc::new(document::DocumentHost::new(document));
         let document = document_host.get();
         let tree_selection_host = sync::Arc::new(selection_model::tree::Host::new(selection_model::TreeSelection::new(document.clone())));
@@ -391,11 +439,12 @@ impl WindowContext {
         let tree_selection_model = selection::TreeSelectionModel::new(window, tree_selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
+            window: rc::Rc::downgrade(window),
+            
             document_host,
             tree_selection_host,
             listing_selection_host,
-            
-            window: rc::Rc::downgrade(window),
+            project_file: cell::RefCell::new(project_file),
             
             lw,
             datapath_model,
@@ -419,5 +468,81 @@ impl WindowContext {
         wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
         
         wc
+    }
+
+    pub fn save_project(&self, project_file: gio::File) {
+        let e = match self.try_save_project(project_file) {
+            Ok(()) => return,
+            Err(e) => e
+        };
+
+        let window = match self.window.upgrade() {
+            Some(window) => window,
+            None => return /* vanish this error into the ether... */
+        };
+        
+        match e {
+            SaveProjectError::IoError(e) => window.report_error(error::Error {
+                while_attempting: error::Action::SaveProject,
+                trouble: error::Trouble::GlibIoError(e),
+                level: error::Level::Error,
+                is_bug: false,
+            }),
+            SaveProjectError::SerializationError(e) => window.report_error(error::Error {
+                while_attempting: error::Action::SaveProject,
+                trouble: error::Trouble::ProjectSerializationFailure(e),
+                level: error::Level::Error,
+                /* projects shouldn't fail to serialize... this indicates a bug */
+                is_bug: true,
+            }),
+        };
+    }
+
+    fn try_save_project(&self, project_file: gio::File) -> Result<(), SaveProjectError> {
+        let bytes = serialization::serialize_project(&**self.document_host.borrow())?;
+
+        project_file.replace_contents(&bytes[..], None, false, gio::FileCreateFlags::REPLACE_DESTINATION, gio::Cancellable::NONE)?;
+
+        let mut guard = self.project_file.borrow_mut();
+        
+        if guard.as_ref() != Some(&project_file) {
+            *guard = Some(project_file);
+        }
+        
+        Ok(())
+    }
+}
+
+pub enum SaveProjectError {
+    IoError(glib::error::Error),
+    SerializationError(serialization::SerializationError),
+}
+
+impl From<glib::error::Error> for SaveProjectError {
+    fn from(e: glib::error::Error) -> SaveProjectError {
+        SaveProjectError::IoError(e)
+    }
+}
+
+impl From<serialization::SerializationError> for SaveProjectError {
+    fn from(e: serialization::SerializationError) -> SaveProjectError {
+        SaveProjectError::SerializationError(e)
+    }
+}
+
+pub enum OpenProjectError {
+    IoError(glib::error::Error),
+    DeserializationError(serialization::DeserializationError),
+}
+
+impl From<glib::error::Error> for OpenProjectError {
+    fn from(e: glib::error::Error) -> OpenProjectError {
+        OpenProjectError::IoError(e)
+    }
+}
+
+impl From<serialization::DeserializationError> for OpenProjectError {
+    fn from(e: serialization::DeserializationError) -> OpenProjectError {
+        OpenProjectError::DeserializationError(e)
     }
 }
