@@ -75,6 +75,15 @@ impl Document {
         }
     }
 
+    pub fn from_root_and_datapath(root: sync::Arc<structure::Node>, datapath: datapath::DataPath) -> Document {
+        Document {
+            root,
+            datapath,
+
+            version: Default::default(),
+        }
+    }
+    
     pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
         let xml = std::fs::read_to_string(path)?;
         let xml = roxmltree::Document::parse(&xml)?;

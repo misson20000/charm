@@ -50,6 +50,7 @@ impl CharmApplication {
         /* accelerators */
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
+        app.application.set_accels_for_action("win.save_project", &["<Ctrl>S"]);
         app.application.set_accels_for_action("win.cancel", &["Escape"]);
         app.application.set_accels_for_action("ctx.insert_byte", &["B"]);
         app.application.set_accels_for_action("ctx.insert_word", &["W"]);

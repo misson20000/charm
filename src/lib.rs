@@ -14,3 +14,5 @@ pub mod logic;
 
 #[cfg(feature = "gtk")]
 pub mod view;
+
+pub mod serialization;

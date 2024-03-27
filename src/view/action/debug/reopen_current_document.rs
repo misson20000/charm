@@ -26,7 +26,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
 impl ReopenCurrentDocumentAction {    
     fn activate(&self) {
         if let Some(window) = self.window.upgrade() {
-            window.attach_context(Some(window::WindowContext::new(&window, (**self.document_host.borrow()).clone())));
+            window.attach_context(Some(window::WindowContext::new(&window, (**self.document_host.borrow()).clone(), None)));
         }
     }
 }
