@@ -593,7 +593,7 @@ mod tests {
                               .size(0x8)))
                 .build();
             
-            let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::new_for_structure_test(root)));
+            let document_host = sync::Arc::new(document::Builder::new(root).host());
             let mut document = document_host.get();
             
             let tlm = create_tree_list_model(document_host.clone(), document.clone(), true);

@@ -8,7 +8,7 @@ use std::vec;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::selection;
-use crate::model::space::AddressSpace;
+use crate::model::space;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -18,6 +18,11 @@ pub struct Document {
     pub datapath: datapath::DataPath,
 
     version: versioned::Version<Document>,
+}
+
+pub struct Builder {
+    root: sync::Arc<structure::Node>,
+    datapath: datapath::DataPath,
 }
 
 impl versioned::Versioned for Document {
@@ -52,29 +57,56 @@ impl From<roxmltree::Error> for LoadForTestingError {
     }
 }
 
-impl Document {
-    pub fn new(space: sync::Arc<AddressSpace>, runtime: tokio::runtime::Handle) -> Document {
-        let mut datapath = datapath::DataPath::new();
-        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0, runtime).to_filter());
-        
-        Document {
-            root: sync::Arc::new(structure::Node {
-                size: addr::unit::MAX,
-                props: structure::Properties {
-                    name: "root".to_string(),
-                    title_display: structure::TitleDisplay::Major,
-                    children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::default(),
-                    locked: true,
-                },
-                children: vec::Vec::new()
-            }),
-            datapath,
+impl Builder {
+    pub fn default() -> Self {
+        Self::new(sync::Arc::new(structure::Node {
+            size: addr::unit::MAX,
+            props: structure::Properties {
+                name: "root".to_string(),
+                title_display: structure::TitleDisplay::Major,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::default(),
+                locked: true,
+            },
+            children: vec::Vec::new()
+        }))
+    }
+    
+    pub fn new(root: sync::Arc<structure::Node>) -> Self {
+        Builder {
+            root,
+            datapath: datapath::DataPath::new(),
+        }
+    }
 
+    pub fn datapath(mut self, dp: datapath::DataPath) -> Self {
+        self.datapath = dp;
+        self
+    }
+
+    pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>, runtime: tokio::runtime::Handle) -> Self {
+        self.datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0, runtime).to_filter());
+        self
+    }
+
+    pub fn build(self) -> Document {
+        Document {
+            root: self.root,
+            datapath: self.datapath,
             version: Default::default(),
         }
     }
 
+    pub fn arc(self) -> sync::Arc<Document> {
+        sync::Arc::new(self.build())
+    }
+
+    pub fn host(self) -> DocumentHost {
+        DocumentHost::new(self.build())
+    }
+}
+
+impl Document {
     pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
         let xml = std::fs::read_to_string(path)?;
         let xml = roxmltree::Document::parse(&xml)?;
@@ -85,33 +117,6 @@ impl Document {
             datapath: datapath::DataPath::new(),
             version: Default::default(),
         })
-    }
-
-    #[cfg(test)]
-    pub fn new_for_structure_test(root: sync::Arc<structure::Node>) -> Document {
-        Document {
-            root,
-            datapath: datapath::DataPath::new(),
-            version: Default::default(),
-        }
-    }
-    
-    pub fn invalid() -> Document {
-        Document {
-            root: sync::Arc::new(structure::Node {
-                size: addr::unit::MAX,
-                props: structure::Properties {
-                    name: "root".to_string(),
-                    title_display: structure::TitleDisplay::Major,
-                    children_display: structure::ChildrenDisplay::Full,
-                    content_display: structure::ContentDisplay::default(),
-                    locked: true,
-                },
-                children: vec::Vec::new()
-            }),
-            datapath: datapath::DataPath::new(),
-            version: Default::default(),
-        }
     }
 
     pub fn lookup_node(&self, path: structure::PathSlice) -> (&sync::Arc<structure::Node>, addr::Address) {
@@ -298,7 +303,7 @@ mod tests {
                    .size(0x4))
             .build();
 
-        let d = Document::new_for_structure_test(root);
+        let d = Builder::new(root).build();
 
         assert_eq!(d.describe_path(&vec![]), "root");
         assert_eq!(d.describe_path(&vec![0]), "root.child0");

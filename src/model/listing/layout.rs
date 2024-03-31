@@ -817,7 +817,7 @@ mod tests {
     
     #[test]
     fn scroll_around() {
-        let document = sync::Arc::new(document::Document::invalid());
+        let document = document::Builder::default().arc();
         let mut window = Window::<Line>::new(document);
         
         window.resize(5);
@@ -845,7 +845,7 @@ mod tests {
     
     #[test]
     fn bonk_top() {
-        let document = sync::Arc::new(document::Document::invalid());
+        let document = document::Builder::default().arc();
         let mut window = Window::<Line>::new(document);
         
         window.resize(5);
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn graze_top() {
-        let document = sync::Arc::new(document::Document::invalid());
+        let document = document::Builder::default().arc();
         let mut window = Window::<Line>::new(document);
 
         window.resize(2);

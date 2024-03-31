@@ -174,7 +174,7 @@ mod tests {
                    .size(0x4))
             .build();
 
-        sync::Arc::new(document::Document::new_for_structure_test(root))
+        document::Builder::new(root).arc()
     }
     
     #[test]

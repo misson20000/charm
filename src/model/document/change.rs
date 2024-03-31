@@ -803,7 +803,7 @@ mod tests {
                    .size(0x4))
             .build();
 
-        document::Document::new_for_structure_test(root)
+        document::Builder::new(root).build()
     }
 
     fn create_test_document_2() -> document::Document {
@@ -833,7 +833,7 @@ mod tests {
                    .size(0x4))
             .build();
 
-        document::Document::new_for_structure_test(root)
+        document::Builder::new(root).build()
     }
 
     fn create_test_document_3() -> document::Document {
@@ -875,7 +875,7 @@ mod tests {
                           .size(0x10)))
             .build();
 
-        document::Document::new_for_structure_test(root)
+        document::Builder::new(root).build()
     }
     
     #[test]
