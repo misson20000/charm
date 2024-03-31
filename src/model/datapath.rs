@@ -5,6 +5,7 @@ use std::task;
 use std::vec;
 
 use crate::model::space;
+use crate::model::space::AddressSpaceExt;
 use crate::util;
 
 extern crate imbl;
@@ -228,7 +229,7 @@ pub struct LoadSpaceFilter {
     pub load_offset: u64,
     pub space_offset: u64,
     pub size: Option<u64>, /* None means unbounded */
-    cache: sync::Arc<SpaceCache>,
+    cache: sync::Arc<space::cache::SpaceCache>,
 }
 
 #[derive(Clone, Debug)]
@@ -250,20 +251,8 @@ pub struct InsertFilter {
     pub bytes: vec::Vec<u8>,
 }
 
-enum SpaceCacheEntry {
-    Pending(std::pin::Pin<Box<dyn futures::Future<Output = space::FetchResult> + Send + Sync>>),
-    Finished(space::FetchResult),
-}
-
-struct SpaceCache {
-    block_size: u64,
-    space: sync::Arc<dyn space::AddressSpace>,
-    /* no RwLock here; LruCache mutates on read */
-    lru: parking_lot::Mutex<lru::LruCache<u64, SpaceCacheEntry>>,
-}
-
 impl LoadSpaceFilter {
-    pub fn new(space: sync::Arc<dyn space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
+    pub fn new(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64, runtime: tokio::runtime::Handle) -> LoadSpaceFilter {
         // TODO: make this const when const unwrap gets stabilized
         //       https://github.com/rust-lang/rust/issues/67441
         //const block_count: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1024).unwrap();
@@ -273,7 +262,7 @@ impl LoadSpaceFilter {
             load_offset,
             space_offset,
             size: None,
-            cache: sync::Arc::new(SpaceCache::new(space, 0x1000, block_count)), // 4 MiB cache is plenty
+            cache: sync::Arc::new(space::cache::SpaceCache::new(space, 0x1000, block_count, runtime)), // 4 MiB cache is plenty
         }
     }
     
@@ -307,19 +296,19 @@ impl LoadSpaceFilter {
 
                 let block = match current_block {
                     Some((addr, block)) if addr == required_block_addr => block,
-                    _ => self.cache.fetch_block_with_guard(required_block_addr, &mut lru_guard, cx),
+                    _ => self.cache.fetch_block_with_lock(required_block_addr, &mut lru_guard, cx),
                 };
                 
                 br.loaded = true;
                 
                 match &*block {
-                    SpaceCacheEntry::Pending(_) => br.pending = true,
-                    SpaceCacheEntry::Finished(space::FetchResult::Ok(bytes)) => br.value = bytes[(self.convert_to_space(overlap.addr + i as u64) - required_block_addr) as usize],
-                    SpaceCacheEntry::Finished(space::FetchResult::Partial(bytes)) => match bytes.get((self.convert_to_space(overlap.addr + i as u64) - required_block_addr) as usize) {
+                    space::cache::SpaceCacheEntry::Pending(_) => br.pending = true,
+                    space::cache::SpaceCacheEntry::Finished(space::FetchResult::Ok(bytes)) => br.value = bytes[(self.convert_to_space(overlap.addr + i as u64) - required_block_addr) as usize],
+                    space::cache::SpaceCacheEntry::Finished(space::FetchResult::Partial(bytes)) => match bytes.get((self.convert_to_space(overlap.addr + i as u64) - required_block_addr) as usize) {
                         Some(b) => br.value = *b,
                         None => br.error = true,
                     },
-                    SpaceCacheEntry::Finished(_) => br.error = true,
+                    space::cache::SpaceCacheEntry::Finished(_) => br.error = true,
                 }
                 
                 current_block = Some((required_block_addr, block));
@@ -528,69 +517,5 @@ impl InsertFilter {
     
     pub fn to_filter(self) -> Filter {
         Filter::Insert(self)
-    }
-}
-
-impl SpaceCache {
-    fn new(space: sync::Arc<dyn space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
-        SpaceCache {
-            block_size,
-            space,
-            lru: parking_lot::Mutex::new(lru::LruCache::new(block_count)),
-        }
-    }
-    
-    fn fetch_block<'a>(&'a self, addr: u64, cx: &mut task::Context) -> parking_lot::MappedMutexGuard<'a, SpaceCacheEntry> {
-        parking_lot::MutexGuard::map(self.lock(), |lru_guard| self.fetch_block_with_guard(addr, lru_guard, cx))
-    }
-
-    fn lock(&self) -> parking_lot::MutexGuard<'_, lru::LruCache<u64, SpaceCacheEntry>> {
-        self.lru.lock()
-    }
-    
-    fn fetch_block_with_guard<'a, 'b>(&'a self, addr: u64, lru_guard: &'b mut lru::LruCache<u64, SpaceCacheEntry>, cx: &mut task::Context) -> &'b mut SpaceCacheEntry {
-        assert!(addr % self.block_size == 0, "misaligned address");
-
-        if !lru_guard.contains(&addr) {
-            let mut entry = SpaceCacheEntry::Pending(self.space.clone().fetch((addr, self.block_size)));
-            entry.poll(cx);
-            
-            lru_guard.put(addr, entry);
-        }
-                
-        lru_guard.get_mut(&addr).unwrap()
-    }
-
-    fn poll_blocks(&self, cx: &mut task::Context) {
-        let mut lru_guard = self.lru.lock();
-        
-        for (_, entry) in lru_guard.iter_mut() {
-            entry.poll(cx);
-        }
-    }
-}
-
-impl SpaceCacheEntry {
-    fn poll(&mut self, cx: &mut task::Context) {
-        take_mut::take(self, |entry| match entry {
-            SpaceCacheEntry::Pending(mut future) => match future.as_mut().poll(cx) {
-                task::Poll::Ready(result) => SpaceCacheEntry::Finished(result),
-                task::Poll::Pending => SpaceCacheEntry::Pending(future),
-            },
-            SpaceCacheEntry::Finished(result) => SpaceCacheEntry::Finished(result),
-        });
-    }
-
-    fn is_finished(&self) -> bool {
-        match self {
-            SpaceCacheEntry::Pending(_) => false,
-            SpaceCacheEntry::Finished(_) => true,
-        }
-    }
-}
-
-impl std::fmt::Debug for SpaceCache {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        Ok(())
     }
 }

@@ -312,12 +312,12 @@ impl CharmWindow {
             space::file::FileAddressSpace::open(
                 self.application.rt.handle().clone(),
                 &file.path().unwrap(),
-                &dn).unwrap(),
+                &dn).unwrap().into(),
         );
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling
-        self.attach_context(Some(WindowContext::new(self, document::Document::new(space))));
+        self.attach_context(Some(WindowContext::new(self, document::Document::new(space, self.application.rt.handle().clone()))));
     }
 
     pub fn report_error(&self, error: error::Error) {
