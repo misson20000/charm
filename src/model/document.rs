@@ -53,9 +53,9 @@ impl From<roxmltree::Error> for LoadForTestingError {
 }
 
 impl Document {
-    pub fn new(space: sync::Arc<dyn AddressSpace + Send + Sync>) -> Document {
+    pub fn new(space: sync::Arc<AddressSpace>, runtime: tokio::runtime::Handle) -> Document {
         let mut datapath = datapath::DataPath::new();
-        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
+        datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0, runtime).to_filter());
         
         Document {
             root: sync::Arc::new(structure::Node {

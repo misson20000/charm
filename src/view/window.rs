@@ -329,12 +329,12 @@ impl CharmWindow {
             space::file::FileAddressSpace::open(
                 self.application.rt.handle().clone(),
                 &file.path().unwrap(),
-                &dn).unwrap(),
+                &dn).unwrap().into(),
         );
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling
-        self.attach_context(Some(WindowContext::new(self, document::Document::new(space), None)));
+        self.attach_context(Some(WindowContext::new(self, document::Document::new(space, self.application.rt.handle().clone()), None)));
     }
 
     pub fn open_project(self: &rc::Rc<Self>, project_file: gio::File) {
