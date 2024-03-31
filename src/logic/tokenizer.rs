@@ -1758,7 +1758,7 @@ mod tests {
                    .size(0x4))
             .build();
  
-        let old_doc = document::Document::new_for_structure_test(root);
+        let old_doc = document::Builder::new(root).build();
         let mut new_doc = old_doc.clone();
         new_doc.change_for_debug(old_doc.delete_range(structure::SiblingRange::new(vec![1], 1, 2))).unwrap();
         

@@ -437,7 +437,7 @@ mod tests {
     
     #[test]
     fn node_insertion() {
-        let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::invalid()));
+        let document_host = sync::Arc::new(document::Builder::default().host());
         let mut document = document_host.get();
         let mut cursor = Cursor::new(document.clone()).unwrap();
 
@@ -525,7 +525,7 @@ mod tests {
 
     #[test]
     fn node_insertion_simpler() {
-        let document_host = sync::Arc::new(document::DocumentHost::new(document::Document::invalid()));
+        let document_host = sync::Arc::new(document::Builder::default().host());
         let mut document = document_host.get();
         let mut cursor = Cursor::new(document.clone()).unwrap();
 

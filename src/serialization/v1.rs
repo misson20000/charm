@@ -86,7 +86,9 @@ impl From<&document::Document> for Document {
 
 impl Into<document::Document> for Document {
     fn into(self) -> document::Document {
-        document::Document::from_root_and_datapath(self.root, self.datapath)
+        document::Builder::new(self.root)
+            .datapath(self.datapath)
+            .build()
     }
 }
 

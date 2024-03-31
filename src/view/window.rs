@@ -334,7 +334,12 @@ impl CharmWindow {
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling
-        self.attach_context(Some(WindowContext::new(self, document::Document::new(space, self.application.rt.handle().clone()), None)));
+
+        let doc = document::Builder::default()
+            .load_space(space, self.application.rt.handle().clone())
+            .build();
+        
+        self.attach_context(Some(WindowContext::new(self, doc, None)));
     }
 
     pub fn open_project(self: &rc::Rc<Self>, project_file: gio::File) {

@@ -958,7 +958,7 @@ mod tests {
     #[test]
     fn test_create_sparse_node_for_single() {
         let root = create_simple_test_structure();
-        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+        let document = document::Builder::new(root).arc();
 
         for path in [
             /* Test SparseNode::new_single for each of these paths */
@@ -982,7 +982,7 @@ mod tests {
     #[test]
     fn test_add_single() {
         let root = create_simple_test_structure();
-        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+        let document = document::Builder::new(root).arc();
 
         let paths = [
             vec![0],
@@ -1021,7 +1021,7 @@ mod tests {
     #[test]
     fn test_remove_single() {
         let root = create_simple_test_structure();
-        let document = sync::Arc::new(document::Document::new_for_structure_test(root));
+        let document = document::Builder::new(root).arc();
 
         let paths = vec![
             vec![],
@@ -1171,7 +1171,7 @@ mod tests {
             };
 
             let selection = Selection {
-                document: sync::Arc::new(document::Document::new_for_structure_test(root)),
+                document: document::Builder::new(root).arc(),
                 root: root_sparse,
                 version: Default::default(),
             };
