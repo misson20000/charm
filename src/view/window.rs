@@ -4,6 +4,7 @@ use std::sync;
 
 use crate::view::CharmApplication;
 use crate::model::addr;
+use crate::model::datapath;
 use crate::model::document;
 use crate::model::selection as selection_model;
 use crate::model::space;
@@ -365,6 +366,16 @@ impl CharmWindow {
     fn try_open_project(self: &rc::Rc<Self>, project_file: gio::File) -> Result<(), OpenProjectError> {
         let (bytes, _string) = project_file.load_bytes(gio::Cancellable::NONE)?;
         let document = serialization::deserialize_project(bytes.as_ref())?;
+
+        /* Open any FileAddressSpaces that don't try to get opened during deserialization. */
+        for filter in &document.datapath {
+            match filter {
+                datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
+                    space::AddressSpace::File(f) => f.open(),
+                },
+                _ => {}
+            }
+        }
         
         self.attach_context(Some(WindowContext::new(self, document, Some(project_file))));
 
