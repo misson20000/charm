@@ -8,38 +8,57 @@ use crate::model::space;
 #[cfg(feature = "gtk")]
 use crate::view::config;
 
-struct Inner {
-    file: std::fs::File,
+enum State {
+    Open(std::fs::File),
+    Closed,
+    Error(std::io::Error),
 }
 
 pub struct FileAddressSpace {
-    inner: sync::RwLock<Inner>,
-    label: string::String,
+    inner: sync::RwLock<State>,
+    pub path: std::path::PathBuf,
+    pub label: string::String,
 }
 
 impl FileAddressSpace {
-    pub fn open(path: &'_ std::path::PathBuf, label: &str) -> std::io::Result<FileAddressSpace> {
-        Ok(FileAddressSpace {
-            inner: sync::RwLock::<Inner>::new(Inner {
-                file: std::fs::File::open(path)?,
-            }),
+    pub fn new(path: std::path::PathBuf, label: &str) -> FileAddressSpace {
+        FileAddressSpace {
+            inner: sync::RwLock::<State>::new(State::Closed),
+            path,
             label: label.to_string(),
-        })
+        }
+    }
+
+    pub fn open(&self) {
+        let mut guard = self.inner.write().unwrap();
+
+        match &*guard {
+            State::Open(_) => {},
+            State::Closed | State::Error(_) => *guard = match std::fs::File::open(&self.path) {
+                Ok(f) => State::Open(f),
+                Err(e) => State::Error(e),
+            },
+        }
     }
 
     fn read_sync(&self, offset: u64, mut out: vec::Vec<u8>) -> space::FetchResult {
         let mut inner = self.inner.write().unwrap();
-        (*inner).file.seek(std::io::SeekFrom::Start(offset))
-            .and_then(|_| (*inner).file.read(&mut out[..]))
-            .map(|r| {
-                match r {
-                    i if i == out.len() => space::FetchResult::Ok(out),
-                    0 => space::FetchResult::Unreadable,
-                    i => {
-                        out.truncate(i);
-                        space::FetchResult::Partial(out)
-                    }
-                }}).unwrap_or_else(space::FetchResult::IoError)
+
+        match &mut *inner {
+            State::Open(file) => file.seek(std::io::SeekFrom::Start(offset))
+                .and_then(|_| file.read(&mut out[..]))
+                .map(|r| {
+                    match r {
+                        i if i == out.len() => space::FetchResult::Ok(out),
+                        0 => space::FetchResult::Unreadable,
+                        i => {
+                            out.truncate(i);
+                            space::FetchResult::Partial(out)
+                        }
+                    }}).unwrap_or_else(space::FetchResult::IoError),
+            
+            _ => space::FetchResult::Unreadable,
+        }
    }
 }
 

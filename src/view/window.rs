@@ -308,11 +308,10 @@ impl CharmWindow {
         let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
         let dn = attributes.attribute_as_string("standard::display-name").unwrap();
 
-        let space = std::sync::Arc::new(
-            space::file::FileAddressSpace::open(
-                &file.path().unwrap(),
-                &dn).unwrap().into(),
-        );
+        let fas = space::file::FileAddressSpace::new(file.path().unwrap(), &dn);
+        fas.open();
+        
+        let space = std::sync::Arc::new(fas.into());
 
         self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
         // TODO: error handling
