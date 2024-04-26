@@ -310,7 +310,6 @@ impl CharmWindow {
 
         let space = std::sync::Arc::new(
             space::file::FileAddressSpace::open(
-                self.application.rt.handle().clone(),
                 &file.path().unwrap(),
                 &dn).unwrap().into(),
         );
@@ -319,7 +318,7 @@ impl CharmWindow {
         // TODO: error handling
 
         let doc = document::Builder::default()
-            .load_space(space, self.application.rt.handle().clone())
+            .load_space(space)
             .build();
         
         self.attach_context(Some(WindowContext::new(self, doc)));

@@ -84,8 +84,8 @@ impl Builder {
         self
     }
 
-    pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>, runtime: tokio::runtime::Handle) -> Self {
-        self.datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0, runtime).to_filter());
+    pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>) -> Self {
+        self.datapath.push_back(datapath::LoadSpaceFilter::new(space, 0, 0).to_filter());
         self
     }
 

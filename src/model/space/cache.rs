@@ -33,18 +33,16 @@ pub struct SpaceCache {
     pub space: sync::Arc<space::AddressSpace>,
     /* can't use RwLock here; LruCache mutates on read */
     lru: parking_lot::Mutex<lru::LruCache<u64, SpaceCacheEntry>>,
-    runtime: tokio::runtime::Handle,
 }
 
 pub struct SpaceCacheLock<'a>(parking_lot::MutexGuard<'a, lru::LruCache<u64, SpaceCacheEntry>>);
 
 impl SpaceCache {
-    pub fn new(space: sync::Arc<space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize, runtime: tokio::runtime::Handle) -> SpaceCache {
+    pub fn new(space: sync::Arc<space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
         SpaceCache {
             block_size,
             space,
             lru: parking_lot::Mutex::new(lru::LruCache::new(block_count)),
-            runtime,
         }
     }
     
@@ -67,9 +65,7 @@ impl SpaceCache {
         if !lru.contains(&addr) {
             let future = SpaceCacheFuture::new(self.space.clone(), |space| Box::pin(space.fetch((addr, self.block_size))));
             let mut entry = SpaceCacheEntry::Pending(future);
-            let runtime_guard = self.runtime.enter();
             entry.poll(cx);
-            std::mem::drop(runtime_guard);
             
             lru.put(addr, entry);
         }

@@ -79,6 +79,7 @@ struct Interior {
     config_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_notifier: util::Notifier,
+    runtime: tokio::runtime::Handle,
 }
 
 #[derive(Clone, Debug)]
@@ -256,6 +257,7 @@ impl ListingWidget {
             config_update_event_source: once_cell::sync::OnceCell::new(),
             work_event_source: once_cell::sync::OnceCell::new(),
             work_notifier: util::Notifier::new(),
+            runtime: window.application.rt.handle().clone(),
         };
 
         /* Set the initial size. */
@@ -661,7 +663,14 @@ impl future::Future for ListingWidgetWorkFuture {
 
     fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
         if let Some(lw) = self.0.upgrade() {
-            lw.imp().interior.get().unwrap().write().work(&lw, cx);
+            let mut interior = lw.imp().interior.get().unwrap().write();
+
+            /* This gets polled from glib event loop, but we need to be in a tokio runtime. */
+            let handle = interior.runtime.clone();
+            let guard = handle.enter();
+            interior.work(&lw, cx);
+            std::mem::drop(guard);
+            
             task::Poll::Pending
         } else {
             task::Poll::Ready(())

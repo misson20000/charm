@@ -15,17 +15,15 @@ struct Inner {
 pub struct FileAddressSpace {
     inner: sync::RwLock<Inner>,
     label: string::String,
-    tokio_handle: tokio::runtime::Handle,
 }
 
 impl FileAddressSpace {
-    pub fn open(rt: tokio::runtime::Handle, path: &'_ std::path::PathBuf, label: &str) -> std::io::Result<FileAddressSpace> {
+    pub fn open(path: &'_ std::path::PathBuf, label: &str) -> std::io::Result<FileAddressSpace> {
         Ok(FileAddressSpace {
             inner: sync::RwLock::<Inner>::new(Inner {
                 file: std::fs::File::open(path)?,
             }),
             label: label.to_string(),
-            tokio_handle: rt
         })
     }
 

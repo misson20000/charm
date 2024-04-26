@@ -252,7 +252,7 @@ pub struct InsertFilter {
 }
 
 impl LoadSpaceFilter {
-    pub fn new(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64, runtime: tokio::runtime::Handle) -> LoadSpaceFilter {
+    pub fn new(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
         // TODO: make this const when const unwrap gets stabilized
         //       https://github.com/rust-lang/rust/issues/67441
         //const block_count: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1024).unwrap();
@@ -262,7 +262,7 @@ impl LoadSpaceFilter {
             load_offset,
             space_offset,
             size: None,
-            cache: sync::Arc::new(space::cache::SpaceCache::new(space, 0x1000, block_count, runtime)), // 4 MiB cache is plenty
+            cache: sync::Arc::new(space::cache::SpaceCache::new(space, 0x1000, block_count)), // 4 MiB cache is plenty
         }
     }
     
