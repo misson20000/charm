@@ -252,7 +252,7 @@ pub struct InsertFilter {
 }
 
 impl LoadSpaceFilter {
-    pub fn new(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
+    pub fn new_defaults(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
         // TODO: make this const when const unwrap gets stabilized
         //       https://github.com/rust-lang/rust/issues/67441
         //const block_count: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1024).unwrap();
@@ -263,6 +263,15 @@ impl LoadSpaceFilter {
             space_offset,
             size: None,
             cache: sync::Arc::new(space::cache::SpaceCache::new(space, 0x1000, block_count)), // 4 MiB cache is plenty
+        }
+    }
+
+    pub fn new_complete(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64, size: Option<u64>, cache_block_size: u64, cache_block_count: std::num::NonZeroUsize) -> LoadSpaceFilter {
+        LoadSpaceFilter {
+            load_offset,
+            space_offset,
+            size,
+            cache: sync::Arc::new(space::cache::SpaceCache::new(space, cache_block_size, cache_block_count)),
         }
     }
     
@@ -334,6 +343,18 @@ impl LoadSpaceFilter {
 
     pub fn to_filter(self) -> Filter {
         Filter::LoadSpace(self)
+    }
+
+    pub fn space(&self) -> &sync::Arc<space::AddressSpace> {
+        &self.cache.space
+    }
+
+    pub fn cache_block_size(&self) -> u64 {
+        self.cache.block_size
+    }
+
+    pub fn cache_block_count(&self) -> std::num::NonZeroUsize {
+        self.cache.block_count
     }
 }
 

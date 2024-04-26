@@ -30,6 +30,7 @@ pub enum SpaceCacheEntry {
 
 pub struct SpaceCache {
     pub block_size: u64,
+    pub block_count: std::num::NonZeroUsize,
     pub space: sync::Arc<space::AddressSpace>,
     /* can't use RwLock here; LruCache mutates on read */
     lru: parking_lot::Mutex<lru::LruCache<u64, SpaceCacheEntry>>,
@@ -41,6 +42,7 @@ impl SpaceCache {
     pub fn new(space: sync::Arc<space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
         SpaceCache {
             block_size,
+            block_count: block_count,
             space,
             lru: parking_lot::Mutex::new(lru::LruCache::new(block_count)),
         }
