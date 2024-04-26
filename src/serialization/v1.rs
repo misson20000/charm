@@ -8,10 +8,8 @@ use crate::model::document::structure;
 
 use serde::Serialize;
 use serde::Deserialize;
-use serde::de::Error;
 use serde::de::SeqAccess;
 use serde::ser::SerializeSeq;
-use serde::ser::SerializeStruct;
 
 /* /===============================\   
  * | Struct definitions.           |   
@@ -20,9 +18,10 @@ use serde::ser::SerializeStruct;
  * These struct definitions are copied here so that changing them elsewhere won't ruin the serialization.
  */
 
+#[derive(Serialize, Deserialize)]
 pub struct Document {
-    pub root: sync::Arc<structure::Node>,
-    pub datapath: datapath::DataPath,
+    root: Childhood,
+    datapath: DataPath,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,6 +69,48 @@ struct Childhood {
 /// This is done as a newtype so that we can use custom serialize/deserialize impls to convert between v1 and model::document::structure types at the correct time. This refers to the children of the given parent node, not that single node as a child.
 struct Children(vec::Vec<structure::Childhood>);
 
+#[derive(Serialize, Deserialize)]
+struct DataPath(vec::Vec<Filter>);
+
+#[derive(Serialize, Deserialize)]
+enum Filter {
+    LoadSpace(LoadSpaceFilter),
+    Overwrite(OverwriteFilter),
+    Move(MoveFilter),
+    Insert(InsertFilter),
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoadSpaceFilter {
+    load_offset: u64,
+    space_offset: u64,
+    size: Option<u64>,
+    
+    path: String,
+
+    cache_block_size: u64,
+    cache_block_count: std::num::NonZeroUsize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OverwriteFilter {
+    offset: u64,
+    bytes: vec::Vec<u8>
+}
+
+#[derive(Serialize, Deserialize)]
+struct MoveFilter {
+    from: u64,
+    to: u64,
+    size: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct InsertFilter {
+    offset: u64,
+    bytes: vec::Vec<u8>,
+}
+
 /* /===============================\   
  * | Conversions.                  |   
  * \===============================/
@@ -78,16 +119,17 @@ struct Children(vec::Vec<structure::Childhood>);
 impl From<&document::Document> for Document {
     fn from(model: &document::Document) -> Document {
         Document {
-            root: model.root.clone(),
-            datapath: model.datapath.clone(),
+            root: Childhood::from(structure::Childhood::new(model.root.clone(), addr::unit::NULL)),
+            datapath: DataPath::from(&model.datapath),
         }
     }
 }
 
 impl Into<document::Document> for Document {
     fn into(self) -> document::Document {
-        document::Builder::new(self.root)
-            .datapath(self.datapath)
+        let root_childhood: structure::Childhood = self.root.into();
+        document::Builder::new(root_childhood.node)
+            .datapath(self.datapath.into())
             .build()
     }
 }
@@ -180,6 +222,96 @@ impl Into<structure::Childhood> for Childhood {
     }
 }
 
+impl From<&datapath::DataPath> for DataPath {
+    fn from(dp: &datapath::DataPath) -> Self {
+        DataPath(dp.iter().map(Filter::from).collect())
+    }
+}
+
+impl Into<datapath::DataPath> for DataPath {
+    fn into(self) -> datapath::DataPath {
+        self.0.into_iter().map(Filter::into).collect()
+    }
+}
+
+impl From<&datapath::Filter> for Filter {
+    fn from(f: &datapath::Filter) -> Filter {
+        match f {
+            datapath::Filter::LoadSpace(f) => Filter::LoadSpace(LoadSpaceFilter::from(f)),
+            datapath::Filter::Overwrite(f) => Filter::Overwrite(OverwriteFilter::from(f)),
+            datapath::Filter::Move(f) => Filter::Move(MoveFilter::from(f)),
+            datapath::Filter::Insert(f) => Filter::Insert(InsertFilter::from(f)),
+        }
+    }
+}
+
+impl Into<datapath::Filter> for Filter {
+    fn into(self) -> datapath::Filter {
+        match self {
+            Filter::LoadSpace(f) => datapath::Filter::LoadSpace(f.into()),
+            Filter::Overwrite(f) => datapath::Filter::Overwrite(f.into()),
+            Filter::Move(f) => datapath::Filter::Move(f.into()),
+            Filter::Insert(f) => datapath::Filter::Insert(f.into()),
+        }
+    }
+}
+
+impl From<&datapath::LoadSpaceFilter> for LoadSpaceFilter {
+    fn from(f: &datapath::LoadSpaceFilter) -> LoadSpaceFilter {
+        LoadSpaceFilter {
+            load_offset: f.load_offset,
+            space_offset: f.space_offset,
+            size: f.size,
+            
+            path: f.path(),
+            
+            cache_block_size: f.cache_block_size(),
+            cache_block_count: f.cache_block_count(),
+        }
+    }
+}
+
+impl Into<datapath::LoadSpaceFilter> for LoadSpaceFilter {
+    fn into(self) -> datapath::LoadSpaceFilter {
+        todo!();
+    }
+}
+
+impl From<&datapath::OverwriteFilter> for OverwriteFilter {
+    fn from(f: &datapath::OverwriteFilter) -> OverwriteFilter {
+        todo!();
+    }
+}
+
+impl Into<datapath::OverwriteFilter> for OverwriteFilter {
+    fn into(self) -> datapath::OverwriteFilter {
+        todo!();
+    }
+}
+
+impl From<&datapath::MoveFilter> for MoveFilter {
+    fn from(f: &datapath::MoveFilter) -> MoveFilter {
+        todo!();
+    }
+}
+
+impl Into<datapath::MoveFilter> for MoveFilter {
+    fn into(self) -> datapath::MoveFilter {
+        todo!();
+    }
+}
+
+impl From<&datapath::InsertFilter> for InsertFilter {
+    fn from(f: &datapath::InsertFilter) -> InsertFilter {
+        todo!();
+    }
+}
+
+impl Into<datapath::InsertFilter> for InsertFilter {
+    fn into(self) -> datapath::InsertFilter {
+        todo!();
+    }
+}
 
 /*
  * /===============================\   
@@ -192,39 +324,6 @@ struct Visitor<T>(std::marker::PhantomData<T>);
 impl<T> Visitor<T> {
     fn new() -> Self {
         Self(std::marker::PhantomData)
-    }
-}
-
-impl serde::Serialize for Document {
-    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
-        let mut ser = ser.serialize_struct("DocumentV1", 1)?;
-
-        ser.serialize_field("root", &Childhood::from(structure::Childhood::new(self.root.clone(), addr::unit::NULL)))?;
-        //ser.serialize_field("datapath", &None)?;
-        
-        ser.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Document {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
-        de.deserialize_struct("DocumentV1", &["root"], Visitor::<Document>::new())
-    }
-}
-
-impl<'de> serde::de::Visitor<'de> for Visitor<Document> {
-    type Value = Document;
-    
-    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "a charm DocumentV1 struct")
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Document, A::Error> where A: SeqAccess<'de> {
-        let root: structure::Childhood = seq.next_element::<Childhood>()?.ok_or(A::Error::missing_field("root"))?.into();
-        Ok(Document {
-            root: root.node,
-            datapath: datapath::DataPath::new(),
-        })
     }
 }
 
