@@ -24,15 +24,10 @@ pub struct RenderArgs<'a> {
     pub render: &'a listing::RenderDetail,
 }
 
-pub trait Bucket: WorkableBucket {
+pub trait Bucket: WorkableBucket + PickableBucket {
     fn render(&mut self, ctx: RenderArgs<'_>, layout: &mut LayoutController);
     fn visible_address(&self) -> Option<addr::Address>;
     
-    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult> {
-        let _ = point;
-        None
-    }
-
     fn as_bucket(&self) -> &dyn Bucket where Self: Sized {
         self
     }
@@ -64,6 +59,11 @@ pub trait WorkableBucket {
     fn invalidate_data(&mut self);
 }
 
+/* This trait is separate from Bucket so these functions can be impl'd automatically based on TokenViewIterableBucket. */
+pub trait PickableBucket {
+    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult>;
+}
+
 /* This trait is separate from Bucket so we can take &dyn Bucket without specifying iterator types. */
 pub trait TokenIterableBucket: Bucket {
     fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>>;
@@ -71,6 +71,7 @@ pub trait TokenIterableBucket: Bucket {
 }
 
 pub trait TokenViewIterableBucket: Bucket {
+    fn iter_token_views(&self) -> impl iter::Iterator<Item = &token_view::TokenView>;
     fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView>;
 }
 
@@ -92,6 +93,18 @@ impl<T: TokenViewIterableBucket> WorkableBucket for T {
         for tok in self.iter_token_views_mut() {
             tok.invalidate_data()
         }
+    }
+}
+
+impl<T: TokenViewIterableBucket> PickableBucket for T {
+    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult> {
+        for tok in self.iter_token_views() {
+            if tok.contains(point) {
+                return tok.pick();
+            }
+        }
+
+        None
     }
 }
 
@@ -166,6 +179,10 @@ impl<Marker> TokenIterableBucket for SingleTokenBucket<Marker> where LayoutContr
 }
 
 impl<Marker> TokenViewIterableBucket for SingleTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
+    fn iter_token_views(&self) -> impl iter::Iterator<Item = &token_view::TokenView> {
+        iter::once(&self.tv)
+    }
+
     fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         iter::once(&mut self.tv)
     }
@@ -220,6 +237,10 @@ impl<Marker> TokenIterableBucket for MaybeTokenBucket<Marker> where LayoutContro
 }
 
 impl<Marker> TokenViewIterableBucket for MaybeTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
+    fn iter_token_views(&self) -> impl iter::Iterator<Item = &token_view::TokenView> {
+        self.tv.as_ref().into_iter()
+    }
+
     fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         self.tv.as_mut().into_iter()
     }
@@ -263,6 +284,10 @@ impl<Marker> TokenIterableBucket for MultiTokenBucket<Marker> where LayoutContro
 }
 
 impl<Marker> TokenViewIterableBucket for MultiTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
+    fn iter_token_views(&self) -> impl iter::Iterator<Item = &token_view::TokenView> {
+        self.tvs.iter()
+    }
+
     fn iter_token_views_mut(&mut self) -> impl iter::Iterator<Item = &mut token_view::TokenView> {
         self.tvs.iter_mut()
     }

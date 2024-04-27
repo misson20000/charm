@@ -53,7 +53,7 @@ pub enum Change {
     ConvertToStructure,
     ConvertToAddress,
     AssignFromTree(sync::Arc<super::TreeSelection>),
-    AssignStructure(StructureRange),
+    AssignStructure(StructureMode),
     AssignAddress(addr::Extent),
     UnionStructure(StructureRange),
     UnionAddress(addr::Extent),
@@ -147,8 +147,8 @@ impl versioned::Change<Selection> for Change {
         let record = match &mut self {
             Change::DocumentUpdated(new_document) => selection.update_document(new_document),
 
-            Change::AssignStructure(range) => {
-                selection.mode = Mode::Structure(StructureMode::Range(range.clone()));
+            Change::AssignStructure(mode) => {
+                selection.mode = Mode::Structure(mode.clone());
                 ChangeRecord {}
             },
 

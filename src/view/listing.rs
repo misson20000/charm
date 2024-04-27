@@ -10,6 +10,7 @@ use crate::model::addr;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::listing::cursor;
 use crate::model::listing::layout as layout_model;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
@@ -70,6 +71,7 @@ struct Interior {
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
     rubber_band_begin: Option<PickResult>,
+    mouse_dragged: bool,
     
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -83,16 +85,19 @@ struct Interior {
 }
 
 #[derive(Clone, Debug)]
-pub enum PickOffsetOrIndex {
-    Offset(addr::Address),
-    Index(usize)
+pub enum PickPart {
+    Title,
+    Hexdump {
+        offset: addr::Address,
+        low_nybble: bool,
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct PickResult {
-    begin: (structure::Path, PickOffsetOrIndex),
-    middle: (structure::Path, PickOffsetOrIndex),
-    end: (structure::Path, PickOffsetOrIndex),
+    begin: (structure::Path, PickPart),
+    middle: (structure::Path, PickPart),
+    end: (structure::Path, PickPart),
 }
 
 #[derive(Default)]
@@ -245,6 +250,7 @@ impl ListingWidget {
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,
             rubber_band_begin: None,
+            mouse_dragged: false,
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -386,10 +392,10 @@ impl ListingWidget {
             return;
         }
 
-        interior.cursor.goto(path, offset).expect("lost cursor");
+        interior.cursor.goto(document.clone(), path, offset).expect("lost cursor");
         interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
     }
-
+    
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.document_updated(new_document);
@@ -592,9 +598,10 @@ impl Interior {
 
     fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
         self.hover = hover;
+        self.mouse_dragged = true;
 
         if let (Some(rbb), Some(rbe)) = (&self.rubber_band_begin, hover.and_then(|(x, y)| self.pick(x, y))) {
-            match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_range(&self.document, rbb, &rbe))) {
+            match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_selection(&self.document, rbb, &rbe))) {
                 Ok(new_selection) => { self.selection_updated(&new_selection); },
                 Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
                     while_attempting: error::Action::RubberBandSelection,
@@ -614,6 +621,7 @@ impl Interior {
     fn pressed(&mut self, widget: &ListingWidget, x: f64, y: f64) {
         self.rubber_band_begin = self.pick(x, y);
         self.hover = Some((x, y));
+        self.mouse_dragged = false;
 
         match self.selection_host.change(selection::listing::Change::Clear) {
             Ok(new_selection) => { self.selection_updated(&new_selection); },
@@ -632,10 +640,35 @@ impl Interior {
     }
 
     fn released(&mut self, widget: &ListingWidget, x: f64, y: f64) {
+        if !self.mouse_dragged {
+            self.move_cursor_to_coordinates(x, y);
+        }
+        
         self.rubber_band_begin = None;
         self.hover = Some((x, y));
+        self.mouse_dragged = false;
 
         widget.queue_draw();
+    }
+
+    fn move_cursor_to_coordinates(&mut self, x: f64, y: f64) {
+        self.cursor.blink();
+        
+        let (path, part) = match self.pick(x, y) {
+            Some(PickResult {
+                middle: (path, part),
+                ..
+            }) => (path, part),
+            
+            None => return,
+        };
+
+        let new_cursor = cursor::Cursor::place(self.document.clone(), &path, part.offset(), part.cursor_placement_hint());
+
+        if let Ok(new_cursor) = new_cursor {
+            self.cursor.cursor = new_cursor;
+            self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
+        }
     }
     
     fn pick_line(&self, y: f64) -> Option<(usize, f64)> {
@@ -679,32 +712,96 @@ impl future::Future for ListingWidgetWorkFuture {
 }
 
 impl PickResult {
-    fn to_structure_range(document: &document::Document, a: &PickResult, b: &PickResult) -> selection::listing::StructureRange {
+    fn all3(path: structure::Path, part: PickPart) -> Self {
+        PickResult {
+            begin: (path.clone(), part.clone()),
+            middle: (path.clone(), part.clone()),
+            end: (path, part),
+        }
+    }
+    
+    fn to_structure_selection(document: &document::Document, a: &PickResult, b: &PickResult) -> selection::listing::StructureMode {
         let a = &a.begin;
         let b = &b.end;
+
+        let (a_path, a_part) = match a {
+            (path, PickPart::Title) if path.len() == 0 => return selection::listing::StructureMode::All,
+            (path, PickPart::Title) => (&path[0..path.len()-1], &a.1),
+            (path, part) => (&path[..], part),
+        };
+
+        let (b_path, b_part) = match b {
+            (path, PickPart::Title) if path.len() == 0 => return selection::listing::StructureMode::All,
+            (path, PickPart::Title) => (&path[0..path.len()-1], &a.1),
+            (path, part) => (&path[..], part),
+        };
         
-        let path: Vec<usize> = std::iter::zip(a.0.iter(), b.0.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
+        /* This is the common prefix of the path between the two pick results. */
+        let path: Vec<usize> = std::iter::zip(a_path.iter(), b_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
         let (node, _node_addr) = document.lookup_node(&path);
 
-        let a = match a.1 {
-            _ if path.len() < a.0.len() => (a.0[path.len()], node.children[a.0[path.len()]].offset),
-            PickOffsetOrIndex::Offset(offset) => (node.child_at_offset(offset), offset),
-            PickOffsetOrIndex::Index(index) => (index, node.children[index].offset),
+        let a_min = match a_part {
+            /* Pick result 'a' was deeper in the hierarchy than the common prefix. */
+            _ if path.len() < a_path.len() => (a_path[path.len()], node.children[a_path[path.len()]].offset),
+            _ if path[..] != a_path[..] => panic!("pick result 'a' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+
+            PickPart::Title => (*a.0.last().unwrap(), node.children[*a.0.last().unwrap()].offset),
+            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
         };
 
-        let b = match b.1 {
-            _ if path.len() < b.0.len() => (b.0[path.len()], node.children[b.0[path.len()]].offset),
-            PickOffsetOrIndex::Offset(offset) => (node.child_at_offset(offset), offset),
-            PickOffsetOrIndex::Index(index) => (index, node.children[index].offset),
+        let b_min = match b_part {
+            /* Pick result 'b' was deeper in the hierarchy than the common prefix. */
+            _ if path.len() < b_path.len() => (b_path[path.len()], node.children[b_path[path.len()]].offset),
+            _ if path[..] != b_path[..] => panic!("pick result 'b' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+
+            PickPart::Title => (*b.0.last().unwrap(), node.children[*b.0.last().unwrap()].offset),
+            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
         };
 
-        let (begin_index, begin_offset) = std::cmp::min(a, b);
-        let (end_index, end_offset) = std::cmp::max(a, b);
+        let (begin_index, begin_offset) = std::cmp::min(a_min, b_min);
 
-        selection::listing::StructureRange {
+        let a_max = match a_part {
+            /* Pick result 'a' was deeper in the hierarchy than the common prefix. */
+            _ if path.len() < a_path.len() => (a_path[path.len()]+1, node.children[a_path[path.len()]].end()),
+            _ if path[..] != a_path[..] => panic!("pick result 'a' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+
+            PickPart::Title => (*a.0.last().unwrap(), node.children[*a.0.last().unwrap()].offset),
+            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
+        };
+
+        let b_max = match b_part {
+            /* Pick result 'b' was deeper in the hierarchy than the common prefix. */
+            _ if path.len() < b_path.len() => (b_path[path.len()]+1, node.children[b_path[path.len()]].end()),
+            _ if path[..] != b_path[..] => panic!("pick result 'b' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+
+            PickPart::Title => (*b.0.last().unwrap(), node.children[*b.0.last().unwrap()].offset),
+            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
+        };
+        
+        let (end_index, end_offset) = std::cmp::max(a_max, b_max);
+
+        selection::listing::StructureMode::Range(selection::listing::StructureRange {
             path,
             begin: (begin_offset, begin_index),
             end: (end_offset, end_index),
+        })
+    }
+}
+
+impl PickPart {
+    fn cursor_placement_hint(&self) -> cursor::PlacementHint {
+        match self {
+            PickPart::Title => cursor::PlacementHint::Title,
+            PickPart::Hexdump { low_nybble, .. } => cursor::PlacementHint::Hexdump(cursor::hexdump::HexdumpPlacementHint {
+                low_nybble: *low_nybble
+            }),
+        }
+    }
+
+    fn offset(&self) -> addr::Address {
+        match self {
+            PickPart::Title => addr::unit::NULL,
+            PickPart::Hexdump { offset, .. } => *offset,
         }
     }
 }

@@ -288,7 +288,9 @@ impl Tokenizer {
             node_addr
         };
 
-        tokenizer.seek_in_node_to_offset(offset);
+        if offset > addr::unit::NULL {
+            tokenizer.seek_in_node_to_offset(offset);
+        }
         
         tokenizer
     }

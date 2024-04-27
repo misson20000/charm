@@ -5,7 +5,6 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::datapath::DataPathExt;
 use crate::model::document;
-use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
@@ -186,9 +185,14 @@ impl TokenView {
         graphene::Point::new(origin.x() + pos.x(), 0.0)
     }
 
-    pub fn pick_position(&self, _x: f32, _y: f32) -> Option<(structure::Path, addr::Address, usize)> {
-        // TODO
-        None
+    pub fn pick(&self) -> Option<listing::PickResult> {
+        match &self.token {
+            token::Token::Title(_) => Some(listing::PickResult::all3(self.token.node_path().clone(), listing::PickPart::Title)),
+
+            /* Hexdump tokens can be picked, but that's done as part of HexdumpBucket picking logic and not done here. */
+            
+            _ => None
+        }
     }
     
     pub fn invalidate_data(&mut self) {

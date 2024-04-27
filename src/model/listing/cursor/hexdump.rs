@@ -82,7 +82,6 @@ impl cursor::CursorClassExt for Cursor {
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {
         cursor::PlacementHint::Hexdump(HexdumpPlacementHint {
-            offset: self.offset,
             low_nybble: self.low_nybble
         })
     }
@@ -213,8 +212,7 @@ impl cursor::CursorClassExt for Cursor {
 
 #[derive(Debug)]
 pub struct HexdumpPlacementHint {
-    offset: addr::Size,
-    low_nybble: bool,
+    pub low_nybble: bool,
 }
 
 #[derive(Debug, Clone)]

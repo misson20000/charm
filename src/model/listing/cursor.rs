@@ -89,17 +89,16 @@ enum UpdateMode {
 
 impl CursorClass {
     fn place_forward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
-        tokenizer.next_preincrement();
-        let mut option = tokenizer.prev();
         loop {
-            match option {
-                Some(token) => match CursorClass::new_placement(token, offset, hint) {
+            match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
-                    Err(_) => option = tokenizer.next_preincrement(),
+                    Err(_) => tokenizer.move_next(),
                 },
-                None => return Err(PlacementFailure::HitBottomOfAddressSpace)
-            }
+                tokenizer::TokenGenerationResult::Skip => tokenizer.move_next(),
+                tokenizer::TokenGenerationResult::Boundary => return Err(PlacementFailure::HitBottomOfAddressSpace)
+            };
         }        
     }
 
@@ -192,11 +191,11 @@ impl Cursor {
     pub fn update(&mut self, document: &sync::Arc<document::Document>) {
         self.update_internal(document, UpdateMode::Default);
     }
-    
-    pub fn goto(&mut self, path: &structure::Path, offset: addr::Address) -> Result<(), PlacementFailure> {
-        Self::place(self.document.clone(), path, offset, PlacementHint::Unused).map(|new| { *self = new; })
-    }
 
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> Result<(), PlacementFailure> {
+        Self::place(document, path, offset, PlacementHint::Unused).map(|new| { *self = new; })
+    }
+    
     pub fn is_over(&self, token: token::TokenRef<'_>) -> bool {
         self.class.is_over(token)
     }

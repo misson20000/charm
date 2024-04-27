@@ -253,38 +253,6 @@ impl bucket::Bucket for HexdumpBucket {
             point
         });
     }
-
-    fn pick(&self, pick_point: &graphene::Point) -> Option<listing::PickResult> {
-        if pick_point.x() >= self.hd_begin.x() && pick_point.x() < self.hd_end.x() {
-            let pick_column   = ((pick_point.x() - self.hd_begin.x()) / self.space_width).trunc() as usize;
-            let pick_fraction = (pick_point.x() - self.hd_begin.x()) / self.space_width;
-
-            self.each_part(|column, part| match part {
-                Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::PickResult {
-                    begin: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(end)),
-                    middle: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(if pick_fraction < column as f32 + width as f32 / 2.0 {
-                        begin.unwrap_or(end)
-                    } else {
-                        end
-                    })),
-                    end: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(end)),
-                }),
-
-                Part::Octet { offset, next_offset, token: _ } if pick_column >= column && pick_column < column + 2 => Some(listing::PickResult {
-                    begin: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(offset)),
-                    middle: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(offset)),
-                    end: (self.node_path.clone(), listing::PickOffsetOrIndex::Offset(next_offset)),
-                }),
-
-                _ => None,
-            }).1
-        } else if pick_point.x() >= self.ascii_begin.x() && pick_point.x() < self.ascii_end.x() {
-            // TODO: asciidump picking
-            None
-        } else {
-            None
-        }
-    }
 }
     
 impl bucket::TokenIterableBucket for HexdumpBucket {
@@ -316,5 +284,59 @@ impl bucket::WorkableBucket for HexdumpBucket {
     fn invalidate_data(&mut self) {
         self.line_cache.clear();
         self.line_data_pending = true;        
+    }
+}
+
+impl bucket::PickableBucket for HexdumpBucket {
+    fn pick(&self, pick_point: &graphene::Point) -> Option<listing::PickResult> {
+        if pick_point.x() >= self.hd_begin.x() && pick_point.x() < self.hd_end.x() {
+            let pick_column   = ((pick_point.x() - self.hd_begin.x()) / self.space_width).trunc() as usize;
+            let pick_fraction = (pick_point.x() - self.hd_begin.x()) / self.space_width;
+
+            self.each_part(|column, part| match part {
+                Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::PickResult {
+                    begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        offset: end,
+                        low_nybble: false,
+                    }),
+                    middle: (self.node_path.clone(), match (pick_fraction < column as f32 + width as f32 / 2.0, begin) {
+                        (true, Some(begin)) => listing::PickPart::Hexdump {
+                            offset: begin,
+                            low_nybble: true,
+                        },
+                        _ => listing::PickPart::Hexdump {
+                            offset: end,
+                            low_nybble: false,
+                        }
+                    }),
+                    end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        offset: end,
+                        low_nybble: false,
+                    }),
+                }),
+
+                Part::Octet { offset, next_offset, token: _ } if pick_column >= column && pick_column < column + 2 => Some(listing::PickResult {
+                    begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        offset,
+                        low_nybble: pick_column > column,
+                    }),
+                    middle: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        offset,
+                        low_nybble: pick_column > column,
+                    }),
+                    end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        offset: next_offset,
+                        low_nybble: false,
+                    }),
+                }),
+
+                _ => None,
+            }).1
+        } else if pick_point.x() >= self.ascii_begin.x() && pick_point.x() < self.ascii_end.x() {
+            // TODO: asciidump picking
+            None
+        } else {
+            None
+        }
     }
 }

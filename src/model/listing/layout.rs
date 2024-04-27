@@ -75,7 +75,7 @@ pub trait WindowTokenizer: Clone {
 /// It is up to the user to make sure that this gets properly notified with structure invalidation events.
 #[derive(Clone)]
 pub struct Window<LV: LineView, Tokenizer: WindowTokenizer = tokenizer::Tokenizer> {
-    current_document: sync::Arc<document::Document>,
+    pub current_document: sync::Arc<document::Document>,
     top: Tokenizer,
     bottom: Tokenizer,
     
