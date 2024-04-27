@@ -809,12 +809,14 @@ impl<'a> Ord for PickSort<'a> {
         if self.0.0.len() == prefix_length && other.0.0.len() > prefix_length {
             return match (&self.0.1, other.0.0[prefix_length]) {
                 (PickPart::Title, _) => std::cmp::Ordering::Less,
-                (PickPart::Hexdump { index: self_index, .. }, other_index) => self_index.cmp(&other_index),
+                (PickPart::Hexdump { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
+                (PickPart::Hexdump { index: _, .. }, _) => std::cmp::Ordering::Greater,
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() == prefix_length {
             return match (self.0.0[prefix_length], &other.0.1) {
                 (_, PickPart::Title) => std::cmp::Ordering::Greater,
-                (self_index, PickPart::Hexdump { index: other_index, .. }) => self_index.cmp(&other_index),
+                (self_index, PickPart::Hexdump { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
+                (_, PickPart::Hexdump { index: _, .. }) => std::cmp::Ordering::Less,
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() > prefix_length {
             return self.0.0[prefix_length].cmp(&other.0.0[prefix_length]);
@@ -829,5 +831,28 @@ impl<'a> Ord for PickSort<'a> {
 impl<'a> PartialOrd for PickSort<'a> {
     fn partial_cmp(&self, other: &PickSort<'a>) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn pick_sort() {
+        let a = (vec![0, 0], PickPart::Hexdump {
+            index: 0,
+            offset: 1.into(),
+            low_nybble: false
+        });
+
+        let b = (vec![0], PickPart::Hexdump {
+            index: 0,
+            offset: 1.into(),
+            low_nybble: false
+        });
+
+        assert_eq!(PickSort(&a).cmp(&PickSort(&b)), std::cmp::Ordering::Greater);
+        assert_eq!(PickSort(&b).cmp(&PickSort(&a)), std::cmp::Ordering::Less);
     }
 }
