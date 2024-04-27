@@ -38,7 +38,7 @@ struct Activation {
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
-    let builder = gtk::Builder::from_string(include_str!("../insert-node.ui"));
+    let builder = gtk::Builder::from_string(include_str!("insert-node.ui"));
 
     let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
     let size_entry: gtk::Entry = builder.object("size_entry").unwrap();

@@ -33,7 +33,7 @@ struct NavigateAction {
 }
 
 pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
-    let builder = gtk::Builder::from_string(include_str!("../navigate.ui"));
+    let builder = gtk::Builder::from_string(include_str!("navigate.ui"));
 
     let entry: gtk::Entry = builder.object("entry").unwrap();
     let list: gtk::ListView = builder.object("list").unwrap();
@@ -67,7 +67,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     });
 
     list.set_model(Some(&action.model));
-    list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("../navigate-item.ui")))));
+    list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("navigate-item.ui")))));
     list.connect_activate(clone!(@weak action => move |_, position| {
         action.do_navigate(action.model.item(position));
     }));

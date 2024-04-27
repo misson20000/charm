@@ -467,15 +467,15 @@ impl WindowContext {
             datapath_subscriber,
         };
 
-        wc.action_group.add_action(&action::insert_node::create_action(&wc));
-        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1));
-        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
-        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
-        wc.action_group.add_action(&action::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
-        wc.action_group.add_action(&action::delete_node::create_action(&wc));
-        wc.action_group.add_action(&action::navigate::create_action(&wc));
-        wc.action_group.add_action(&action::nest::create_action(&wc));
-        wc.action_group.add_action(&action::destructure::create_action(&wc));
+        wc.action_group.add_action(&action::listing::insert_node::create_action(&wc));
+        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1));
+        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
+        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
+        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
+        wc.action_group.add_action(&action::listing::navigate::create_action(&wc));
+        wc.action_group.add_action(&action::tree::delete_node::create_action(&wc));
+        wc.action_group.add_action(&action::tree::nest::create_action(&wc));
+        wc.action_group.add_action(&action::tree::destructure::create_action(&wc));
         wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
         
         wc
