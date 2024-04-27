@@ -84,10 +84,11 @@ struct Interior {
     runtime: tokio::runtime::Handle,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PickPart {
     Title,
     Hexdump {
+        index: usize,
         offset: addr::Address,
         low_nybble: bool,
     }
@@ -711,6 +712,9 @@ impl future::Future for ListingWidgetWorkFuture {
     }
 }
 
+#[derive(PartialEq, Eq)]
+struct PickSort<'a>(&'a (structure::Path, PickPart));
+
 impl PickResult {
     fn all3(path: structure::Path, part: PickPart) -> Self {
         PickResult {
@@ -719,71 +723,55 @@ impl PickResult {
             end: (path, part),
         }
     }
+
+    fn adjust_tuple_for_structure_selection(tuple: &(structure::Path, PickPart)) -> Result<(structure::PathSlice, usize, &PickPart), selection::listing::StructureMode> {
+        Ok(match tuple {
+            (path, PickPart::Title) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
+            (path, PickPart::Title) => (&path[0..path.len()-1], *path.last().unwrap(), &PickPart::Title),
+            (path, part) => (&path[..], 0, part),
+        })
+    }
     
     fn to_structure_selection(document: &document::Document, a: &PickResult, b: &PickResult) -> selection::listing::StructureMode {
-        let a = &a.begin;
-        let b = &b.end;
+        let begin = std::cmp::min(PickSort(&a.begin), PickSort(&b.begin)).0;
+        let end = std::cmp::max(PickSort(&a.end), PickSort(&b.end)).0;
 
-        let (a_path, a_part) = match a {
-            (path, PickPart::Title) if path.len() == 0 => return selection::listing::StructureMode::All,
-            (path, PickPart::Title) => (&path[0..path.len()-1], &a.1),
-            (path, part) => (&path[..], part),
+        let (begin_path, begin_child, begin_part) = match Self::adjust_tuple_for_structure_selection(&begin) {
+            Ok(x) => x,
+            Err(sm) => return sm,
         };
-
-        let (b_path, b_part) = match b {
-            (path, PickPart::Title) if path.len() == 0 => return selection::listing::StructureMode::All,
-            (path, PickPart::Title) => (&path[0..path.len()-1], &a.1),
-            (path, part) => (&path[..], part),
+        
+        let (end_path, end_child, end_part) = match Self::adjust_tuple_for_structure_selection(&end) {
+            Ok(x) => x,
+            Err(sm) => return sm,
         };
         
         /* This is the common prefix of the path between the two pick results. */
-        let path: Vec<usize> = std::iter::zip(a_path.iter(), b_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
+        let path: Vec<usize> = std::iter::zip(begin_path.iter(), end_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
         let (node, _node_addr) = document.lookup_node(&path);
 
-        let a_min = match a_part {
-            /* Pick result 'a' was deeper in the hierarchy than the common prefix. */
-            _ if path.len() < a_path.len() => (a_path[path.len()], node.children[a_path[path.len()]].offset),
-            _ if path[..] != a_path[..] => panic!("pick result 'a' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+        let begin = match begin_part {
+            /* Pick result 'a' was deeper in the hierarchy than the common prefix. Round down to the start of the child of the common prefix. */
+            _ if path.len() < begin_path.len() => (node.children[begin_path[path.len()]].offset, begin_path[path.len()]),
+            _ if path[..] != begin_path[..] => panic!("beginning pick result was shallower than the common prefix, which means the common prefix wasn't actually common"),
 
-            PickPart::Title => (*a.0.last().unwrap(), node.children[*a.0.last().unwrap()].offset),
-            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
+            PickPart::Title => (node.children[begin_child].offset, begin_child),
+            PickPart::Hexdump { offset, .. } => (*offset, node.child_at_offset(*offset)),
         };
 
-        let b_min = match b_part {
-            /* Pick result 'b' was deeper in the hierarchy than the common prefix. */
-            _ if path.len() < b_path.len() => (b_path[path.len()], node.children[b_path[path.len()]].offset),
-            _ if path[..] != b_path[..] => panic!("pick result 'b' was shallower than the common prefix, which means the common prefix wasn't actually common"),
+        let end = match end_part {
+            /* Pick result 'b' was deeper in the hierarchy than the common prefix. Bump out to the end of the child of the common prefix. */
+            _ if path.len() < end_path.len() => (node.children[end_path[path.len()]].end(), end_path[path.len()]+1),
+            _ if path[..] != end_path[..] => panic!("ending pick result was shallower than the common prefix, which means the common prefix wasn't actually common"),
 
-            PickPart::Title => (*b.0.last().unwrap(), node.children[*b.0.last().unwrap()].offset),
-            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
+            PickPart::Title => (node.children[end_child].offset, end_child),
+            PickPart::Hexdump { offset, .. } => (*offset, node.child_at_offset(*offset)),
         };
-
-        let (begin_index, begin_offset) = std::cmp::min(a_min, b_min);
-
-        let a_max = match a_part {
-            /* Pick result 'a' was deeper in the hierarchy than the common prefix. */
-            _ if path.len() < a_path.len() => (a_path[path.len()]+1, node.children[a_path[path.len()]].end()),
-            _ if path[..] != a_path[..] => panic!("pick result 'a' was shallower than the common prefix, which means the common prefix wasn't actually common"),
-
-            PickPart::Title => (*a.0.last().unwrap(), node.children[*a.0.last().unwrap()].offset),
-            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
-        };
-
-        let b_max = match b_part {
-            /* Pick result 'b' was deeper in the hierarchy than the common prefix. */
-            _ if path.len() < b_path.len() => (b_path[path.len()]+1, node.children[b_path[path.len()]].end()),
-            _ if path[..] != b_path[..] => panic!("pick result 'b' was shallower than the common prefix, which means the common prefix wasn't actually common"),
-
-            PickPart::Title => (*b.0.last().unwrap(), node.children[*b.0.last().unwrap()].offset),
-            PickPart::Hexdump { offset, .. } => (node.child_at_offset(*offset), *offset),
-        };
-        
-        let (end_index, end_offset) = std::cmp::max(a_max, b_max);
 
         selection::listing::StructureMode::Range(selection::listing::StructureRange {
             path,
-            begin: (begin_offset, begin_index),
-            end: (end_offset, end_index),
+            begin,
+            end,
         })
     }
 }
@@ -803,5 +791,43 @@ impl PickPart {
             PickPart::Title => addr::unit::NULL,
             PickPart::Hexdump { offset, .. } => *offset,
         }
+    }
+}
+
+impl<'a> Ord for PickSort<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let mut prefix_length = 0;
+        for (a, b) in std::iter::zip(&self.0.0, &other.0.0) {
+            match a.cmp(&b) {
+                std::cmp::Ordering::Equal => prefix_length+= 1,
+                x => return x
+            }
+        }
+
+        /* They share a common prefix. */
+        
+        if self.0.0.len() == prefix_length && other.0.0.len() > prefix_length {
+            return match (&self.0.1, other.0.0[prefix_length]) {
+                (PickPart::Title, _) => std::cmp::Ordering::Less,
+                (PickPart::Hexdump { index: self_index, .. }, other_index) => self_index.cmp(&other_index),
+            }
+        } else if self.0.0.len() > prefix_length && other.0.0.len() == prefix_length {
+            return match (self.0.0[prefix_length], &other.0.1) {
+                (_, PickPart::Title) => std::cmp::Ordering::Greater,
+                (self_index, PickPart::Hexdump { index: other_index, .. }) => self_index.cmp(&other_index),
+            }
+        } else if self.0.0.len() > prefix_length && other.0.0.len() > prefix_length {
+            return self.0.0[prefix_length].cmp(&other.0.0[prefix_length]);
+        } else if self.0.0.len() == prefix_length && other.0.0.len() == prefix_length {
+            return self.0.1.cmp(&other.0.1);
+        } else {
+            panic!("should be unreachable");
+        }
+    }
+}
+
+impl<'a> PartialOrd for PickSort<'a> {
+    fn partial_cmp(&self, other: &PickSort<'a>) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }

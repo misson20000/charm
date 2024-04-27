@@ -296,20 +296,24 @@ impl bucket::PickableBucket for HexdumpBucket {
             self.each_part(|column, part| match part {
                 Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::PickResult {
                     begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        index: self.node.child_at_offset(end),
                         offset: end,
                         low_nybble: false,
                     }),
                     middle: (self.node_path.clone(), match (pick_fraction < column as f32 + width as f32 / 2.0, begin) {
                         (true, Some(begin)) => listing::PickPart::Hexdump {
+                            index: self.node.child_at_offset(begin),
                             offset: begin,
                             low_nybble: true,
                         },
                         _ => listing::PickPart::Hexdump {
+                            index: self.node.child_at_offset(end),
                             offset: end,
                             low_nybble: false,
                         }
                     }),
                     end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        index: self.node.child_at_offset(end),
                         offset: end,
                         low_nybble: false,
                     }),
@@ -317,14 +321,17 @@ impl bucket::PickableBucket for HexdumpBucket {
 
                 Part::Octet { offset, next_offset, token: _ } if pick_column >= column && pick_column < column + 2 => Some(listing::PickResult {
                     begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        index: self.node.child_at_offset(offset),
                         offset,
                         low_nybble: pick_column > column,
                     }),
                     middle: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        index: self.node.child_at_offset(offset),
                         offset,
                         low_nybble: pick_column > column,
                     }),
                     end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                        index: self.node.child_at_offset(next_offset),
                         offset: next_offset,
                         low_nybble: false,
                     }),
