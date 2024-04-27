@@ -22,7 +22,8 @@ pub enum Action {
     InsertNodeParseOffset,
     InsertNodeParseSize,
     InsertNode,
-    Nest,
+    NestNodesInListing,
+    Nest, /* in tree view */
     EditProperties,
 
     ModifyTreeSelection,
@@ -79,6 +80,7 @@ impl Error {
             Action::InsertNodeParseOffset => "Failed to parse offset.",
             Action::InsertNodeParseSize => "Failed to parse size.",
             Action::InsertNode => "Failed to insert node.",
+            Action::NestNodesInListing => "Failed to nest nodes.",
             Action::Nest => "Failed to nest nodes.",
             Action::EditProperties => "Failed to edit node properties.",
 

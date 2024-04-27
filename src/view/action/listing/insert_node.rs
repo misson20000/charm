@@ -18,7 +18,7 @@ use gtk::gio;
 
 struct InsertNodeAction {
     document_host: sync::Arc<document::DocumentHost>,
-    activation: cell::RefCell<Option<Activation>>,
+    activation: cell::RefCell<Option<InsertActivation>>,
 
     lw: listing::ListingWidget,
     window: rc::Weak<window::CharmWindow>,
@@ -32,64 +32,102 @@ struct InsertNodeAction {
     path_display: gtk::Entry,
 }
 
-struct Activation {
+struct NestNodesAction {
+    document_host: sync::Arc<document::DocumentHost>,
+    activation: cell::RefCell<Option<NestActivation>>,
+
+    lw: listing::ListingWidget,
+    window: rc::Weak<window::CharmWindow>,
+    
+    dialog: gtk::ApplicationWindow,
+    
+    name_entry: gtk::Entry,
+    path_display: gtk::Entry,
+}
+
+struct InsertActivation {
     document: sync::Arc<document::Document>,
     path: structure::Path,
 }
 
-pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
-    let builder = gtk::Builder::from_string(include_str!("insert-node.ui"));
+struct NestActivation {
+    document: sync::Arc<document::Document>,
+    range: selection::listing::StructureRange,
+}
 
-    let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
-    let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
-    let offset_entry: gtk::Entry = builder.object("offset_entry").unwrap();
-    let order_entry: gtk::DropDown = builder.object("order_entry").unwrap();
-    let path_display: gtk::Entry = builder.object("path_display").unwrap();
-    let insert_button: gtk::Button = builder.object("insert_button").unwrap();
+pub fn create_actions(window_context: &window::WindowContext) -> (gio::SimpleAction, gio::SimpleAction) {
+    let insert_action = InsertNodeAction::new(window_context);
+    let nest_action   =  NestNodesAction::new(window_context);
+    let insert_action_clone = insert_action.clone();
 
-    let dialog = gtk::ApplicationWindow::builder()
-        .application(&window_context.window.upgrade().unwrap().application.application)
-        .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
-        .resizable(true)
-        .title("Insert node")
-        .transient_for(&window_context.window.upgrade().unwrap().window)
-        .hide_on_close(true)
-        .destroy_with_parent(true)
-        .default_widget(&insert_button)
-        .build();
-    
-    let action = rc::Rc::new(InsertNodeAction {
-        document_host: window_context.document_host.clone(),
-        activation: cell::RefCell::new(None),
-        lw: window_context.lw.clone(),
-        window: window_context.window.clone(),
-        dialog: dialog.clone(),
-        
-        name_entry,
-        size_entry,
-        offset_entry,
-        order_entry,
-        path_display,
+    let insert_gio_action = gio::SimpleAction::new("insert_node", None);
+
+    insert_gio_action.connect_activate(move |_, _| {
+        if nest_action.activate() {
+        } else {
+            insert_action.activate();
+        }
     });
     
-    helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
-        action.deactivate();
-    });
+    insert_gio_action.set_enabled(true);
 
-    helpers::bind_simple_action(&action, &action.dialog, "insert", |action| {
-        action.do_insert();
-        action.deactivate();
-    });
-
-    dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
-        action.deactivate();
-        glib::Propagation::Proceed
-    }));
-    
-    helpers::create_simple_action_strong(action, "insert_node", |ina| ina.activate())
+    (insert_gio_action,
+     helpers::create_simple_action_strong(insert_action_clone, "force_insert_node", |ina| { ina.activate(); }))
 }
 
 impl InsertNodeAction {
+    fn new(window_context: &window::WindowContext) -> rc::Rc<Self> {
+        let builder = gtk::Builder::from_string(include_str!("insert-node.ui"));
+
+        let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
+        let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
+        let offset_entry: gtk::Entry = builder.object("offset_entry").unwrap();
+        let order_entry: gtk::DropDown = builder.object("order_entry").unwrap();
+        let path_display: gtk::Entry = builder.object("path_display").unwrap();
+        let insert_button: gtk::Button = builder.object("insert_button").unwrap();
+
+        let dialog = gtk::ApplicationWindow::builder()
+            .application(&window_context.window.upgrade().unwrap().application.application)
+            .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+            .resizable(true)
+            .title("Insert node")
+            .transient_for(&window_context.window.upgrade().unwrap().window)
+            .hide_on_close(true)
+            .destroy_with_parent(true)
+            .default_widget(&insert_button)
+            .build();
+        
+        let action = rc::Rc::new(InsertNodeAction {
+            document_host: window_context.document_host.clone(),
+            activation: cell::RefCell::new(None),
+            lw: window_context.lw.clone(),
+            window: window_context.window.clone(),
+            dialog: dialog.clone(),
+            
+            name_entry,
+            size_entry,
+            offset_entry,
+            order_entry,
+            path_display,
+        });
+
+        helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
+            action.deactivate();
+        });
+
+        helpers::bind_simple_action(&action, &action.dialog, "insert", |action| {
+            action.do_insert();
+            action.deactivate();
+        });
+
+        dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
+            action.deactivate();
+            glib::Propagation::Proceed
+        }));
+
+        action
+    }
+    
     fn do_insert(&self) {
         if let Some(window) = self.window.upgrade() {
             let name = self.name_entry.text().as_str().to_string();
@@ -165,7 +203,7 @@ impl InsertNodeAction {
         }
     }
     
-    pub fn activate(&self) {
+    pub fn activate(&self) -> bool {
         let selection = self.lw.selection();
 
         match &selection.mode {
@@ -189,10 +227,12 @@ impl InsertNodeAction {
                     None)
             }
         }
+
+        true
     }
 
     fn activate_impl(&self, document: sync::Arc<document::Document>, path: structure::Path, offset: addr::Address, index: usize, size: Option<addr::Size>) {
-        let activation = Activation {
+        let activation = InsertActivation {
             document,
             path,
         };
@@ -224,6 +264,143 @@ impl InsertNodeAction {
 }
 
 impl Drop for InsertNodeAction {
+    fn drop(&mut self) {
+        self.dialog.destroy();
+    }
+}
+
+impl NestNodesAction {
+    fn new(window_context: &window::WindowContext) -> rc::Rc<Self> {
+        let builder = gtk::Builder::from_string(include_str!("nest-nodes.ui"));
+
+        let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
+        let path_display: gtk::Entry = builder.object("path_display").unwrap();
+        let nest_button: gtk::Button = builder.object("nest_button").unwrap();
+
+        let dialog = gtk::ApplicationWindow::builder()
+            .application(&window_context.window.upgrade().unwrap().application.application)
+            .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+            .resizable(true)
+            .title("Nest nodes")
+            .transient_for(&window_context.window.upgrade().unwrap().window)
+            .hide_on_close(true)
+            .destroy_with_parent(true)
+            .default_widget(&nest_button)
+            .build();
+        
+        let action = rc::Rc::new(NestNodesAction {
+            document_host: window_context.document_host.clone(),
+            activation: cell::RefCell::new(None),
+            lw: window_context.lw.clone(),
+            window: window_context.window.clone(),
+            dialog: dialog.clone(),
+            
+            name_entry,
+            path_display,
+        });
+        
+        helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
+            action.deactivate();
+        });
+
+        helpers::bind_simple_action(&action, &action.dialog, "nest", |action| {
+            action.do_nest();
+            action.deactivate();
+        });
+
+        dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
+            action.deactivate();
+            glib::Propagation::Proceed
+        }));
+
+        action
+    }
+    
+    fn do_nest(&self) {
+        if let Some(window) = self.window.upgrade() {
+            let name = self.name_entry.text().as_str().to_string();
+
+            let activation = match self.activation.take() {
+                Some(a) => a,
+                None => {
+                    /* This shouldn't happen. */
+                    return;
+                }
+            };
+            
+            let parent_node = activation.document.lookup_node(&activation.range.path).0;
+
+            let change = match activation.range.to_sibling_range_and_extent() {
+                Ok((sibling_range, extent)) => activation.document.nest(
+                    sibling_range,
+                    extent,
+                    parent_node.props.clone_rename(name)
+                ),
+                Err(sr) => {
+                    let extent = sr.extent();
+                    activation.document.insert_node(
+                        sr.path,
+                        sr.begin.1,
+                        structure::Childhood::new(
+                            sync::Arc::new(structure::Node {
+                                props: parent_node.props.clone_rename(name),
+                                children: Vec::new(),
+                                size: extent.length(),
+                            }),
+                            sr.begin.0
+                        )
+                    )
+                }
+            };
+            
+            if let Err((error, attempted_version)) = self.document_host.change(change) {
+                /* Inform the user that their action failed. */
+                window.report_error(error::Error {
+                    while_attempting: error::Action::NestNodesInListing,
+                    trouble: error::Trouble::DocumentUpdateFailure {
+                        error,
+                        attempted_version
+                    },
+                    level: error::Level::Error,
+                    is_bug: false,
+                });
+            }
+        }
+    }
+    
+    pub fn activate(&self) -> bool {
+        let selection = self.lw.selection();
+
+        match &selection.mode {
+            selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
+                self.activate_impl(selection.document.clone(), range.clone());
+                true
+            },
+
+            _ => false
+        }
+    }
+
+    fn activate_impl(&self, document: sync::Arc<document::Document>, range: selection::listing::StructureRange) {
+        let activation = NestActivation {
+            document,
+            range,
+        };
+
+        self.path_display.set_text(&activation.document.describe_path(&activation.range.path));
+        self.activation.replace(Some(activation));
+        
+        self.name_entry.grab_focus();
+        self.dialog.present();
+    }
+    
+    fn deactivate(&self) {
+        self.activation.take();
+        self.dialog.hide();
+    }
+}
+
+impl Drop for NestNodesAction {
     fn drop(&mut self) {
         self.dialog.destroy();
     }

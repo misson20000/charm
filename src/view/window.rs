@@ -467,7 +467,9 @@ impl WindowContext {
             datapath_subscriber,
         };
 
-        wc.action_group.add_action(&action::listing::insert_node::create_action(&wc));
+        let (insert, nest) = action::listing::insert_node::create_actions(&wc);
+        wc.action_group.add_action(&insert);
+        wc.action_group.add_action(&nest);
         wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1));
         wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
         wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
