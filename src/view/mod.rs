@@ -52,26 +52,7 @@ impl CharmApplication {
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
         app.application.set_accels_for_action("win.save_project", &["<Ctrl>S"]);
         app.application.set_accels_for_action("win.cancel", &["Escape"]);
-        app.application.set_accels_for_action("ctx.insert_byte", &["B"]);
-        app.application.set_accels_for_action("ctx.insert_word", &["W"]);
-        app.application.set_accels_for_action("ctx.insert_dword", &["D"]);
-        app.application.set_accels_for_action("ctx.insert_qword", &["Q"]);
-        app.application.set_accels_for_action("ctx.insert_node", &["Insert"]);
-        app.application.set_accels_for_action("ctx.navigate", &["N"]);
         app.application.set_accels_for_action("ctx.debug.revert_document(uint32 1)", &["<Ctrl>Z"]);
-        
-        // old accels
-        /*
-        app.application.set_accels_for_action("listing.export_ips", &["<Ctrl><Shift>E"]);
-        app.application.set_accels_for_action("listing.goto", &["G"]);
-        app.application.set_accels_for_action("listing.goto_start_of_line", &["<Ctrl>A"]);
-        app.application.set_accels_for_action("listing.goto_end_of_line", &["<Ctrl>E"]);
-        app.application.set_accels_for_action("listing.insert_break", &["B"]);
-        app.application.set_accels_for_action("listing.mode::command", &["Escape", "Return"]);
-        app.application.set_accels_for_action("listing.mode::entry", &["E"]);
-        app.application.set_accels_for_action("listing.mode::utf8", &["T"]);
-        app.application.set_accels_for_action("listing.insert_mode", &["Insert"]);
-        */
 
         app
     }

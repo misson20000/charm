@@ -111,6 +111,15 @@ impl ObjectSubclass for ListingWidgetImp {
     const NAME: &'static str = "CharmListingWidget";
     type Type = ListingWidget;
     type ParentType = gtk::Widget;
+
+    fn class_init(klass: &mut Self::Class) {
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("B"), Some(gtk::NamedAction::new("ctx.insert_byte"))));
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("W"), Some(gtk::NamedAction::new("ctx.insert_word"))));
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Q"), Some(gtk::NamedAction::new("ctx.insert_qword"))));
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Insert"), Some(gtk::NamedAction::new("ctx.insert_node"))));
+        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("N"), Some(gtk::NamedAction::new("ctx.navigate"))));
+    }
 }
 
 impl ObjectImpl for ListingWidgetImp {
