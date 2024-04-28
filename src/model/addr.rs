@@ -52,7 +52,7 @@ pub mod unit {
     pub const UNBOUNDED: Extent = Extent { begin: NULL, end: END };
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AddressParseError {
     MissingBytes,
     MalformedBytes(std::num::ParseIntError),
@@ -60,7 +60,7 @@ pub enum AddressParseError {
     TooManyBits,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ExtentParseError {
     MissingBegin,
     MissingEnd,
@@ -93,6 +93,20 @@ impl Address {
         }
     }
 
+    fn normalize_unsigned_checked(bytes: u64, bits: u64) -> Option<Address> {
+        let mut nbytes = bytes;
+        let mut nbits = bits;
+        while nbits >= 8 && nbytes < u64::MAX { // TODO: replace this with division
+            nbytes = nbytes.checked_add(1)?;
+            nbits-= 8;
+        }
+        if nbits > 8 {
+            panic!("address arithmetic overflow");
+        } else {
+            Some(Address {byte: nbytes, bit: nbits as u8})
+        }
+    }
+    
     /// Parses a string of the form "[0x]1234[.5]" into an address. Addresses
     /// are always assumed to be in hexadecimal, regardless of whether the "0x"
     /// prefix is included or not. A bit offset can optionally be specified. If
@@ -100,21 +114,28 @@ impl Address {
     pub fn parse(string: &str) -> Result<Address, AddressParseError> {
         let mut i = string.splitn(2, '.');
 
+        let byte = i.next().ok_or(AddressParseError::MissingBytes)
+            .map(|s| s.trim_start_matches("0x"))
+            .and_then(|s| u64::from_str_radix(s, 16).map_err(AddressParseError::MalformedBytes))?;
+
+        let bit = match i.next() {
+            Some(bit_fragment) => u8::from_str(bit_fragment).map_err(AddressParseError::MalformedBits)?,
+            None => 0
+        };
+
+        let bit = match bit {
+            0..=7 => bit,
+            /* Allow 8 to be specified iff we're parsing the special END address */
+            8 if byte == unit::END.byte => 8,
+            _ => return Err(AddressParseError::TooManyBits),
+        };
+                
         Ok(Address {
-            byte: i.next().ok_or(AddressParseError::MissingBytes)
-                .map(|s| s.trim_start_matches("0x"))
-                .and_then(|s| u64::from_str_radix(s, 16).map_err(AddressParseError::MalformedBytes))?,
-            bit: i.next().map(|s| u8::from_str(s)
-                              .map_err(AddressParseError::MalformedBits)
-                              .and_then(|v| if v < 8 { Ok(v) } else { Err(AddressParseError::TooManyBits) }))
-                .unwrap_or(Ok(0))?
+            byte,
+            bit
         })
     }
     
-    pub fn magnitude(&self) -> Size {
-        Size { bytes: self.byte, bits: self.bit }
-    }
-
     pub fn round_down(&self) -> Address {
         Address { byte: self.byte, bit: 0 }
     }
@@ -125,6 +146,10 @@ impl Address {
         } else {
             Address { byte: self.byte + 1, bit: 0 }
         }
+    }
+
+    pub fn checked_add(self, rhs: Size) -> Option<Address> {
+        Self::normalize_unsigned_checked(self.byte.checked_add(rhs.bytes)?, self.bit as u64 + rhs.bits as u64)
     }
 
     pub fn to_size(&self) -> Size {
@@ -290,6 +315,8 @@ impl Extent {
 #[cfg(test)]
 mod tests {
     use crate::model::addr;
+
+    use assert_matches::assert_matches;
     
     #[test]
     fn address_arithmetic() {
@@ -317,6 +344,17 @@ mod tests {
         assert_eq!(a / addr::Size { bytes: 1, bits: 1 }, 227);
         assert_eq!(addr::Size { bytes: 256, bits: 1 } / addr::Size { bytes: 0, bits: 3 }, 683);
         assert_eq!(addr::Size { bytes: 939, bits: 1 } / addr::Size { bytes: 1, bits: 3 }, 683);
+    }
+
+    #[test]
+    fn address_parse() {
+        assert_eq!(addr::Address::parse("123.4"), Ok(addr::Address { byte: 0x123, bit: 4 }));
+        assert_eq!(addr::Address::parse("0x123.4"), Ok(addr::Address { byte: 0x123, bit: 4 }));
+        assert_matches!(addr::Address::parse("blabla"), Err(addr::AddressParseError::MalformedBytes(_)));
+        assert_matches!(addr::Address::parse("123.c"), Err(addr::AddressParseError::MalformedBits(_)));
+        assert_eq!(addr::Address::parse("123.8"), Err(addr::AddressParseError::TooManyBits));
+        assert_eq!(addr::Address::parse("ffffffffffffffff.8"), Ok(addr::unit::END));
+        assert_eq!(addr::Address::parse("ffffffffffffffff.9"), Err(addr::AddressParseError::TooManyBits));
     }
 }
 
@@ -358,7 +396,7 @@ impl std::ops::Add<u64> for Address {
     type Output = Address;
 
     fn add(self, rhs: u64) -> Address {
-        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
+        if self == unit::END - rhs {
             unit::END
         } else {
             Address {byte: self.byte + rhs, bit: self.bit}
@@ -370,7 +408,7 @@ impl std::ops::Add<Size> for Address {
     type Output = Address;
 
     fn add(self, rhs: Size) -> Address {
-        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
+        if self == unit::END - rhs {
             unit::END
         } else {
             Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64)
@@ -380,7 +418,7 @@ impl std::ops::Add<Size> for Address {
 
 impl std::ops::AddAssign<u64> for Address {
     fn add_assign(&mut self, rhs: u64) {
-        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs == self.byte - 1 {
+        if *self == unit::END - rhs {
             *self = unit::END
         } else {
             self.byte+= rhs;
@@ -390,7 +428,7 @@ impl std::ops::AddAssign<u64> for Address {
 
 impl std::ops::AddAssign<Size> for Address {
     fn add_assign(&mut self, rhs: Size) {
-        if self.byte >= 1 && self.bit == 0 && u64::MAX - rhs.bytes == self.byte - 1 && rhs.bits == 0 {
+        if *self == unit::END - rhs {
             *self = unit::END
         } else {
             *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64);

@@ -157,7 +157,7 @@ impl InsertNodeAction {
                         while_attempting: error::Action::InsertNodeParseOffset,
                         trouble: error::Trouble::AddressParseFailed {
                             error: e,
-                            address: size_text.to_string(),
+                            address: offset_text.to_string(),
                         },
                         level: error::Level::Error,
                         is_bug: false,

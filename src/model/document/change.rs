@@ -375,7 +375,12 @@ impl Change {
 
                 /* Check child size to make sure it's within bounds. */
                 // TODO: automatically grow parents?
-                if childhood.offset + childhood.node.size > target.size.to_addr() {
+                let end = match childhood.offset.checked_add(childhood.node.size) {
+                    Some(end) => end,
+                    None => return Err(ApplyErrorType::InvalidParameters("attempted to insert node at a place where its end would overflow"))
+                };
+                
+                if end > target.size.to_addr() {
                     return Err(ApplyErrorType::InvalidParameters("attempted to insert node extending beyond parent's size"));
                 }
                 
@@ -961,6 +966,17 @@ mod tests {
             assert_eq!(doc.lookup_node(&vec![0]).0.size, 0x20.into());
         }
 
+        {
+            let mut doc = document::Builder::new(structure::Node::builder()
+                                                 .name("root")
+                                                 .size(addr::unit::MAX)
+                                                 .build()).build();
+            assert_matches!(Change {
+                ty: ChangeType::InsertNode { parent: vec![], index: 0, child: builder.build_child(0xfffffffffffffff8.into()) },
+                generation: doc.generation(),
+            }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at a place where its end would overflow"), .. }));
+        }
+        
         {
             let mut doc = doc.clone();
             assert_matches!(Change {
