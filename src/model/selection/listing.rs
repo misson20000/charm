@@ -193,7 +193,7 @@ impl versioned::Change<Selection> for Change {
 impl StructureRange {
     /// Converts the StructureRange to a SiblingRange and extent, if possible. This can fail if the StructureRange doesn't include any children, which cannot be represented by a SiblingRange.
     pub fn to_sibling_range_and_extent(self) -> Result<(structure::SiblingRange, addr::Extent), Self> {
-        if self.end.1 - 1 == self.begin.1 {
+        if self.end.1 == self.begin.1 {
             /* SiblingRange is inclusive, which can't represent this case. */
             return Err(self)
         }
