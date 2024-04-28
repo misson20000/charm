@@ -1,17 +1,30 @@
 use std::sync;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task;
 
 use crate::model::document;
 use crate::util;
 
+use gtk::subclass::prelude::*;
 use gtk::prelude::*;
 
 pub mod scroll;
 pub mod cursor;
 
 pub trait Facet {
-    fn wants_draw(&mut self) -> &mut Event;
-    fn wants_work(&mut self) -> &mut Event;
+    fn wants_draw(&self) -> &Event {
+        &UNUSED_EVENT
+    }
+    
+    fn wants_work(&self) -> &Event  {
+        &UNUSED_EVENT
+    }
+    
+    fn wants_repick(&self) -> &Event {
+        &UNUSED_EVENT
+    }
+    
     fn work(&mut self, _document: &sync::Arc<document::Document>, _cx: &mut task::Context) {
     }
 
@@ -23,32 +36,40 @@ pub trait Facet {
         if self.wants_work().collect() {
             work_notifier.notify();
         }
+
+        if self.wants_repick().collect() {
+            widget.imp().should_repick.store(true, Ordering::Relaxed);
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct Event {
-    wanted: bool,
+    wanted: AtomicBool,
 }
 
 impl Event {
     pub fn new() -> Event {
         Event {
-            wanted: false,
+            wanted: AtomicBool::new(false),
         }
     }
 
     pub fn new_wanted() -> Event {
         Event {
-            wanted: true,
+            wanted: AtomicBool::new(true),
         }
     }
 
     pub fn want(&mut self) {
-        self.wanted = true;
+        self.wanted.store(true, Ordering::Relaxed);
     }
 
-    pub fn collect(&mut self) -> bool {
-        std::mem::replace(&mut self.wanted, false)
+    pub fn collect(&self) -> bool {
+        self.wanted.swap(false, Ordering::Relaxed)
     }
 }
+
+static UNUSED_EVENT: Event = Event {
+    wanted: AtomicBool::new(false),
+};

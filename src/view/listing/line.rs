@@ -244,12 +244,12 @@ impl Line {
 }
 
 impl facet::Facet for Line {
-    fn wants_draw(&mut self) -> &mut facet::Event {
-        &mut self.ev_draw
+    fn wants_draw(&self) -> &facet::Event {
+        &self.ev_draw
     }
 
-    fn wants_work(&mut self) -> &mut facet::Event {
-        &mut self.ev_work
+    fn wants_work(&self) -> &facet::Event {
+        &self.ev_work
     }
 
     fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) {

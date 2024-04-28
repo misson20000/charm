@@ -6,7 +6,6 @@ use crate::view::config;
 use crate::view::listing::facet;
 
 use std::sync;
-use std::task;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -24,7 +23,6 @@ pub struct CursorView {
     
     config: sync::Arc<config::Config>,
     ev_draw: facet::Event,
-    ev_work: facet::Event,
     
     blink_timer: f64,
     bonk_timer: f32,
@@ -38,7 +36,6 @@ impl std::fmt::Debug for CursorView {
             .field("has_focus", &self.has_focus)
             .field("insert", &self.insert)
             .field("ev_draw", &self.ev_draw)
-            .field("ev_work", &self.ev_work)
             .field("blink_timer", &self.blink_timer)
             .field("bonk_timer", &self.bonk_timer)
             .finish_non_exhaustive()
@@ -55,7 +52,6 @@ impl CursorView {
             
             config,
             ev_draw: facet::Event::new(),
-            ev_work: facet::Event::new(),
             
             blink_timer: 0.0,
             bonk_timer: 0.0,
@@ -173,14 +169,7 @@ impl CursorView {
 }
 
 impl facet::Facet for CursorView {
-    fn wants_draw(&mut self) -> &mut facet::Event {
-        &mut self.ev_draw
-    }
-
-    fn wants_work(&mut self) -> &mut facet::Event {
-        &mut self.ev_work
-    }
-
-    fn work(&mut self, _doc: &sync::Arc<document::Document>, _cx: &mut task::Context) {
+    fn wants_draw(&self) -> &facet::Event {
+        &self.ev_draw
     }
 }

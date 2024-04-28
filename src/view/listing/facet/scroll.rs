@@ -13,6 +13,7 @@ pub struct Scroller {
     config: sync::Arc<config::Config>,
     ev_draw: facet::Event,
     ev_work: facet::Event,
+    ev_repick: facet::Event,
 
     position: f64,
     velocity: f64,
@@ -30,6 +31,7 @@ impl Scroller {
             config,
             ev_draw: facet::Event::new(),
             ev_work: facet::Event::new(),
+            ev_repick: facet::Event::new(),
             
             position: 0.0,
             velocity: 0.0,
@@ -157,6 +159,7 @@ impl Scroller {
         self.position+= self.velocity * delta;
         
         if f64::abs(self.velocity) > 0.01 {
+            self.ev_repick.want();
             self.ev_draw.want();
         } else {
             self.velocity = 0.0;
@@ -269,12 +272,15 @@ impl EnsureCursorInViewDirection {
 }
 
 impl facet::Facet for Scroller {
-    fn wants_draw(&mut self) -> &mut facet::Event {
-        &mut self.ev_draw
+    fn wants_draw(&self) -> &facet::Event {
+        &self.ev_draw
     }
 
+    fn wants_work(&self) -> &facet::Event {
+        &self.ev_work
+    }
 
-    fn wants_work(&mut self) -> &mut facet::Event {
-        &mut self.ev_work
+    fn wants_repick(&self) -> &facet::Event {
+        &self.ev_repick
     }
 }

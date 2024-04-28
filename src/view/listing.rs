@@ -103,6 +103,7 @@ pub struct PickResult {
 #[derive(Default)]
 pub struct ListingWidgetImp {
     interior: once_cell::unsync::OnceCell<sync::Arc<parking_lot::RwLock<Interior>>>,
+    should_repick: sync::atomic::AtomicBool,
 }
 
 #[glib::object_subclass]
@@ -363,6 +364,9 @@ impl ListingWidget {
             lw.imp().interior.get().unwrap().write().drag_update(&lw, &ecs, dx, dy);
             ecs.set_state(gtk::EventSequenceState::Claimed);
         }));
+        ec_select.connect_drag_end(clone!(@weak self as lw => move |ecs, dx, dy| {
+            lw.imp().interior.get().unwrap().write().drag_end(&lw, &ecs, dx, dy);
+        }));
         ec_select.set_button(1);
         ec_select.set_exclusive(true);
         self.add_controller(ec_select.clone());
@@ -406,7 +410,7 @@ impl ListingWidget {
         interior.cursor.goto(document.clone(), path, offset).expect("lost cursor");
         interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
     }
-    
+
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.document_updated(new_document);
@@ -548,6 +552,10 @@ impl Interior {
         self.scroll.animate(&mut self.window, &self.cursor, delta);
 
         self.collect_events(widget);
+
+        if widget.imp().should_repick.swap(false, sync::atomic::Ordering::Relaxed) {
+            self.update_rubber_band_from_hover();
+        }
         
         self.last_frame = frame_time;
         
@@ -601,7 +609,7 @@ impl Interior {
 
     fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> glib::Propagation {
         self.scroll.scroll_wheel_impulse(dy);
-        
+
         self.collect_events(widget);
         
         glib::Propagation::Stop
@@ -626,25 +634,40 @@ impl Interior {
         widget.queue_draw();
     }
 
-    fn drag_update(&mut self, widget: &ListingWidget, gesture: &gtk::GestureDrag, dx: f64, dy: f64) {
-        if let (Some(rbb), Some((x, y))) = (&self.rubber_band_begin, gesture.start_point()) {
-            if let Some(rbe) = self.pick(x+dx, y+dy) {
-                match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_selection(&self.document, rbb, &rbe))) {
-                    Ok(new_selection) => { self.selection_updated(&new_selection); },
-                    Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
-                        while_attempting: error::Action::RubberBandSelection,
-                        trouble: error::Trouble::ListingSelectionUpdateFailure {
-                            error,
-                            attempted_version,
-                        },
-                        level: error::Level::Warning,
-                        is_bug: true,
-                    })); }
-                }
+    fn update_rubber_band_from_hover(&mut self) {
+        if let Some((x, y)) = self.hover {
+            self.update_rubber_band(x, y);
+        }
+    }
+    
+    fn update_rubber_band(&mut self, x: f64, y: f64) {
+        if let (Some(rbb), Some(rbe)) = (&self.rubber_band_begin, self.pick(x, y)) {
+            match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_selection(&self.document, rbb, &rbe))) {
+                Ok(new_selection) => {
+                    self.selection_updated(&new_selection);
+                },
+                Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                    while_attempting: error::Action::RubberBandSelection,
+                    trouble: error::Trouble::ListingSelectionUpdateFailure {
+                        error,
+                        attempted_version,
+                    },
+                    level: error::Level::Warning,
+                    is_bug: true,
+                })); }
             }
         }
+    }
+    
+    fn drag_update(&mut self, widget: &ListingWidget, gesture: &gtk::GestureDrag, dx: f64, dy: f64) {
+        if let Some((x, y)) = gesture.start_point() {
+            self.update_rubber_band(x+dx, y+dy);
+            widget.queue_draw();
+        }
+    }
 
-        widget.queue_draw();
+    fn drag_end(&mut self, _widget: &ListingWidget, _gesture: &gtk::GestureDrag, _dx: f64, _dy: f64) {
+        self.rubber_band_begin = None;
     }
 
     fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
