@@ -69,6 +69,13 @@ pub enum ExtentParseError {
 }
 
 impl Address {
+    pub const fn new(bytes: u64) -> Self {
+        Address {
+            byte: bytes,
+            bit: 0,
+        }
+    }
+    
     fn normalize_signed(bytes: u64, bits: i64) -> Address {
         let mut nbytes = bytes;
         let mut nbits = bits;

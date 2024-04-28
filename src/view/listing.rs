@@ -796,7 +796,7 @@ impl PickResult {
             _ if path.len() < end_path.len() => (node.children[end_path[path.len()]].end(), end_path[path.len()]+1),
             _ if path[..] != end_path[..] => panic!("ending pick result was shallower than the common prefix, which means the common prefix wasn't actually common"),
 
-            PickPart::Title => (node.children[end_child].offset, end_child),
+            PickPart::Title => (node.children[end_child].end(), end_child+1),
             PickPart::Hexdump { offset, .. } => (*offset, node.child_at_offset(*offset)),
         };
 
@@ -869,7 +869,7 @@ impl<'a> PartialOrd for PickSort<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn pick_sort() {
         let a = (vec![0, 0], PickPart::Hexdump {
@@ -886,5 +886,37 @@ mod tests {
 
         assert_eq!(PickSort(&a).cmp(&PickSort(&b)), std::cmp::Ordering::Greater);
         assert_eq!(PickSort(&b).cmp(&PickSort(&a)), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn rubber_band_hexdump_to_title() {
+        let document = document::Builder::new(
+            structure::Node::builder()
+                .name("root")
+                .size(0x100)
+                .child(0x40, |b| b
+                       .name("child")
+                       .size(0x20))
+                .build()
+        ).build();
+
+        let pr1 = PickResult::all3(vec![], PickPart::Hexdump {
+            index: 0,
+            offset: addr::Address::from(0x18),
+            low_nybble: false,
+        });
+
+        let pr2 = PickResult::all3(vec![0], PickPart::Title);
+
+        let sel = PickResult::to_structure_selection(&document, &pr1, &pr2);
+
+        const BEGIN_OFFSET: addr::Address = addr::Address::new(0x18);
+        const END_OFFSET: addr::Address = addr::Address::new(0x60);
+        
+        assert_eq!(sel, selection::listing::StructureMode::Range(selection::listing::StructureRange {
+            path: vec![],
+            begin: (0x18.into(), 0),
+            end: (0x60.into(), 1),
+        }));
     }
 }

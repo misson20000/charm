@@ -14,14 +14,14 @@ pub enum ModeType {
     Address,
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StructureRange {
     pub path: structure::Path,
     pub begin: (addr::Address, usize),
     pub end: (addr::Address, usize), //< exclusive
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum StructureMode {
     Empty,
     Range(StructureRange),
