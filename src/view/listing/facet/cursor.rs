@@ -45,7 +45,7 @@ impl std::fmt::Debug for CursorView {
 impl CursorView {
     pub fn new(document: sync::Arc<document::Document>, config: sync::Arc<config::Config>) -> CursorView {
         CursorView {
-            cursor: cursor::Cursor::new(document).expect("should be able to default-place cursor"),
+            cursor: cursor::Cursor::new(document),
             mode: Mode::Command,
             has_focus: true,
             insert: false,
@@ -142,7 +142,7 @@ impl CursorView {
     //pub fn move_up_to_break(&mut self) { self.movement(|c| c.move_up_to_break()); }
     //pub fn move_down_to_break(&mut self) { self.movement(|c| c.move_down_to_break()); }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) -> Result<(), cursor::PlacementFailure> {
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
         self.blink();
         self.cursor.goto(document, path, offset, hint)
     }

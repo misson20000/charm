@@ -90,7 +90,7 @@ enum UpdateMode {
 impl CursorClass {
     fn place_forward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
-            match tokenizer.gen_token() {
+            if !match tokenizer.gen_token() {
                 tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
@@ -98,7 +98,10 @@ impl CursorClass {
                 },
                 tokenizer::TokenGenerationResult::Skip => tokenizer.move_next(),
                 tokenizer::TokenGenerationResult::Boundary => return Err(PlacementFailure::HitBottomOfAddressSpace)
-            };
+            } {
+                /* move_next() returned false */
+                return Err(PlacementFailure::HitBottomOfAddressSpace)
+            }
         }        
     }
 
@@ -117,24 +120,40 @@ impl CursorClass {
 }
 
 impl Cursor {
-    pub fn new(document: sync::Arc<document::Document>) -> Result<Cursor, PlacementFailure> {
-        let mut tokenizer = tokenizer::Tokenizer::at_beginning(document.root.clone());
-        
-        Ok(Cursor {
-            class: CursorClass::place_forward(&mut tokenizer, addr::unit::NULL, &PlacementHint::default())?,
-            tokenizer,
-            document,
-        })
+    pub fn new(document: sync::Arc<document::Document>) -> Cursor {
+        let root = document.root.clone();
+        Self::place_tokenizer(document, tokenizer::Tokenizer::at_beginning(root), addr::unit::NULL, &PlacementHint::default())
     }
 
-    pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Result<Cursor, PlacementFailure> {
-        let mut tokenizer = tokenizer::Tokenizer::at_path(document.root.clone(), path, offset);
+    pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Cursor {
+        let root = document.root.clone();
+        Self::place_tokenizer(document, tokenizer::Tokenizer::at_path(root, path, offset), offset, &hint)
+    }
+
+    fn place_tokenizer(document: sync::Arc<document::Document>, origin: tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Self {
+        let mut tokenizer = origin.clone();
         
-        Ok(Cursor {
-            class: CursorClass::place_forward(&mut tokenizer, offset, &hint)?,
+        let class = match CursorClass::place_forward(&mut tokenizer, offset, hint) {
+            Ok(cc) => cc,
+            Err(PlacementFailure::HitBottomOfAddressSpace) => {
+                tokenizer = origin.clone();
+                match CursorClass::place_backward(&mut tokenizer, offset, hint) {
+                    Ok(cc) => cc,
+                    Err(PlacementFailure::HitTopOfAddressSpace) => match hint {
+                        PlacementHint::LastDitch => panic!("expected to be able to place cursor somewhere"),
+                        _ => return Self::place_tokenizer(document, origin, offset, &PlacementHint::LastDitch),
+                    },
+                    Err(_) => panic!("unexpected error from CursorClass::place_backward")
+                }
+            },
+            Err(_) => panic!("unexpected error from CursorClass::place_forward")
+        };
+
+        Cursor {
             tokenizer,
+            class,
             document,
-        })
+        }
     }
 
     /// Notify cursor that the underlying document has changed and it needs to renogitiate its position.
@@ -165,25 +184,7 @@ impl Cursor {
             });
 
             let offset = tokenizer.structure_position_offset() + options.additional_offset.unwrap_or(addr::unit::ZERO);
-
-            let class = match CursorClass::place_forward(&mut tokenizer, offset, &self.class.get_placement_hint()) {
-                Ok(cc) => cc,
-                Err(PlacementFailure::HitBottomOfAddressSpace) => {
-                    tokenizer = self.tokenizer.clone();
-                    match CursorClass::place_backward(&mut tokenizer, offset, &self.class.get_placement_hint()) {
-                        Ok(cc) => cc,
-                        Err(PlacementFailure::HitTopOfAddressSpace) => panic!("expected to be able to place cursor somewhere"),
-                        Err(_) => panic!("unexpected error from CursorClass::place_backward")
-                    }
-                },
-                Err(_) => panic!("unexpected error from CursorClass::place_forward")
-            };
-
-            *self = Cursor {
-                tokenizer,
-                class,
-                document: document.clone()
-            };
+            *self = Self::place_tokenizer(document.clone(), tokenizer, offset, &self.class.get_placement_hint());
         }
 
         self.class.update(document);
@@ -193,8 +194,8 @@ impl Cursor {
         self.update_internal(document, UpdateMode::Default);
     }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Result<(), PlacementFailure> {
-        Self::place(document, path, offset, hint).map(|new| { *self = new; })
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) {
+        *self = Self::place(document, path, offset, hint);
     }
     
     pub fn is_over(&self, token: token::TokenRef<'_>) -> bool {
@@ -364,7 +365,8 @@ pub enum PlacementHint {
     Hexdump(hexdump::HexdumpPlacementHint),
     Title,
     Punctuation,
-    Unused
+    Unused,
+    LastDitch,
 }
 
 impl std::default::Default for PlacementHint {
@@ -439,7 +441,7 @@ mod tests {
     fn node_insertion() {
         let document_host = sync::Arc::new(document::Builder::default().host());
         let mut document = document_host.get();
-        let mut cursor = Cursor::new(document.clone()).unwrap();
+        let mut cursor = Cursor::new(document.clone());
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
@@ -527,7 +529,7 @@ mod tests {
     fn node_insertion_simpler() {
         let document_host = sync::Arc::new(document::Builder::default().host());
         let mut document = document_host.get();
-        let mut cursor = Cursor::new(document.clone()).unwrap();
+        let mut cursor = Cursor::new(document.clone());
 
         /* when the cursor is first created, it should be placed on the first hexdump token. */
         assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
@@ -599,7 +601,7 @@ mod tests {
     fn node_insertion_around() {
         let document_host = sync::Arc::new(document::Builder::default().host());
         let document = document_host.get();
-        let mut cursor = Cursor::place(document.clone(), &vec![], 0x24.into(), PlacementHint::Unused).unwrap();
+        let mut cursor = Cursor::place(document.clone(), &vec![], 0x24.into(), PlacementHint::Unused);
 
         assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
             common: token::TokenCommon {
@@ -649,5 +651,18 @@ mod tests {
             line: addr::Extent::sized(0x10.into(), 0x10.into()),
         }).as_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x2.into() && hxc.low_nybble == false);
+    }
+
+    #[test]
+    fn can_place_with_no_content() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .content_display(structure::ContentDisplay::None)
+            .build();
+        
+        let document = sync::Arc::new(document::Builder::new(root).build());
+
+        Cursor::place(document, &vec![], 0x0.into(), PlacementHint::Unused);
     }
 }

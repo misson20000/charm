@@ -416,7 +416,7 @@ impl ListingWidget {
             return;
         }
 
-        interior.cursor.goto(document.clone(), path, offset, hint).expect("lost cursor");
+        interior.cursor.goto(document.clone(), path, offset, hint);
         interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any);
 
         self.queue_draw();
@@ -700,10 +700,8 @@ impl Interior {
 
         let new_cursor = cursor::Cursor::place(self.document.clone(), &path, part.offset(), part.cursor_placement_hint());
 
-        if let Ok(new_cursor) = new_cursor {
-            self.cursor.cursor = new_cursor;
-            self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
-        }
+        self.cursor.cursor = new_cursor;
+        self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
     }
     
     fn pick_line(&self, y: f64) -> Option<(usize, f64)> {

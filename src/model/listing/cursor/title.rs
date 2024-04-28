@@ -24,9 +24,9 @@ impl Cursor {
     
     pub fn new_placement(token: token::TitleToken, hint: &cursor::PlacementHint) -> Result<Cursor, token::TitleToken> {
         match hint {
-            /* we only place the cursor on a break header if explicitly requested;
+            /* we only place the cursor on a break header if explicitly requested or this is a last-ditch effort;
              * otherwise, we prefer to place it on a content token. */
-            cursor::PlacementHint::Title => Ok(Cursor {
+            cursor::PlacementHint::Title | cursor::PlacementHint::LastDitch => Ok(Cursor {
                 token
             }),
             _ => Err(token)

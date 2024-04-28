@@ -22,9 +22,9 @@ impl Cursor {
     
     pub fn new_placement(token: token::Token, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         match hint {
-            /* we only place the cursor on punctuation if explicitly requested;
+            /* we only place the cursor on punctuation if explicitly requested or this is a last-ditch effort;
              * otherwise, we prefer to place it on a content token. */
-            cursor::PlacementHint::Punctuation => Ok(Cursor {
+            cursor::PlacementHint::Punctuation | cursor::PlacementHint::LastDitch => Ok(Cursor {
                 token
             }),
             _ => Err(token)
