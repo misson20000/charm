@@ -297,7 +297,7 @@ impl bucket::PickableBucket for HexdumpBucket {
             (pick_point.x() >= self.ascii_begin.x() && pick_point.x() < self.ascii_end.x())
     }
     
-    fn pick(&self, pick_point: &graphene::Point) -> Option<listing::PickResult> {
+    fn pick(&self, pick_point: &graphene::Point) -> Option<listing::pick::Triplet> {
         if pick_point.x() < self.hd_begin.x() {
             None
         } else if pick_point.x() < self.hd_end.x() {
@@ -305,43 +305,43 @@ impl bucket::PickableBucket for HexdumpBucket {
             let pick_fraction = (pick_point.x() - self.hd_begin.x()) / self.space_width;
 
             self.each_part(|column, part| match part {
-                Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::PickResult {
-                    begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::pick::Triplet {
+                    begin: (self.node_path.clone(), listing::pick::Part::Hexdump {
                         index: end.1,
                         offset: end.0,
                         low_nybble: false,
                     }),
                     middle: (self.node_path.clone(), match (pick_fraction < column as f32 + width as f32 / 2.0, begin) {
-                        (true, Some(begin)) => listing::PickPart::Hexdump {
+                        (true, Some(begin)) => listing::pick::Part::Hexdump {
                             index: begin.1,
                             offset: begin.0,
                             low_nybble: true,
                         },
-                        _ => listing::PickPart::Hexdump {
+                        _ => listing::pick::Part::Hexdump {
                             index: end.1,
                             offset: end.0,
                             low_nybble: false,
                         }
                     }),
-                    end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                    end: (self.node_path.clone(), listing::pick::Part::Hexdump {
                         index: end.1,
                         offset: end.0,
                         low_nybble: false,
                     }),
                 }),
 
-                Part::Octet { offset, next_offset, token } if pick_column >= column && pick_column < column + 2 => Some(listing::PickResult {
-                    begin: (self.node_path.clone(), listing::PickPart::Hexdump {
+                Part::Octet { offset, next_offset, token } if pick_column >= column && pick_column < column + 2 => Some(listing::pick::Triplet {
+                    begin: (self.node_path.clone(), listing::pick::Part::Hexdump {
                         index: token.index,
                         offset,
                         low_nybble: pick_column > column,
                     }),
-                    middle: (self.node_path.clone(), listing::PickPart::Hexdump {
+                    middle: (self.node_path.clone(), listing::pick::Part::Hexdump {
                         index: token.index,
                         offset,
                         low_nybble: pick_column > column,
                     }),
-                    end: (self.node_path.clone(), listing::PickPart::Hexdump {
+                    end: (self.node_path.clone(), listing::pick::Part::Hexdump {
                         index: token.index,
                         offset: next_offset,
                         low_nybble: false,
@@ -351,7 +351,7 @@ impl bucket::PickableBucket for HexdumpBucket {
                 _ => None,
             }).1
         } else if pick_point.x() < self.ascii_begin.x() {
-            Some(listing::PickResult::all3(self.node_path.clone(), listing::PickPart::Hexdump {
+            Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
                 index: self.node.child_at_offset(self.line_extent.end),
                 offset: self.line_extent.end,
                 low_nybble: false,
@@ -360,7 +360,7 @@ impl bucket::PickableBucket for HexdumpBucket {
             // TODO: asciidump picking
             None
         } else {
-            Some(listing::PickResult::all3(self.node_path.clone(), listing::PickPart::Hexdump {
+            Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
                 index: self.node.child_at_offset(self.line_extent.end),
                 offset: self.line_extent.end,
                 low_nybble: false,

@@ -185,9 +185,9 @@ impl TokenView {
         graphene::Point::new(origin.x() + pos.x(), 0.0)
     }
 
-    pub fn pick(&self) -> Option<listing::PickResult> {
+    pub fn pick(&self) -> Option<listing::pick::Triplet> {
         match &self.token {
-            token::Token::Title(_) => Some(listing::PickResult::all3(self.token.node_path().clone(), listing::PickPart::Title)),
+            token::Token::Title(_) => Some(listing::pick::Triplet::all3(self.token.node_path().clone(), listing::pick::Part::Title)),
 
             /* Hexdump tokens can be picked, but that's done as part of HexdumpBucket picking logic and not done here. */
             

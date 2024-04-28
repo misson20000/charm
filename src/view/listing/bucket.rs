@@ -62,7 +62,7 @@ pub trait WorkableBucket {
 /* This trait is separate from Bucket so these functions can be impl'd automatically based on TokenViewIterableBucket. */
 pub trait PickableBucket {
     fn contains(&self, point: &graphene::Point) -> bool;
-    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult>;
+    fn pick(&self, point: &graphene::Point) -> Option<listing::pick::Triplet>;
 }
 
 /* This trait is separate from Bucket so we can take &dyn Bucket without specifying iterator types. */
@@ -102,7 +102,7 @@ impl<T: TokenViewIterableBucket> PickableBucket for T {
         self.iter_token_views().any(|tok| tok.contains(point))
     }
     
-    fn pick(&self, point: &graphene::Point) -> Option<listing::PickResult> {
+    fn pick(&self, point: &graphene::Point) -> Option<listing::pick::Triplet> {
         let mut last_tok = None;
         
         for tok in self.iter_token_views() {

@@ -236,7 +236,7 @@ impl Line {
         }
     }
 
-    pub fn pick(&self, x: f64, y: f64) -> Option<listing::PickResult> {
+    pub fn pick(&self, x: f64, y: f64) -> Option<listing::pick::Triplet> {
         let point = graphene::Point::new(x as f32, y as f32);
         
         let bucket = self.ty.iter_buckets().find(|bucket| bucket.contains(&point)).or_else(|| self.ty.iter_buckets().last());
