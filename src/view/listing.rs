@@ -71,7 +71,6 @@ struct Interior {
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
     rubber_band_begin: Option<PickResult>,
-    mouse_dragged: bool,
     
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -251,7 +250,6 @@ impl ListingWidget {
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,
             rubber_band_begin: None,
-            mouse_dragged: false,
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -329,8 +327,8 @@ impl ListingWidget {
             propagation
         }));
         self.add_controller(ec_scroll);
-
-        /* Register motion event controller */
+        
+        /* Register motion event controller for hovering */
         let ec_motion = gtk::EventControllerMotion::new();
         ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| {
             let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
@@ -342,20 +340,32 @@ impl ListingWidget {
         }));
         self.add_controller(ec_motion);
         
-        /* Focus on click */
-        let gesture = gtk::GestureClick::new();
-        gesture.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+        /* Single click (grab focus & move cursor) */
+        let ec_click = gtk::GestureClick::new();
+        ec_click.connect_pressed(clone!(@weak self as lw => move |_gesture, _n_press, _x, _y| {
             lw.grab_focus();
-            lw.imp().interior.get().unwrap().write().pressed(&lw, x, y);
+        }));
+        ec_click.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+            lw.imp().interior.get().unwrap().write().move_cursor_to_coordinates(x, y);
+            lw.queue_draw();
             gesture.set_state(gtk::EventSequenceState::Claimed);
         }));
-        gesture.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
-            lw.imp().interior.get().unwrap().write().released(&lw, x, y);
-            gesture.set_state(gtk::EventSequenceState::Claimed);            
+        ec_click.set_button(1);
+        ec_click.set_exclusive(true);
+        self.add_controller(ec_click.clone());
+
+        /* Rubber-band selection */
+        let ec_select = gtk::GestureDrag::new();
+        ec_select.connect_drag_begin(clone!(@weak self as lw => move |_ecs, x, y| {
+            lw.imp().interior.get().unwrap().write().drag_begin(&lw, x, y);
         }));
-        gesture.set_button(0);
-        gesture.set_exclusive(true);
-        self.add_controller(gesture);
+        ec_select.connect_drag_update(clone!(@weak self as lw => move |ecs, dx, dy| {
+            lw.imp().interior.get().unwrap().write().drag_update(&lw, &ecs, dx, dy);
+            ecs.set_state(gtk::EventSequenceState::Claimed);
+        }));
+        ec_select.set_button(1);
+        ec_select.set_exclusive(true);
+        self.add_controller(ec_select.clone());
 
         /* Notify cursor when focus state changes */
         self.connect_has_focus_notify(move |lw| {
@@ -597,32 +607,8 @@ impl Interior {
         glib::Propagation::Stop
     }
 
-    fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
-        self.hover = hover;
-        self.mouse_dragged = true;
-
-        if let (Some(rbb), Some(rbe)) = (&self.rubber_band_begin, hover.and_then(|(x, y)| self.pick(x, y))) {
-            match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_selection(&self.document, rbb, &rbe))) {
-                Ok(new_selection) => { self.selection_updated(&new_selection); },
-                Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
-                    while_attempting: error::Action::RubberBandSelection,
-                    trouble: error::Trouble::ListingSelectionUpdateFailure {
-                        error,
-                        attempted_version,
-                    },
-                    level: error::Level::Warning,
-                    is_bug: true,
-                })); }
-            }
-        }
-        
-        widget.queue_draw();
-    }
-
-    fn pressed(&mut self, widget: &ListingWidget, x: f64, y: f64) {
+    fn drag_begin(&mut self, widget: &ListingWidget, x: f64, y: f64) {
         self.rubber_band_begin = self.pick(x, y);
-        self.hover = Some((x, y));
-        self.mouse_dragged = false;
 
         match self.selection_host.change(selection::listing::Change::Clear) {
             Ok(new_selection) => { self.selection_updated(&new_selection); },
@@ -635,20 +621,34 @@ impl Interior {
                 level: error::Level::Warning,
                 is_bug: true,
             })); }
-        }        
+        }
 
         widget.queue_draw();
     }
 
-    fn released(&mut self, widget: &ListingWidget, x: f64, y: f64) {
-        if !self.mouse_dragged {
-            self.move_cursor_to_coordinates(x, y);
+    fn drag_update(&mut self, widget: &ListingWidget, gesture: &gtk::GestureDrag, dx: f64, dy: f64) {
+        if let (Some(rbb), Some((x, y))) = (&self.rubber_band_begin, gesture.start_point()) {
+            if let Some(rbe) = self.pick(x+dx, y+dy) {
+                match self.selection_host.change(selection::listing::Change::AssignStructure(PickResult::to_structure_selection(&self.document, rbb, &rbe))) {
+                    Ok(new_selection) => { self.selection_updated(&new_selection); },
+                    Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                        while_attempting: error::Action::RubberBandSelection,
+                        trouble: error::Trouble::ListingSelectionUpdateFailure {
+                            error,
+                            attempted_version,
+                        },
+                        level: error::Level::Warning,
+                        is_bug: true,
+                    })); }
+                }
+            }
         }
-        
-        self.rubber_band_begin = None;
-        self.hover = Some((x, y));
-        self.mouse_dragged = false;
 
+        widget.queue_draw();
+    }
+
+    fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {
+        self.hover = hover;
         widget.queue_draw();
     }
 
