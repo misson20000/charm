@@ -9,22 +9,22 @@
     <null node="root" />
     <title node="root" />
     <indent>
-      <hexdump node="root" extent="00:10" line="00:+0x10" />
+      <hexdump node="root" extent="00:10" line="00:+0x10" index="0" />
       <title node="inline32" />
       <indent>
-	<hexstring node="inline32" extent="00:04" />
+	<hexstring node="inline32" extent="00:04" index="0" />
       </indent>
-      <hexdump node="root" extent="14:20" line="10:+0x10" />
+      <hexdump node="root" extent="14:20" line="10:+0x10" index="1" />
       <title node="inlinedump" />
       <indent>
-	<hexdump node="inlinedump" extent="00:08" line="00:+8" />
-	<hexdump node="inlinedump" extent="08:10" line="08:+8" />
-	<hexdump node="inlinedump" extent="10:18" line="10:+8" />
-	<hexdump node="inlinedump" extent="18:20" line="18:+8" />
+	<hexdump node="inlinedump" extent="00:08" line="00:+8" index="0" />
+	<hexdump node="inlinedump" extent="08:10" line="08:+8" index="0" />
+	<hexdump node="inlinedump" extent="10:18" line="10:+8" index="0" />
+	<hexdump node="inlinedump" extent="18:20" line="18:+8" index="0" />
       </indent>
-      <hexdump node="root" extent="40:50" line="40:+0x10" />
-      <hexdump node="root" extent="50:60" line="50:+0x10" />
-      <hexdump node="root" extent="60:70" line="60:+0x10" />
+      <hexdump node="root" extent="40:50" line="40:+0x10" index="2" />
+      <hexdump node="root" extent="50:60" line="50:+0x10" index="2" />
+      <hexdump node="root" extent="60:70" line="60:+0x10" index="2" />
       <null node="root" cursor="true" />
     </indent>
   </tokens>

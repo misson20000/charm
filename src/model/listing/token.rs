@@ -97,6 +97,8 @@ pub struct SummaryLabelToken {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HexdumpToken  {
     pub common: TokenCommon,
+    /// Index of next child after this hexdump
+    pub index: usize,
     pub extent: addr::Extent,
     pub line: addr::Extent,
 }

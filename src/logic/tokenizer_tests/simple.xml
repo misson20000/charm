@@ -7,20 +7,20 @@
     <null node="root" />
     <title node="root" />
     <indent>
-      <hexdump node="root" extent="00:10" line="00:+0x10" />
-      <hexdump node="root" extent="10:20" line="10:+0x10" />
-      <hexdump node="root" extent="20:30" line="20:+0x10" />
-      <hexdump node="root" extent="30:32" line="30:+0x10" />
+      <hexdump node="root" extent="00:10" line="00:+0x10" index="0" />
+      <hexdump node="root" extent="10:20" line="10:+0x10" index="0" />
+      <hexdump node="root" extent="20:30" line="20:+0x10" index="0"/>
+      <hexdump node="root" extent="30:32" line="30:+0x10" index="0" />
       <null node="child" />
       <title node="child" />
       <indent>
-	<hexdump node="child" extent="00:10" line="00:+0x10" />
-	<hexdump node="child" extent="10:18" line="10:+0x10" />
+	<hexdump node="child" extent="00:10" line="00:+0x10" index="0" />
+	<hexdump node="child" extent="10:18" line="10:+0x10" index="0" />
 	<null node="child" cursor="true" />
       </indent>
-      <hexdump node="root" extent="4a:50" line="40:+0x10" />
-      <hexdump node="root" extent="50:60" line="50:+0x10" />
-      <hexdump node="root" extent="60:70" line="60:+0x10" />
+      <hexdump node="root" extent="4a:50" line="40:+0x10" index="1" />
+      <hexdump node="root" extent="50:60" line="50:+0x10" index="1" />
+      <hexdump node="root" extent="60:70" line="60:+0x10" index="1" />
       <null node="root" cursor="true" />
     </indent>
   </tokens>

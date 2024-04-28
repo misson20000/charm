@@ -451,6 +451,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_ref());
@@ -485,6 +486,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 1,
             extent: addr::Extent::sized(4.into(), 12.into()),
             line: addr::Extent::sized(0.into(), 16.into()),
         }).as_ref());
@@ -519,6 +521,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 2,
             extent: addr::Extent::sized(8.into(), 8.into()),
             line: addr::Extent::sized(0.into(), 16.into()),
         }).as_ref());
@@ -539,6 +542,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_ref());
@@ -557,6 +561,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_ref());
@@ -591,6 +596,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 1,
             extent: addr::Extent::sized(8.into(), 8.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_ref());
@@ -610,6 +616,7 @@ mod tests {
                 node_addr: addr::unit::NULL,
                 depth: 1,
             },
+            index: 0,
             extent: addr::Extent::sized(0x20.into(), 0x10.into()),
             line: addr::Extent::sized(0x20.into(), 0x10.into()),
         }).as_ref());
@@ -647,6 +654,7 @@ mod tests {
                 node_addr: 0x12.into(),
                 depth: 2,
             },
+            index: 0,
             extent: addr::Extent::sized(0x10.into(), 0x10.into()),
             line: addr::Extent::sized(0x10.into(), 0x10.into()),
         }).as_ref());

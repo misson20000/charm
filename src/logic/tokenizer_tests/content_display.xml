@@ -12,13 +12,13 @@
     <indent>
       <title node="hexdump" />
       <indent>
-	<hexdump node="hexdump" extent="00:08" line="00:+8" />
-	<hexdump node="hexdump" extent="08:10" line="08:+8" />
+	<hexdump node="hexdump" extent="00:08" line="00:+8" index="0" />
+	<hexdump node="hexdump" extent="08:10" line="08:+8" index="0" />
       </indent>
 
       <title node="hexstring" />
       <indent>
-	<hexstring node="hexstring" extent="00:10" />
+	<hexstring node="hexstring" extent="00:10" index="0" />
       </indent>
       <null node="root" cursor="true" />
     </indent>

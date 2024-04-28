@@ -641,8 +641,9 @@ impl Tokenizer {
             }.into_token()),
             
             TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
+            TokenizerState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
                 common: common.adjust_depth(1),
+                index,
                 extent,
                 line: line_extent,
             }.into_token()),
@@ -1558,7 +1559,12 @@ pub mod xml {
                 "summlabel" => token::SummaryLabelToken { common }.into_token(),
                 "preamble" => token::SummaryPreambleToken { common }.into_token(),
                 "epilogue" => token::SummaryEpilogueToken { common }.into_token(),
-                "hexdump" => token::HexdumpToken { common, extent: inflate_extent(&self.node), line: inflate_line_extent(&self.node) }.into_token(),
+                "hexdump" => token::HexdumpToken {
+                    common,
+                    index: self.node.attribute("index").expect("hexdump token should have index").parse().expect("hexdump token index should parse"),
+                    extent: inflate_extent(&self.node),
+                    line: inflate_line_extent(&self.node)
+                }.into_token(),
                 "hexstring" => token::HexstringToken { common, extent: inflate_extent(&self.node) }.into_token(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
@@ -1794,6 +1800,7 @@ mod tests {
                         node_addr: o_child_1_2_addr,
                         depth: 3,
                     },
+                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0x8),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
@@ -1804,6 +1811,7 @@ mod tests {
                         node_addr: n_child_1_addr,
                         depth: 2,
                     },
+                    index: 1,
                     extent: addr::Extent::sized_u64(0x40, 0x8),
                     line: addr::Extent::sized_u64(0x40, 0x10)
                 }),
@@ -1818,6 +1826,7 @@ mod tests {
                         node_addr: o_child_1_3_addr,
                         depth: 3,
                     },
+                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10)
                 }),
@@ -1829,6 +1838,7 @@ mod tests {
                         node_addr: o_child_1_3_addr,
                         depth: 3,
                     },
+                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),

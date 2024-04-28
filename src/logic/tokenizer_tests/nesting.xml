@@ -44,7 +44,7 @@
       <null node="bumper" />
       <title node="bumper" />
       <indent>
-	<hexdump node="bumper" extent="00:10" line="00:+0x10" />
+	<hexdump node="bumper" extent="00:10" line="00:+0x10" index="0" />
 	<null node="bumper" cursor="true" />
       </indent>
       <null node="nest1" />
@@ -56,7 +56,7 @@
 	  <null node="nest1.1.1" />
 	  <title node="nest1.1.1" />
 	  <indent>
-	    <hexdump node="nest1.1.1" extent="00:08" line="00:+0x10" />
+	    <hexdump node="nest1.1.1" extent="00:08" line="00:+0x10" index="0" />
 	    <null node="nest1.1.1" cursor="true" />
 	  </indent>
 	  <null node="nest1.1" cursor="true" />
@@ -72,12 +72,12 @@
 	  <null node="nest1.3.1" />
 	  <title node="nest1.3.1" />
 	  <indent>
-	    <hexdump node="nest1.3.1" extent="00:08" line="00:+0x10" />
+	    <hexdump node="nest1.3.1" extent="00:08" line="00:+0x10" index="0" />
 	    <null node="nest1.3.1" cursor="true" />
 	  </indent>
 	  <null node="nest1.3" cursor="true" />
 	</indent>
-	<hexdump node="nest1" extent="10:18" line="10:+0x10" />
+	<hexdump node="nest1" extent="10:18" line="10:+0x10" index="3" />
 	<null node="nest1" cursor="true" />
       </indent>
       <null node="root" cursor="true" />

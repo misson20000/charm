@@ -70,8 +70,8 @@
       <close node="entity" />
       <epilogue node="entity" />
 
-      <hexdump node="root" extent="30:40" line="30:+0x10" />
-      <hexdump node="root" extent="40:50" line="40:+0x10" />
+      <hexdump node="root" extent="30:40" line="30:+0x10" index="1" />
+      <hexdump node="root" extent="40:50" line="40:+0x10" index="1" />
 
       <null node="root" cursor="true" />
     </indent>
