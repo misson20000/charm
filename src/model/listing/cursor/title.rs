@@ -22,7 +22,7 @@ impl Cursor {
         }
     }
     
-    pub fn new_placement(token: token::TitleToken, _offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::TitleToken> {
+    pub fn new_placement(token: token::TitleToken, hint: &cursor::PlacementHint) -> Result<Cursor, token::TitleToken> {
         match hint {
             /* we only place the cursor on a break header if explicitly requested;
              * otherwise, we prefer to place it on a content token. */

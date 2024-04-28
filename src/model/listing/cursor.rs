@@ -154,22 +154,23 @@ impl Cursor {
                 _ => {},
             };
 
-            let options = options.build();
-
+            let mut options = options.build();
+            let mut tokenizer = self.tokenizer.clone();
+            
             document.changes_since(&self.document, &mut |document, change| {
-                self.tokenizer.port_change(
+                tokenizer.port_change(
                     &document.root,
                     change,
-                    &options);
+                    &mut options);
             });
-            
-            let mut tokenizer = self.tokenizer.clone();
 
-            let class = match CursorClass::place_forward(&mut tokenizer, self.class.get_addr(), &self.class.get_placement_hint()) {
+            let offset = tokenizer.structure_position_offset() + options.additional_offset.unwrap_or(addr::unit::ZERO);
+
+            let class = match CursorClass::place_forward(&mut tokenizer, offset, &self.class.get_placement_hint()) {
                 Ok(cc) => cc,
                 Err(PlacementFailure::HitBottomOfAddressSpace) => {
                     tokenizer = self.tokenizer.clone();
-                    match CursorClass::place_backward(&mut tokenizer, self.class.get_addr(), &self.class.get_placement_hint()) {
+                    match CursorClass::place_backward(&mut tokenizer, offset, &self.class.get_placement_hint()) {
                         Ok(cc) => cc,
                         Err(PlacementFailure::HitTopOfAddressSpace) => panic!("expected to be able to place cursor somewhere"),
                         Err(_) => panic!("unexpected error from CursorClass::place_backward")
@@ -283,10 +284,10 @@ impl CursorClass {
     /// one.
     fn new_placement(token: token::Token, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
         match token {
-            token::Token::Title(token) => title::Cursor::new_placement(token, offset, hint).map(CursorClass::Title).map_err(TokenKind::into_token),
+            token::Token::Title(token) => title::Cursor::new_placement(token, hint).map(CursorClass::Title).map_err(TokenKind::into_token),
             token::Token::Hexdump(token) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump).map_err(TokenKind::into_token),
-            token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_placement(token.into_token(), offset, hint).map(CursorClass::Punctuation),
-            token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_placement(token.into_token(), offset, hint).map(CursorClass::Punctuation),
+            token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_placement(token.into_token(), hint).map(CursorClass::Punctuation),
+            token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_placement(token.into_token(), hint).map(CursorClass::Punctuation),
             _ => Err(token)
         }
     }
@@ -592,5 +593,61 @@ mod tests {
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+    }
+
+    #[test]
+    fn node_insertion_around() {
+        let document_host = sync::Arc::new(document::Builder::default().host());
+        let document = document_host.get();
+        let mut cursor = Cursor::place(document.clone(), &vec![], 0x24.into(), PlacementHint::Unused).unwrap();
+
+        assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
+            common: token::TokenCommon {
+                node: document.root.clone(),
+                node_path: structure::Path::default(),
+                node_addr: addr::unit::NULL,
+                depth: 1,
+            },
+            extent: addr::Extent::sized(0x20.into(), 0x10.into()),
+            line: addr::Extent::sized(0x20.into(), 0x10.into()),
+        }).as_ref());
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x4.into() && hxc.low_nybble == false);
+
+        let node = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump {
+                    line_pitch: addr::Size::from(16),
+                    gutter_pitch: addr::Size::from(8),
+                },
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(0x30),
+        });
+        
+        let document = document_host.change(document.insert_node(
+            vec![],
+            0,
+            structure::Childhood::new(node.clone(), 0x12.into())
+        )).unwrap();
+        
+        /* port the cursor over */
+        cursor.update(&document);
+        
+        /* make sure it winds up in the correct place */
+        assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
+            common: token::TokenCommon {
+                node: node.clone(),
+                node_path: vec![0],
+                node_addr: 0x12.into(),
+                depth: 2,
+            },
+            extent: addr::Extent::sized(0x10.into(), 0x10.into()),
+            line: addr::Extent::sized(0x10.into(), 0x10.into()),
+        }).as_ref());
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x2.into() && hxc.low_nybble == false);
     }
 }

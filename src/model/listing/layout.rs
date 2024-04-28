@@ -667,7 +667,7 @@ impl WindowTokenizer for tokenizer::Tokenizer {
     }
 
     fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change) {
-        tokenizer::Tokenizer::port_change(self, &new_doc.root, change, &tokenizer::PortOptions::default());
+        tokenizer::Tokenizer::port_change(self, &new_doc.root, change, &mut tokenizer::PortOptions::default());
     }
     
     fn hit_top(&self) -> bool {

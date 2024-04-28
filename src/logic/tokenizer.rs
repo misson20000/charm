@@ -124,10 +124,11 @@ impl std::fmt::Debug for TokenizerStackEntry {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PortOptions {
-    additional_offset: addr::Size,
-    prefer_after_new_node: bool,
+    pub additional_offset: Option<addr::Size>,
+    pub prefer_after_new_node: bool,
 }
 
 pub struct PortOptionsBuilder {
@@ -203,8 +204,8 @@ impl PortOptionsBuilder {
         }
     }
 
-    pub fn additional_offset(mut self, offset: addr::Size) -> PortOptionsBuilder {
-        self.options.additional_offset = offset;
+    pub fn additional_offset<T: Into<addr::Size>>(mut self, offset: T) -> PortOptionsBuilder {
+        self.options.additional_offset = Some(offset.into());
         self
     }
 
@@ -297,7 +298,7 @@ impl Tokenizer {
     
     /// Applies a single change to the tokenizer state.
     #[instrument]
-    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &PortOptions) {
+    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &mut PortOptions) {
         /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
         let stack_state = match &self.stack {
             Some(parent) => Self::port_recurse(parent, new_root, change),
@@ -413,8 +414,8 @@ impl Tokenizer {
         };
 
         /* Respect the additional offset that the options requested. */
-        if let Some(offset) = offset.as_mut() {
-            *offset = *offset + options.additional_offset;
+        if let (Some(offset), Some(additional_offset)) = (offset.as_mut(), options.additional_offset) {
+            *offset = *offset + additional_offset;
         }
         
         /* Adjust the offset and index. */
@@ -498,7 +499,12 @@ impl Tokenizer {
             /* This should've been handled earlier, but whatever. */
             IntermediatePortState::Finished(finalized_state) => finalized_state,
 
-            IntermediatePortState::NormalContent(offset, index) => TokenizerState::MetaContent(self.estimate_line_begin(offset, index), index),
+            IntermediatePortState::NormalContent(offset, index) => {
+                let line_begin = self.estimate_line_begin(offset, index);
+                /* Output the difference between the requested "additional offset" and where the token actually will begin. */
+                options.additional_offset = offset.map(|offset| offset - line_begin);
+                TokenizerState::MetaContent(line_begin, index)
+            },
 
             /* Real TokenizerState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
             IntermediatePortState::SummaryLabel(index) if index < children.len() => TokenizerState::SummaryLabel(index),
@@ -1711,19 +1717,28 @@ mod tests {
         };
     }
 
-    fn assert_port_functionality(old_doc: &document::Document, new_doc: &document::Document, records: &[(token::Token, token::Token, PortOptions)]) {
-        let mut tokenizers: Vec<(Tokenizer, &token::Token, &token::Token, &PortOptions)> = records.iter().map(|(before_token, after_token, options)| (Tokenizer::at_beginning(old_doc.root.clone()), before_token, after_token, options)).collect();
+    fn assert_port_functionality(old_doc: &document::Document, new_doc: &document::Document, records: &[(token::Token, token::Token, PortOptions, PortOptions)]) {
+        let mut tokenizers: Vec<(Tokenizer, &token::Token, &token::Token, &PortOptions, &PortOptions)> = records.iter().map(
+            |(before_token, after_token, before_options, after_options)| (
+                Tokenizer::at_beginning(old_doc.root.clone()),
+                before_token,
+                after_token,
+                before_options,
+                after_options)
+        ).collect();
 
-        for (tokenizer, before_token, _after_token, _) in tokenizers.iter_mut() {
+        for (tokenizer, before_token, _after_token, _, _) in tokenizers.iter_mut() {
             seek_to_token(tokenizer, before_token);
         }
 
-        for (tokenizer, _before_token, after_token, options) in tokenizers.iter_mut() {
+        for (tokenizer, _before_token, after_token, options_before, options_after) in tokenizers.iter_mut() {
             println!("tokenizer before port: {:#?}", tokenizer);
-            new_doc.changes_since_ref(old_doc, &mut |doc, change| tokenizer.port_change(&doc.root, change, options));
+            let mut options = options_before.clone();
+            new_doc.changes_since_ref(old_doc, &mut |doc, change| tokenizer.port_change(&doc.root, change, &mut options));
             println!("tokenizer after port: {:#?}", tokenizer);
             
             assert_eq!(&peek(tokenizer), *after_token);
+            assert_eq!(&options, *options_after);
 
             /* Check that the ported tokenizer is the same as if we had created a new tokenizer and seeked it (if only we knew where to seek it to...), i.e. its internal state isn't corrupted in a way that doesn't happen during normal tokenizer movement. */
             let mut clean_tokenizer = Tokenizer::at_beginning(new_doc.root.clone());
@@ -1749,7 +1764,7 @@ mod tests {
                    .child(0x20, |b| b
                           .name("child1.1")
                           .size(0x18))
-                   .child(0x30, |b| b
+                   .child(0x34, |b| b
                           .name("child1.2")
                           .size(0x18))
                    .child(0x48, |b| b
@@ -1762,6 +1777,8 @@ mod tests {
  
         let old_doc = document::Builder::new(root).build();
         let mut new_doc = old_doc.clone();
+
+        /* Delete child1.1 and child1.2. */
         new_doc.change_for_debug(old_doc.delete_range(structure::SiblingRange::new(vec![1], 1, 2))).unwrap();
         
         let (o_child_1_2, o_child_1_2_addr) = old_doc.lookup_node(&vec![1, 2]);
@@ -1790,7 +1807,8 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x40, 0x8),
                     line: addr::Extent::sized_u64(0x40, 0x10)
                 }),
-                PortOptionsBuilder::new().build()
+                PortOptionsBuilder::new().additional_offset(0x4).build(), /* Asking about offset 0x14 into old child1.2 */
+                PortOptionsBuilder::new().additional_offset(0x8).build(), /* Becomes offset 0x48 in new child1 */
             ),
             (
                 token::Token::Hexdump(token::HexdumpToken {
@@ -1814,7 +1832,8 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
-                PortOptionsBuilder::new().build()
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
             ),
         ]);
     }
