@@ -398,17 +398,19 @@ impl ListingWidget {
         self.imp().interior.get().unwrap().write().cursor.bonk();
     }
 
-    pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) {
+    pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
         let mut interior_guard = self.imp().interior.get().unwrap().write();
         let interior = &mut *interior_guard;
         
         if interior.document.generation() != document.generation() {
-            self.bonk();
+            interior.cursor.bonk();
             return;
         }
 
-        interior.cursor.goto(document.clone(), path, offset).expect("lost cursor");
-        interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
+        interior.cursor.goto(document.clone(), path, offset, hint).expect("lost cursor");
+        interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any);
+
+        self.queue_draw();
     }
 
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {

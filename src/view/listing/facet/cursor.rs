@@ -142,9 +142,9 @@ impl CursorView {
     //pub fn move_up_to_break(&mut self) { self.movement(|c| c.move_up_to_break()); }
     //pub fn move_down_to_break(&mut self) { self.movement(|c| c.move_down_to_break()); }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> Result<(), cursor::PlacementFailure> {
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) -> Result<(), cursor::PlacementFailure> {
         self.blink();
-        self.cursor.goto(document, path, offset)
+        self.cursor.goto(document, path, offset, hint)
     }
     
     /*

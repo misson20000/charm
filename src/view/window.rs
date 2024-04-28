@@ -6,6 +6,7 @@ use crate::view::CharmApplication;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
+use crate::model::listing::cursor;
 use crate::model::selection as selection_model;
 use crate::model::space;
 use crate::view;
@@ -254,7 +255,7 @@ impl CharmWindow {
 
             let info = node_item.info();
             
-            ctx.lw.goto(&info.document, &info.path, addr::unit::NULL);
+            ctx.lw.goto(&info.document, &info.path, addr::unit::NULL, cursor::PlacementHint::Title);
         }));
         
         /* window actions */

@@ -6,6 +6,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::search;
+use crate::model::listing::cursor;
 use crate::view::helpers;
 use crate::view::listing;
 use crate::view::window;
@@ -137,7 +138,7 @@ impl NavigateAction {
 
         let item_interior = item.imp().interior.get().unwrap();
         
-        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset.to_addr());
+        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset.to_addr(), cursor::PlacementHint::Unused);
 
         self.dialog.hide();
 

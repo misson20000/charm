@@ -193,8 +193,8 @@ impl Cursor {
         self.update_internal(document, UpdateMode::Default);
     }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> Result<(), PlacementFailure> {
-        Self::place(document, path, offset, PlacementHint::Unused).map(|new| { *self = new; })
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Result<(), PlacementFailure> {
+        Self::place(document, path, offset, hint).map(|new| { *self = new; })
     }
     
     pub fn is_over(&self, token: token::TokenRef<'_>) -> bool {
