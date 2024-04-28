@@ -239,7 +239,8 @@ impl Line {
     pub fn pick(&self, x: f64, y: f64) -> Option<listing::PickResult> {
         let point = graphene::Point::new(x as f32, y as f32);
         
-        self.ty.iter_buckets().find_map(|bucket| bucket.pick(&point))
+        let bucket = self.ty.iter_buckets().find(|bucket| bucket.contains(&point)).or_else(|| self.ty.iter_buckets().last());
+        bucket.and_then(|bucket| bucket.pick(&point))
     }
 }
 
