@@ -458,6 +458,17 @@ impl Change {
 
         Ok(())
     }
+
+    pub fn summarize(&self, document: &document::Document) -> String {
+        match &self.ty {
+            ChangeType::AlterNode { path, .. } => format!("Alter properties on {}", document.describe_path(path)),
+            ChangeType::AlterNodesBulk { .. } => format!("Alter properties on multiple nodes"),
+            ChangeType::InsertNode { parent, child, .. } => format!("Insert '{}' under {}", child.node.props.name, document.describe_path(parent)),
+            ChangeType::Nest { range, .. } => format!("Nest children under {}", document.describe_path(&range.parent)),
+            ChangeType::Destructure { parent, .. } => format!("Destructure child under {}", document.describe_path(parent)),
+            ChangeType::DeleteRange { range, .. } => format!("Delete children under {}", document.describe_path(&range.parent)),
+        }
+    }
 }
 
 fn rebuild_node_tree_visiting_path<F, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<structure::Node, ApplyErrorType> where

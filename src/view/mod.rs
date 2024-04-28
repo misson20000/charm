@@ -58,6 +58,7 @@ impl CharmApplication {
         app.application.set_accels_for_action("ctx.insert_qword", &["Q"]);
         app.application.set_accels_for_action("ctx.insert_node", &["Insert"]);
         app.application.set_accels_for_action("ctx.navigate", &["N"]);
+        app.application.set_accels_for_action("ctx.debug.revert_document(uint32 1)", &["<Ctrl>Z"]);
         
         // old accels
         /*

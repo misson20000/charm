@@ -9,6 +9,7 @@ use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::selection as selection_model;
 use crate::model::space;
+use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::action;
 use crate::view::error;
@@ -33,6 +34,9 @@ pub struct CharmWindow {
     datapath_editor_frame: gtk::Frame,
     config_editor_frame: gtk::Frame,
     pub props_editor: rc::Rc<props_editor::PropsEditor>,
+
+    debug_revert_menu: gio::Menu,
+    
     context: cell::RefCell<Option<WindowContext>>,
 }
 
@@ -56,6 +60,7 @@ pub struct WindowContext {
     /* Misc. subscribers and such that need to be kept around */
     document_subscriber_for_tree_selection_update: helpers::AsyncSubscriber,
     document_subscriber_for_listing_selection_update: helpers::AsyncSubscriber,
+    document_subscriber_for_debug_revert_menu_update: helpers::AsyncSubscriber,
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
@@ -66,6 +71,8 @@ impl CharmWindow {
         let window: gtk::ApplicationWindow = builder.object("toplevel").unwrap();
         window.set_application(Some(&charm.application));
 
+        let debug_revert_menu = gio::Menu::new();
+        
         {
             let menu_bar = gio::Menu::new();
             {
@@ -122,7 +129,8 @@ impl CharmWindow {
             }
             {
                 let debug_menu = gio::Menu::new();
-                debug_menu.append(Some("Reset this window's UI by reopening current document state"), Some("ctx.debug.reopen_current_document"));
+                debug_menu.append(Some("Reset UI for document"), Some("ctx.debug.reopen_current_document"));
+                debug_menu.append_submenu(Some("Revert document"), &debug_revert_menu);
                 debug_menu.freeze();
                 menu_bar.append_submenu(Some("Debug"), &debug_menu);
             }
@@ -231,6 +239,7 @@ impl CharmWindow {
             datapath_editor_frame: builder.object("datapath_editor_frame").unwrap(),
             config_editor_frame,
             props_editor,
+            debug_revert_menu,
             context: cell::RefCell::new(None),
         });
 
@@ -297,6 +306,7 @@ impl CharmWindow {
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
         self.window.insert_action_group("ctx", gio::ActionGroup::NONE);
         self.props_editor.unbind();
+        self.debug_revert_menu.remove_all();
 
         *self.context.borrow_mut() = context;
 
@@ -439,6 +449,15 @@ impl WindowContext {
                     });
                 }
             }));
+
+        update_debug_revert_menu(&window.debug_revert_menu, &document);
+        let document_subscriber_for_debug_revert_menu_update = helpers::subscribe_to_updates(
+            window.debug_revert_menu.downgrade(),
+            document_host.clone(),
+            document.clone(),
+            move |drm, new_document| {
+                update_debug_revert_menu(&drm, &new_document);
+            });
         
         let lw = view::listing::ListingWidget::new();
         lw.init(
@@ -465,6 +484,7 @@ impl WindowContext {
 
             document_subscriber_for_tree_selection_update,
             document_subscriber_for_listing_selection_update,
+            document_subscriber_for_debug_revert_menu_update,
             datapath_subscriber,
         };
 
@@ -480,6 +500,7 @@ impl WindowContext {
         wc.action_group.add_action(&action::tree::nest::create_action(&wc));
         wc.action_group.add_action(&action::tree::destructure::create_action(&wc));
         wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
+        wc.action_group.add_action(&action::debug::revert_document::create_action(&wc));
         
         wc
     }
@@ -524,6 +545,31 @@ impl WindowContext {
         }
         
         Ok(())
+    }
+}
+
+fn update_debug_revert_menu(menu: &gio::Menu, mut document: &sync::Arc<document::Document>) {
+    menu.remove_all();
+
+    let submenu = gio::Menu::new();
+    let mut current_menu = menu;
+
+    for i in 0u32..10 {
+        let (prev_doc, change) = match document.previous() {
+            Some((document, change)) => (document, change),
+            None => return
+        };
+        document = prev_doc;
+
+        let item = gio::MenuItem::new(Some(&change.summarize(document)), None);
+        item.set_action_and_target_value(Some("ctx.debug.revert_document"), Some(&i.to_variant()));
+
+        current_menu.append_item(&item);
+
+        if i == 0 {
+            menu.append_section(Some("Previous versions"), &submenu);
+            current_menu = &submenu;
+        }
     }
 }
 
