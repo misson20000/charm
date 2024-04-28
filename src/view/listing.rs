@@ -174,21 +174,6 @@ impl WidgetImpl for ListingWidgetImp {
             snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
         }
         snapshot.restore();
-
-        /* render debug text */
-        if true {
-            let mut pos = graphene::Point::new(1000.0, 100.0);
-            gsc::begin_text(
-                &render.pango,
-                &render.font_mono,
-                &render.config.text_color,
-                &format!(
-                    "hover: {:?}, pick: {:?}",
-                    interior.hover,
-                    interior.hover
-                        .and_then(|(x, y)| interior.pick(x, y))
-                ), &mut pos).render(snapshot);
-        }
     }
 }
 
