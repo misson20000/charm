@@ -20,6 +20,7 @@ use crate::view::gsc;
 use crate::view::helpers;
 
 use gtk::gdk;
+use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::graphene;
@@ -72,6 +73,7 @@ struct Interior {
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
     rubber_band_begin: Option<pick::Triplet>,
+    popover_menu: gtk::PopoverMenu,
     
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -215,6 +217,10 @@ impl ListingWidget {
         let selection = selection_host.get();
 
         let render = RenderDetail::new(config.clone(), self.pango_context(), 0);
+
+        let context_menu = gio::Menu::new();
+        context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
+        context_menu.freeze();
         
         let mut interior = Interior {
             document_host: document_host.clone(),
@@ -229,6 +235,7 @@ impl ListingWidget {
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,
             rubber_band_begin: None,
+            popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -243,6 +250,8 @@ impl ListingWidget {
             work_notifier: util::Notifier::new(),
             runtime: window.application.rt.handle().clone(),
         };
+
+        interior.popover_menu.set_parent(self);
 
         /* Set the initial size. */
         interior.size_allocate(
@@ -318,6 +327,18 @@ impl ListingWidget {
             propagation
         }));
         self.add_controller(ec_motion);
+
+        /* Context menu */
+        let ec_context_menu = gtk::GestureClick::new();
+        ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+            let event = gesture.last_event(gesture.current_sequence().as_ref());
+
+            if event.map(|ev| ev.triggers_context_menu()).unwrap_or(false) {
+                lw.open_context_menu(x, y);
+            }
+        }));
+        ec_context_menu.set_button(0);
+        self.add_controller(ec_context_menu);
         
         /* Single click (grab focus & move cursor) */
         let ec_click = gtk::GestureClick::new();
@@ -389,6 +410,29 @@ impl ListingWidget {
         interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any);
 
         self.queue_draw();
+    }
+
+    fn open_context_menu(&self, x: f64, y: f64) {
+        let interior = self.imp().interior.get().unwrap().read();
+        
+        /*
+        let (path, part) = match interior.pick(x, y) {
+            Some(pick::Triplet {
+                middle: (path, part),
+                ..
+            }) => (path, part),
+            
+            None => return,
+    };
+        */
+
+        let popover_menu = interior.popover_menu.clone();
+        
+        /* Ugh. Messing with the popover menu can cause it to change the mouse focus, which immediately invokes one of our mouse focus handlers which tries to lock interior again, causing a deadlock. */
+        std::mem::drop(interior);
+
+        popover_menu.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover_menu.popup();
     }
 
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
