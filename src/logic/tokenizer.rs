@@ -436,7 +436,9 @@ impl Tokenizer {
 
                         *index = 0;
                         *offset-= new_childhood.offset.to_size();
-                    } else if *index >= *affected_index {
+                    } else if *index == *affected_index && *offset > new_childhood.offset {
+                        *index+= 1;
+                    } else if *index > *affected_index {
                         *index+= 1;
                     }
                 } else if *index >= *affected_index {
@@ -502,7 +504,11 @@ impl Tokenizer {
             IntermediatePortState::NormalContent(offset, index) => {
                 let line_begin = self.estimate_line_begin(offset, index);
                 /* Output the difference between the requested "additional offset" and where the token actually will begin. */
-                options.additional_offset = offset.map(|offset| offset - line_begin);
+                options.additional_offset = offset.and_then(|offset| if offset >= line_begin {
+                    Some(offset - line_begin)
+                } else {
+                    None
+                });
                 TokenizerState::MetaContent(line_begin, index)
             },
 
@@ -1844,6 +1850,93 @@ mod tests {
                 }),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn port_insert_node_simple() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+
+        let node = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump {
+                    line_pitch: addr::Size::from(16),
+                    gutter_pitch: addr::Size::from(8),
+                },
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(0x30),
+        });
+        
+        new_doc.change_for_debug(old_doc.insert_node(vec![], 0, structure::Childhood::new(node.clone(), 0x12.into()))).unwrap();
+
+        let new_root = new_doc.root.clone();
+        
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* offset 0x0 */
+            (
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+            ),
+            /* offset 0x11 */
+            (
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x10, 0x10),
+                    line: addr::Extent::sized_u64(0x10, 0x10),
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x10, 0x2),
+                    line: addr::Extent::sized_u64(0x10, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0x1).build(),
+                PortOptionsBuilder::new().additional_offset(0x1).build(),
             ),
         ]);
     }

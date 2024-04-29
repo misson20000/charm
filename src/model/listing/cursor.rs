@@ -604,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn node_insertion_around() {
+    fn node_insertion_on_top_of() {
         let document_host = sync::Arc::new(document::Builder::default().host());
         let document = document_host.get();
         let mut cursor = Cursor::place(document.clone(), &vec![], 0x24.into(), PlacementHint::Unused);
@@ -659,6 +659,64 @@ mod tests {
             line: addr::Extent::sized(0x10.into(), 0x10.into()),
         }).as_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x2.into() && hxc.low_nybble == false);
+    }
+    
+    #[test]
+    fn node_insertion_after() {
+        let document_host = sync::Arc::new(document::Builder::default().host());
+        let document = document_host.get();
+        let mut cursor = Cursor::place(document.clone(), &vec![], 0x0.into(), PlacementHint::Unused);
+
+        assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
+            common: token::TokenCommon {
+                node: document.root.clone(),
+                node_path: structure::Path::default(),
+                node_addr: addr::unit::NULL,
+                depth: 1,
+            },
+            index: 0,
+            extent: addr::Extent::sized(0x0.into(), 0x10.into()),
+            line: addr::Extent::sized(0x0.into(), 0x10.into()),
+        }).as_ref());
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x0.into() && hxc.low_nybble == false);
+
+        let node = sync::Arc::new(structure::Node {
+            props: structure::Properties {
+                name: "child".to_string(),
+                title_display: structure::TitleDisplay::Minor,
+                children_display: structure::ChildrenDisplay::Full,
+                content_display: structure::ContentDisplay::Hexdump {
+                    line_pitch: addr::Size::from(16),
+                    gutter_pitch: addr::Size::from(8),
+                },
+                locked: false,
+            },
+            children: vec::Vec::new(),
+            size: addr::Size::from(0x30),
+        });
+        
+        let document = document_host.change(document.insert_node(
+            vec![],
+            0,
+            structure::Childhood::new(node.clone(), 0x12.into())
+        )).unwrap();
+        
+        /* port the cursor over */
+        cursor.update(&document);
+        
+        /* make sure it winds up in the correct place */
+        assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
+            common: token::TokenCommon {
+                node: document.root.clone(),
+                node_path: vec![],
+                node_addr: 0x0.into(),
+                depth: 1,
+            },
+            index: 0,
+            extent: addr::Extent::sized(0x0.into(), 0x10.into()),
+            line: addr::Extent::sized(0x0.into(), 0x10.into()),
+        }).as_ref());
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x0.into() && hxc.low_nybble == false);
     }
 
     #[test]
