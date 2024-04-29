@@ -205,11 +205,21 @@ impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let common = self.common();
         
-        f.debug_struct("Token")
-            .field("kind", &self.kind_name())
+        let mut ds = f.debug_struct("Token");
+        
+        let ds = ds.field("kind", &self.kind_name())
             .field("node", &common.node.props.name)
-            .field("depth", &common.depth)
-            .finish()
+            .field("node_path", &common.node_path)
+            .field("node_addr", &common.node_addr)
+            .field("depth", &common.depth);
+
+        match self {
+            Token::Hexdump(hdt) => ds
+                .field("index", &hdt.index)
+                .field("extent", &hdt.extent)
+                .field("line", &hdt.line),
+            _ => ds
+        }.finish()
     }
 }
 
@@ -217,11 +227,21 @@ impl<'a> fmt::Debug for TokenRef<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let common = self.common();
         
-        f.debug_struct("TokenRef")
-            .field("kind", &self.kind_name())
+        let mut ds = f.debug_struct("TokenRef");
+        
+        let ds = ds.field("kind", &self.kind_name())
             .field("node", &common.node.props.name)
-            .field("depth", &common.depth)
-            .finish()
+            .field("node_path", &common.node_path)
+            .field("node_addr", &common.node_addr)
+            .field("depth", &common.depth);
+
+        match self {
+            TokenRef::Hexdump(hdt) => ds
+                .field("index", &hdt.index)
+                .field("extent", &hdt.extent)
+                .field("line", &hdt.line),
+            _ => ds
+        }.finish()
     }
 }
 
