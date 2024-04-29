@@ -451,7 +451,7 @@ impl Tokenizer {
                 /* Children were nested on this node */
                 let new_nest = &self.node.children[range.first];
                 
-                if range.contains_index(*index) || offset.map_or(false, |o| extent.includes(o)) {
+                if range.contains_index(*index) && offset.map_or(false, |o| extent.includes(o)) {
                     if options.prefer_after_new_node {
                         /* options said we should place after the new node, so do so. */
                         *index = range.first + 1;
@@ -1884,7 +1884,7 @@ mod tests {
         let new_root = new_doc.root.clone();
         
         assert_port_functionality(&old_doc, &new_doc, &[
-            /* offset 0x0 */
+            /* offset 0x4 */
             (
                 token::Token::Hexdump(token::HexdumpToken {
                     common: token::TokenCommon {
@@ -1937,6 +1937,97 @@ mod tests {
                 }),
                 PortOptionsBuilder::new().additional_offset(0x1).build(),
                 PortOptionsBuilder::new().additional_offset(0x1).build(),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn port_nest_nodes_simple() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .child(0x38, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+
+        let props = structure::Properties {
+            name: "child".to_string(),
+            title_display: structure::TitleDisplay::Minor,
+            children_display: structure::ChildrenDisplay::Full,
+            content_display: structure::ContentDisplay::Hexdump {
+                line_pitch: addr::Size::from(16),
+                gutter_pitch: addr::Size::from(8),
+            },
+            locked: false,
+        };
+        
+        new_doc.change_for_debug(old_doc.nest(structure::SiblingRange {
+            parent: vec![],
+            first: 0,
+            last: 0,
+        }, addr::Extent::sized_u64(0x24, 0x58), props)).unwrap();
+
+        let new_root = new_doc.root.clone();
+        let new_child = new_doc.root.children[0].node.clone();
+        
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* offset 0x4 */
+            (
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+            ),
+            /* offset 0x28 */
+            (
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x20, 0x10),
+                    line: addr::Extent::sized_u64(0x20, 0x10),
+                }),
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: new_child.clone(),
+                        node_path: vec![0],
+                        node_addr: 0x24.into(),
+                        depth: 2,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0x8).build(),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
             ),
         ]);
     }
