@@ -36,6 +36,7 @@ pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleActio
     });
     
     action.dialog.connect_response(clone!(@weak action => move |_dialog, response_type| {
+        /* FFI CALLBACK */
         action.respond(response_type);
     }));
     

@@ -99,6 +99,7 @@ impl ObjectSubclass for ListingWidgetImp {
     type ParentType = gtk::Widget;
 
     fn class_init(klass: &mut Self::Class) {
+        /* FFI CALLBACK */
         klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("B"), Some(gtk::NamedAction::new("ctx.insert_byte"))));
         klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("W"), Some(gtk::NamedAction::new("ctx.insert_word"))));
         klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
@@ -110,6 +111,7 @@ impl ObjectSubclass for ListingWidgetImp {
 
 impl ObjectImpl for ListingWidgetImp {
     fn constructed(&self) {
+        /* FFI CALLBACK */
         self.parent_constructed();
 
         self.obj().set_vexpand(true);
@@ -119,6 +121,7 @@ impl ObjectImpl for ListingWidgetImp {
 
 impl WidgetImpl for ListingWidgetImp {
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+        /* FFI CALLBACK */
         match orientation {
             gtk::Orientation::Horizontal => {
                 (100, 200, -1, -1)
@@ -131,6 +134,7 @@ impl WidgetImpl for ListingWidgetImp {
     }
 
     fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+        /* FFI CALLBACK */
         let mut interior = match self.interior.get() {
             Some(interior) => interior.write(),
             None => return,
@@ -140,6 +144,7 @@ impl WidgetImpl for ListingWidgetImp {
     }
     
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
+        /* FFI CALLBACK */
         let widget = self.obj();
         let mut interior_guard = match self.interior.get() {
             Some(interior) => interior.write(),
@@ -262,6 +267,7 @@ impl ListingWidget {
 
         /* Register animation callback */
         self.add_tick_callback(|lw, frame_clock| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
 
@@ -303,6 +309,7 @@ impl ListingWidget {
         /* Register keybaord event controller */
         let ec_key = gtk::EventControllerKey::new();
         ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| {
+            /* FFI CALLBACK */
             let propagation = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
             propagation
         }));
@@ -311,6 +318,7 @@ impl ListingWidget {
         /* Register scroll event controller */
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_ecs, dx, dy| {
+            /* FFI CALLBACK */
             let propagation = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
             propagation
         }));
@@ -319,10 +327,12 @@ impl ListingWidget {
         /* Register motion event controller for hovering */
         let ec_motion = gtk::EventControllerMotion::new();
         ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| {
+            /* FFI CALLBACK */
             let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
             propagation
         }));
         ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| {
+            /* FFI CALLBACK */
             let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, None);
             propagation
         }));
@@ -331,6 +341,7 @@ impl ListingWidget {
         /* Context menu */
         let ec_context_menu = gtk::GestureClick::new();
         ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+            /* FFI CALLBACK */
             let event = gesture.last_event(gesture.current_sequence().as_ref());
 
             if event.map(|ev| ev.triggers_context_menu()).unwrap_or(false) {
@@ -343,9 +354,11 @@ impl ListingWidget {
         /* Single click (grab focus & move cursor) */
         let ec_click = gtk::GestureClick::new();
         ec_click.connect_pressed(clone!(@weak self as lw => move |_gesture, _n_press, _x, _y| {
+            /* FFI CALLBACK */
             lw.grab_focus();
         }));
         ec_click.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().move_cursor_to_coordinates(x, y);
             lw.queue_draw();
             gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -357,13 +370,16 @@ impl ListingWidget {
         /* Rubber-band selection */
         let ec_select = gtk::GestureDrag::new();
         ec_select.connect_drag_begin(clone!(@weak self as lw => move |_ecs, x, y| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().drag_begin(&lw, x, y);
         }));
         ec_select.connect_drag_update(clone!(@weak self as lw => move |ecs, dx, dy| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().drag_update(&lw, &ecs, dx, dy);
             ecs.set_state(gtk::EventSequenceState::Claimed);
         }));
         ec_select.connect_drag_end(clone!(@weak self as lw => move |ecs, dx, dy| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().drag_end(&lw, &ecs, dx, dy);
         }));
         ec_select.set_button(1);
@@ -372,6 +388,7 @@ impl ListingWidget {
 
         /* Notify cursor when focus state changes */
         self.connect_has_focus_notify(move |lw| {
+            /* FFI CALLBACK */
             lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());
         });
 
@@ -741,6 +758,8 @@ impl future::Future for ListingWidgetWorkFuture {
     type Output = ();
 
     fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
+        /* FFI CALLBACK */
+        
         if let Some(lw) = self.0.upgrade() {
             let mut interior = lw.imp().interior.get().unwrap().write();
 

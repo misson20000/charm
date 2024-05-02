@@ -103,10 +103,12 @@ impl PropsEditor {
         let pe = Rc::new(pe);
 
         pe.name_entry.buffer().connect_text_notify(clone!(@weak pe => move |buffer| {
+            /* FFI CALLBACK */
             pe.apply_props(structure::MaybeProperties::new_name(buffer.text().to_string()));
         }));
 
         pe.title_display.connect_selected_notify(clone!(@weak pe => move |dd| {
+            /* FFI CALLBACK */
             pe.apply_props(structure::MaybeProperties::new_title_display(match dd.selected() {
                 0 => structure::TitleDisplay::Inline,
                 1 => structure::TitleDisplay::Major,
@@ -117,6 +119,7 @@ impl PropsEditor {
         }));
 
         pe.children_display.connect_selected_notify(clone!(@weak pe => move |dd| {
+            /* FFI CALLBACK */
             pe.apply_props(structure::MaybeProperties::new_children_display(match dd.selected() {
                 0 => structure::ChildrenDisplay::None,
                 1 => structure::ChildrenDisplay::Summary,
@@ -127,6 +130,7 @@ impl PropsEditor {
         }));
 
         pe.content_display.connect_selected_notify(clone!(@weak pe => move |dd| {
+            /* FFI CALLBACK */
             pe.apply_props(structure::MaybeProperties::new_content_display(match dd.selected() {
                 0 => structure::ContentDisplay::None,
                 1 => structure::ContentDisplay::default_hexdump(),

@@ -56,7 +56,7 @@ impl<'a> ConfigEditorBuilder<'a> {
         sb.set_wrap(false);
 
         let changer = self.create_changer(&acc);
-        sb.connect_value_changed(move |sb| changer(conv::ApproxInto::approx_into(sb.value()).unwrap()));
+        sb.connect_value_changed(move |sb| /* FFI CALLBACK */ changer(conv::ApproxInto::approx_into(sb.value()).unwrap()));
 
         self.add_widget(acc, sb);
     }
@@ -92,7 +92,7 @@ impl<'a> config::ItemVisitor<config::Config, bool> for ConfigEditorBuilder<'a> {
         cb.set_active(*(acc.reader)(self.current));
 
         let changer = self.create_changer(&acc);
-        cb.connect_active_notify(move |cb| changer(cb.is_active()));
+        cb.connect_active_notify(move |cb| /* FFI CALLBACK */ changer(cb.is_active()));
 
         self.add_widget(acc, cb);
     }    
@@ -108,7 +108,7 @@ impl<'a> config::ItemVisitor<config::Config, gdk::RGBA> for ConfigEditorBuilder<
             .build();
 
         let changer = self.create_changer(&acc);
-        gtk::prelude::ColorChooserExt::connect_rgba_notify(&cb, move |cb| changer(cb.rgba()));
+        gtk::prelude::ColorChooserExt::connect_rgba_notify(&cb, move |cb| /* FFI CALLBACK */ changer(cb.rgba()));
 
         self.add_widget(acc, cb);
     }    
@@ -122,7 +122,7 @@ impl<'a> config::ItemVisitor<config::Config, pango::FontDescription> for ConfigE
             .build();
 
         let changer = self.create_changer(&acc);
-        fb.connect_font_set(move |fb| if let Some(d) = fb.font_desc() { changer(d)});
+        fb.connect_font_set(move |fb| /* FFI CALLBACK */ if let Some(d) = fb.font_desc() { changer(d)});
 
         self.add_widget(acc, fb);
     }    

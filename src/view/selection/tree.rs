@@ -111,10 +111,12 @@ mod imp {
 
     impl SelectionModelImpl for TreeSelectionModel {
         fn selection_in_range(&self, _position: u32, _n_items: u32) -> gtk::Bitset {
+            /* FFI CALLBACK */
             todo!();
         }
 
         fn is_selected(&self, position: u32) -> bool {
+            /* FFI CALLBACK */
             self.borrow_interior_mut().map_or(false, |i| {
                 i.item(position).map_or(false, |item| {
                     let info = item.imp().info.get().unwrap().borrow();
@@ -129,6 +131,7 @@ mod imp {
         }
 
         fn select_all(&self) -> bool {
+            /* FFI CALLBACK */
             if let Some(interior) = self.borrow_interior_mut() {
                 self.change(interior, tree_model::Change::SelectAll);
                 true
@@ -138,6 +141,7 @@ mod imp {
         }
 
         fn select_item(&self, position: u32, unselect_rest: bool) -> bool {
+            /* FFI CALLBACK */
             if let Some(interior) = self.borrow_interior_mut() {
                 let item = match interior.item(position) {
                     Some(item) => item,
@@ -168,6 +172,7 @@ mod imp {
         }
 
         fn select_range(&self, position: u32, n_items: u32, unselect_rest: bool) -> bool {
+            /* FFI CALLBACK */
             if let Some(interior) = self.borrow_interior_mut() {
                 self.change_multiple(interior, |interior| {
                     let mut sel = if unselect_rest {
@@ -197,10 +202,12 @@ mod imp {
         }
 
         fn set_selection(&self, _selected: &gtk::Bitset, _mask: &gtk::Bitset) -> bool {
+            /* FFI CALLBACK: trivially panic-safe */
             false
         }
 
         fn unselect_all(&self) -> bool {
+            /* FFI CALLBACK */
             if let Some(interior) = self.borrow_interior_mut() {
                 self.change(interior, tree_model::Change::Clear);
                 true
@@ -210,24 +217,29 @@ mod imp {
         }
 
         fn unselect_item(&self, _position: u32) -> bool {
+            /* FFI CALLBACK: trivially panic-safe */
             false
         }
 
         fn unselect_range(&self, _position: u32, _n_items: u32) -> bool {
+            /* FFI CALLBACK: trivially panic-safe */
             false
         }
     }
 
     impl ListModelImpl for TreeSelectionModel {
         fn item_type(&self) -> glib::Type {
+            /* FFI CALLBACK: assumed panic-safe */
             gtk::TreeListRow::static_type()
         }
 
         fn n_items(&self) -> u32 {
+            /* FFI CALLBACK */
             self.borrow_interior().map_or(0, |i| i.gtk_model.n_items())
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
+            /* FFI CALLBACK */
             self.borrow_interior().and_then(|i| {
                 i.gtk_model.item(position)
             })
@@ -248,6 +260,7 @@ impl TreeSelectionModel {
 
         let gtk_model = hierarchy::create_tree_list_model(document_host.clone(), selection.document.clone(), true);
         gtk_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| {
+            /* FFI CALLBACK */
             model.items_changed(pos, removed, added)
         }));
 

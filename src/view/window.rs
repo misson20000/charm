@@ -200,6 +200,8 @@ impl CharmWindow {
             
             let gesture = gtk::GestureClick::new();
             gesture.connect_pressed(move |gesture, n_press, x, y| {
+                /* FFI CALLBACK */
+
                 let seq = gesture.current_sequence();
                 let event = gesture.last_event(seq.as_ref()).unwrap();
 
@@ -246,6 +248,8 @@ impl CharmWindow {
         w.props_editor.bind_window(&w);
 
         w.window.connect_close_request(clone!(@strong w => move |_| {
+            /* FFI CALLBACK */
+            
             /* This is especially important because it destroys actions which might have their own toplevel windows that
              * would otherwise keep the process alive. */
             w.close_file();
@@ -254,6 +258,8 @@ impl CharmWindow {
         }));
 
         w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| {
+            /* FFI CALLBACK */
+            
             let guard = w.context.borrow();
             let Some(ctx) = guard.as_ref() else { return };
             let Some(model) = he.model() else { return };

@@ -63,6 +63,7 @@ pub fn create_actions(window_context: &window::WindowContext) -> (gio::SimpleAct
     let insert_gio_action = gio::SimpleAction::new("insert_node", None);
 
     insert_gio_action.connect_activate(move |_, _| {
+        /* FFI CALLBACK */
         if nest_action.activate() {
         } else {
             insert_action.activate();
@@ -121,6 +122,7 @@ impl InsertNodeAction {
         });
 
         dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
+            /* FFI CALLBACK */
             action.deactivate();
             glib::Propagation::Proceed
         }));
@@ -309,6 +311,7 @@ impl NestNodesAction {
         });
 
         dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
+            /* FFI CALLBACK */
             action.deactivate();
             glib::Propagation::Proceed
         }));
@@ -420,6 +423,7 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
     let window = window_context.window.clone();
 
     action.connect_activate(move |_, _| {
+        /* FFI CALLBACK */
         let mut cursor = lw.cursor_mut();
         
         match cursor.insert_node(&document_host, sync::Arc::new(structure::Node {

@@ -21,6 +21,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
 
     let action = gio::SimpleAction::new("debug.revert_document", Some(glib::VariantTy::UINT32));
     action.connect_activate(move |_, parameter| {
+        /* FFI CALLBACK */
         if let Some(amount) = parameter.and_then(|parameter| parameter.get::<u32>()) {
             action_impl.activate(amount);
         }

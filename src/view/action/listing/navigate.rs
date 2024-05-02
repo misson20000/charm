@@ -70,18 +70,22 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     list.set_model(Some(&action.model));
     list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("navigate-item.ui")))));
     list.connect_activate(clone!(@weak action => move |_, position| {
+        /* FFI CALLBACK */
         action.do_navigate(action.model.item(position));
     }));
     
     action.entry.connect_changed(clone!(@weak action => move |_| {
+        /* FFI CALLBACK */
         action.refresh_results(None, false);
     }));
 
     action.entry.connect_activate(clone!(@weak action => move |_| {
+        /* FFI CALLBACK */
         action.do_navigate(action.model.item(0));
     }));
 
     action.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action), action.document_host.clone(), action.document.borrow().clone(), |action, new_document| {
+        /* FFI CALLBACK */
         action.refresh_results(Some(new_document.clone()), false);
     })).unwrap();
     
@@ -185,6 +189,7 @@ mod imp {
         }
 
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+            /* FFI CALLBACK */
             let interior = self.interior.get().unwrap();
             match pspec.name() {
                 "path-description" => glib::value::ToValue::to_value(&interior.path_description),

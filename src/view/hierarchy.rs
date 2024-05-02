@@ -19,6 +19,7 @@ pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, 
     let root_model = RootListModel::new(document_host, document);
     
     let model = gtk::TreeListModel::new(root_model, false, autoexpand, |obj| {
+        /* FFI CALLBACK */
         Some(obj.downcast_ref::<NodeItem>().unwrap().imp().expand().upcast())
     });
     
@@ -83,14 +84,17 @@ mod imp {
 
     impl ListModelImpl for StructureListModel {
         fn item_type(&self) -> glib::Type {
+            /* FFI CALLBACK */
             super::NodeItem::static_type()
         }
 
         fn n_items(&self) -> u32 {
+            /* FFI CALLBACK */
             self.interior.get().map_or(0, |i| i.borrow().children.len() as u32)
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
+            /* FFI CALLBACK */
             self.interior.get().and_then(|i| {
                 let i = i.borrow();
                 i.children.get(position as usize).map(|ch| ch.clone().upcast())
@@ -114,6 +118,7 @@ mod imp {
 
     impl ObjectImpl for NodeItem {
         fn properties() -> &'static [glib::ParamSpec] {
+            /* FFI CALLBACK */
             static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
                 once_cell::sync::Lazy::new(|| vec![
                     glib::ParamSpecString::builder("name").build(),
@@ -125,6 +130,8 @@ mod imp {
         }
 
         fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+            /* FFI CALLBACK */
+            
             /* we update our local copy of properties immediately. when the
                document update goes through, it will notify us, but we'll see
                that the new properties already match our local properties and we
@@ -156,6 +163,8 @@ mod imp {
         }
 
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+            /* FFI CALLBACK */
+            
             let info = self.info.get().unwrap().borrow();
             match pspec.name() {
                 "name" => glib::value::ToValue::to_value(&info.props.name),
@@ -202,14 +211,17 @@ mod imp {
 
     impl ListModelImpl for RootListModel {
         fn item_type(&self) -> glib::Type {
+            /* FFI CALLBACK: assumed panic-safe */
             super::NodeItem::static_type()
         }
 
         fn n_items(&self) -> u32 {
+            /* FFI CALLBACK: trivially panic-safe */
             1
         }
-
+        
         fn item(&self, position: u32) -> Option<glib::Object> {
+            /* FFI CALLBACK */
             assert_eq!(position, 0);
             self.root_item.get().map(|ch| ch.clone().upcast())
         }

@@ -14,6 +14,7 @@ where F: Fn(&rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
     action.connect_activate(move |_, _| {
+        /* FFI CALLBACK */
         cb(&obj)
     });
     action.set_enabled(true);
@@ -26,6 +27,7 @@ where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
     action.connect_activate(clone!(@weak obj => move |_, _| {
+        /* FFI CALLBACK */
         cb(obj)
     }));
     action.set_enabled(true);
@@ -47,6 +49,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
     let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
     action.connect_change_state(clone!(@weak obj => move |action, state| {
+        /* FFI CALLBACK */
         cb(action, obj, state.and_then(|var| S::from_variant(var)))
     }));
     action.set_enabled(true);
@@ -66,6 +69,7 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
     SubscriberRef: glib::clone::Upgrade + 'static,
     F: FnMut(SubscriberRef::Strong, &sync::Arc<Object>) + 'static {
     spawn_on_main_context(async move {
+        /* FFI CALLBACK */
         let mut object = initial_object;
 
         loop {
@@ -84,6 +88,7 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
     })
 }
 
+/// This callback is an FFI boundary.
 pub fn spawn_on_main_context<F: future::Future<Output = ()> + 'static>(task: F) -> AsyncSubscriber {
     AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task)))
 }
