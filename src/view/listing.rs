@@ -4,7 +4,7 @@ use std::rc;
 use std::sync;
 use std::task;
 
-use crate::view::config;
+use crate::catch_panic;
 use crate::util;
 use crate::model::addr;
 use crate::model::datapath::DataPathExt;
@@ -15,6 +15,7 @@ use crate::model::listing::layout as layout_model;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::config;
 use crate::view::error;
 use crate::view::gsc;
 use crate::view::helpers;
@@ -99,29 +100,31 @@ impl ObjectSubclass for ListingWidgetImp {
     type ParentType = gtk::Widget;
 
     fn class_init(klass: &mut Self::Class) {
-        /* FFI CALLBACK */
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("B"), Some(gtk::NamedAction::new("ctx.insert_byte"))));
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("W"), Some(gtk::NamedAction::new("ctx.insert_word"))));
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Q"), Some(gtk::NamedAction::new("ctx.insert_qword"))));
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Insert"), Some(gtk::NamedAction::new("ctx.insert_node"))));
-        klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("N"), Some(gtk::NamedAction::new("ctx.navigate"))));
+        catch_panic! {
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("B"), Some(gtk::NamedAction::new("ctx.insert_byte"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("W"), Some(gtk::NamedAction::new("ctx.insert_word"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Q"), Some(gtk::NamedAction::new("ctx.insert_qword"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Insert"), Some(gtk::NamedAction::new("ctx.insert_node"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("N"), Some(gtk::NamedAction::new("ctx.navigate"))));
+        }
     }
 }
 
 impl ObjectImpl for ListingWidgetImp {
     fn constructed(&self) {
-        /* FFI CALLBACK */
-        self.parent_constructed();
+        catch_panic! {
+            self.parent_constructed();
 
-        self.obj().set_vexpand(true);
-        self.obj().set_hexpand(true);
+            self.obj().set_vexpand(true);
+            self.obj().set_hexpand(true);
+        }
     }
 }
 
 impl WidgetImpl for ListingWidgetImp {
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
-        /* FFI CALLBACK */
+        /* FFI CALLBACK: panic-safe */
         match orientation {
             gtk::Orientation::Horizontal => {
                 (100, 200, -1, -1)
@@ -134,53 +137,55 @@ impl WidgetImpl for ListingWidgetImp {
     }
 
     fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
-        /* FFI CALLBACK */
-        let mut interior = match self.interior.get() {
-            Some(interior) => interior.write(),
-            None => return,
-        };
+        catch_panic! {
+            let mut interior = match self.interior.get() {
+                Some(interior) => interior.write(),
+                None => return,
+            };
 
-        interior.size_allocate(&self.obj(), width, height, baseline);
+            interior.size_allocate(&self.obj(), width, height, baseline);
+        }
     }
     
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
-        /* FFI CALLBACK */
-        let widget = self.obj();
-        let mut interior_guard = match self.interior.get() {
-            Some(interior) => interior.write(),
-            None => return,
-        };
-        let interior = &mut *interior_guard;
-        let render = &interior.render;
-        
-        let selection = match &interior.selection {
-            sel if sync::Arc::ptr_eq(&sel.document, &interior.document) => &sel.mode,
-            _ => {
-                println!("WARNING: rendering listing widget with selection that does not agree with document. this should not happen!");
-                const INVALID_MODE: selection::listing::Mode = selection::listing::Mode::Structure(selection::listing::StructureMode::Empty);
-
-                &INVALID_MODE
-            }
-        };
-
-        /* fill in background */
-        snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
-
-        /* fill in address pane */
-        snapshot.append_color(&render.config.addr_pane_color, &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
-        
-        /* render lines */
-        snapshot.save();
-        snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
-
-        for line in interior.window.line_views.iter_mut() {
-            if let Some(node) = line.render(&interior.cursor, selection, &*render) {
-                snapshot.append_node(node);
-            }
+        catch_panic! {
+            let widget = self.obj();
+            let mut interior_guard = match self.interior.get() {
+                Some(interior) => interior.write(),
+                None => return,
+            };
+            let interior = &mut *interior_guard;
+            let render = &interior.render;
             
-            snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
+            let selection = match &interior.selection {
+                sel if sync::Arc::ptr_eq(&sel.document, &interior.document) => &sel.mode,
+                _ => {
+                    println!("WARNING: rendering listing widget with selection that does not agree with document. this should not happen!");
+                    const INVALID_MODE: selection::listing::Mode = selection::listing::Mode::Structure(selection::listing::StructureMode::Empty);
+
+                    &INVALID_MODE
+                }
+            };
+
+            /* fill in background */
+            snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
+
+            /* fill in address pane */
+            snapshot.append_color(&render.config.addr_pane_color, &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
+            
+            /* render lines */
+            snapshot.save();
+            snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
+
+            for line in interior.window.line_views.iter_mut() {
+                if let Some(node) = line.render(&interior.cursor, selection, &*render) {
+                    snapshot.append_node(node);
+                }
+                
+                snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
+            }
+            snapshot.restore();
         }
-        snapshot.restore();
     }
 }
 
@@ -266,8 +271,9 @@ impl ListingWidget {
             self.allocated_baseline());
 
         /* Register animation callback */
-        self.add_tick_callback(|lw, frame_clock| {
-            /* FFI CALLBACK */
+        self.add_tick_callback(|lw, frame_clock| catch_panic! {
+            @default(glib::ControlFlow::Break);
+            
             lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
         });
 
@@ -308,40 +314,35 @@ impl ListingWidget {
 
         /* Register keybaord event controller */
         let ec_key = gtk::EventControllerKey::new();
-        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| {
-            /* FFI CALLBACK */
-            let propagation = lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier);
-            propagation
+        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| catch_panic! {
+            @default(glib::Propagation::Proceed);
+            
+            lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier)
         }));
         self.add_controller(ec_key);
 
         /* Register scroll event controller */
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_ecs, dx, dy| {
-            /* FFI CALLBACK */
-            let propagation = lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy);
-            propagation
+        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_ecs, dx, dy| catch_panic! {
+            @default(glib::Propagation::Proceed);
+            
+            lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy)
         }));
         self.add_controller(ec_scroll);
         
         /* Register motion event controller for hovering */
         let ec_motion = gtk::EventControllerMotion::new();
-        ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| {
-            /* FFI CALLBACK */
-            let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)));
-            propagation
+        ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| catch_panic! {
+            lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)))
         }));
-        ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| {
-            /* FFI CALLBACK */
-            let propagation = lw.imp().interior.get().unwrap().write().hover(&lw, None);
-            propagation
+        ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| catch_panic! {
+            lw.imp().interior.get().unwrap().write().hover(&lw, None)
         }));
         self.add_controller(ec_motion);
 
         /* Context menu */
         let ec_context_menu = gtk::GestureClick::new();
-        ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
-            /* FFI CALLBACK */
+        ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| catch_panic! {
             let event = gesture.last_event(gesture.current_sequence().as_ref());
 
             if event.map(|ev| ev.triggers_context_menu()).unwrap_or(false) {
@@ -353,12 +354,10 @@ impl ListingWidget {
         
         /* Single click (grab focus & move cursor) */
         let ec_click = gtk::GestureClick::new();
-        ec_click.connect_pressed(clone!(@weak self as lw => move |_gesture, _n_press, _x, _y| {
-            /* FFI CALLBACK */
+        ec_click.connect_pressed(clone!(@weak self as lw => move |_gesture, _n_press, _x, _y| catch_panic! {
             lw.grab_focus();
         }));
-        ec_click.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| {
-            /* FFI CALLBACK */
+        ec_click.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| catch_panic! {
             lw.imp().interior.get().unwrap().write().move_cursor_to_coordinates(x, y);
             lw.queue_draw();
             gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -369,17 +368,14 @@ impl ListingWidget {
 
         /* Rubber-band selection */
         let ec_select = gtk::GestureDrag::new();
-        ec_select.connect_drag_begin(clone!(@weak self as lw => move |_ecs, x, y| {
-            /* FFI CALLBACK */
+        ec_select.connect_drag_begin(clone!(@weak self as lw => move |_ecs, x, y| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_begin(&lw, x, y);
         }));
-        ec_select.connect_drag_update(clone!(@weak self as lw => move |ecs, dx, dy| {
-            /* FFI CALLBACK */
+        ec_select.connect_drag_update(clone!(@weak self as lw => move |ecs, dx, dy| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_update(&lw, &ecs, dx, dy);
             ecs.set_state(gtk::EventSequenceState::Claimed);
         }));
-        ec_select.connect_drag_end(clone!(@weak self as lw => move |ecs, dx, dy| {
-            /* FFI CALLBACK */
+        ec_select.connect_drag_end(clone!(@weak self as lw => move |ecs, dx, dy| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_end(&lw, &ecs, dx, dy);
         }));
         ec_select.set_button(1);
@@ -387,8 +383,7 @@ impl ListingWidget {
         self.add_controller(ec_select.clone());
 
         /* Notify cursor when focus state changes */
-        self.connect_has_focus_notify(move |lw| {
-            /* FFI CALLBACK */
+        self.connect_has_focus_notify(move |lw| catch_panic! {
             lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());
         });
 
@@ -758,20 +753,22 @@ impl future::Future for ListingWidgetWorkFuture {
     type Output = ();
 
     fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
-        /* FFI CALLBACK */
+        catch_panic! {
+            @default(task::Poll::Ready(()));
         
-        if let Some(lw) = self.0.upgrade() {
-            let mut interior = lw.imp().interior.get().unwrap().write();
+            if let Some(lw) = self.0.upgrade() {
+                let mut interior = lw.imp().interior.get().unwrap().write();
 
-            /* This gets polled from glib event loop, but we need to be in a tokio runtime. */
-            let handle = interior.runtime.clone();
-            let guard = handle.enter();
-            interior.work(&lw, cx);
-            std::mem::drop(guard);
-            
-            task::Poll::Pending
-        } else {
-            task::Poll::Ready(())
+                /* This gets polled from glib event loop, but we need to be in a tokio runtime. */
+                let handle = interior.runtime.clone();
+                let guard = handle.enter();
+                interior.work(&lw, cx);
+                std::mem::drop(guard);
+                
+                task::Poll::Pending
+            } else {
+                task::Poll::Ready(())
+            }
         }
     }
 }

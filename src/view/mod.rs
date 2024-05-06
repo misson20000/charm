@@ -19,6 +19,8 @@ pub mod selection;
 
 use std::rc;
 
+use crate::catch_panic;
+
 pub struct CharmApplication {
     application: gtk::Application,
     rt: tokio::runtime::Runtime,
@@ -109,8 +111,7 @@ pub fn launch_application() {
     /* setup signals */
     
     /* startup */
-    application.connect_startup(clone!(@strong app_model_for_closures => move |app| {
-        /* FFI CALLBACK */
+    application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {
         // TODO: figure out gtk4 icon hellscape
         if app_model_for_closures.set(CharmApplication::new(app.clone())).is_err() {
             panic!("started up more than once?");
@@ -118,14 +119,12 @@ pub fn launch_application() {
     }));
 
     /* activate */
-    application.connect_activate(clone!(@strong app_model_for_closures => move |_app| {
-        /* FFI CALLBACK */
+    application.connect_activate(clone!(@strong app_model_for_closures => move |_app| catch_panic! {
         app_model_for_closures.get().unwrap().action_new_window();
     }));
 
     /* open */
-    application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| {
-        /* FFI CALLBACK */
+    application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| catch_panic! {
         for file in files {
             let w = app_model_for_closures.get().unwrap().new_window();
             w.open_file(file);

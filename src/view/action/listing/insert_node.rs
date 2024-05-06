@@ -2,6 +2,7 @@ use std::cell;
 use std::rc;
 use std::sync;
 
+use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
@@ -62,8 +63,7 @@ pub fn create_actions(window_context: &window::WindowContext) -> (gio::SimpleAct
 
     let insert_gio_action = gio::SimpleAction::new("insert_node", None);
 
-    insert_gio_action.connect_activate(move |_, _| {
-        /* FFI CALLBACK */
+    insert_gio_action.connect_activate(move |_, _| catch_panic! {
         if nest_action.activate() {
         } else {
             insert_action.activate();
@@ -122,8 +122,9 @@ impl InsertNodeAction {
         });
 
         dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
-            /* FFI CALLBACK */
-            action.deactivate();
+            catch_panic! {
+                action.deactivate();
+            };
             glib::Propagation::Proceed
         }));
 
@@ -311,8 +312,9 @@ impl NestNodesAction {
         });
 
         dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
-            /* FFI CALLBACK */
-            action.deactivate();
+            catch_panic!{ 
+                action.deactivate();
+            };
             glib::Propagation::Proceed
         }));
 
@@ -422,8 +424,7 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
     let name = name.to_string();
     let window = window_context.window.clone();
 
-    action.connect_activate(move |_, _| {
-        /* FFI CALLBACK */
+    action.connect_activate(move |_, _| catch_panic! {
         let mut cursor = lw.cursor_mut();
         
         match cursor.insert_node(&document_host, sync::Arc::new(structure::Node {

@@ -4,6 +4,7 @@ use std::sync;
 use gtk::gio;
 use gtk::glib;
 
+use crate::catch_panic;
 use crate::model::document;
 use crate::model::versioned::Versioned;
 use crate::view::window;
@@ -20,8 +21,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     });
 
     let action = gio::SimpleAction::new("debug.revert_document", Some(glib::VariantTy::UINT32));
-    action.connect_activate(move |_, parameter| {
-        /* FFI CALLBACK */
+    action.connect_activate(move |_, parameter| catch_panic! {
         if let Some(amount) = parameter.and_then(|parameter| parameter.get::<u32>()) {
             action_impl.activate(amount);
         }

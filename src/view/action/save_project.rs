@@ -5,6 +5,7 @@ use gtk::gio;
 
 use std::rc;
 
+use crate::catch_panic;
 use crate::view::helpers;
 use crate::view::window;
 
@@ -35,8 +36,7 @@ pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleActio
         dialog: dialog
     });
     
-    action.dialog.connect_response(clone!(@weak action => move |_dialog, response_type| {
-        /* FFI CALLBACK */
+    action.dialog.connect_response(clone!(@weak action => move |_dialog, response_type| catch_panic! {
         action.respond(response_type);
     }));
     

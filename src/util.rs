@@ -119,3 +119,19 @@ seq!(N in 1..=6 {
         });
     )*
 });
+
+#[macro_export]
+macro_rules! catch_panic {
+    { @default($fallback:expr); $($body:tt)* } => {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            $($body)*
+        })) {
+            Ok(x) => x,
+            Err(_) => $fallback,
+        }
+    };
+    
+    { $($body:tt)* } => {
+        catch_panic! { @default(()); $($body)* }
+    };
+}

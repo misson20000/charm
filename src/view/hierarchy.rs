@@ -7,6 +7,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
+use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change;
@@ -18,8 +19,9 @@ use crate::model::versioned::Versioned;
 pub fn create_tree_list_model(document_host: sync::Arc<document::DocumentHost>, document: sync::Arc<document::Document>, autoexpand: bool) -> gtk::TreeListModel {
     let root_model = RootListModel::new(document_host, document);
     
-    let model = gtk::TreeListModel::new(root_model, false, autoexpand, |obj| {
-        /* FFI CALLBACK */
+    let model = gtk::TreeListModel::new(root_model, false, autoexpand, |obj| catch_panic! {
+        @default(None);
+
         Some(obj.downcast_ref::<NodeItem>().unwrap().imp().expand().upcast())
     });
     
@@ -50,7 +52,8 @@ mod imp {
     use gtk::glib;
     use gtk::subclass::prelude::*;
     use gtk::prelude::*;
-    
+
+    use crate::catch_panic;
     use crate::model::addr;
     use crate::model::document;
     use crate::model::document::structure;
@@ -84,21 +87,27 @@ mod imp {
 
     impl ListModelImpl for StructureListModel {
         fn item_type(&self) -> glib::Type {
-            /* FFI CALLBACK */
+            /* FFI CALLBACK: assumed panic-safe */
             super::NodeItem::static_type()
         }
 
         fn n_items(&self) -> u32 {
-            /* FFI CALLBACK */
-            self.interior.get().map_or(0, |i| i.borrow().children.len() as u32)
+            catch_panic! {
+                @default(0);
+                
+                self.interior.get().map_or(0, |i| i.borrow().children.len() as u32)
+            }
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
-            /* FFI CALLBACK */
-            self.interior.get().and_then(|i| {
-                let i = i.borrow();
-                i.children.get(position as usize).map(|ch| ch.clone().upcast())
-            })
+            catch_panic! {
+                @default(None);
+                
+                self.interior.get().and_then(|i| {
+                    let i = i.borrow();
+                    i.children.get(position as usize).map(|ch| ch.clone().upcast())
+                })
+            }
         }
     }
     
@@ -118,7 +127,8 @@ mod imp {
 
     impl ObjectImpl for NodeItem {
         fn properties() -> &'static [glib::ParamSpec] {
-            /* FFI CALLBACK */
+            /* FFI CALLBACK: panic-safe */
+            
             static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
                 once_cell::sync::Lazy::new(|| vec![
                     glib::ParamSpecString::builder("name").build(),
@@ -130,52 +140,52 @@ mod imp {
         }
 
         fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
-            /* FFI CALLBACK */
-            
-            /* we update our local copy of properties immediately. when the
-               document update goes through, it will notify us, but we'll see
-               that the new properties already match our local properties and we
-               won't notify the properties as changed again. */
+            catch_panic! {
+                /* we update our local copy of properties immediately. when the
+                document update goes through, it will notify us, but we'll see
+                that the new properties already match our local properties and we
+                won't notify the properties as changed again. */
 
-            println!("property {} is being set", pspec.name());
-            
-            let mut info = self.info.get().unwrap().borrow_mut();
-            let old_info = info.clone();
-            
-            match pspec.name() {
-                "name" => info.props.name = value.get().unwrap(),
-                "children-display" => info.props.children_display = match value.get().unwrap() {
-                    "n" => structure::ChildrenDisplay::None,
-                    "s" => structure::ChildrenDisplay::Summary,
-                    "f" => structure::ChildrenDisplay::Full,
-                    _ => structure::ChildrenDisplay::Full,
-                },
-                _ => unimplemented!(),
-            };
+                let mut info = self.info.get().unwrap().borrow_mut();
+                let old_info = info.clone();
+                
+                match pspec.name() {
+                    "name" => info.props.name = value.get().unwrap(),
+                    "children-display" => info.props.children_display = match value.get().unwrap() {
+                        "n" => structure::ChildrenDisplay::None,
+                        "s" => structure::ChildrenDisplay::Summary,
+                        "f" => structure::ChildrenDisplay::Full,
+                        _ => structure::ChildrenDisplay::Full,
+                    },
+                    _ => unimplemented!(),
+                };
 
-            if let Err(e) = info.document_host.change(info.document.alter_node(info.path.clone(), info.props.clone())) {
-                /* roll back */
-                println!("failed to alter node: {:?}", e);
-                std::mem::drop(info);
-                self.obj().stage(old_info);
-                self.obj().trigger_notifies();
+                if let Err(e) = info.document_host.change(info.document.alter_node(info.path.clone(), info.props.clone())) {
+                    /* roll back */
+                    println!("failed to alter node: {:?}", e);
+                    std::mem::drop(info);
+                    self.obj().stage(old_info);
+                    self.obj().trigger_notifies();
+                }
             }
         }
 
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
-            /* FFI CALLBACK */
-            
-            let info = self.info.get().unwrap().borrow();
-            match pspec.name() {
-                "name" => glib::value::ToValue::to_value(&info.props.name),
-                "addr" => glib::value::ToValue::to_value(&format!("{}", info.address)),
-                "size" => glib::value::ToValue::to_value(&format!("{}", info.node.size)),
-                "children-display" => glib::value::ToValue::to_value(match info.props.children_display {
-                    structure::ChildrenDisplay::None => "n",
-                    structure::ChildrenDisplay::Summary => "s",
-                    structure::ChildrenDisplay::Full => "f",
-                }),
-                _ => unimplemented!(),
+            catch_panic! {
+                @default(glib::Value::from_type(glib::Type::INVALID));
+                
+                let info = self.info.get().unwrap().borrow();
+                match pspec.name() {
+                    "name" => glib::value::ToValue::to_value(&info.props.name),
+                    "addr" => glib::value::ToValue::to_value(&format!("{}", info.address)),
+                    "size" => glib::value::ToValue::to_value(&format!("{}", info.node.size)),
+                    "children-display" => glib::value::ToValue::to_value(match info.props.children_display {
+                        structure::ChildrenDisplay::None => "n",
+                        structure::ChildrenDisplay::Summary => "s",
+                        structure::ChildrenDisplay::Full => "f",
+                    }),
+                    _ => unimplemented!(),
+                }
             }
         }
     }
@@ -221,9 +231,12 @@ mod imp {
         }
         
         fn item(&self, position: u32) -> Option<glib::Object> {
-            /* FFI CALLBACK */
-            assert_eq!(position, 0);
-            self.root_item.get().map(|ch| ch.clone().upcast())
+            catch_panic! {
+                @default(None);
+                
+                assert_eq!(position, 0);
+                self.root_item.get().map(|ch| ch.clone().upcast())
+            }
         }
     }
 }

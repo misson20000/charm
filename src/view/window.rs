@@ -2,7 +2,7 @@ use std::cell;
 use std::rc;
 use std::sync;
 
-use crate::view::CharmApplication;
+use crate::catch_panic;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
@@ -11,6 +11,7 @@ use crate::model::selection as selection_model;
 use crate::model::space;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::CharmApplication;
 use crate::view::action;
 use crate::view::error;
 use crate::view::helpers;
@@ -199,9 +200,7 @@ impl CharmWindow {
             popover.set_parent(&hierarchy_editor);
             
             let gesture = gtk::GestureClick::new();
-            gesture.connect_pressed(move |gesture, n_press, x, y| {
-                /* FFI CALLBACK */
-
+            gesture.connect_pressed(move |gesture, n_press, x, y| catch_panic! {
                 let seq = gesture.current_sequence();
                 let event = gesture.last_event(seq.as_ref()).unwrap();
 
@@ -247,9 +246,7 @@ impl CharmWindow {
 
         w.props_editor.bind_window(&w);
 
-        w.window.connect_close_request(clone!(@strong w => move |_| {
-            /* FFI CALLBACK */
-            
+        w.window.connect_close_request(clone!(@strong w => move |_| catch_panic! { @default(glib::Propagation::Proceed);
             /* This is especially important because it destroys actions which might have their own toplevel windows that
              * would otherwise keep the process alive. */
             w.close_file();
@@ -257,9 +254,7 @@ impl CharmWindow {
             glib::Propagation::Proceed
         }));
 
-        w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| {
-            /* FFI CALLBACK */
-            
+        w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| catch_panic! {
             let guard = w.context.borrow();
             let Some(ctx) = guard.as_ref() else { return };
             let Some(model) = he.model() else { return };

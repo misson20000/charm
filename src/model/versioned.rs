@@ -154,6 +154,7 @@ impl<Object: Versioned> Host<Object> {
         self.notifier.enroll(cx);
     }
 
+    /* This shall not panic; it is used in an unwind-unsafe way in [charm::view::helpers::subscribe_to_updates]. */
     pub fn wait_for_update<'a>(&'a self, current: &'_ Object) -> ObjectUpdateFuture<'a, Object> {
         ObjectUpdateFuture {
             host: self,
@@ -211,6 +212,7 @@ pub struct ObjectUpdateFuture<'a, Object: Versioned> {
 impl<'a, Object: Versioned> future::Future for ObjectUpdateFuture<'a, Object> {
     type Output = sync::Arc<Object>;
 
+    /* This shall not panic; it is used in an unwind-unsafe way in [charm::view::helpers::subscribe_to_updates]. */
     fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         let guard = self.host.current.load();
         if guard.generation() != self.generation {

@@ -7,14 +7,14 @@ use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
 
+use crate::catch_panic;
 use crate::model::versioned;
 
 pub fn create_simple_action_strong<T, F>(obj: rc::Rc<T>, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(&rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
-    action.connect_activate(move |_, _| {
-        /* FFI CALLBACK */
+    action.connect_activate(move |_, _| catch_panic! {
         cb(&obj)
     });
     action.set_enabled(true);
@@ -26,8 +26,7 @@ pub fn create_simple_action<T, F>(obj: &rc::Rc<T>, id: &str, cb: F) -> gio::Simp
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
-    action.connect_activate(clone!(@weak obj => move |_, _| {
-        /* FFI CALLBACK */
+    action.connect_activate(clone!(@weak obj => move |_, _| catch_panic! {
         cb(obj)
     }));
     action.set_enabled(true);
@@ -48,8 +47,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
     let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
-    action.connect_change_state(clone!(@weak obj => move |action, state| {
-        /* FFI CALLBACK */
+    action.connect_change_state(clone!(@weak obj => move |action, state| catch_panic! {
         cb(action, obj, state.and_then(|var| S::from_variant(var)))
     }));
     action.set_enabled(true);
@@ -69,7 +67,6 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
     SubscriberRef: glib::clone::Upgrade + 'static,
     F: FnMut(SubscriberRef::Strong, &sync::Arc<Object>) + 'static {
     spawn_on_main_context(async move {
-        /* FFI CALLBACK */
         let mut object = initial_object;
 
         loop {
@@ -83,7 +80,10 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
             };
 
             object = new_object.clone();
-            callback(subscriber, &object);
+
+            catch_panic! {
+                callback(subscriber, &object);
+            }
         };
     })
 }

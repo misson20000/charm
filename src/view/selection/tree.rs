@@ -7,6 +7,7 @@ use gtk::glib::clone;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
+use crate::catch_panic;
 use crate::model::document;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
@@ -23,7 +24,8 @@ mod imp {
     use gtk::glib;
     use gtk::subclass::prelude::*;
     use gtk::prelude::*;
-    
+
+    use crate::catch_panic;
     use crate::model::selection::tree as tree_model;
     use crate::model::versioned::Versioned;
     use crate::view::error;
@@ -111,93 +113,108 @@ mod imp {
 
     impl SelectionModelImpl for TreeSelectionModel {
         fn selection_in_range(&self, _position: u32, _n_items: u32) -> gtk::Bitset {
-            /* FFI CALLBACK */
-            todo!();
+            catch_panic! {
+                @default(gtk::Bitset::new_empty());
+                
+                todo!();
+            }
         }
 
         fn is_selected(&self, position: u32) -> bool {
-            /* FFI CALLBACK */
-            self.borrow_interior_mut().map_or(false, |i| {
-                i.item(position).map_or(false, |item| {
-                    let info = item.imp().info.get().unwrap().borrow();
-                    
-                    if i.selection.document.is_outdated(&info.document) {
-                        panic!("selection document was outdated!");
-                    }
-                    
-                    i.selection.path_selected(&info.path)
+            catch_panic! {
+                @default(false);
+                
+                self.borrow_interior_mut().map_or(false, |i| {
+                    i.item(position).map_or(false, |item| {
+                        let info = item.imp().info.get().unwrap().borrow();
+                        
+                        if i.selection.document.is_outdated(&info.document) {
+                            panic!("selection document was outdated!");
+                        }
+                        
+                        i.selection.path_selected(&info.path)
+                    })
                 })
-            })
+            }
         }
 
         fn select_all(&self) -> bool {
-            /* FFI CALLBACK */
-            if let Some(interior) = self.borrow_interior_mut() {
-                self.change(interior, tree_model::Change::SelectAll);
-                true
-            } else {
-                true
+            catch_panic! {
+                @default(false);
+                
+                if let Some(interior) = self.borrow_interior_mut() {
+                    self.change(interior, tree_model::Change::SelectAll);
+                    true
+                } else {
+                    true
+                }
             }
         }
 
         fn select_item(&self, position: u32, unselect_rest: bool) -> bool {
-            /* FFI CALLBACK */
-            if let Some(interior) = self.borrow_interior_mut() {
-                let item = match interior.item(position) {
-                    Some(item) => item,
-                    None if unselect_rest => {
-                        self.change(interior, tree_model::Change::Clear);
-                        return true
-                    },
-                    None => return true
-                };
-
-                let info = item.imp().info.get().unwrap().borrow();
+            catch_panic! {
+                @default(false);
                 
-                let document = info.document.clone();
-                let path = info.path.clone();
+                if let Some(interior) = self.borrow_interior_mut() {
+                    let item = match interior.item(position) {
+                        Some(item) => item,
+                        None if unselect_rest => {
+                            self.change(interior, tree_model::Change::Clear);
+                            return true
+                        },
+                        None => return true
+                    };
 
-                std::mem::drop(info);
-                
-                self.change(interior, if unselect_rest {
-                    tree_model::Change::SetSingle(document, path)
+                    let info = item.imp().info.get().unwrap().borrow();
+                    
+                    let document = info.document.clone();
+                    let path = info.path.clone();
+
+                    std::mem::drop(info);
+                    
+                    self.change(interior, if unselect_rest {
+                        tree_model::Change::SetSingle(document, path)
+                    } else {
+                        tree_model::Change::AddSingle(document, path)
+                    });
+                    
+                    true
                 } else {
-                    tree_model::Change::AddSingle(document, path)
-                });
-                
-                true
-            } else {
-                true
+                    true
+                }
             }
         }
 
         fn select_range(&self, position: u32, n_items: u32, unselect_rest: bool) -> bool {
-            /* FFI CALLBACK */
-            if let Some(interior) = self.borrow_interior_mut() {
-                self.change_multiple(interior, |interior| {
-                    let mut sel = if unselect_rest {
-                        interior.selection_host.change(tree_model::Change::Clear)?
-                    } else {
-                        interior.selection.clone()
-                    };
-                    
-                    for i in position..(position+n_items) {
-                        let item = match interior.item(i) {
-                            Some(item) => item,
-                            None => continue
+            catch_panic! {
+                @default(false);
+                
+                if let Some(interior) = self.borrow_interior_mut() {
+                    self.change_multiple(interior, |interior| {
+                        let mut sel = if unselect_rest {
+                            interior.selection_host.change(tree_model::Change::Clear)?
+                        } else {
+                            interior.selection.clone()
                         };
+                        
+                        for i in position..(position+n_items) {
+                            let item = match interior.item(i) {
+                                Some(item) => item,
+                                None => continue
+                            };
 
-                        let info = item.imp().info.get().unwrap().borrow();
+                            let info = item.imp().info.get().unwrap().borrow();
 
-                        sel = interior.selection_host.change(tree_model::Change::AddSingle(info.document.clone(), info.path.clone()))?;
-                    }
+                            sel = interior.selection_host.change(tree_model::Change::AddSingle(info.document.clone(), info.path.clone()))?;
+                        }
 
-                    Ok(sel)
-                });
+                        Ok(sel)
+                    });
 
-                true
-            } else {
-                true
+                    true
+                } else {
+                    true
+                }
             }
         }
 
@@ -207,12 +224,15 @@ mod imp {
         }
 
         fn unselect_all(&self) -> bool {
-            /* FFI CALLBACK */
-            if let Some(interior) = self.borrow_interior_mut() {
-                self.change(interior, tree_model::Change::Clear);
-                true
-            } else {
-                true
+            catch_panic! {
+                @default(false);
+                
+                if let Some(interior) = self.borrow_interior_mut() {
+                    self.change(interior, tree_model::Change::Clear);
+                    true
+                } else {
+                    true
+                }
             }
         }
 
@@ -234,15 +254,21 @@ mod imp {
         }
 
         fn n_items(&self) -> u32 {
-            /* FFI CALLBACK */
-            self.borrow_interior().map_or(0, |i| i.gtk_model.n_items())
+            catch_panic! {
+                @default(0);
+                
+                self.borrow_interior().map_or(0, |i| i.gtk_model.n_items())
+            }
         }
 
         fn item(&self, position: u32) -> Option<glib::Object> {
-            /* FFI CALLBACK */
-            self.borrow_interior().and_then(|i| {
-                i.gtk_model.item(position)
-            })
+            catch_panic! {
+                @default(None);
+                
+                self.borrow_interior().and_then(|i| {
+                    i.gtk_model.item(position)
+                })
+            }
         }
     }
 }
@@ -259,8 +285,7 @@ impl TreeSelectionModel {
         let model: TreeSelectionModel = glib::Object::builder().build();
 
         let gtk_model = hierarchy::create_tree_list_model(document_host.clone(), selection.document.clone(), true);
-        gtk_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| {
-            /* FFI CALLBACK */
+        gtk_model.connect_items_changed(clone!(@weak model => move |_, pos, removed, added| catch_panic! {
             model.items_changed(pos, removed, added)
         }));
 
