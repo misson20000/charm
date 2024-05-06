@@ -132,6 +132,7 @@ impl CharmWindow {
                 let debug_menu = gio::Menu::new();
                 debug_menu.append(Some("Reset UI for document"), Some("ctx.debug.reopen_current_document"));
                 debug_menu.append_submenu(Some("Revert document"), &debug_revert_menu);
+                debug_menu.append(Some("Crash"), Some("app.crash"));
                 debug_menu.freeze();
                 menu_bar.append_submenu(Some("Debug"), &debug_menu);
             }

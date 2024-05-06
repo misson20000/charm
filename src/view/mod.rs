@@ -49,6 +49,10 @@ impl CharmApplication {
             app.action_about();
         });
 
+        helpers::bind_simple_action(&app, &app.application, "crash", |_| {
+            panic!("Test crash caused by debug action.");
+        });
+
         /* accelerators */
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
