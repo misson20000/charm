@@ -14,7 +14,7 @@ struct SaveProjectAction {
     dialog: gtk::FileChooserNative,
 }
 
-pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleAction, gio::SimpleAction) {
+pub fn create_dialog(window: &gtk::Window) -> gtk::FileChooserNative {
     let filter = gtk::FileFilter::new();
     filter.set_name(Some("Charm Projects"));
     filter.add_pattern("*.charm");
@@ -24,16 +24,20 @@ pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleActio
         .cancel_label("Cancel")
         .title("Charm: Save Project")
         .modal(true)
-        .transient_for(&window.window)
+        .transient_for(window)
         .action(gtk::FileChooserAction::Save)
         .select_multiple(false)
         .create_folders(true)
         .filter(&filter)
         .build();
-    
+
+    dialog
+}
+
+pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleAction, gio::SimpleAction) {
     let action = rc::Rc::new(SaveProjectAction {
         window: rc::Rc::downgrade(window),
-        dialog: dialog
+        dialog: create_dialog(window.window.upcast_ref()),
     });
     
     action.dialog.connect_response(clone!(@weak action => move |_dialog, response_type| catch_panic! {

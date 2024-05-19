@@ -7,7 +7,6 @@ use crate::model::document;
 use crate::model::selection::listing;
 use crate::model::selection::tree;
 use crate::serialization;
-use crate::view::window;
 
 use gtk::prelude::*;
 
@@ -180,7 +179,7 @@ impl Error {
         Ok(())
     }
 
-    pub fn create_dialog(&self, parent: &window::CharmWindow) -> gtk::ApplicationWindow {
+    pub fn create_dialog(&self, parent: &gtk::ApplicationWindow) -> gtk::ApplicationWindow {
         let builder = gtk::Builder::from_string(include_str!("error-dialog.ui"));
 
         let message_label: gtk::Label = builder.object("message").unwrap();
@@ -188,15 +187,21 @@ impl Error {
         let detail_buffer: gtk::TextBuffer = builder.object("detail_buffer").unwrap();
         let ok_button: gtk::Button = builder.object("ok_button").unwrap();
         
-        let dialog = gtk::ApplicationWindow::builder()
-            .application(&parent.application.application)
+        let builder = gtk::ApplicationWindow::builder()
             .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
             .resizable(true)
             .title("Charm Error")
-            .transient_for(&parent.window)
+            .transient_for(parent.upcast_ref::<gtk::Window>())
             .destroy_with_parent(true)
-            .default_widget(&ok_button)
-            .build();
+            .default_widget(&ok_button);
+
+        let builder = if let Some(application) = parent.application() {
+            builder.application(&application)
+        } else {
+            builder
+        };
+
+        let dialog = builder.build();
 
         message_label.set_text(&self.message());
         detail_buffer.set_text(&self.detail());

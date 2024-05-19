@@ -396,7 +396,7 @@ impl CharmWindow {
     }
     
     pub fn report_error(&self, error: error::Error) {
-        let dialog = error.create_dialog(self);
+        let dialog = error.create_dialog(&self.window);
         dialog.present();
     }
 }
