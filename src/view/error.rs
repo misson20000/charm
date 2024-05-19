@@ -30,6 +30,7 @@ pub enum Action {
 
     SaveProject,
     OpenProject,
+    SaveRecoveredDocument,
 }
 
 pub enum Trouble {
@@ -88,6 +89,7 @@ impl Error {
             
             Action::SaveProject => "Failed to save project.",
             Action::OpenProject => "Failed to open project.",
+            Action::SaveRecoveredDocument => "Failed to save recovered document.",
         }.to_string()
     }
 

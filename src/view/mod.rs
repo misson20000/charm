@@ -11,6 +11,7 @@ pub mod helpers;
 pub mod gsc;
 
 pub mod config_editor;
+pub mod crashreport;
 pub mod datapath;
 pub mod hierarchy;
 pub mod listing;
@@ -52,7 +53,12 @@ impl CharmApplication {
             app.action_about();
         });
 
+        helpers::bind_simple_action(&app, &app.application, "force_exit", |app| {
+            app.application.quit();
+        });
+        
         helpers::bind_simple_action(&app, &app.application, "crash", |_| {
+            let _circumstance = crashreport::with_circumstance(crashreport::Circumstance::InvokingTestCrashAction);
             panic!("Test crash caused by debug action.");
         });
 
@@ -125,9 +131,13 @@ pub fn launch_application() {
     /* setup signals */
     
     /* startup */
-    application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {
+    application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {        
         // TODO: figure out gtk4 icon hellscape
-        if app_model_for_closures.set(CharmApplication::new(app.clone())).is_err() {
+        let charm = CharmApplication::new(app.clone());
+
+        crashreport::install_hook(charm.clone());
+        
+        if app_model_for_closures.set(charm).is_err() {
             panic!("started up more than once?");
         }
     }));
