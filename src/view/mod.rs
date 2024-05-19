@@ -58,7 +58,7 @@ impl CharmApplication {
         });
         
         helpers::bind_simple_action(&app, &app.application, "crash", |_| {
-            let _circumstance = crashreport::with_circumstance(crashreport::Circumstance::InvokingTestCrashAction);
+            let _circumstances = crashreport::circumstances([crashreport::Circumstance::InvokingTestCrashAction]);
             panic!("Test crash caused by debug action.");
         });
 
@@ -134,7 +134,7 @@ pub fn launch_application() {
     application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {        
         // TODO: figure out gtk4 icon hellscape
         let charm = CharmApplication::new(app.clone());
-
+        
         crashreport::install_hook(charm.clone());
         
         if app_model_for_closures.set(charm).is_err() {

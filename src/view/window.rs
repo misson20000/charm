@@ -13,6 +13,7 @@ use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::CharmApplication;
 use crate::view::action;
+use crate::view::crashreport;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::hierarchy;
@@ -28,6 +29,7 @@ use gtk::prelude::*;
 pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     pub window: gtk::ApplicationWindow,
+    pub id: u64,
     listing_frame: gtk::Frame,
     datapath_editor: gtk::TreeView,
     hierarchy_editor: gtk::ColumnView,
@@ -65,8 +67,11 @@ pub struct WindowContext {
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
+static NEXT_WINDOW_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
+
 impl CharmWindow {
     pub fn new(charm: &rc::Rc<CharmApplication>) -> rc::Rc<CharmWindow> {
+        let id = NEXT_WINDOW_ID.fetch_add(1, sync::atomic::Ordering::Relaxed);
         let builder = gtk::Builder::from_string(include_str!("charm.ui"));
 
         let window: gtk::ApplicationWindow = builder.object("toplevel").unwrap();
@@ -234,6 +239,7 @@ impl CharmWindow {
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
             window,
+            id,
             listing_frame: builder.object("listing_frame").unwrap(),
             datapath_editor,
             hierarchy_editor,
@@ -416,7 +422,11 @@ impl WindowContext {
             document_host.clone(),
             document.clone(),
             clone!(@weak window => move |tree_selection_host, new_document| {
-                // TODO: catch panics, rescue by reopening document
+                let _circumstances = crashreport::circumstances([
+                    crashreport::Circumstance::InWindow(window.id),
+                    crashreport::Circumstance::TreeSelectionUpdate(tree_selection_host.clone(), new_document.clone()),
+                ]);
+                
                 if let Err((error, attempted_version)) = tree_selection_host.change(selection_model::tree::Change::DocumentUpdated(new_document.clone())) {
                     match error {
                         selection_model::tree::ApplyError::WasUpToDate => { /* ignore */ },
@@ -440,7 +450,11 @@ impl WindowContext {
             document_host.clone(),
             document.clone(),
             clone!(@weak window => move |listing_selection_host, new_document| {
-                // TODO: catch panics, rescue by reopening document
+                let _circumstances = crashreport::circumstances([
+                    crashreport::Circumstance::InWindow(window.id),
+                    crashreport::Circumstance::ListingSelectionUpdate(listing_selection_host.clone(), new_document.clone()),
+                ]);
+
                 if let Err((error, attempted_version)) = listing_selection_host.change(selection_model::listing::Change::DocumentUpdated(new_document.clone())) {
                     /* listing::Change::DocumentUpdated should never fail, but if it ever does, report it as a bug. */
                     window.report_error(error::Error {

@@ -360,7 +360,7 @@ impl CursorClass {
 
 /// Stash away enough information to be able to create a new cursor in the same
 /// place if the document structure changed.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PlacementHint {
     Hexdump(hexdump::HexdumpPlacementHint),
     Title,

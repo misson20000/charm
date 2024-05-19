@@ -16,7 +16,7 @@ rental! {
         pub struct SpaceCacheFuture {
             space: sync::Arc<space::AddressSpace>,
             /* Ugh. Some day we will have a way to name futures. Until then... */
-            future: Pin<Box<dyn Future<Output = space::FetchResult> + 'space>>,
+            future: Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync + 'space>>,
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::model::listing::layout as layout_model;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::crashreport;
 use crate::view::config;
 use crate::view::error;
 use crate::view::gsc;
@@ -69,6 +70,7 @@ struct Interior {
     selection: sync::Arc<selection::ListingSelection>,
 
     charm_window: rc::Weak<view::window::CharmWindow>,
+    charm_window_id: u64,
     window: layout_model::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
@@ -155,6 +157,9 @@ impl WidgetImpl for ListingWidgetImp {
                 None => return,
             };
             let interior = &mut *interior_guard;
+
+            let _circumstances = crashreport::circumstances([crashreport::Circumstance::InWindow(interior.charm_window_id)]);
+            
             let render = &interior.render;
             
             let selection = match &interior.selection {
@@ -240,6 +245,7 @@ impl ListingWidget {
             selection: selection.clone(),
 
             charm_window: rc::Rc::downgrade(window),
+            charm_window_id: window.id,
             window: layout_model::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
@@ -412,6 +418,11 @@ impl ListingWidget {
     pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
         let mut interior_guard = self.imp().interior.get().unwrap().write();
         let interior = &mut *interior_guard;
+
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(interior.charm_window_id),
+            crashreport::Circumstance::Goto(document.clone(), path.clone(), offset, hint.clone()),
+        ]);
         
         if interior.document.generation() != document.generation() {
             interior.cursor.bonk();
@@ -507,6 +518,11 @@ impl RenderDetail {
 
 impl Interior {
     fn document_updated(&mut self, new_document: &sync::Arc<document::Document>) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+            crashreport::Circumstance::LWDocumentUpdate(self.document.clone(), new_document.clone())]
+        );
+        
         self.window.update(new_document);
         self.cursor.cursor.update(new_document);
         self.document = new_document.clone();
@@ -516,6 +532,11 @@ impl Interior {
     }
 
     fn selection_updated(&mut self, new_selection: &sync::Arc<selection::ListingSelection>) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+            crashreport::Circumstance::LWSelectionUpdate(self.selection.clone(), new_selection.clone())
+        ]);
+        
         if self.document.is_outdated(&new_selection.document) {
             self.document_updated(&new_selection.document);
         }
@@ -524,6 +545,10 @@ impl Interior {
     }
 
     fn config_updated(&mut self, new_config: &sync::Arc<config::Config>, widget: &ListingWidget) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         self.scroll.reconf(new_config.clone());
         self.cursor.reconf(new_config.clone());
         self.render = sync::Arc::new(
@@ -535,6 +560,10 @@ impl Interior {
     
     /// Resize the underlying window.
     fn size_allocate(&mut self, _widget: &ListingWidget, _width: i32, height: i32, _baseline: i32) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         let render = &self.render;
         let line_height = render.metrics.height();
 
@@ -548,6 +577,10 @@ impl Interior {
     }
 
     fn work(&mut self, widget: &ListingWidget, cx: &mut task::Context) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+        
         self.work_notifier.enroll(cx);
 
         self.document.datapath.poll(cx);
@@ -570,11 +603,19 @@ impl Interior {
     }
 
     fn collect_events(&mut self, widget: &ListingWidget) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         self.cursor.collect_events(widget, &self.work_notifier);
         self.scroll.collect_events(widget, &self.work_notifier);
     }
     
     fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::ControlFlow {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         let frame_time = frame_clock.frame_time(); // in microseconds
 
         if frame_time - self.last_frame > (MICROSECONDS_PER_SECOND as i64) {
@@ -617,6 +658,10 @@ impl Interior {
     }
 
     fn key_pressed(&mut self, widget: &ListingWidget, keyval: gdk::Key, _keycode: u32, modifier: gdk::ModifierType) -> glib::Propagation {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor   key    shift  ctrl  */
             (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
@@ -644,6 +689,10 @@ impl Interior {
     }
 
     fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> glib::Propagation {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         self.scroll.scroll_wheel_impulse(dy);
 
         self.collect_events(widget);
@@ -652,6 +701,10 @@ impl Interior {
     }
 
     fn drag_begin(&mut self, widget: &ListingWidget, x: f64, y: f64) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         self.rubber_band_begin = self.pick(x, y);
 
         match self.selection_host.change(selection::listing::Change::Clear) {
@@ -696,6 +749,10 @@ impl Interior {
     }
     
     fn drag_update(&mut self, widget: &ListingWidget, gesture: &gtk::GestureDrag, dx: f64, dy: f64) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         if let Some((x, y)) = gesture.start_point() {
             self.update_rubber_band(x+dx, y+dy);
             widget.queue_draw();
@@ -712,6 +769,10 @@ impl Interior {
     }
 
     fn move_cursor_to_coordinates(&mut self, x: f64, y: f64) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
         self.cursor.blink();
         
         let (path, part) = match self.pick(x, y) {

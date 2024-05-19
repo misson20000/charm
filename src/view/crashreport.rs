@@ -1,3 +1,4 @@
+use crate::model;
 use crate::model::document;
 use crate::model::versioned::Versioned;
 use crate::serialization;
@@ -37,10 +38,17 @@ struct Panic {
 #[derive(Clone)]
 pub enum Circumstance {
     InvokingTestCrashAction,
+    InWindow(u64),
+    TreeSelectionUpdate(sync::Arc<model::selection::tree::Host>, sync::Arc<document::Document>),
+    ListingSelectionUpdate(sync::Arc<model::selection::listing::Host>, sync::Arc<document::Document>),
+    Goto(sync::Arc<document::Document>, document::structure::Path, model::addr::Address, model::listing::cursor::PlacementHint),
+    LWDocumentUpdate(sync::Arc<document::Document>, sync::Arc<document::Document>),
+    LWSelectionUpdate(sync::Arc<model::selection::ListingSelection>, sync::Arc<model::selection::ListingSelection>),
 }
 
 pub struct CircumstanceGuard {
-    index: usize,
+    begin: usize,
+    end: usize,
 
     /* Used to make CircumstanceGuard !Send */
     _marker: std::marker::PhantomData<*const()>
@@ -61,24 +69,25 @@ pub fn install_hook(charm: rc::Rc<view::CharmApplication>) {
     std::panic::set_hook(Box::new(move |pi| panic_hook(pi, charm.clone())));
 }
 
-pub fn with_circumstance(c: Circumstance) -> CircumstanceGuard {
+pub fn circumstances<I: std::iter::IntoIterator<Item = Circumstance>>(c: I) -> CircumstanceGuard {
     CIRCUMSTANCES.with_borrow_mut(|v| {
-        let guard = CircumstanceGuard {
-            index: v.len(),
-            _marker: std::marker::PhantomData,
-        };
-        
-        v.push(c);
+        let begin = v.len();
+        v.extend(c);
+        let end = v.len();
 
-        guard
+        CircumstanceGuard {
+            begin,
+            end,
+            _marker: std::marker::PhantomData,
+        }
     })
 }
 
 impl Drop for CircumstanceGuard {
     fn drop(&mut self) {
         CIRCUMSTANCES.with_borrow_mut(|v| {
-            assert!(v.len() == self.index + 1);
-            v.pop();
+            assert!(v.len() == self.end);
+            v.splice(self.begin..self.end, []);
         });
     }
 }
@@ -129,16 +138,19 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
             .title("Charm panic recovery")
             .modal(true)
             .build();
+
         dialog.present();
 
         let report_buffer = builder.object::<gtk::TextBuffer>("report_buffer").unwrap();
         let mut report = String::new();
-        for panic in QUEUED_PANICS.lock().unwrap().drain(..) {
-            if let Some(l) = panic.location {
+
+        let panics = std::mem::replace(&mut *QUEUED_PANICS.lock().unwrap(), vec::Vec::new());
+        for panic in &panics {
+            if let Some(l) = &panic.location {
                 write!(report, "{}:{}:{}: ", l.file, l.line, l.column).unwrap();
             }
 
-            if let Some(p) = panic.payload {
+            if let Some(p) = &panic.payload {
                 write!(report, "{}\n", p).unwrap();
             } else {
                 write!(report, "<non-String payload>\n").unwrap();
@@ -161,7 +173,15 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
             for w in &*windows {
                 if let Some(w) = w.upgrade() {
                     if let Some(ctx) = &*w.context() {
-                        store.append(&CharmRecoverableDocument::new(dialog.clone(), ctx));
+                        let rd = CharmRecoverableDocument::new(dialog.clone(), ctx, w.id);
+
+                        for p in &panics {
+                            for c in &p.circumstances {
+                                rd.check_affected_by(c);
+                            }
+                        }
+                        
+                        store.append(&rd);
                     }
                     w.close_file();
                     w.window.destroy();
@@ -198,7 +218,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
         documents.set_factory(Some(&lif));
 
         let reopen_action = gio::SimpleAction::new("reopen", None);
-        reopen_action.connect_activate(clone!(@strong dialog => move |_, _| {
+        reopen_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
             /* FFI CALLBACK: already panicking, just double-abort */
             for obj in &store {
                 let Ok(obj) = obj else { continue };
@@ -215,8 +235,27 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
             PANIC_DIALOG_OPEN.store(false, sync::atomic::Ordering::Relaxed);
             dialog.destroy();
         }));
-        
         dialog.add_action(&reopen_action);
+
+        let select_all_action = gio::SimpleAction::new("select_all", None);
+        select_all_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
+            /* FFI CALLBACK: already panicking, just double-abort */
+            for obj in &store {
+                let Ok(obj) = obj else { continue };
+                obj.set_property("should-recover", true);
+            }
+        }));
+        dialog.add_action(&select_all_action);
+
+        let deselect_all_action = gio::SimpleAction::new("deselect_all", None);
+        deselect_all_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
+            /* FFI CALLBACK: already panicking, just double-abort */
+            for obj in &store {
+                let Ok(obj) = obj else { continue };
+                obj.set_property("should-recover", false);
+            }
+        }));
+        dialog.add_action(&deselect_all_action);
         
         PANICKING.set(false);
     });
@@ -253,6 +292,13 @@ impl CharmDocumentRecoveryWidget {
                     b.unbind();
                 }
 
+                if let Some(b) = self.imp().panic_related_binding.replace(
+                    Some(rd.bind_property("panic-related", &self.imp().panic_related.get(), "visible")
+                         .sync_create()
+                         .build())) {
+                    b.unbind();
+                }
+                
                 let version_model = gtk::StringList::new(&[]);
 
                 let mut current_version = rd.imp().document.get().unwrap();
@@ -296,12 +342,13 @@ impl CharmDocumentRecoveryWidget {
 }
 
 impl CharmRecoverableDocument {
-    pub fn new(crash_dialog: gtk::ApplicationWindow, wctx: &window::WindowContext) -> Self {
+    pub fn new(crash_dialog: gtk::ApplicationWindow, wctx: &window::WindowContext, wid: u64) -> Self {
         let obj: Self = glib::Object::builder()
             .property("should-recover", true)
             .build();
 
         obj.imp().crash_dialog.set(crash_dialog).unwrap();
+        obj.imp().window_id.set(wid).unwrap();
         obj.imp().document.set(wctx.document_host.get()).unwrap();
         *obj.imp().file.borrow_mut() = wctx.project_file.borrow().clone();
         obj
@@ -318,6 +365,17 @@ impl CharmRecoverableDocument {
         }
 
         Some(doc)
+    }
+
+    fn check_affected_by(&self, c: &Circumstance) {
+        let wid = self.imp().window_id.get().unwrap_or(&0);
+        
+        match c {
+            Circumstance::InWindow(id) if id == wid => {
+                self.imp().panic_related.set(true);
+            },
+            _ => {},
+        }
     }
     
     fn save_as(&self) {
@@ -381,12 +439,15 @@ mod imp {
         #[template_child]
         pub should_recover: gtk::TemplateChild<gtk::CheckButton>,
         #[template_child]
+        pub panic_related: gtk::TemplateChild<gtk::Label>,
+        #[template_child]
         pub save_as: gtk::TemplateChild<gtk::Button>,
         #[template_child]
         pub version: gtk::TemplateChild<gtk::DropDown>,
 
         pub bound_document: cell::RefCell<Option<super::CharmRecoverableDocument>>,
         pub should_recover_binding: cell::Cell<Option<glib::Binding>>,
+        pub panic_related_binding: cell::Cell<Option<glib::Binding>>,
         pub rollback_binding: cell::Cell<Option<glib::Binding>>,
     }
 
@@ -414,7 +475,9 @@ mod imp {
             
             self.parent_constructed();
 
-            // TODO
+            let css = gtk::CssProvider::new();
+            css.load_from_data(include_str!("crashreport.css"));
+            self.panic_related.style_context().add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         }
     }
 
@@ -439,9 +502,11 @@ mod imp {
     pub struct CharmRecoverableDocument {
         pub crash_dialog: cell::OnceCell<gtk::ApplicationWindow>,
         pub file_chooser_dialog: cell::RefCell<Option<gtk::FileChooserNative>>,
+        pub window_id: cell::OnceCell<u64>,
         pub document: cell::OnceCell<sync::Arc<document::Document>>,
         pub file: cell::RefCell<Option<gio::File>>,
         pub should_recover: cell::Cell<bool>,
+        pub panic_related: cell::Cell<bool>,
         pub rollback: cell::Cell<u32>,
     }
 
@@ -460,6 +525,7 @@ mod imp {
                 once_cell::sync::Lazy::new(|| vec![
                     glib::ParamSpecString::builder("title").build(),
                     glib::ParamSpecBoolean::builder("should-recover").build(),
+                    glib::ParamSpecBoolean::builder("panic-related").build(),
                     glib::ParamSpecUInt::builder("rollback").build(),
                 ]);
             PROPERTIES.as_ref()
@@ -478,6 +544,7 @@ mod imp {
                     None => glib::Value::from(&doc.root.props.name),
                 },
                 "should-recover" => glib::Value::from(&self.should_recover.get()),
+                "panic-related" => glib::Value::from(&self.panic_related.get()),
                 "rollback" => glib::Value::from(self.rollback.get()), // TODO
                 _ => glib::Value::from_type(glib::Type::INVALID),
             }
@@ -489,6 +556,9 @@ mod imp {
             match pspec.name() {
                 "should-recover" => if let Ok(v) = value.get() {
                     self.should_recover.set(v)
+                },
+                "panic-related" => if let Ok(v) = value.get() {
+                    self.panic_related.set(v)
                 },
                 "rollback" => if let Ok(v) = value.get() {
                     self.rollback.set(v)
@@ -503,6 +573,42 @@ impl Circumstance {
     fn describe(&self, d: &mut String) -> Result<(), std::fmt::Error> {
         match self {
             Circumstance::InvokingTestCrashAction => write!(d, "While invoking test crash action.\n")?,
+            Circumstance::InWindow(_) => { /* used elsewhere */ },
+            Circumstance::TreeSelectionUpdate(tsh, doc) => {
+                write!(d, "While updating tree selection for new document.\n")?;
+                let ts = tsh.get();
+                write!(d, "  selection: {:?}\n", ts)?;
+                write!(d, "  document changes:\n")?;
+
+                doc.changes_since(&ts.document, &mut |_, change| {
+                    write!(d, "    - {:?}\n", change).unwrap();
+                });
+            },
+            Circumstance::ListingSelectionUpdate(lsh, doc) => {
+                write!(d, "While updating listing selection for new document.\n")?;
+                let ls = lsh.get();
+                write!(d, "  selection: {:?}\n", ls)?;
+                write!(d, "  document changes:\n")?;
+
+                doc.changes_since(&ls.document, &mut |_, change| {
+                    write!(d, "    - {:?}\n", change).unwrap();
+                });
+            },
+            Circumstance::Goto(_doc, path, addr, hint) => {
+                write!(d, "While performing goto({:?}, {}, {:?}).\n", path, addr, hint)?;
+            },
+            Circumstance::LWDocumentUpdate(old, new) => {
+                write!(d, "While updating listing widget for new document.\n")?;
+                new.changes_since(&old, &mut |_, change| {
+                    write!(d, "  - {:?}\n", change).unwrap();
+                });
+            },
+            Circumstance::LWSelectionUpdate(old, new) => {
+                write!(d, "While updating listing widget for new selection.\n")?;
+                new.changes_since(&old, &mut |_, change| {
+                    write!(d, "  - {:?}\n", change).unwrap();
+                });
+            },
         };
 
         Ok(())

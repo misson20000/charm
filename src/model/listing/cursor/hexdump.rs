@@ -210,7 +210,7 @@ impl cursor::CursorClassExt for Cursor {
     */
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HexdumpPlacementHint {
     pub low_nybble: bool,
 }

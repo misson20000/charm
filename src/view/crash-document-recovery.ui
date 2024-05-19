@@ -37,6 +37,21 @@
             <layout>
               <property name="column">0</property>
               <property name="column-span">1</property>
+              <property name="row">2</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="panic_related">
+            <property name="css-classes">warning</property>
+            <property name="halign">start</property>
+            <property name="label">&lt;i&gt;Warning: One of the panics that occurred was related to this window. It is less likely to be recoverable than the others.&lt;/i&gt;</property>
+            <property name="use-markup">True</property>
+            <property name="wrap">True</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
               <property name="row">1</property>
               <property name="row-span">1</property>
             </layout>
@@ -49,7 +64,7 @@
             <layout>
               <property name="column">1</property>
               <property name="column-span">1</property>
-              <property name="row">1</property>
+              <property name="row">2</property>
               <property name="row-span">1</property>
             </layout>
           </object>
