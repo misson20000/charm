@@ -247,10 +247,13 @@ impl CharmWindow {
 
         w.props_editor.bind_window(&w);
 
-        w.window.connect_close_request(clone!(@strong w => move |_| catch_panic! { @default(glib::Propagation::Proceed);
+        w.window.connect_close_request(clone!(@strong charm, @strong w => move |_| catch_panic! {
+            @default(glib::Propagation::Proceed);
+            
             /* This is especially important because it destroys actions which might have their own toplevel windows that
              * would otherwise keep the process alive. */
             w.close_file();
+            charm.destroy_window(&w);
 
             glib::Propagation::Proceed
         }));

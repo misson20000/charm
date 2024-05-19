@@ -17,6 +17,7 @@ pub mod listing;
 pub mod props_editor;
 pub mod selection;
 
+use std::cell;
 use std::rc;
 
 use crate::catch_panic;
@@ -26,6 +27,7 @@ pub struct CharmApplication {
     rt: tokio::runtime::Runtime,
 
     about_dialog: gtk::AboutDialog,
+    windows: cell::RefCell<Vec<rc::Weak<window::CharmWindow>>>,
 }
 
 impl CharmApplication {
@@ -37,6 +39,7 @@ impl CharmApplication {
                 .build().unwrap(),
 
             about_dialog: Self::create_about_dialog(),
+            windows: Default::default(),
         });
 
         /* application actions */
@@ -73,7 +76,14 @@ impl CharmApplication {
     }
 
     fn new_window(self: &rc::Rc<Self>) -> rc::Rc<window::CharmWindow> {
-        window::CharmWindow::new(self)
+        let window = window::CharmWindow::new(self);
+        self.windows.borrow_mut().push(rc::Rc::downgrade(&window));
+        window
+    }
+
+    fn destroy_window(&self, window: &rc::Rc<window::CharmWindow>) {
+        let window = rc::Rc::downgrade(window);
+        self.windows.borrow_mut().retain(|w| !rc::Weak::ptr_eq(&w, &window) && w.upgrade().is_some());
     }
     
     fn create_about_dialog() -> gtk::AboutDialog {
