@@ -1,0 +1,60 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.90.1 -->
+<interface>
+  <requires lib="gtk" version="4.12"/>
+  <template class="CharmDocumentRecoveryWidget" parent="GtkBox">
+    <property name="margin-bottom">10</property>
+    <property name="margin-end">10</property>
+    <property name="margin-start">10</property>
+    <property name="margin-top">10</property>
+    <property name="spacing">10</property>
+    <child>
+      <object class="GtkCheckButton" id="should_recover">
+        <property name="halign">end</property>
+        <property name="valign">start</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkGrid">
+        <property name="column-spacing">10</property>
+        <property name="hexpand">True</property>
+        <property name="row-spacing">10</property>
+        <child>
+          <object class="GtkLabel" id="title">
+            <property name="halign">start</property>
+            <property name="label">Which document</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
+              <property name="row">0</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkDropDown" id="version">
+            <property name="hexpand">True</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">1</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="save_as">
+            <property name="label">Save as...</property>
+            <signal name="clicked" handler="handle_save_as" swapped="yes"/>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">1</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+      </object>
+    </child>
+  </template>
+</interface>

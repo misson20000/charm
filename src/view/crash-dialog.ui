@@ -1,0 +1,78 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.90.1 -->
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkBox" id="toplevel">
+    <property name="margin-bottom">15</property>
+    <property name="margin-end">15</property>
+    <property name="margin-start">15</property>
+    <property name="margin-top">15</property>
+    <property name="orientation">vertical</property>
+    <property name="spacing">15</property>
+    <property name="width-request">400</property>
+    <child>
+      <object class="GtkLabel">
+        <property name="hexpand">True</property>
+        <property name="hexpand-set">True</property>
+        <property name="justify">fill</property>
+        <property name="label">Unforunately, Charm has panicked. Please &lt;a href="https://github.com/misson20000/charm/issues"&gt;submit a bug report on GitHub&lt;/a&gt; including the information below. It is helpful if you can also include a description of what happened before the panic and a copy of the document that was open when the panic occurred.</property>
+        <property name="natural-wrap-mode">word</property>
+        <property name="use-markup">True</property>
+        <property name="wrap">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkScrolledWindow">
+        <property name="height-request">400</property>
+        <child>
+          <object class="GtkTextView">
+            <property name="buffer">
+              <object class="GtkTextBuffer" id="report_buffer">
+                <property name="enable-undo">False</property>
+                <property name="text">The crash report goes here.</property>
+              </object>
+            </property>
+            <property name="editable">False</property>
+            <property name="monospace">True</property>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="justify">fill</property>
+        <property name="label">Panics in Charm are usually somewhat recoverable, but you may encounter buggy behavior. Select which version of each document you want to reopen or save.</property>
+        <property name="wrap">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkScrolledWindow">
+        <property name="height-request">400</property>
+        <child>
+          <object class="GtkListView" id="documents">
+            <property name="show-separators">True</property>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox">
+        <property name="halign">end</property>
+        <property name="spacing">15</property>
+        <child>
+          <object class="GtkButton">
+            <property name="action-name">app.force_exit</property>
+            <property name="label">Quit</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton">
+            <property name="action-name">win.reopen</property>
+            <property name="label">Reopen</property>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
