@@ -30,6 +30,7 @@ pub enum Action {
 
     SaveProject,
     OpenProject,
+    NewProjectFromFile,
     SaveRecoveredDocument,
 }
 
@@ -52,8 +53,14 @@ pub enum Trouble {
         address: String,
     },
     GlibIoError(gtk::glib::Error),
+    StdIoError(std::io::Error),
+    OpenAddressSpaceError {
+        error: std::io::Error,
+        path: std::path::PathBuf,
+    },
     ProjectSerializationFailure(serialization::SerializationError),
     ProjectDeserializationFailure(serialization::DeserializationError),
+    Other(String),
 }
 
 pub enum Level {
@@ -89,6 +96,7 @@ impl Error {
             
             Action::SaveProject => "Failed to save project.",
             Action::OpenProject => "Failed to open project.",
+            Action::NewProjectFromFile => "Failed to create new project from file.",
             Action::SaveRecoveredDocument => "Failed to save recovered document.",
         }.to_string()
     }
@@ -162,9 +170,16 @@ impl Error {
             },
 
             Trouble::GlibIoError(error) => {
-                write!(msg, "I/O error while writing to file: {}\n", error)?
+                write!(msg, "I/O error: {}\n", error)?
+            },
+            
+            Trouble::StdIoError(error) => {
+                write!(msg, "I/O error: {}\n", error)?
             },
 
+            Trouble::OpenAddressSpaceError { error, path } => {
+                write!(msg, "I/O error while opening '{}': {}\n", path.display(), error)?
+            },
 
             Trouble::ProjectSerializationFailure(error) => {
                 write!(msg, "Failed to serialize project: {}\n", error)?
@@ -177,6 +192,10 @@ impl Error {
                     serialization::DeserializationError::BincodeError(e) => write!(msg, "Corrupt project file: {}\n", e)?,
                 }
             },
+
+            Trouble::Other(error) => {
+                write!(msg, "{}\n", error)?
+            },            
         };
         Ok(())
     }

@@ -33,18 +33,19 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
 
 impl RevertDocumentAction {    
     fn activate(&self, amount: u32) {
-        if let Some(window) = self.window.upgrade() {
-            let current = self.document_host.borrow();
-            let mut document = &*current;
+        let Some(window) = self.window.upgrade() else { return };
+        let Some(context) = &*window.context() else { return };
+        
+        let current = context.document_host.borrow();
+        let mut document = &*current;
 
-            for _ in 0..amount {
-                document = match document.previous() {
-                    Some((doc, _)) => doc,
-                    None => return,
-                }
+        for _ in 0..amount {
+            document = match document.previous() {
+                Some((doc, _)) => doc,
+                None => return,
             }
-            
-            window.attach_context(Some(window::WindowContext::new(&window, (**document).clone(), None)));
         }
+        
+        window.set_context(Some(window::WindowContext::new(&window, (**document).clone(), context.project_file.borrow().clone())));
     }
 }

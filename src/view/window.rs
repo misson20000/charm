@@ -4,11 +4,9 @@ use std::sync;
 
 use crate::catch_panic;
 use crate::model::addr;
-use crate::model::datapath;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::selection as selection_model;
-use crate::model::space;
 use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::CharmApplication;
@@ -83,12 +81,16 @@ impl CharmWindow {
             let menu_bar = gio::Menu::new();
             {
                 let file_menu = gio::Menu::new();
-                file_menu.append(Some("New Window"), Some("app.new_window"));
-                file_menu.append(Some("Open File..."), Some("win.open"));
+                {
+                    let new_project_menu = gio::Menu::new();
+                    new_project_menu.append(Some("Empty"), Some("win.new_project.empty"));
+                    new_project_menu.append(Some("From File"), Some("win.new_project.from_file"));
+                    new_project_menu.freeze();
+                    file_menu.append_submenu(Some("New Project"), &new_project_menu);
+                }
                 file_menu.append(Some("Open Project..."), Some("win.open_project"));
                 file_menu.append(Some("Save Project"), Some("win.save_project"));
                 file_menu.append(Some("Save Project As..."), Some("win.save_project_as"));
-                file_menu.append(Some("Export patches (IPS)..."), Some("listing.export_ips"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
             }
@@ -97,7 +99,7 @@ impl CharmWindow {
                 edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
                 edit_menu.append(Some("Nest"), Some("ctx.nest"));
                 edit_menu.append(Some("Destructure"), Some("ctx.destructure"));
-                edit_menu.append(Some("Edit structure node properties (TEMPORARY)..."), Some("win.edit_properties"));
+                /*
                 {
                     let mode_menu = gio::Menu::new();
                     mode_menu.append(Some("Command mode"), Some("listing.mode::command"));
@@ -106,7 +108,8 @@ impl CharmWindow {
                     mode_menu.append(Some("Insert"), Some("listing.insert_mode"));
                     edit_menu.append_section(Some("Edit Mode"), &mode_menu);
                     mode_menu.freeze();
-                }
+            }
+                */
                 edit_menu.freeze();
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
@@ -122,6 +125,7 @@ impl CharmWindow {
             }
             {
                 let view_menu = gio::Menu::new();
+                view_menu.append(Some("Clone Window"), Some("win.clone_window"));
                 view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
                 view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
                 view_menu.freeze();
@@ -258,7 +262,7 @@ impl CharmWindow {
             
             /* This is especially important because it destroys actions which might have their own toplevel windows that
              * would otherwise keep the process alive. */
-            w.close_file();
+            w.close_project();
             charm.destroy_window(&w);
 
             glib::Propagation::Proceed
@@ -280,7 +284,7 @@ impl CharmWindow {
         
         /* window actions */
 
-        w.window.add_action(&action::open_file::create_action(&w));
+        action::new_project::add_actions(&w);
 
         let (action_save, action_save_as) = action::save_project::create_actions(&w);
         w.window.add_action(&action_save);
@@ -311,7 +315,7 @@ impl CharmWindow {
     }
 
     /* This is THE ONLY place allowed to modify context */
-    pub fn attach_context(&self, context: Option<WindowContext>) {
+    pub fn set_context(&self, context: Option<WindowContext>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
@@ -327,12 +331,31 @@ impl CharmWindow {
             self.hierarchy_editor.set_model(Some(&new_context.tree_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind(&new_context);
+
             
             new_context.lw.grab_focus();
         }
+
+        self.update_title(self.context.borrow().as_ref());
     }
 
-    pub fn has_file_open(&self) -> bool {
+    fn update_title(&self, context: Option<&WindowContext>) {
+        if let Some(context) = context {
+            if let Some(pf) = context.project_file.borrow().as_ref() {
+                if let Some(path) = pf.path() {
+                    self.window.set_title(Some(&format!("Charm: {}", path.display())));
+                } else {
+                    self.window.set_title(Some(&format!("Charm: {}", pf.uri())));
+                }
+            } else {
+                self.window.set_title(Some("Charm (unsaved project)"));
+            }
+        } else {
+            self.window.set_title(Some("Charm (no project)"));
+        }
+    }
+    
+    pub fn has_project_open(&self) -> bool {
         self.context.borrow().is_some()
     }
     
@@ -340,70 +363,22 @@ impl CharmWindow {
         self.context.borrow()
     }
 
-    pub fn close_file(&self) {
-        self.attach_context(None);
-    }
-    
-    pub fn open_file(self: &rc::Rc<Self>, file: &gio::File) {
-        let attributes = file.query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, Option::<&gio::Cancellable>::None).unwrap();
-        let dn = attributes.attribute_as_string("standard::display-name").unwrap();
-
-        let fas = space::file::FileAddressSpace::new(file.path().unwrap(), &dn);
-        fas.open();
-        
-        let space = std::sync::Arc::new(fas.into());
-
-        self.window.set_title(Some(format!("Charm: {}", dn).as_str()));
-        // TODO: error handling
-
-        let doc = document::Builder::default()
-            .load_space(space)
-            .build();
-        
-        self.attach_context(Some(WindowContext::new(self, doc, None)));
+    pub fn close_project(&self) {
+        self.set_context(None);
     }
 
-    pub fn open_project(self: &rc::Rc<Self>, project_file: gio::File) {
-        let e = match self.try_open_project(project_file) {
-            Ok(()) => return,
-            Err(e) => e
-        };
-
-        match e {
-            OpenProjectError::IoError(e) => self.report_error(error::Error {
-                while_attempting: error::Action::OpenProject,
-                trouble: error::Trouble::GlibIoError(e),
-                level: error::Level::Error,
-                is_bug: false,
-            }),
-            OpenProjectError::DeserializationError(e) => self.report_error(error::Error {
-                while_attempting: error::Action::OpenProject,
-                trouble: error::Trouble::ProjectDeserializationFailure(e),
-                level: error::Level::Error,
-                is_bug: false,
-            }),
-        };
-    }
-
-    fn try_open_project(self: &rc::Rc<Self>, project_file: gio::File) -> Result<(), OpenProjectError> {
-        let (bytes, _string) = project_file.load_bytes(gio::Cancellable::NONE)?;
-        let document = serialization::deserialize_project(bytes.as_ref())?;
-
-        /* Open any FileAddressSpaces that don't try to get opened during deserialization. */
-        for filter in &document.datapath {
-            match filter {
-                datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
-                    space::AddressSpace::File(f) => f.open(),
-                },
-                _ => {}
-            }
+    pub fn open_context(self: &rc::Rc<Self>, document: document::Document, project_file: Option<gio::File>) {
+        if self.has_project_open() {
+            /* open a new window if this window already has something open in it */
+            let window = self.application.new_window();
+            window.set_context(Some(WindowContext::new(&window, document, project_file)));
+            window.present();
+        } else {
+            self.set_context(Some(WindowContext::new(self, document, project_file)));
+            self.present();
         }
-        
-        self.attach_context(Some(WindowContext::new(self, document, Some(project_file))));
-
-        Ok(())
     }
-    
+        
     pub fn report_error(&self, error: error::Error) {
         let dialog = error.create_dialog(&self.window);
         dialog.present();
@@ -525,14 +500,14 @@ impl WindowContext {
     }
 
     pub fn save_project(&self, project_file: gio::File) {
+        let Some(window) = self.window.upgrade() else { return };
+        
         let e = match self.try_save_project(project_file) {
-            Ok(()) => return,
+            Ok(()) => {
+                window.update_title(Some(self));
+                return;
+            },
             Err(e) => e
-        };
-
-        let window = match self.window.upgrade() {
-            Some(window) => window,
-            None => return /* vanish this error into the ether... */
         };
         
         match e {
@@ -564,6 +539,10 @@ impl WindowContext {
         }
         
         Ok(())
+    }
+
+    pub fn recreate(&self, window: &rc::Rc<CharmWindow>) -> WindowContext {
+        Self::new(window, (**self.document_host.borrow()).clone(), self.project_file.borrow().clone())
     }
 }
 
@@ -606,22 +585,5 @@ impl From<glib::error::Error> for SaveProjectError {
 impl From<serialization::SerializationError> for SaveProjectError {
     fn from(e: serialization::SerializationError) -> SaveProjectError {
         SaveProjectError::SerializationError(e)
-    }
-}
-
-pub enum OpenProjectError {
-    IoError(glib::error::Error),
-    DeserializationError(serialization::DeserializationError),
-}
-
-impl From<glib::error::Error> for OpenProjectError {
-    fn from(e: glib::error::Error) -> OpenProjectError {
-        OpenProjectError::IoError(e)
-    }
-}
-
-impl From<serialization::DeserializationError> for OpenProjectError {
-    fn from(e: serialization::DeserializationError) -> OpenProjectError {
-        OpenProjectError::DeserializationError(e)
     }
 }

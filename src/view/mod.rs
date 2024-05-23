@@ -151,8 +151,8 @@ pub fn launch_application() {
     application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| catch_panic! {
         for file in files {
             let w = app_model_for_closures.get().unwrap().new_window();
-            w.open_file(file);
             w.present();
+            action::open_project::open_project(&w, file.clone());
         }
     }));
     

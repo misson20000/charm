@@ -54,7 +54,7 @@ impl FileAddressSpace {
             },
         }
     }
-
+    
     fn read_sync(&self, offset: u64, mut out: vec::Vec<u8>) -> space::FetchResult {
         let mut inner = self.inner.write().unwrap();
 

@@ -183,7 +183,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
                         
                         store.append(&rd);
                     }
-                    w.close_file();
+                    w.close_project();
                     w.window.destroy();
                 }
             }
@@ -228,7 +228,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
                 let project_file = crd.imp().file.borrow().clone();
 
                 let window = charm.get_ref().new_window();
-                window.attach_context(Some(window::WindowContext::new(&window, (**doc).clone(), project_file)));
+                window.set_context(Some(window::WindowContext::new(&window, (**doc).clone(), project_file)));
                 window.present();
             }
 
