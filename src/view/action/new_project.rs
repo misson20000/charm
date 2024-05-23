@@ -13,6 +13,7 @@ use crate::model::document::structure;
 use crate::model::space;
 use crate::view::error;
 use crate::view::helpers;
+use crate::view::project;
 use crate::view::window;
 
 struct NewProjectAction {
@@ -74,7 +75,7 @@ impl NewProjectAction {
     fn activate_empty(&self) {
         let Some(window) = self.window.upgrade() else { return };
 
-        window.open_context(document::Builder::default().build(), None);
+        window.open_project(project::Project::new_unsaved(document::Builder::default().build()), false);
     }
     
     fn activate_from_file(&self) {
@@ -123,7 +124,7 @@ impl NewProjectAction {
                     let file = file.expect("list model should not be modified during iteration");
 
                     match Self::new_project_from_file(&file.downcast().expect("file chooser files should be gio::File instances")) {
-                        Ok(doc) => window.open_context(doc, None),
+                        Ok(doc) => window.open_project(project::Project::new_unsaved(doc), false),
                         Err(e) => window.report_error(error::Error {
                             while_attempting: error::Action::NewProjectFromFile,
                             trouble: match e {

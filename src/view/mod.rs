@@ -15,6 +15,7 @@ pub mod crashreport;
 pub mod datapath;
 pub mod hierarchy;
 pub mod listing;
+pub mod project;
 pub mod props_editor;
 pub mod selection;
 

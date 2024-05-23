@@ -99,7 +99,7 @@ impl InsertNodeAction {
             .build();
         
         let action = rc::Rc::new(InsertNodeAction {
-            document_host: window_context.document_host.clone(),
+            document_host: window_context.project.document_host.clone(),
             activation: cell::RefCell::new(None),
             lw: window_context.lw.clone(),
             window: window_context.window.clone(),
@@ -292,7 +292,7 @@ impl NestNodesAction {
             .build();
         
         let action = rc::Rc::new(NestNodesAction {
-            document_host: window_context.document_host.clone(),
+            document_host: window_context.project.document_host.clone(),
             activation: cell::RefCell::new(None),
             lw: window_context.lw.clone(),
             window: window_context.window.clone(),
@@ -417,7 +417,7 @@ struct InsertFixedSizeNodeAtCursorAction {
 }
 
 pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(window_context: &window::WindowContext, name: &str, size: S) -> gio::SimpleAction {
-    let document_host = window_context.document_host.clone();
+    let document_host = window_context.project.document_host.clone();
     let lw = window_context.lw.clone();
     let action = gio::SimpleAction::new(&format!("insert_{}", name), None);
     let size = size.into();

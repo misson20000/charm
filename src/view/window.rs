@@ -16,8 +16,8 @@ use crate::view::error;
 use crate::view::helpers;
 use crate::view::hierarchy;
 use crate::view::selection;
+use crate::view::project;
 use crate::view::props_editor;
-use crate::serialization;
 
 use gtk::gio;
 use gtk::glib;
@@ -45,11 +45,9 @@ pub struct WindowContext {
     /// The window this context belongs to.
     pub window: rc::Weak<CharmWindow>,
 
-    /* Information about the file that is open. */
-    pub document_host: sync::Arc<document::DocumentHost>,
+    pub project: rc::Rc<project::Project>,
     pub tree_selection_host: sync::Arc<selection_model::tree::Host>,
     pub listing_selection_host: sync::Arc<selection_model::listing::Host>,
-    pub project_file: cell::RefCell<Option<gio::File>>,
     
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
@@ -62,6 +60,7 @@ pub struct WindowContext {
     document_subscriber_for_tree_selection_update: helpers::AsyncSubscriber,
     document_subscriber_for_listing_selection_update: helpers::AsyncSubscriber,
     document_subscriber_for_debug_revert_menu_update: helpers::AsyncSubscriber,
+    document_subscriber_for_title_update: helpers::AsyncSubscriber,
     datapath_subscriber: helpers::AsyncSubscriber,
 }
 
@@ -139,7 +138,7 @@ impl CharmWindow {
             }
             {
                 let debug_menu = gio::Menu::new();
-                debug_menu.append(Some("Reset UI for document"), Some("ctx.debug.reopen_current_document"));
+                debug_menu.append(Some("Reset UI"), Some("win.debug.reopen_current_project"));
                 debug_menu.append_submenu(Some("Revert document"), &debug_revert_menu);
                 debug_menu.append(Some("Crash"), Some("app.crash"));
                 debug_menu.freeze();
@@ -306,6 +305,8 @@ impl CharmWindow {
             }
         });
 
+        action::debug::reopen_current_project::add_action(&w);
+
         w
     }
     
@@ -315,7 +316,7 @@ impl CharmWindow {
     }
 
     /* This is THE ONLY place allowed to modify context */
-    pub fn set_context(&self, context: Option<WindowContext>) {
+    fn set_context(&self, context: Option<WindowContext>) {
         self.listing_frame.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
@@ -336,20 +337,17 @@ impl CharmWindow {
             new_context.lw.grab_focus();
         }
 
-        self.update_title(self.context.borrow().as_ref());
+        self.update_title(self.context.borrow().as_ref().map(|ctx| &ctx.project));
     }
 
-    fn update_title(&self, context: Option<&WindowContext>) {
-        if let Some(context) = context {
-            if let Some(pf) = context.project_file.borrow().as_ref() {
-                if let Some(path) = pf.path() {
-                    self.window.set_title(Some(&format!("Charm: {}", path.display())));
-                } else {
-                    self.window.set_title(Some(&format!("Charm: {}", pf.uri())));
-                }
-            } else {
-                self.window.set_title(Some("Charm (unsaved project)"));
-            }
+    fn update_title(&self, project: Option<&rc::Rc<project::Project>>) {
+        if let Some(project) = project {
+            let has_unsaved = match project.has_unsaved_changes() {
+                true => "*",
+                false => "",
+            };
+            
+            self.window.set_title(Some(&format!("Charm: {}{}", has_unsaved, project.title())));
         } else {
             self.window.set_title(Some("Charm (no project)"));
         }
@@ -367,14 +365,14 @@ impl CharmWindow {
         self.set_context(None);
     }
 
-    pub fn open_context(self: &rc::Rc<Self>, document: document::Document, project_file: Option<gio::File>) {
-        if self.has_project_open() {
+    pub fn open_project(self: &rc::Rc<Self>, project: project::Project, force: bool) {
+        if self.has_project_open()  && !force {
             /* open a new window if this window already has something open in it */
             let window = self.application.new_window();
-            window.set_context(Some(WindowContext::new(&window, document, project_file)));
+            window.set_context(Some(WindowContext::new(&window, project)));
             window.present();
         } else {
-            self.set_context(Some(WindowContext::new(self, document, project_file)));
+            self.set_context(Some(WindowContext::new(self, project)));
             self.present();
         }
     }
@@ -386,8 +384,9 @@ impl CharmWindow {
 }
 
 impl WindowContext {
-    pub fn new(window: &rc::Rc<CharmWindow>, document: document::Document, project_file: Option<gio::File>) -> WindowContext {
-        let document_host = sync::Arc::new(document::DocumentHost::new(document));
+    pub fn new(window: &rc::Rc<CharmWindow>, project: project::Project) -> WindowContext {
+        let project = rc::Rc::new(project);
+        let document_host = &project.document_host;
         let document = document_host.get();
         let tree_selection_host = sync::Arc::new(selection_model::tree::Host::new(selection_model::TreeSelection::new(document.clone())));
         let listing_selection_host = sync::Arc::new(selection_model::listing::Host::new(selection_model::ListingSelection::new(document.clone())));
@@ -452,6 +451,14 @@ impl WindowContext {
             move |drm, new_document| {
                 update_debug_revert_menu(&drm, &new_document);
             });
+
+        let document_subscriber_for_title_update = helpers::subscribe_to_updates(
+            rc::Rc::downgrade(window),
+            document_host.clone(),
+            document.clone(),
+            clone!(@strong project => move |w, _| {
+                w.update_title(Some(&project));
+            }));
         
         let lw = view::listing::ListingWidget::new();
         lw.init(
@@ -466,10 +473,9 @@ impl WindowContext {
         let wc = WindowContext {
             window: rc::Rc::downgrade(window),
             
-            document_host,
+            project,
             tree_selection_host,
             listing_selection_host,
-            project_file: cell::RefCell::new(project_file),
             
             lw,
             datapath_model,
@@ -479,6 +485,7 @@ impl WindowContext {
             document_subscriber_for_tree_selection_update,
             document_subscriber_for_listing_selection_update,
             document_subscriber_for_debug_revert_menu_update,
+            document_subscriber_for_title_update,
             datapath_subscriber,
         };
 
@@ -493,7 +500,6 @@ impl WindowContext {
         wc.action_group.add_action(&action::tree::delete_node::create_action(&wc));
         wc.action_group.add_action(&action::tree::nest::create_action(&wc));
         wc.action_group.add_action(&action::tree::destructure::create_action(&wc));
-        wc.action_group.add_action(&action::debug::reopen_current_document::create_action(&wc));
         wc.action_group.add_action(&action::debug::revert_document::create_action(&wc));
         
         wc
@@ -502,22 +508,22 @@ impl WindowContext {
     pub fn save_project(&self, project_file: gio::File) {
         let Some(window) = self.window.upgrade() else { return };
         
-        let e = match self.try_save_project(project_file) {
+        let e = match self.project.try_save_to(project_file) {
             Ok(()) => {
-                window.update_title(Some(self));
+                window.update_title(Some(&self.project));
                 return;
             },
             Err(e) => e
         };
         
         match e {
-            SaveProjectError::IoError(e) => window.report_error(error::Error {
+            project::SaveProjectError::IoError(e) => window.report_error(error::Error {
                 while_attempting: error::Action::SaveProject,
                 trouble: error::Trouble::GlibIoError(e),
                 level: error::Level::Error,
                 is_bug: false,
             }),
-            SaveProjectError::SerializationError(e) => window.report_error(error::Error {
+            project::SaveProjectError::SerializationError(e) => window.report_error(error::Error {
                 while_attempting: error::Action::SaveProject,
                 trouble: error::Trouble::ProjectSerializationFailure(e),
                 level: error::Level::Error,
@@ -525,24 +531,6 @@ impl WindowContext {
                 is_bug: true,
             }),
         };
-    }
-
-    fn try_save_project(&self, project_file: gio::File) -> Result<(), SaveProjectError> {
-        let bytes = serialization::serialize_project(&**self.document_host.borrow())?;
-
-        project_file.replace_contents(&bytes[..], None, false, gio::FileCreateFlags::REPLACE_DESTINATION, gio::Cancellable::NONE)?;
-
-        let mut guard = self.project_file.borrow_mut();
-        
-        if guard.as_ref() != Some(&project_file) {
-            *guard = Some(project_file);
-        }
-        
-        Ok(())
-    }
-
-    pub fn recreate(&self, window: &rc::Rc<CharmWindow>) -> WindowContext {
-        Self::new(window, (**self.document_host.borrow()).clone(), self.project_file.borrow().clone())
     }
 }
 
@@ -568,22 +556,5 @@ fn update_debug_revert_menu(menu: &gio::Menu, mut document: &sync::Arc<document:
             menu.append_section(Some("Previous versions"), &submenu);
             current_menu = &submenu;
         }
-    }
-}
-
-pub enum SaveProjectError {
-    IoError(glib::error::Error),
-    SerializationError(serialization::SerializationError),
-}
-
-impl From<glib::error::Error> for SaveProjectError {
-    fn from(e: glib::error::Error) -> SaveProjectError {
-        SaveProjectError::IoError(e)
-    }
-}
-
-impl From<serialization::SerializationError> for SaveProjectError {
-    fn from(e: serialization::SerializationError) -> SaveProjectError {
-        SaveProjectError::SerializationError(e)
     }
 }

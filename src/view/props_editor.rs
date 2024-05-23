@@ -230,7 +230,7 @@ impl PropsEditor {
         let selection = ctx.tree_selection_host.get();
 
         let mut interior = PropsInterior {
-            document_host: ctx.document_host.clone(),
+            document_host: ctx.project.document_host.clone(),
             selection_host: selection_host.clone(),
             selection: selection.clone(),
 

@@ -25,7 +25,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     let selection = window_context.tree_selection_host.get();
     
     let action_impl = rc::Rc::new(DeleteNodeAction {
-        document_host: window_context.document_host.clone(),
+        document_host: window_context.project.document_host.clone(),
         selection_host: window_context.tree_selection_host.clone(),
         selection: cell::RefCell::new(selection.clone()),
         window: window_context.window.clone(),

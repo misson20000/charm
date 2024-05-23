@@ -11,6 +11,7 @@ use crate::model::space;
 use crate::serialization;
 use crate::view::error;
 use crate::view::helpers;
+use crate::view::project;
 use crate::view::window;
 
 struct OpenProjectAction {
@@ -93,7 +94,7 @@ fn try_open_project(window: &rc::Rc<window::CharmWindow>, project_file: gio::Fil
         }
     }
     
-    window.open_context(document, Some(project_file));
+    window.open_project(project::Project::new_from_save(document, project_file), false);
 
     Ok(())
 }

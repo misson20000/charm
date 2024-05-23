@@ -55,8 +55,8 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     let store = gio::ListStore::new::<HitItem>();
     
     let action = rc::Rc::new(NavigateAction {
-        document_host: window_context.document_host.clone(),
-        document: cell::RefCell::new(window_context.document_host.get()),
+        document_host: window_context.project.document_host.clone(),
+        document: cell::RefCell::new(window_context.project.document_host.get()),
         lw: window_context.lw.clone(),
         dialog: dialog.clone(),
         entry,

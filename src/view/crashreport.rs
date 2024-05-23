@@ -4,6 +4,7 @@ use crate::model::versioned::Versioned;
 use crate::serialization;
 use crate::view;
 use crate::view::error;
+use crate::view::project;
 use crate::view::window;
 
 use gtk::prelude::*;
@@ -224,11 +225,10 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
                 let Ok(obj) = obj else { continue };
                 let Ok(crd) = obj.downcast::<CharmRecoverableDocument>() else { continue };
                 
-                let Some(doc) = crd.chosen_document() else { continue };
-                let project_file = crd.imp().file.borrow().clone();
+                let Some(project) = crd.create_project() else { continue };
 
                 let window = charm.get_ref().new_window();
-                window.set_context(Some(window::WindowContext::new(&window, (**doc).clone(), project_file)));
+                window.open_project(project, true);
                 window.present();
             }
 
@@ -349,16 +349,12 @@ impl CharmRecoverableDocument {
 
         obj.imp().crash_dialog.set(crash_dialog).unwrap();
         obj.imp().window_id.set(wid).unwrap();
-        obj.imp().document.set(wctx.document_host.get()).unwrap();
-        *obj.imp().file.borrow_mut() = wctx.project_file.borrow().clone();
+        obj.imp().document.set(wctx.project.document_host.get()).unwrap();
+        obj.imp().project.set(wctx.project.clone()).unwrap();
         obj
     }
 
     fn chosen_document(&self) -> Option<&sync::Arc<document::Document>> {
-        if !self.imp().should_recover.get() {
-            return None;
-        }
-
         let Some(mut doc) = self.imp().document.get() else { return None };
         for _ in 0..self.imp().rollback.get() {
             doc = &doc.previous()?.0;
@@ -367,6 +363,17 @@ impl CharmRecoverableDocument {
         Some(doc)
     }
 
+    fn create_project(&self) -> Option<project::Project> {
+        if !self.imp().should_recover.get() {
+            return None;
+        }
+
+        let Some(doc) = self.imp().document.get() else { return None };
+        let Some(project) = self.imp().project.get() else { return None };
+        
+        Some(project.revert_from(doc, self.imp().rollback.get()))
+    }
+    
     fn check_affected_by(&self, c: &Circumstance) {
         let wid = self.imp().window_id.get().unwrap_or(&0);
         
@@ -384,8 +391,12 @@ impl CharmRecoverableDocument {
         let crash_dialog = self.imp().crash_dialog.get().unwrap();
         let file_chooser_dialog = view::action::save_project::create_dialog(crash_dialog.upcast_ref());
 
-        if let Some(project_file) = self.imp().file.borrow().clone() {
-            let _ = file_chooser_dialog.set_file(&project_file);
+        if let Some(project) = self.imp().project.get() {
+            let save_file_borrow = project.save_file.borrow();
+            
+            if let Some(save_file) = save_file_borrow.as_ref() {
+                let _ = file_chooser_dialog.set_file(save_file);
+            }
         }
 
         file_chooser_dialog.show();
@@ -503,8 +514,10 @@ mod imp {
         pub crash_dialog: cell::OnceCell<gtk::ApplicationWindow>,
         pub file_chooser_dialog: cell::RefCell<Option<gtk::FileChooserNative>>,
         pub window_id: cell::OnceCell<u64>,
+
         pub document: cell::OnceCell<sync::Arc<document::Document>>,
-        pub file: cell::RefCell<Option<gio::File>>,
+        pub project: cell::OnceCell<rc::Rc<project::Project>>,
+        
         pub should_recover: cell::Cell<bool>,
         pub panic_related: cell::Cell<bool>,
         pub rollback: cell::Cell<u32>,
@@ -534,14 +547,10 @@ mod imp {
         fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
             /* FFI CALLBACK: panic-safe */
             
-            let Some(doc) = self.document.get() else {
-                return glib::Value::from_type(glib::Type::INVALID);
-            };
-                
             match pspec.name() {
-                "title" => match &*self.file.borrow() {
-                    Some(f) => glib::Value::from(&format!("{} ({})", doc.root.props.name, f.uri())),
-                    None => glib::Value::from(&doc.root.props.name),
+                "title" => match self.project.get() {
+                    Some(p) => glib::Value::from(&p.title()),
+                    None => glib::Value::from(&"<INVALID?>"),
                 },
                 "should-recover" => glib::Value::from(&self.should_recover.get()),
                 "panic-related" => glib::Value::from(&self.panic_related.get()),

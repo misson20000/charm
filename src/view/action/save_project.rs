@@ -62,7 +62,7 @@ impl SaveProjectAction {
             None => return,
         };
 
-        let file = ctx.project_file.borrow().clone();
+        let file = ctx.project.save_file.borrow().clone();
 
         match file {
             Some(file) => ctx.save_project(file),
