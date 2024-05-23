@@ -29,6 +29,20 @@ impl FileAddressSpace {
         }
     }
 
+    /// In case of error, the error is returned instead of being stored in this object as an error state.
+    pub fn try_open(&self) -> Result<&Self, std::io::Error> {
+        let mut guard = self.inner.write().unwrap();
+
+        match &*guard {
+            State::Open(_) => Ok(self),
+            State::Closed | State::Error(_) => match std::fs::File::open(&self.path) {
+                Ok(f) => { *guard = State::Open(f); Ok(self) },
+                Err(e) => Err(e),
+            },
+        }
+    }
+
+    /// In case of error, the error is stored in this object as an error state instead of being returned.
     pub fn open(&self) {
         let mut guard = self.inner.write().unwrap();
 
