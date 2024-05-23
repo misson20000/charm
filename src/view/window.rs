@@ -83,7 +83,7 @@ impl CharmWindow {
                 {
                     let new_project_menu = gio::Menu::new();
                     new_project_menu.append(Some("Empty"), Some("win.new_project.empty"));
-                    new_project_menu.append(Some("From File"), Some("win.new_project.from_file"));
+                    new_project_menu.append(Some("From File..."), Some("win.new_project.from_file"));
                     new_project_menu.freeze();
                     file_menu.append_submenu(Some("New Project"), &new_project_menu);
                 }
@@ -96,8 +96,6 @@ impl CharmWindow {
             {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
-                edit_menu.append(Some("Nest"), Some("ctx.nest"));
-                edit_menu.append(Some("Destructure"), Some("ctx.destructure"));
                 /*
                 {
                     let mode_menu = gio::Menu::new();
@@ -124,7 +122,6 @@ impl CharmWindow {
             }
             {
                 let view_menu = gio::Menu::new();
-                view_menu.append(Some("Clone Window"), Some("win.clone_window"));
                 view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
                 view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
                 view_menu.freeze();
