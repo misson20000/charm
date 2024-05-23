@@ -121,7 +121,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
 
     QUEUED_PANICS.lock().unwrap().push(panic);
 
-    glib::MainContext::default().invoke_with_priority(glib::source::Priority::HIGH, move || {
+    glib::MainContext::default().spawn(async move {
         PANICKING.set(true);
         
         if PANIC_DIALOG_OPEN.swap(true, sync::atomic::Ordering::Relaxed) {
