@@ -2,9 +2,9 @@ use std::cell;
 use std::rc;
 use std::sync;
 
+use gtk::prelude::*;
 use gtk::glib;
 use gtk::glib::clone;
-use gtk::gio;
 
 use crate::model::document;
 use crate::model::document::structure;
@@ -22,7 +22,7 @@ struct DestructureAction {
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
 
-pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
+pub fn add_action(window_context: &window::WindowContext) {
     let selection = window_context.tree_selection_host.get();
     
     let action_impl = rc::Rc::new(DestructureAction {
@@ -41,7 +41,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         action.set_enabled(action_impl.enabled());
     }))).unwrap();
     
-    action
+    window_context.action_group.add_action(&action);
 }
 
 impl DestructureAction {

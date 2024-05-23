@@ -54,7 +54,7 @@ pub struct WindowContext {
     pub datapath_model: gtk::TreeModel,
     pub tree_selection_model: selection::TreeSelectionModel,
 
-    action_group: gio::SimpleActionGroup,
+    pub action_group: gio::SimpleActionGroup,
     
     /* Misc. subscribers and such that need to be kept around */
     document_subscriber_for_tree_selection_update: helpers::AsyncSubscriber,
@@ -281,13 +281,10 @@ impl CharmWindow {
         /* window actions */
 
         action::new_project::add_actions(&w);
-
-        let (action_save, action_save_as) = action::save_project::create_actions(&w);
-        w.window.add_action(&action_save);
-        w.window.add_action(&action_save_as);
-
-        w.window.add_action(&action::open_project::create_action(&w));
-        
+        action::save_project::add_actions(&w);
+        action::open_project::add_action(&w);
+        action::debug::reopen_current_project::add_action(&w);
+    
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
                 w.datapath_editor_frame.set_visible(vis);
@@ -301,8 +298,6 @@ impl CharmWindow {
                 act.set_state(&vis.to_variant());
             }
         });
-
-        action::debug::reopen_current_project::add_action(&w);
 
         w
     }
@@ -486,18 +481,16 @@ impl WindowContext {
             datapath_subscriber,
         };
 
-        let (insert, nest) = action::listing::insert_node::create_actions(&wc);
-        wc.action_group.add_action(&insert);
-        wc.action_group.add_action(&nest);
-        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1));
-        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "word", 2));
-        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4));
-        wc.action_group.add_action(&action::listing::insert_node::create_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8));
-        wc.action_group.add_action(&action::listing::navigate::create_action(&wc));
-        wc.action_group.add_action(&action::tree::delete_node::create_action(&wc));
-        wc.action_group.add_action(&action::tree::nest::create_action(&wc));
-        wc.action_group.add_action(&action::tree::destructure::create_action(&wc));
-        wc.action_group.add_action(&action::debug::revert_document::create_action(&wc));
+        action::listing::insert_node::add_actions(&wc);
+        action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1);
+        action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "word", 2);
+        action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4);
+        action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
+        action::listing::navigate::add_action(&wc);
+        action::tree::delete_node::add_action(&wc);
+        action::tree::nest::add_action(&wc);
+        action::tree::destructure::add_action(&wc);
+        action::debug::revert_document::add_action(&wc);
         
         wc
     }

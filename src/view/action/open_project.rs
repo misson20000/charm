@@ -19,7 +19,7 @@ struct OpenProjectAction {
     dialog: gtk::FileChooserNative,
 }
 
-pub fn create_action(window: &rc::Rc<window::CharmWindow>) -> gio::SimpleAction {
+pub fn add_action(window: &rc::Rc<window::CharmWindow>) {
     let filter = gtk::FileFilter::new();
     filter.set_name(Some("Charm Projects"));
     filter.add_pattern("*.charm");
@@ -44,7 +44,7 @@ pub fn create_action(window: &rc::Rc<window::CharmWindow>) -> gio::SimpleAction 
         action.respond(response_type);
     }));
 
-    helpers::create_simple_action_strong(action.clone(), "open_project", |action| action.activate())
+    window.window.add_action(&helpers::create_simple_action_strong(action.clone(), "open_project", |action| action.activate()));
 }
 
 pub fn open_project(window: &rc::Rc<window::CharmWindow>, project_file: gio::File) {

@@ -34,7 +34,7 @@ pub fn create_dialog(window: &gtk::Window) -> gtk::FileChooserNative {
     dialog
 }
 
-pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleAction, gio::SimpleAction) {
+pub fn add_actions(window: &rc::Rc<window::CharmWindow>) {
     let action = rc::Rc::new(SaveProjectAction {
         window: rc::Rc::downgrade(window),
         dialog: create_dialog(window.window.upcast_ref()),
@@ -44,8 +44,8 @@ pub fn create_actions(window: &rc::Rc<window::CharmWindow>) -> (gio::SimpleActio
         action.respond(response_type);
     }));
     
-    (helpers::create_simple_action_strong(action.clone(), "save_project", |action| action.activate_save()),
-     helpers::create_simple_action_strong(action.clone(), "save_project_as", |action| action.activate_save_as()))
+    window.window.add_action(&helpers::create_simple_action_strong(action.clone(), "save_project", |action| action.activate_save()));
+    window.window.add_action(&helpers::create_simple_action_strong(action.clone(), "save_project_as", |action| action.activate_save_as()));
 }
 
 impl SaveProjectAction {

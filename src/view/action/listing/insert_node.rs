@@ -56,7 +56,7 @@ struct NestActivation {
     range: selection::listing::StructureRange,
 }
 
-pub fn create_actions(window_context: &window::WindowContext) -> (gio::SimpleAction, gio::SimpleAction) {
+pub fn add_actions(window_context: &window::WindowContext) {
     let insert_action = InsertNodeAction::new(window_context);
     let nest_action   =  NestNodesAction::new(window_context);
     let insert_action_clone = insert_action.clone();
@@ -72,8 +72,8 @@ pub fn create_actions(window_context: &window::WindowContext) -> (gio::SimpleAct
     
     insert_gio_action.set_enabled(true);
 
-    (insert_gio_action,
-     helpers::create_simple_action_strong(insert_action_clone, "force_insert_node", |ina| { ina.activate(); }))
+    window_context.action_group.add_action(&insert_gio_action);
+    window_context.action_group.add_action(&helpers::create_simple_action_strong(insert_action_clone, "force_insert_node", |ina| { ina.activate(); }));
 }
 
 impl InsertNodeAction {
@@ -416,7 +416,7 @@ struct InsertFixedSizeNodeAtCursorAction {
     lw: listing::ListingWidget
 }
 
-pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(window_context: &window::WindowContext, name: &str, size: S) -> gio::SimpleAction {
+pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(window_context: &window::WindowContext, name: &str, size: S) {
     let document_host = window_context.project.document_host.clone();
     let lw = window_context.lw.clone();
     let action = gio::SimpleAction::new(&format!("insert_{}", name), None);
@@ -468,5 +468,5 @@ pub fn create_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(windo
 
     action.set_enabled(true);
 
-    action
+    window_context.action_group.add_action(&action);
 }

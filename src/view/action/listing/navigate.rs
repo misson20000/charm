@@ -34,7 +34,7 @@ struct NavigateAction {
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
 
-pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
+pub fn add_action(window_context: &window::WindowContext) {
     let builder = gtk::Builder::from_string(include_str!("navigate.ui"));
 
     let entry: gtk::Entry = builder.object("entry").unwrap();
@@ -90,7 +90,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
         action.dialog.hide();
     });
 
-    helpers::create_simple_action_strong(action, "navigate", |ina| ina.activate())
+    window_context.action_group.add_action(&helpers::create_simple_action_strong(action, "navigate", |ina| ina.activate()));
 }
 
 impl NavigateAction {

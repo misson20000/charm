@@ -1,5 +1,6 @@
 use std::rc;
 
+use gtk::prelude::*;
 use gtk::gio;
 use gtk::glib;
 
@@ -12,7 +13,7 @@ struct RevertDocumentAction {
     window: rc::Weak<window::CharmWindow>,
 }
 
-pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleAction {
+pub fn add_action(window_context: &window::WindowContext) {
     let action_impl = rc::Rc::new(RevertDocumentAction {
         project: window_context.project.clone(),
         window: window_context.window.clone(),
@@ -26,7 +27,7 @@ pub fn create_action(window_context: &window::WindowContext) -> gio::SimpleActio
     });
     action.set_enabled(true);
 
-    action
+    window_context.action_group.add_action(&action);
 }
 
 impl RevertDocumentAction {    
