@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<interface>
+  <template class="GtkListItem">
+    <property name="child">
+      <object class="GtkButton">
+	<property name="action-name">ctx.goto_path</property>
+        <binding name="label">
+	  <lookup name="name" type="CharmBreadcrumb">
+	    <lookup name="item">GtkListItem</lookup>
+	  </lookup>
+        </binding>
+      </object>
+    </property>
+  </template>
+</interface>

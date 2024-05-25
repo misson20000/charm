@@ -11,6 +11,7 @@ use crate::model::versioned::Versioned;
 use crate::view;
 use crate::view::CharmApplication;
 use crate::view::action;
+use crate::view::breadcrumbs;
 use crate::view::crashreport;
 use crate::view::error;
 use crate::view::helpers;
@@ -28,7 +29,8 @@ pub struct CharmWindow {
     pub application: rc::Rc<CharmApplication>,
     pub window: gtk::ApplicationWindow,
     pub id: u64,
-    listing_frame: gtk::Frame,
+    listing_container: gtk::Overlay,
+    breadcrumbs: gtk::ListView,
     datapath_editor: gtk::TreeView,
     hierarchy_editor: gtk::ColumnView,
     config_editor: gtk::ListBox,
@@ -240,7 +242,8 @@ impl CharmWindow {
             application: charm.clone(),
             window,
             id,
-            listing_frame: builder.object("listing_frame").unwrap(),
+            listing_container: builder.object("listing_overlay").unwrap(),
+            breadcrumbs: builder.object("breadcrumbs").unwrap(),
             datapath_editor,
             hierarchy_editor,
             config_editor,
@@ -309,27 +312,32 @@ impl CharmWindow {
 
     /* This is THE ONLY place allowed to modify context */
     fn set_context(&self, context: Option<WindowContext>) {
-        self.listing_frame.set_child(gtk::Widget::NONE);
+        let mut guard = self.context.borrow_mut();
+
+        self.listing_container.set_child(gtk::Widget::NONE);
         self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
         self.window.insert_action_group("ctx", gio::ActionGroup::NONE);
         self.props_editor.unbind();
+        self.breadcrumbs.set_factory(gtk::ListItemFactory::NONE);
+        self.breadcrumbs.set_model(gtk::SelectionModel::NONE);
         self.debug_revert_menu.remove_all();
 
-        *self.context.borrow_mut() = context;
+        *guard = context;
 
-        if let Some(new_context) = &*self.context.borrow() {
-            self.listing_frame.set_child(Some(&new_context.lw));
+        if let Some(new_context) = guard.as_ref() {
+            self.listing_container.set_child(Some(&new_context.lw));
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
             self.hierarchy_editor.set_model(Some(&new_context.tree_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind(&new_context);
-
+            self.breadcrumbs.set_factory(Some(&breadcrumbs::CharmBreadcrumbWidget::list_item_factory(new_context.lw.clone())));
+            self.breadcrumbs.set_model(Some(&gtk::NoSelection::new(Some(new_context.lw.breadcrumbs()))));
             
             new_context.lw.grab_focus();
         }
 
-        self.update_title(self.context.borrow().as_ref().map(|ctx| &ctx.project));
+        self.update_title(guard.as_ref().map(|ctx| &ctx.project));
     }
 
     fn update_title(&self, project: Option<&rc::Rc<project::Project>>) {

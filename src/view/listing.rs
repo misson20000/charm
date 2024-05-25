@@ -12,9 +12,11 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::model::listing::layout as layout_model;
+use crate::model::listing::layout::LineView;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::breadcrumbs;
 use crate::view::crashreport;
 use crate::view::config;
 use crate::view::error;
@@ -77,6 +79,7 @@ struct Interior {
     hover: Option<(f64, f64)>,
     rubber_band_begin: Option<pick::Triplet>,
     popover_menu: gtk::PopoverMenu,
+    breadcrumbs: gio::ListStore,
     
     last_frame: i64,
     render: sync::Arc<RenderDetail>,
@@ -120,6 +123,29 @@ impl ObjectImpl for ListingWidgetImp {
 
             self.obj().set_vexpand(true);
             self.obj().set_hexpand(true);
+        }
+    }
+
+    fn properties() -> &'static [glib::ParamSpec] {
+        /* FFI CALLBACK: panic-safe */
+        
+        static PROPERTIES: once_cell::sync::Lazy<Vec<glib::ParamSpec>> =
+            once_cell::sync::Lazy::new(|| vec![
+                glib::ParamSpecObject::builder::<breadcrumbs::CharmBreadcrumb>("breadcrumbs").build(),
+            ]);
+        PROPERTIES.as_ref()
+    }
+
+    fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        catch_panic! {
+            @default(glib::Value::from_type(glib::Type::INVALID));
+
+            let Some(interior) = self.interior.get().map(|i| i.read()) else { return glib::Value::from_type(glib::Type::INVALID) };
+            
+            match pspec.name() {
+                "breadcrumbs" => glib::Value::from(&interior.breadcrumbs),
+                x => panic!("access to invalid property: {}", x)
+            }
         }
     }
 }
@@ -172,6 +198,8 @@ impl WidgetImpl for ListingWidgetImp {
                 }
             };
 
+            snapshot.push_clip(&graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
+            
             /* fill in background */
             snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
 
@@ -190,6 +218,8 @@ impl WidgetImpl for ListingWidgetImp {
                 snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
             }
             snapshot.restore();
+
+            snapshot.pop();
         }
     }
 }
@@ -252,6 +282,7 @@ impl ListingWidget {
             hover: None,
             rubber_band_begin: None,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
+            breadcrumbs: gio::ListStore::new::<breadcrumbs::CharmBreadcrumb>(),
 
             last_frame: match self.frame_clock() {
                 Some(fc) => fc.frame_time(),
@@ -478,6 +509,10 @@ impl ListingWidget {
 
         self.queue_draw();
     }
+
+    pub fn breadcrumbs(&self) -> gio::ListStore {
+        self.imp().interior.get().unwrap().read().breadcrumbs.clone()
+    }
 }
 
 impl RenderDetail {
@@ -522,8 +557,9 @@ impl Interior {
             crashreport::Circumstance::InWindow(self.charm_window_id),
             crashreport::Circumstance::LWDocumentUpdate(self.document.clone(), new_document.clone())]
         );
-        
+
         self.window.update(new_document);
+        self.update_breadcrumbs();
         self.cursor.cursor.update(new_document);
         self.document = new_document.clone();
         self.rubber_band_begin = None;
@@ -556,6 +592,7 @@ impl Interior {
                 new_config.clone(),
                 widget.pango_context(),
                 self.render.serial + 1));
+        self.update_breadcrumbs();
     }
     
     /// Resize the underlying window.
@@ -573,6 +610,7 @@ impl Interior {
         let line_count = (((height * pango::SCALE) + line_height - 1) / line_height) as usize;
 
         self.window.resize(line_count + 2 + (2 * self.scroll.get_lookahead()));
+        self.update_breadcrumbs();
         self.work_notifier.notify();
     }
 
@@ -630,6 +668,8 @@ impl Interior {
 
         self.collect_events(widget);
 
+        self.update_breadcrumbs();
+        
         if widget.imp().should_repick.swap(false, sync::atomic::Ordering::Relaxed) {
             self.update_rubber_band_from_hover();
         }
@@ -696,10 +736,48 @@ impl Interior {
         self.scroll.scroll_wheel_impulse(dy);
 
         self.collect_events(widget);
+
+        self.update_breadcrumbs();
         
         glib::Propagation::Stop
     }
 
+    fn update_breadcrumbs(&self) {
+        let mut tok = None;
+        
+        for i in (0..self.scroll.get_lookahead()+1).rev() {
+            tok = self.window.line_views.get(i).and_then(|l| l.iter_tokens().next());
+            
+            if tok.is_some() {
+                break;
+            }
+        }
+        
+        let Some(tok) = tok else {
+            self.breadcrumbs.remove_all();
+            return;
+        };
+
+        let doc = &self.window.current_document;
+        let path = tok.node_path();
+
+        for i in 0..=path.len() {
+            match self.breadcrumbs.item(i as u32) {
+                Some(existing) => {
+                    existing.downcast::<breadcrumbs::CharmBreadcrumb>().unwrap().update(&doc, &path[0..i]);
+                },
+                None => {
+                    self.breadcrumbs.append(&breadcrumbs::CharmBreadcrumb::new(doc.clone(), path[0..i].iter().cloned().collect()));
+                }
+            }
+        }
+
+        if self.breadcrumbs.n_items() as usize > path.len() + 1 {
+            let additions: &[glib::Object] = &[];
+            self.breadcrumbs.splice((path.len() + 1) as u32, self.breadcrumbs.n_items() - (path.len() + 1) as u32, additions);
+        }
+    }
+    
     fn drag_begin(&mut self, widget: &ListingWidget, x: f64, y: f64) {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),

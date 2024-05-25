@@ -10,6 +10,7 @@ pub mod window;
 pub mod helpers;
 pub mod gsc;
 
+pub mod breadcrumbs;
 pub mod config_editor;
 pub mod crashreport;
 pub mod datapath;
@@ -70,6 +71,11 @@ impl CharmApplication {
         app.application.set_accels_for_action("win.cancel", &["Escape"]);
         app.application.set_accels_for_action("ctx.debug.revert_document(uint32 1)", &["<Ctrl>Z"]);
 
+        /* css */
+        let css = gtk::CssProvider::new();
+        css.load_from_data(include_str!("breadcrumbs.css"));
+        gtk::style_context_add_provider_for_display(&gtk::gdk::Display::default().expect("there should be a GDK display"), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        
         app
     }
 
