@@ -11,21 +11,21 @@ gtk = ["dep:gtk"]
 
 [dependencies]
 gtk = { version = "0.8.2", optional = true, package = "gtk4" }
-glib = "0.19.6"
+glib = "0.19.7"
 futures = "0.3.30"
 lazy_static = "1.4.0"
 tokio = { version = "1.37.0", features = ["full"] }
 hex-literal = "0.4.1"
 send_wrapper = "0.6.0"
 conv = "0.3.3"
-parking_lot = "0.12.2"
+parking_lot = "0.12.3"
 imbl = "3.0.0"
 enum_dispatch = "0.3.13"
 byteorder = "1.5.0"
 lru = "0.12.3"
 take_mut = "0.2.2"
 itertools = "0.13.0"
-roxmltree = "0.19.0"
+roxmltree = "0.20.0"
 once_cell = "1.19.0"
 arc-swap = "1.7.1"
 tracing = "0.1.40"
