@@ -96,10 +96,10 @@ macro_rules! declare_config {
 declare_config![Config {
     "File Access Delay" file_access_delay: u64 = 0, /* milliseconds */
     
-    "Lookahead" lookahead: usize = 0, /* lines */
+    "Lookahead" lookahead: usize = 20, /* lines */
     "Scroll Wheel Impulse" scroll_wheel_impulse: f64 = 60.0, /* lines/second */
 
-    "Scroll Deceleration" scroll_deceleration: f64 = 620.0, /* lines/second^2 */
+    "Scroll Deceleration" scroll_deceleration: f64 = 400.0, /* lines/second^2 */
     "Scroll Spring" scroll_spring: f64 = 240.0, /* 1/second^2 */
     "Scroll Spring Damping" scroll_spring_damping: f64 = 17.0, /* viscous damping coefficient */
     
