@@ -22,8 +22,10 @@
         <property name="vexpand">True</property>
         <child>
           <object class="GtkScrolledWindow">
+            <property name="has-frame">True</property>
             <property name="height-request">200</property>
             <property name="hscrollbar-policy">never</property>
+            <property name="margin-top">10</property>
             <property name="width-request">600</property>
             <child>
               <object class="GtkTextView" id="detail">
