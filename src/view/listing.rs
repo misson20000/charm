@@ -745,7 +745,7 @@ impl Interior {
     fn update_breadcrumbs(&self) {
         let mut tok = None;
         
-        for i in (0..self.scroll.get_lookahead()+1).rev() {
+        for i in (0..(self.scroll.get_position() as usize) + 1).rev() {
             tok = self.window.line_views.get(i).and_then(|l| l.iter_tokens().next());
             
             if tok.is_some() {
