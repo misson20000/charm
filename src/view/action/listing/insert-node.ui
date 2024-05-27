@@ -204,6 +204,7 @@
         <child>
           <object class="GtkButton" id="insert_button">
             <property name="action-name">win.insert</property>
+            <property name="css-classes">suggested-action</property>
             <property name="halign">end</property>
             <property name="label">Insert</property>
             <property name="valign">end</property>

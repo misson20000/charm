@@ -87,6 +87,7 @@
         <child>
           <object class="GtkButton">
             <property name="action-name">win.reopen</property>
+            <property name="css-classes">suggested-action</property>
             <property name="label">Reopen</property>
           </object>
         </child>
