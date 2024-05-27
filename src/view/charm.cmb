@@ -9,7 +9,8 @@
 	(5,None,None,"error-dialog.ui",None,None,None,None,None,None,None),
 	(6,None,None,"action/listing/nest-nodes.ui",None,None,None,None,None,None,None),
 	(7,None,None,"crash-dialog.ui",None,None,None,None,None,None,None),
-	(8,1,None,"crash-document-recovery.ui",None,None,None,None,None,None,None)
+	(8,1,None,"crash-document-recovery.ui",None,None,None,None,None,None,None),
+	(9,None,None,"unsaved-dialog.ui",None,None,None,None,None,None,None)
   </ui>
   <ui_library>
 	(1,"gtk","4.0",None),
@@ -137,7 +138,13 @@
 	(8,4,"GtkLabel","title",3,None,None,None,None,None,None),
 	(8,5,"GtkDropDown","version",3,None,None,None,None,None,None),
 	(8,6,"GtkButton","save_as",3,None,None,None,1,None,None),
-	(8,7,"GtkLabel","panic_related",3,None,None,None,None,None,None)
+	(8,7,"GtkLabel","panic_related",3,None,None,None,None,None,None),
+	(9,1,"GtkBox","toplevel",None,None,None,None,-1,None,None),
+	(9,2,"GtkLabel",None,1,None,None,None,None,None,None),
+	(9,3,"GtkBox",None,1,None,None,None,1,None,None),
+	(9,4,"GtkButton",None,3,None,None,None,2,None,None),
+	(9,5,"GtkButton",None,3,None,None,None,1,None,None),
+	(9,6,"GtkButton",None,3,None,None,None,None,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","height-request","800",None,None,None,None,None,None,None,None,None),
@@ -416,7 +423,29 @@
 	(8,7,"GtkLabel","use-markup","True",None,None,None,None,None,None,None,None,None),
 	(8,7,"GtkLabel","wrap","True",None,None,None,None,None,None,None,None,None),
 	(8,7,"GtkWidget","css-classes","warning",None,None,None,None,None,None,None,None,None),
-	(8,7,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None)
+	(8,7,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkBox","spacing","10",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkWidget","margin-bottom","15",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkWidget","margin-end","15",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkWidget","margin-start","15",None,None,None,None,None,None,None,None,None),
+	(9,1,"GtkWidget","margin-top","15",None,None,None,None,None,None,None,None,None),
+	(9,2,"GtkLabel","label","You have unsaved changes.",None,None,None,None,None,None,None,None,None),
+	(9,2,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None),
+	(9,3,"GtkBox","spacing","10",None,None,None,None,None,None,None,None,None),
+	(9,3,"GtkWidget","hexpand","True",None,None,None,None,None,None,None,None,None),
+	(9,3,"GtkWidget","hexpand-set","True",None,None,None,None,None,None,None,None,None),
+	(9,4,"GtkActionable","action-name","win.save",None,None,None,None,None,None,None,None,None),
+	(9,4,"GtkButton","label","Save",None,None,None,None,None,None,None,None,None),
+	(9,4,"GtkWidget","css-classes","suggested-action",None,None,None,None,None,None,None,None,None),
+	(9,4,"GtkWidget","halign","end",None,None,None,None,None,None,None,None,None),
+	(9,5,"GtkActionable","action-name","win.exit",None,None,None,None,None,None,None,None,None),
+	(9,5,"GtkButton","label","Exit",None,None,None,None,None,None,None,None,None),
+	(9,5,"GtkWidget","css-classes","destructive-action",None,None,None,None,None,None,None,None,None),
+	(9,5,"GtkWidget","halign","end",None,None,None,None,None,None,None,None,None),
+	(9,6,"GtkActionable","action-name","win.cancel",None,None,None,None,None,None,None,None,None),
+	(9,6,"GtkButton","label","Cancel",None,None,None,None,None,None,None,None,None),
+	(9,6,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None)
   </object_property>
   <object_layout_property>
 	(2,20,21,"GtkGridLayoutChild","column","0",None,None,None,None),

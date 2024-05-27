@@ -256,14 +256,45 @@ impl CharmWindow {
 
         w.props_editor.bind_window(&w);
 
-        w.window.connect_close_request(clone!(@strong charm, @strong w => move |_| catch_panic! {
+        w.window.connect_close_request(clone!(@strong w => move |_| catch_panic! {
             @default(glib::Propagation::Proceed);
-            
-            /* This is especially important because it destroys actions which might have their own toplevel windows that
-             * would otherwise keep the process alive. */
-            w.close_project();
-            charm.destroy_window(&w);
 
+            if let Some(context) = w.context.borrow().as_ref() {
+                if context.project.has_unsaved_changes() {
+                    let builder = gtk::Builder::from_string(include_str!("unsaved-dialog.ui"));
+                    let dialog = gtk::ApplicationWindow::builder()
+                        .application(&w.application.application)
+                        .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+                        .title("Unsaved changes")
+                        .transient_for(&w.window)
+                        .destroy_with_parent(true)
+                        .modal(true)
+                        .build();
+
+                    helpers::bind_simple_action(&w, &dialog, "exit", clone!(@strong dialog => move |w| catch_panic! {
+                        dialog.destroy();
+                        w.close_window();
+                        w.window.destroy();
+                    }));
+
+                    helpers::bind_simple_action(&w, &dialog, "cancel", clone!(@strong dialog => move |_| catch_panic! {
+                        dialog.destroy();
+                    }));
+
+                    helpers::bind_simple_action(&w, &dialog, "save", clone!(@strong dialog => move |w| catch_panic! {
+                        dialog.destroy();
+                        w.window.lookup_action("save_project").expect("Expected save_project action to have been registered").activate(None);
+                        w.close_window();
+                        w.window.destroy();
+                    }));
+                    
+                    dialog.present();
+                    
+                    return glib::Propagation::Stop;
+                }
+            }
+            
+            w.close_window();
             glib::Propagation::Proceed
         }));
 
@@ -310,6 +341,13 @@ impl CharmWindow {
         self.window.present();
     }
 
+    pub fn close_window(&self) {
+        /* This is especially important because it destroys actions which might have their own toplevel windows that
+         * would otherwise keep the process alive. */
+        self.close_project();
+        self.application.destroy_window(self);
+    }
+    
     /* This is THE ONLY place allowed to modify context */
     fn set_context(&self, context: Option<WindowContext>) {
         let mut guard = self.context.borrow_mut();

@@ -94,9 +94,11 @@ impl CharmApplication {
         window
     }
 
-    fn destroy_window(&self, window: &rc::Rc<window::CharmWindow>) {
-        let window = rc::Rc::downgrade(window);
-        self.windows.borrow_mut().retain(|w| !rc::Weak::ptr_eq(&w, &window) && w.upgrade().is_some());
+    fn destroy_window(&self, window: &window::CharmWindow) {
+        self.windows.borrow_mut().retain(|w| match w.upgrade() {
+            Some(w) => w.id != window.id,
+            None => false,
+        });
     }
     
     fn create_about_dialog() -> gtk::AboutDialog {
