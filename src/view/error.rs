@@ -4,8 +4,7 @@ use std::sync;
 
 use crate::model;
 use crate::model::document;
-use crate::model::selection::listing;
-use crate::model::selection::tree;
+use crate::model::selection;
 use crate::serialization;
 
 use gtk::prelude::*;
@@ -17,6 +16,7 @@ pub enum Action {
 
     /* User-facing actions */
     DeleteNode,
+    DeleteNodesInListing,
     DestructureNode,
     InsertNodeParseOffset,
     InsertNodeParseSize,
@@ -41,12 +41,12 @@ pub enum Trouble {
         attempted_version: sync::Arc<document::Document>,
     },
     ListingSelectionUpdateFailure {        
-        error: listing::ApplyError,
-        attempted_version: sync::Arc<listing::Selection>,
+        error: selection::listing::ApplyError,
+        attempted_version: sync::Arc<selection::ListingSelection>,
     },
     TreeSelectionUpdateFailure {
-        error: tree::ApplyError,
-        attempted_version: sync::Arc<tree::Selection>,
+        error: selection::tree::ApplyError,
+        attempted_version: sync::Arc<selection::TreeSelection>,
     },
     AddressParseFailed {
         error: model::addr::AddressParseError,
@@ -60,6 +60,11 @@ pub enum Trouble {
     },
     ProjectSerializationFailure(serialization::SerializationError),
     ProjectDeserializationFailure(serialization::DeserializationError),
+    UnsupportedListingSelectionMode {
+        selection: sync::Arc<selection::ListingSelection>,
+    },
+    NoNodesInSelection,
+    
     Other(String),
 }
 
@@ -83,6 +88,7 @@ impl Error {
             Action::ListingSelectionDocumentUpdate => "Failed to update listing selection in response to a document update.",
 
             Action::DeleteNode => "Failed to delete node.",
+            Action::DeleteNodesInListing => "Failed to delete nodes.",
             Action::DestructureNode => "Failed to destructure node.",
             Action::InsertNodeParseOffset => "Failed to parse offset.",
             Action::InsertNodeParseSize => "Failed to parse size.",
@@ -148,14 +154,14 @@ impl Error {
 
             Trouble::ListingSelectionUpdateFailure { error, attempted_version: _ } => {
                 match error {
-                    listing::ApplyError::WrongMode => write!(msg, "Failed to make the requested change to the listing panel's selection because the selection was in the wrong mode.\n")?,
+                    selection::listing::ApplyError::WrongMode => write!(msg, "Failed to make the requested change to the listing panel's selection because the selection was in the wrong mode.\n")?,
                 }
             },
 
             Trouble::TreeSelectionUpdateFailure { error, attempted_version: _ } => {
                 match error {
-                    tree::ApplyError::WasUpToDate => write!(msg, "Attempted to update a selection to a new document version that it was already up to date with.\nThis should never be shown externally an error.")?,
-                    tree::ApplyError::NodeDeleted => write!(msg, "Failed to make the requested change to the tree panel's selection because a requested node was deleted.\n")?,
+                    selection::tree::ApplyError::WasUpToDate => write!(msg, "Attempted to update a selection to a new document version that it was already up to date with.\nThis should never be shown externally an error.")?,
+                    selection::tree::ApplyError::NodeDeleted => write!(msg, "Failed to make the requested change to the tree panel's selection because a requested node was deleted.\n")?,
                 }
             },
 
@@ -191,6 +197,15 @@ impl Error {
                     serialization::DeserializationError::UnsupportedVersion(v) => write!(msg, "Unsuppoted project version {}\n", v)?,
                     serialization::DeserializationError::BincodeError(e) => write!(msg, "Corrupt project file: {}\n", e)?,
                 }
+            },
+
+            Trouble::UnsupportedListingSelectionMode { selection } => {
+                write!(msg, "Selection is invalid for attempted operation.\n")?;
+                write!(msg, "Selection: {:?}\n", selection)?
+            },
+
+            Trouble::NoNodesInSelection => {
+                write!(msg, "No nodes in current selection.\n")?
             },
 
             Trouble::Other(error) => {

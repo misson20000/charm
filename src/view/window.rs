@@ -527,6 +527,7 @@ impl WindowContext {
             datapath_subscriber,
         };
 
+        action::listing::delete_selected_nodes::add_action(&wc);
         action::listing::insert_node::add_actions(&wc);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "byte", 1);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "word", 2);

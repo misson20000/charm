@@ -265,6 +265,7 @@ impl ListingWidget {
 
         let context_menu = gio::Menu::new();
         context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
+        context_menu.append(Some("Delete selected nodes"), Some("ctx.delete_selected_nodes"));
         context_menu.freeze();
         
         let mut interior = Interior {
