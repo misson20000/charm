@@ -16,6 +16,7 @@ use crate::model::listing::layout::LineView;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
+use crate::view::action;
 use crate::view::breadcrumbs;
 use crate::view::crashreport;
 use crate::view::config;
@@ -37,7 +38,7 @@ pub mod facet;
 mod token_view;
 mod line;
 mod layout;
-mod pick;
+pub mod pick;
 
 use facet::Facet;
 
@@ -88,6 +89,9 @@ struct Interior {
     selection_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     config_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
+
+    resize_node_action: rc::Rc<action::listing::resize_node::ResizeNodeAction>,
+    
     work_notifier: util::Notifier,
     runtime: tokio::runtime::Handle,
 }
@@ -265,6 +269,7 @@ impl ListingWidget {
 
         let context_menu = gio::Menu::new();
         context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
+        context_menu.append(Some("Resize node..."), Some("listing.resize_node"));
         context_menu.append(Some("Delete selected nodes"), Some("ctx.delete_selected_nodes"));
         context_menu.freeze();
         
@@ -295,11 +300,12 @@ impl ListingWidget {
             selection_update_event_source: once_cell::sync::OnceCell::new(),
             config_update_event_source: once_cell::sync::OnceCell::new(),
             work_event_source: once_cell::sync::OnceCell::new(),
+
+            resize_node_action: action::listing::resize_node::ResizeNodeAction::new(window, document_host.clone(), selection_host.clone()),
+            
             work_notifier: util::Notifier::new(),
             runtime: window.application.rt.handle().clone(),
         };
-
-        interior.popover_menu.set_parent(self);
 
         /* Set the initial size. */
         interior.size_allocate(
@@ -378,7 +384,12 @@ impl ListingWidget {
         }));
         self.add_controller(ec_motion);
 
-        /* Context menu */
+        /* Setup the popover menu */
+        interior.popover_menu.set_parent(self);
+        interior.popover_menu.connect_closed(clone!(@weak self as lw => move |_popover| catch_panic! {
+            lw.imp().interior.get().unwrap().write().update_popover_actions(None);
+        }));
+
         let ec_context_menu = gtk::GestureClick::new();
         ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| catch_panic! {
             let event = gesture.last_event(gesture.current_sequence().as_ref());
@@ -425,6 +436,11 @@ impl ListingWidget {
             lw.imp().interior.get().unwrap().write().cursor.change_focused(lw.has_focus());
         });
 
+        /* Register actions */
+        let ag = gio::SimpleActionGroup::new();
+        ag.add_action(&interior.resize_node_action.action);
+        self.insert_action_group("listing", Some(&ag));
+        
         /* Finished initializing; set interior. */
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
@@ -469,17 +485,17 @@ impl ListingWidget {
 
     fn open_context_menu(&self, x: f64, y: f64) {
         let interior = self.imp().interior.get().unwrap().read();
-        
-        /*
-        let (path, part) = match interior.pick(x, y) {
+
+        let pick = match interior.pick(x, y) {
             Some(pick::Triplet {
                 middle: (path, part),
                 ..
-            }) => (path, part),
+            }) => Some((&interior.window.current_document, path, part)),
             
-            None => return,
-    };
-        */
+            None => None,
+        };
+        
+        interior.update_popover_actions(pick);
 
         let popover_menu = interior.popover_menu.clone();
         
@@ -886,6 +902,10 @@ impl Interior {
         let (lineno, y) = self.pick_line(y)?;
         let line = self.window.line_views.get(lineno)?;
         line.pick(x, y)
+    }
+
+    fn update_popover_actions(&self, part: Option<(&sync::Arc<document::Document>, structure::Path, pick::Part)>) {
+        self.resize_node_action.pick_updated(&part);
     }
 }
 

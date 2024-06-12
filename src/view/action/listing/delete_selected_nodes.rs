@@ -11,6 +11,7 @@ use crate::view::window;
 
 use gtk::prelude::*;
 use gtk::gio;
+use gtk::glib::clone;
 
 struct DeleteSelectedNodesAction {
     document_host: sync::Arc<document::DocumentHost>,
@@ -21,29 +22,18 @@ struct DeleteSelectedNodesAction {
 }
 
 pub fn add_action(window_context: &window::WindowContext) {
-    let gio_action = gio::SimpleAction::new("delete_selected_nodes", None);
-    let action_impl = DeleteSelectedNodesAction::new(window_context, gio_action.clone());
-    let window = window_context.window.clone();
-    action_impl.update_is_enabled();
-    
-    gio_action.connect_activate(move |_, _| catch_panic! {
-        let Some(window) = window.upgrade() else { return };
-        
-        if let Err(e) = action_impl.activate() {
-            window.report_error(e);
-        }
-    });
-    
-    window_context.action_group.add_action(&gio_action);
+    let action = DeleteSelectedNodesAction::new(window_context);
+    window_context.action_group.add_action(&action.action);
+    action.update_is_enabled();
 }
 
 impl DeleteSelectedNodesAction {
-    fn new(window_context: &window::WindowContext, action: gio::SimpleAction) -> rc::Rc<Self> {
+    fn new(window_context: &window::WindowContext) -> rc::Rc<Self> {
         let document_host = window_context.project.document_host.clone();
         let selection_host = window_context.listing_selection_host.clone();
         let selection = selection_host.get();
 
-        rc::Rc::new_cyclic(|weak: &rc::Weak<Self>| Self {
+        let action = rc::Rc::new_cyclic(|weak: &rc::Weak<Self>| Self {
             subscriber: helpers::subscribe_to_updates(weak.clone(), selection_host.clone(), selection.clone(), |action, new_sel| {
                 action.selection_updated(new_sel);
             }),
@@ -51,8 +41,19 @@ impl DeleteSelectedNodesAction {
             document_host,
             selection_host,
             selection: cell::RefCell::new(selection),
-            action,
-        })
+            action: gio::SimpleAction::new("delete_selected_nodes", None),
+        });
+
+        let window = window_context.window.clone();
+        action.action.connect_activate(clone!(@strong action => move |_, _| catch_panic! {
+            let Some(window) = window.upgrade() else { return };
+        
+            if let Err(e) = action.activate() {
+                window.report_error(e);
+            }
+        }));
+
+        action
     }
 
     fn selection_updated(&self, new_sel: &sync::Arc<selection::ListingSelection>) {
