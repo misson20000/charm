@@ -674,6 +674,7 @@ impl Tokenizer {
             TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                 common,
                 kind: token::PunctuationKind::OpenBracket,
+                index: 0, /* unused */
             }.into_token()),
             TokenizerState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
@@ -690,6 +691,7 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                     common,
                     kind: token::PunctuationKind::Comma,
+                    index: i,
                 }.into_token())
             } else {
                 TokenGenerationResult::Skip
@@ -697,6 +699,7 @@ impl Tokenizer {
             TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                 common,
                 kind: token::PunctuationKind::CloseBracket,
+                index: 0, /* unused */
             }.into_token()),
             TokenizerState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogueToken {
                 common,
@@ -710,7 +713,8 @@ impl Tokenizer {
                 TokenGenerationResult::Ok(match self.node.props.content_display {
                     structure::ContentDisplay::None => token::SummaryPunctuationToken {
                         common,
-                        kind: token::PunctuationKind::Space
+                        kind: token::PunctuationKind::Space,
+                        index: 0, /* unused */
                     }.into_token(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
                     structure::ContentDisplay::Hexdump { .. } => token::HexstringToken {
@@ -1624,9 +1628,9 @@ pub mod xml {
 
             match self.node.tag_name().name() {
                 "null" => token::BlankLineToken { common, accepts_cursor: self.node.attribute("cursor").map_or(false, |b| b.eq("true")) }.into_token(),
-                "open" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::OpenBracket }.into_token(),
-                "comma" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::Comma }.into_token(),
-                "close" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::CloseBracket }.into_token(),
+                "open" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::OpenBracket, index: 0 }.into_token(),
+                "comma" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::Comma, index: self.node.attribute("index").map(|i| i.parse().unwrap()).unwrap_or(0) }.into_token(),
+                "close" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::CloseBracket, index: 0 }.into_token(),
                 "title" => token::TitleToken { common }.into_token(),
                 "summlabel" => token::SummaryLabelToken { common }.into_token(),
                 "preamble" => token::SummaryPreambleToken { common }.into_token(),

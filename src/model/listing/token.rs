@@ -82,6 +82,8 @@ pub struct SummaryEpilogueToken {
 pub struct SummaryPunctuationToken {
     pub common: TokenCommon,
     pub kind: PunctuationKind,
+    /// Used for commas to disambiguate *which* comma
+    pub index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
