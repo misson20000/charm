@@ -98,7 +98,8 @@ impl TokenView {
         origin: &graphene::Point
     ) -> graphene::Point {
         let lh = helpers::pango_unscale(render.metrics.height());
-        
+
+        snapshot.save();
         snapshot.translate(origin);
 
         let mut pos = graphene::Point::new(0.0, lh);
@@ -182,6 +183,8 @@ impl TokenView {
         
         self.logical_bounds = Some(graphene::Rect::new(origin.x(), origin.y() + helpers::pango_unscale(render.metrics.descent()), pos.x(), pos.y()));
 
+        snapshot.restore();
+        
         graphene::Point::new(origin.x() + pos.x(), 0.0)
     }
 
