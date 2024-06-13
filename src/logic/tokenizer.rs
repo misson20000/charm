@@ -96,6 +96,7 @@ impl std::fmt::Debug for Tokenizer {
         f.debug_struct("Tokenizer")
             .field("state", &self.state)
             .field("node", &self.node.props.name)
+            .field("node_addr", &self.node_addr)
             .field("stack", &TokenizerStackDebugHelper(&self.stack))
             .finish_non_exhaustive()
     }
@@ -120,6 +121,7 @@ impl std::fmt::Debug for TokenizerStackEntry {
         f.debug_struct("Entry")
             .field("descent", &self.descent)
             .field("node", &self.node.props.name)
+            .field("node_addr", &self.node_addr)
             .finish_non_exhaustive()
     }
 }
@@ -283,14 +285,14 @@ impl Tokenizer {
         
         let mut tokenizer = Tokenizer {
             stack,
-            state: TokenizerState::PreBlank,
+            state: if summary_prev { TokenizerState::SummaryValueBegin } else { TokenizerState::PreBlank },
             depth,
             node: node.clone(),
             node_addr
         };
 
         if offset > addr::unit::NULL {
-            tokenizer.seek_in_node_to_offset(offset);
+            tokenizer.seek_in_node_to_offset(offset, summary_next);
         }
         
         tokenizer
@@ -600,10 +602,18 @@ impl Tokenizer {
         }
     }
 
-    fn seek_in_node_to_offset(&mut self, offset: addr::Address) {
+    fn seek_in_node_to_offset(&mut self, offset: addr::Address, summary: bool) {
         let index = self.node.children.partition_point(|ch| ch.offset < offset);
         
-        self.state = TokenizerState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
+        if summary {
+            if self.node.children.len() > 0 {
+                self.state = TokenizerState::SummaryLabel(index);
+            } else {
+                self.state = TokenizerState::SummaryLeaf;
+            }
+        } else {
+            self.state = TokenizerState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
+        }
 
         while match self.gen_token() {
             TokenGenerationResult::Skip => true,
@@ -1203,6 +1213,46 @@ impl Tokenizer {
             _ => addr::unit::NULL
         }
     }
+
+    /// Returns true if the token that would be returned by gen_token() is part of a summary.
+    pub fn in_summary(&self) -> bool {
+        match self.state {
+            TokenizerState::PreBlank => false,
+            TokenizerState::Title => false,
+            TokenizerState::MetaContent(_, _) => false,
+            TokenizerState::Hexdump { .. } => false,
+            TokenizerState::Hexstring(_, _) => false,
+
+            TokenizerState::SummaryPreamble => true,
+            TokenizerState::SummaryOpener => true,
+            TokenizerState::SummaryLabel(_) => true,
+            TokenizerState::SummarySeparator(_) => true,
+            TokenizerState::SummaryCloser => true,
+            TokenizerState::SummaryEpilogue => true,
+            TokenizerState::SummaryValueBegin => true,
+            TokenizerState::SummaryLeaf => true,
+            TokenizerState::SummaryValueEnd => true,
+
+            TokenizerState::PostBlank => false,
+            TokenizerState::End => false,
+        }
+    }
+}
+
+impl PartialEq for Tokenizer {
+    fn eq(&self, other: &Self) -> bool {
+        (match (&self.stack, &other.stack) {
+            (Some(x), Some(y)) => sync::Arc::ptr_eq(x, y),
+            _ => false,
+        } || self.stack == other.stack) &&
+            self.state == other.state &&
+            self.depth == other.depth &&
+            sync::Arc::ptr_eq(&self.node, &other.node) &&
+            self.node_addr == other.node_addr
+    }
+}
+
+impl Eq for Tokenizer {
 }
 
 impl TokenizerDescent {
@@ -1255,6 +1305,22 @@ impl TokenizerStackEntry {
             tse.descent.build_path(path);
         }
     }
+}
+
+impl PartialEq for TokenizerStackEntry {
+    fn eq(&self, other: &Self) -> bool {
+        (match (&self.stack, &other.stack) {
+            (Some(x), Some(y)) => sync::Arc::ptr_eq(x, y),
+            _ => false,
+        } || self.stack == other.stack) &&
+            self.descent == other.descent &&
+            self.depth == other.depth &&
+            sync::Arc::ptr_eq(&self.node, &other.node) &&
+            self.node_addr == other.node_addr
+    }
+}
+
+impl Eq for TokenizerStackEntry {
 }
 
 impl PortStackState {
@@ -1645,7 +1711,7 @@ mod tests {
             tc.expected_tokens.iter().rev().map(|x| x.clone()),
             &mut UpwardTokenizerIterator(Tokenizer::at_end(&tc.structure)));
     }
-    
+
     #[test]
     fn simple() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
@@ -1729,6 +1795,64 @@ mod tests {
         };
     }
 
+    #[test]
+    fn at_path_on_summary() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x50)
+                   .children_display(structure::ChildrenDisplay::Summary)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x18))
+                   .child(0x20, |b| b
+                          .name("child1.1")
+                          .size(0x18))
+                   .child(0x34, |b| b
+                          .name("child1.2")
+                          .size(0x18))
+                   .child(0x48, |b| b
+                          .name("child1.3")
+                          .size(0x1c)))
+            .child(0x60, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        let tok = Tokenizer::at_path(root.clone(), &vec![1, 1], 0x10.into());
+
+        assert_eq!(tok, Tokenizer {
+            stack: Some(sync::Arc::new(TokenizerStackEntry {
+                stack: Some(sync::Arc::new(TokenizerStackEntry {
+                    stack: Some(sync::Arc::new(TokenizerStackEntry {
+                        stack: None,
+                        descent: TokenizerDescent::Child(1),
+                        depth: 0,
+                        node: root.clone(),
+                        node_addr: 0x0.into(),
+                    })),
+                    descent: TokenizerDescent::MySummary,
+                    depth: 1,
+                    node: root.children[1].node.clone(),
+                    node_addr: 0x14.into(),
+                })),
+                descent: TokenizerDescent::ChildSummary(1),
+                depth: 1,
+                node: root.children[1].node.clone(),
+                node_addr: 0x14.into(),
+            })),
+            state: TokenizerState::SummaryLeaf,
+            depth: 2,
+            node: root.children[1].node.children[1].node.clone(),
+            node_addr: 0x34.into(),
+        });
+    }
+    
     fn assert_port_functionality(old_doc: &document::Document, new_doc: &document::Document, records: &[(token::Token, token::Token, PortOptions, PortOptions)]) {
         let mut tokenizers: Vec<(Tokenizer, &token::Token, &token::Token, &PortOptions, &PortOptions)> = records.iter().map(
             |(before_token, after_token, before_options, after_options)| (
