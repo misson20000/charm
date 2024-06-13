@@ -69,6 +69,7 @@ pub trait WindowTokenizer: Clone {
     fn move_next(&mut self) -> bool;
     fn next_postincrement(&mut self) -> Option<token::Token>;
     fn prev(&mut self) -> Option<token::Token>;
+    fn in_summary(&self) -> bool;
 }
 
 /// A listing window with a fixed height. Useful for scrolling by lines.
@@ -111,8 +112,13 @@ impl<LV: LineView, Tokenizer: WindowTokenizer> Window<LV, Tokenizer> {
     fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
         F: FnOnce(&mut Tokenizer, &mut sync::Arc<document::Document>) {
         tokenizer_provider(&mut self.top, &mut self.current_document);
-        self.bottom = self.top.clone();
+        let (first_line, bottom) = Line::containing_tokenizer(&mut self.top);
+        self.bottom = bottom;
         self.line_views.clear();
+
+        if !first_line.is_empty() {
+            self.line_views.push_back(LV::from_line(first_line));
+        }
         
         let mut offset = 0;
         
@@ -261,6 +267,64 @@ impl Line {
         }
     }
 
+    /// Returns the line containing the token immediately after the tokenizer's position.
+    /// Moves the tokenizer to the end of that line, and returns a tokenizer pointing to the beginning of the line.
+    pub fn containing_tokenizer<Tokenizer: WindowTokenizer>(tokenizer: &mut Tokenizer) -> (Self, Tokenizer) {
+        /* Put the first token on the line. */
+        let mut line = Line::from_token(loop {
+            match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => break token,
+                /* If we hit the end, just return an empty line. */
+                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { return (Self::empty(), tokenizer.clone()) },
+                tokenizer::TokenGenerationResult::Boundary => return (Self::empty(), tokenizer.clone())
+            }
+        }, tokenizer.in_summary());
+
+        let mut prev = tokenizer.clone();
+        
+        /* Walk `prev` back to the beginning of the line. */
+        loop {
+            if !prev.move_prev() {
+                break;
+            }
+
+            if match line.push_front(match prev.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => token,
+                tokenizer::TokenGenerationResult::Skip => continue,
+                tokenizer::TokenGenerationResult::Boundary => break,
+            }) {
+                LinePushResult::Accepted => continue,
+                LinePushResult::Completed => break,
+                LinePushResult::Rejected => true,
+                LinePushResult::BadPosition => false,
+            } {
+                /* roll the state back */
+                assert!(prev.move_next());
+                break;
+            }
+        }
+        
+        /* Walk `tokenizer` to the end of the line. */
+        tokenizer.move_next();
+        loop {
+            match line.push_back(match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => token,
+                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
+                tokenizer::TokenGenerationResult::Boundary => break,
+            }) {
+                LinePushResult::Accepted => tokenizer.move_next(),
+                LinePushResult::Completed => { tokenizer.move_next(); break },
+                LinePushResult::Rejected => break,
+                LinePushResult::BadPosition => tokenizer.move_next(),
+            };
+        }
+
+        // TODO: move this to tests?
+        assert_eq!(line, Self::next_from_tokenizer(&mut prev.clone()));
+
+        (line, prev)
+    }
+    
     /// Returns the line ending at the tokenizer's current position, and moves the tokenizer to the beginning of that line.
     pub fn prev_from_tokenizer(tokenizer: &mut impl WindowTokenizer) -> Self {
         let mut line = Self::empty();
@@ -308,7 +372,35 @@ impl Line {
 
         line
     }
-    
+
+    fn from_token(token: token::Token, is_summary: bool) -> Self {
+        Self {
+            ty: match token {
+                /* Even if we're in a summary, we can't accidentally count the title as part of the summary. */
+                token::Token::Title(token) => LineType::Title(token),
+                token::Token::BlankLine(token) => LineType::Blank(token),
+
+                /* Value-like tokens such as Hexstring might appear in summaries. We need to know if we're in a summary so we make a Summary LineType instead of a Hexstring LineType. */
+                token if is_summary => LineType::Summary { title: None, tokens: collections::VecDeque::from([token]) },
+                
+                token::Token::SummaryPreamble(_) |
+                token::Token::SummaryEpilogue(_) |
+                token::Token::SummaryPunctuation(_) |
+                token::Token::SummaryLabel(_) => panic!("Got Summary-type token but wasn't told we were in a summary"),
+                
+                token::Token::Hexdump(token) => LineType::Hexdump {
+                    title: None,
+                    node: token.common.node.clone(),
+                    node_path: token.common.node_path.clone(),
+                    node_addr: token.common.node_addr,
+                    line_extent: token.line.clone(),
+                    tokens: collections::VecDeque::from([token])
+                },
+                token::Token::Hexstring(token) => LineType::Hexstring { title: None, token },
+            },
+        }
+    }
+        
     /// Returns true on success
     fn push_front(&mut self, token: token::Token) -> LinePushResult {
         let (new_ty, result) = match (std::mem::replace(&mut self.ty, LineType::Empty), token) {
@@ -422,8 +514,7 @@ impl Line {
                 (LineType::Summary { title, tokens }, result)
             },
 
-            (LineType::Empty, _class) => {
-                println!("Attempted to end a line on a bad token");
+            (LineType::Empty, _) => {
                 (LineType::Empty, LinePushResult::BadPosition)
             },
             
@@ -697,123 +788,15 @@ impl WindowTokenizer for tokenizer::Tokenizer {
     fn prev(&mut self) -> Option<token::Token> {
         tokenizer::Tokenizer::prev(self)
     }
+
+    fn in_summary(&self) -> bool {
+        tokenizer::Tokenizer::in_summary(self)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    trait TestTokenGenerator {
-        fn generate_tokens(root: sync::Arc<structure::Node>) -> Vec<token::Token>;
-    }
-    
-    /* This helps us isolate faults for testing */
-    struct TestTokenizer<G: TestTokenGenerator> {
-        tokens: Vec<token::Token>,
-        position: usize,
-        skip: bool,
-        marker: core::marker::PhantomData<G>,
-    }
-
-    /* Derive thinks the PhantomData is uncloneable */
-    impl<G: TestTokenGenerator> Clone for TestTokenizer<G> {
-        fn clone(&self) -> Self {
-            TestTokenizer {
-                tokens: self.tokens.clone(),
-                position: self.position,
-                skip: self.skip,
-                marker: self.marker.clone()
-            }
-        }
-    }
-    
-    impl<G: TestTokenGenerator> WindowTokenizer for TestTokenizer<G> {
-        fn at_beginning(root: sync::Arc<structure::Node>) -> TestTokenizer<G> {
-            TestTokenizer {
-                tokens: G::generate_tokens(root),
-                position: 0,
-                skip: false,
-                marker: Default::default(),
-            }
-        }
-
-        fn at_path(_root: sync::Arc<structure::Node>, _path: &structure::Path, _offset: addr::Address) -> TestTokenizer<G> {
-            panic!("unsupported");
-        }
-
-        fn port_change(&mut self, _new_doc: &sync::Arc<document::Document>, _change: &document::change::Change) {
-            panic!("unsupported");
-        }
-
-        fn hit_top(&self) -> bool {
-            self.position == 0
-        }
-
-        fn hit_bottom(&self) -> bool {
-            false
-        }
-
-        fn gen_token(&self) -> tokenizer::TokenGenerationResult {
-            if self.skip {
-                tokenizer::TokenGenerationResult::Skip
-            } else if self.position < self.tokens.len() {
-                tokenizer::TokenGenerationResult::Ok(self.tokens[self.position].clone())
-            } else {
-                tokenizer::TokenGenerationResult::Boundary
-            }
-        }
-        
-        fn move_prev(&mut self) -> bool {
-            if self.skip {
-                self.skip = false;
-                true
-            } else if self.position > 0 {
-                self.position-= 1;
-                true
-            } else {
-                false
-            }
-        }
-
-        fn move_next(&mut self) -> bool {
-            if !self.skip {
-                self.skip = true;
-                true
-            } else if self.position < self.tokens.len() {
-                self.skip = false;
-                self.position+= 1;
-                true
-            } else {
-                false
-            }
-        }
-
-        fn next_postincrement(&mut self) -> Option<token::Token> {
-            let mut token;
-            while {
-                token = self.gen_token();
-                self.move_next()
-            } {
-                match token {
-                    tokenizer::TokenGenerationResult::Ok(token) => return Some(token),
-                    tokenizer::TokenGenerationResult::Skip => continue,
-                    tokenizer::TokenGenerationResult::Boundary => return None,
-                }
-            }
-            None
-        }
-
-        fn prev(&mut self) -> Option<token::Token> {
-            while self.move_prev() {
-                match self.gen_token() {
-                    tokenizer::TokenGenerationResult::Ok(token) => return Some(token),
-                    tokenizer::TokenGenerationResult::Skip => continue,
-                    tokenizer::TokenGenerationResult::Boundary => return None,
-                }
-            }
-            None
-        }
-    }
     
     #[test]
     fn scroll_around() {
@@ -901,5 +884,70 @@ mod tests {
             window.line_views.iter());
         
         assert!(window.scroll_down());
+    }
+
+    #[test]
+    fn containing_tokenizer() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x50)
+                   .children_display(structure::ChildrenDisplay::Summary)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x18))
+                   .child(0x20, |b| b
+                          .name("child1.1")
+                          .size(0x18))
+                   .child(0x34, |b| b
+                          .name("child1.2")
+                          .size(0x18))
+                   .child(0x48, |b| b
+                          .name("child1.3")
+                          .size(0x1c)))
+            .child(0x60, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        /* Pregenerate all the lines from a simple forward walk through the whole document. */
+        let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
+        let mut lines = vec![];
+        loop {
+            let begin = tokenizer.clone();
+            let line = Line::next_from_tokenizer(&mut tokenizer);
+            if line.is_empty() {
+                break;
+            }
+            lines.push((begin, line, tokenizer.clone()));
+        }
+
+        let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
+        let mut i = 0;
+        loop {
+            let token = match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => token,
+                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
+                tokenizer::TokenGenerationResult::Boundary => break,
+            };
+
+            println!("token {:?} on line {} generated by {:?}", token, i, tokenizer);
+            
+            while !lines[i].1.iter_tokens().any(|t| t == token.as_ref()) {
+                i+= 1;
+            }
+            
+            let mut line_end = tokenizer.clone();
+            let (line, _line_begin) = Line::containing_tokenizer(&mut line_end);
+
+            assert_eq!(line, lines[i].1);
+
+            tokenizer.move_next();
+        }
     }
 }
