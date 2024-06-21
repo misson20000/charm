@@ -1114,6 +1114,19 @@ impl Tokenizer {
         None
     }
 
+    /// If the current position in the stream does not generate a token, moves to the next one that does.
+    pub fn canonicalize_next(&mut self) {
+        while match self.gen_token() {
+            TokenGenerationResult::Ok(_) => false,
+            TokenGenerationResult::Skip => true,
+            TokenGenerationResult::Boundary => false,
+        } {
+            if !self.move_next() {
+                break;
+            }
+        }
+    }
+
     /// Pushes an entry onto the tokenizer stack and sets up for traversing
     /// a child node.
     ///

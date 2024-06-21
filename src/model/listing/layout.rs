@@ -111,9 +111,9 @@ impl<LV: LineView, Tokenizer: WindowTokenizer> Window<LV, Tokenizer> {
 
     fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
         F: FnOnce(&mut Tokenizer, &mut sync::Arc<document::Document>) {
-        tokenizer_provider(&mut self.top, &mut self.current_document);
-        let (first_line, bottom) = Line::containing_tokenizer(&mut self.top);
-        self.bottom = bottom;
+        tokenizer_provider(&mut self.bottom, &mut self.current_document);
+        let (first_line, top, _index) = Line::containing_tokenizer(&mut self.bottom);
+        self.top = top;
         self.line_views.clear();
 
         if !first_line.is_empty() {
@@ -267,20 +267,20 @@ impl Line {
         }
     }
 
-    /// Returns the line containing the token immediately after the tokenizer's position.
-    /// Moves the tokenizer to the end of that line, and returns a tokenizer pointing to the beginning of the line.
-    pub fn containing_tokenizer<Tokenizer: WindowTokenizer>(tokenizer: &mut Tokenizer) -> (Self, Tokenizer) {
+    /// Figures out what line contains the token immediately after the tokenizer's position. Moves the referenced tokenizer to the end of that line, and returns the line, a tokenizer pointing to the beginning of the line, and the index of the specified token within that line.
+    pub fn containing_tokenizer<Tokenizer: WindowTokenizer>(tokenizer: &mut Tokenizer) -> (Self, Tokenizer, usize) {
         /* Put the first token on the line. */
         let mut line = Line::from_token(loop {
             match tokenizer.gen_token() {
                 tokenizer::TokenGenerationResult::Ok(token) => break token,
                 /* If we hit the end, just return an empty line. */
-                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { return (Self::empty(), tokenizer.clone()) },
-                tokenizer::TokenGenerationResult::Boundary => return (Self::empty(), tokenizer.clone())
+                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { return (Self::empty(), tokenizer.clone(), 0) },
+                tokenizer::TokenGenerationResult::Boundary => return (Self::empty(), tokenizer.clone(), 0)
             }
         }, tokenizer.in_summary());
 
         let mut prev = tokenizer.clone();
+        let mut index = 0;
         
         /* Walk `prev` back to the beginning of the line. */
         loop {
@@ -293,8 +293,8 @@ impl Line {
                 tokenizer::TokenGenerationResult::Skip => continue,
                 tokenizer::TokenGenerationResult::Boundary => break,
             }) {
-                LinePushResult::Accepted => continue,
-                LinePushResult::Completed => break,
+                LinePushResult::Accepted => { index+= 1; continue },
+                LinePushResult::Completed => { index+= 1; break },
                 LinePushResult::Rejected => true,
                 LinePushResult::BadPosition => false,
             } {
@@ -322,7 +322,7 @@ impl Line {
         // TODO: move this to tests?
         assert_eq!(line, Self::next_from_tokenizer(&mut prev.clone()));
 
-        (line, prev)
+        (line, prev, index)
     }
     
     /// Returns the line ending at the tokenizer's current position, and moves the tokenizer to the beginning of that line.
@@ -732,6 +732,25 @@ impl PartialEq for Line {
 impl Eq for Line {
 }
 
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut toks = self.iter_tokens();
+        if let Some(first) = toks.next() {
+            for _ in 0..first.common().depth {
+                write!(f, "  ")?;
+            }
+
+            write!(f, "{}", token::TokenTestFormat(first))?;
+            
+            for tok in toks {
+                write!(f, "{}", token::TokenTestFormat(tok))?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Debug for Line {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Line")
@@ -887,6 +906,71 @@ mod tests {
     }
 
     #[test]
+    fn seek() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x4a0)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x50)
+                   .children_display(structure::ChildrenDisplay::Summary)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x18))
+                   .child(0x20, |b| b
+                          .name("child1.1")
+                          .size(0x18))
+                   .child(0x34, |b| b
+                          .name("child1.2")
+                          .size(0x18))
+                   .child(0x48, |b| b
+                          .name("child1.3")
+                          .size(0x1c)))
+            .child(0x60, |b| b
+                   .name("child2")
+                   .size(0x40))
+            .child(0xa0, |b| b
+                   .name("child3")
+                   .size(0x400))
+            .build();
+        let document = document::Builder::new(root).arc();
+        let mut window1 = Window::<Line>::new(document.clone());
+        window1.resize(10);
+        let mut window2 = window1.clone();
+
+        /* Scroll window 1 down until its first line is the one we're going to seek the other window to. */
+        while !match window1.line_views[0].iter_tokens().next().unwrap() {
+            token::TokenRef::Hexdump(hdt) => hdt.common.node_path == &[2] && hdt.extent.begin == 0x20.into(),
+            _ => false
+        } {
+            window1.scroll_down();
+        }
+        window2.seek(document.clone(), &vec![2], 0x24.into());
+
+        if !window1.line_views.iter().eq(window2.line_views.iter()) {
+            let mut i1 = window1.line_views.iter();
+            let mut i2 = window2.line_views.iter();
+            loop {
+                let line1 = i1.next();
+                let line2 = i2.next();
+
+                let str1 = line1.map(|l| format!("{}", l)).unwrap_or("<end>".to_string());
+                let str2 = line2.map(|l| format!("{}", l)).unwrap_or("<end>".to_string());
+
+                println!("{:60} | {:60}", str1, str2);
+
+                if line1.is_none() && line2.is_none() {
+                    break;
+                }
+            }
+            panic!("windows mismatched");
+        }
+    }
+    
+    #[test]
     fn containing_tokenizer() {
         let root = structure::Node::builder()
             .name("root")
@@ -919,12 +1003,18 @@ mod tests {
         let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
         let mut lines = vec![];
         loop {
-            let begin = tokenizer.clone();
+            let mut begin = tokenizer.clone();
+            begin.canonicalize_next();
+            
             let line = Line::next_from_tokenizer(&mut tokenizer);
             if line.is_empty() {
                 break;
             }
-            lines.push((begin, line, tokenizer.clone()));
+
+            let mut end = tokenizer.clone();
+            end.canonicalize_next();
+            
+            lines.push((begin, line, end));
         }
 
         let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
@@ -936,16 +1026,33 @@ mod tests {
                 tokenizer::TokenGenerationResult::Boundary => break,
             };
 
-            println!("token {:?} on line {} generated by {:?}", token, i, tokenizer);
-            
-            while !lines[i].1.iter_tokens().any(|t| t == token.as_ref()) {
-                i+= 1;
-            }
+            let expected_index_in_line = loop {
+                if let Some(index) = lines[i].1.iter_tokens().position(|t| t == token.as_ref()) {
+                    break index;
+                } else {
+                    i+= 1;
+                }
+            };
             
             let mut line_end = tokenizer.clone();
-            let (line, _line_begin) = Line::containing_tokenizer(&mut line_end);
-
-            assert_eq!(line, lines[i].1);
+            let (line, mut line_begin, index_in_line) = Line::containing_tokenizer(&mut line_end);
+            line_begin.canonicalize_next();
+            line_end.canonicalize_next();
+            
+            if line != lines[i].1 || index_in_line != expected_index_in_line || line_begin != lines[i].0 || line_end != lines[i].2 {
+                println!("seeked to {:?}", token);
+                println!("line from forward walk        : {}", lines[i].1);
+                println!("line from containing_tokenizer: {}", line);
+                println!("expected index {}, got index {}", expected_index_in_line, index_in_line);
+                
+                println!("begin tokenizer [actual]  : {:#?}", line_begin);
+                println!("begin tokenizer [expected]: {:#?}", lines[i].0);
+                    
+                println!("end tokenizer [actual]  : {:#?}", line_end);
+                println!("end tokenizer [expected]: {:#?}", lines[i].2);
+                
+                panic!("mismatched");
+            }
 
             tokenizer.move_next();
         }
