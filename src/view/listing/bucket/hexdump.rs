@@ -21,11 +21,11 @@ use gtk::prelude::*;
 use gtk::graphene;
 
 pub struct HexdumpBucket {
-    hd_begin: graphene::Point,
-    hd_end: graphene::Point,
+    hd_begin: f32,
+    hd_end: f32,
 
-    ascii_begin: graphene::Point,
-    ascii_end: graphene::Point,
+    ascii_begin: f32,
+    ascii_end: f32,
 
     space_width: f32,
     
@@ -48,11 +48,11 @@ enum Part<'a> {
 impl HexdumpBucket {
     pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::HexdumpToken>) -> Self {
         HexdumpBucket {
-            hd_begin: graphene::Point::zero(),
-            hd_end: graphene::Point::zero(),
+            hd_begin: 0.0,
+            hd_end: 0.0,
             
-            ascii_begin: graphene::Point::zero(),
-            ascii_end: graphene::Point::zero(),
+            ascii_begin: 0.0,
+            ascii_end: 0.0,
 
             space_width: 1.0,
             
@@ -161,11 +161,9 @@ impl bucket::Bucket for HexdumpBucket {
         self.space_width = space_width;
         
         /* Hexdump */
-        layout.allocate(std::marker::PhantomData::<bucket::HexdumpMarker>, |mut point| {
-            self.hd_begin = point.clone();
+        layout.allocate(std::marker::PhantomData::<bucket::HexdumpMarker>, |mut x| {
+            self.hd_begin = x;
 
-            point.set_y(lh);
-                        
             let hex_cursor = match &ctx.cursor.cursor.class {
                 CursorClass::Hexdump(hxc) => Some(hxc),
                 _ => None,
@@ -175,8 +173,8 @@ impl bucket::Bucket for HexdumpBucket {
                 Part::Gap { width, begin, end } => if begin.map_or(false, |(o, _)| selection.includes(o)) && selection.includes(end.0) {
                     /* Draw gaps that are selected. */
                     ctx.snapshot.append_color(&ctx.render.config.selection_color, &graphene::Rect::new(
-                        point.x() + space_x + space_width * column as f32,
-                        point.y() + space_y,
+                        x + space_x + space_width * column as f32,
+                        lh + space_y,
                         space_width * width as f32,
                         space_height - 1.0));
                 },
@@ -187,7 +185,7 @@ impl bucket::Bucket for HexdumpBucket {
                     let pending = byte_record.pending || !byte_record.loaded;
                     let selected = selection.includes(offset);
                     
-                    let mut octet_point = graphene::Point::new(point.x() + space_width * column as f32, point.y());
+                    let mut octet_point = graphene::Point::new(x + space_width * column as f32, lh);
                     
                     /* render nybbles */
                     for low_nybble in [false, true] {
@@ -205,18 +203,16 @@ impl bucket::Bucket for HexdumpBucket {
                 }
             }; None::<()> }).0;
 
-            point.set_x(point.x() + space_width * column as f32);
+            x+= space_width * column as f32;
             
-            self.hd_end = point.clone();
+            self.hd_end = x;
 
-            point
+            x
         });
 
         /* Asciidump */
-        layout.allocate(std::marker::PhantomData::<bucket::AsciidumpMarker>, |mut point| {
-            self.ascii_begin = point.clone();
-
-            point.set_y(lh);
+        layout.allocate(std::marker::PhantomData::<bucket::AsciidumpMarker>, |mut x| {
+            self.ascii_begin = x;
             
             let mut token_iterator = self.toks.iter();
             let mut next_token = token_iterator.next();
@@ -237,7 +233,7 @@ impl bucket::Bucket for HexdumpBucket {
                     
                             let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte_record.value) };
 
-                            let mut char_point = graphene::Point::new(point.x() + space_width * i as f32, point.y());
+                            let mut char_point = graphene::Point::new(x + space_width * i as f32, lh);
                         
                             ctx.render.gsc_mono.begin(digit, &ctx.render.config.text_color, &mut char_point)
                                 .selected(selected, &ctx.render.config.selection_color)
@@ -250,11 +246,11 @@ impl bucket::Bucket for HexdumpBucket {
                 }
             }
 
-            point.set_x(point.x() + space_width * num_bytes as f32);
+            x+= space_width * num_bytes as f32;
             
-            self.ascii_end = point.clone();
+            self.ascii_end = x;
             
-            point
+            x
         });
     }
 }
@@ -293,16 +289,19 @@ impl bucket::WorkableBucket for HexdumpBucket {
 
 impl bucket::PickableBucket for HexdumpBucket {
     fn contains(&self, pick_point: &graphene::Point) -> bool {
-        (pick_point.x() >= self.hd_begin.x() && pick_point.x() < self.hd_end.x()) ||
-            (pick_point.x() >= self.ascii_begin.x() && pick_point.x() < self.ascii_end.x())
+        let pick_x = pick_point.x();
+        (pick_x >= self.hd_begin && pick_x < self.hd_end) ||
+            (pick_x >= self.ascii_begin && pick_x < self.ascii_end)
     }
     
     fn pick(&self, pick_point: &graphene::Point) -> Option<listing::pick::Triplet> {
-        if pick_point.x() < self.hd_begin.x() {
+        let pick_x = pick_point.x();
+        
+        if pick_x < self.hd_begin {
             None
-        } else if pick_point.x() < self.hd_end.x() {
-            let pick_column   = ((pick_point.x() - self.hd_begin.x()) / self.space_width).trunc() as usize;
-            let pick_fraction = (pick_point.x() - self.hd_begin.x()) / self.space_width;
+        } else if pick_x < self.hd_end {
+            let pick_column   = ((pick_x - self.hd_begin) / self.space_width).trunc() as usize;
+            let pick_fraction = (pick_x - self.hd_begin) / self.space_width;
 
             self.each_part(|column, part| match part {
                 Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::pick::Triplet {
@@ -350,13 +349,13 @@ impl bucket::PickableBucket for HexdumpBucket {
 
                 _ => None,
             }).1
-        } else if pick_point.x() < self.ascii_begin.x() {
+        } else if pick_x < self.ascii_begin {
             Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
                 index: self.node.child_at_offset(self.line_extent.end),
                 offset: self.line_extent.end,
                 low_nybble: false,
             }))
-        } else if pick_point.x() < self.ascii_end.x() {
+        } else if pick_x < self.ascii_end {
             // TODO: asciidump picking
             None
         } else {

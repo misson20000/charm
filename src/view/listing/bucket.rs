@@ -37,18 +37,21 @@ pub trait Bucket: WorkableBucket + PickableBucket {
     }
 }
 
-fn default_render<'a, Marker>(ctx: RenderArgs<'_>, layout: &mut LayoutController, begin: &mut graphene::Point, end: &mut graphene::Point, tvs: impl Iterator<Item = &'a mut token_view::TokenView>, marker: std::marker::PhantomData<Marker>) where LayoutController: LayoutProvider<Marker> {
-    layout.allocate(marker, |mut point| {
-        *begin = point.clone();
 
+fn default_render<'a, Marker>(ctx: RenderArgs<'_>, layout: &mut LayoutController, begin: &mut f32, end: &mut f32, tvs: impl Iterator<Item = &'a mut token_view::TokenView>, marker: std::marker::PhantomData<Marker>) where LayoutController: LayoutProvider<Marker> {
+    layout.allocate(marker, |x| {
+        *begin = x;
+
+        let mut point = graphene::Point::new(x, 0.0);
+        
         for tv in tvs {
             let selection = ctx.selection.node_intersection(tv.token().node(), tv.token().node_path(), tv.token().node_addr());
             point = tv.render(ctx.snapshot, ctx.cursor, selection, ctx.render, &point);
         }
 
-        *end = point.clone();
+        *end = point.x();
 
-        point
+        point.x()
     });
 }
 
@@ -124,22 +127,22 @@ pub struct HexdumpMarker;
 pub struct AsciidumpMarker;
 
 pub struct SingleTokenBucket<Marker> {
-    begin: graphene::Point,
-    end: graphene::Point,
+    begin: f32,
+    end: f32,
     tv: token_view::TokenView,
     marker: std::marker::PhantomData<Marker>,
 }
 
 pub struct MaybeTokenBucket<Marker> {
-    begin: graphene::Point,
-    end: graphene::Point,
+    begin: f32,
+    end: f32,
     tv: Option<token_view::TokenView>,
     marker: std::marker::PhantomData<Marker>,
 }
 
 pub struct MultiTokenBucket<Marker> {
-    begin: graphene::Point,
-    end: graphene::Point,
+    begin: f32,
+    end: f32,
     tvs: Vec<token_view::TokenView>,
     marker: std::marker::PhantomData<Marker>,
 }
@@ -152,8 +155,8 @@ impl<Marker> SingleTokenBucket<Marker> {
 impl<Marker, Token: token::TokenKind> From<Token> for SingleTokenBucket<Marker> {
     fn from(token: Token) -> Self {
         SingleTokenBucket {
-            begin: graphene::Point::zero(),
-            end: graphene::Point::zero(),
+            begin: 0.0,
+            end: 0.0,
             tv: token_view::TokenView::from(token.into_token()),
             marker: std::marker::PhantomData
         }
@@ -199,8 +202,8 @@ impl<Marker> TokenViewIterableBucket for SingleTokenBucket<Marker> where LayoutC
 impl<Marker> MaybeTokenBucket<Marker> {
     fn from_token(token: Option<token::Token>) -> Self {
         MaybeTokenBucket {
-            begin: graphene::Point::zero(),
-            end: graphene::Point::zero(),
+            begin: 0.0,
+            end: 0.0,
             tv: token.map(token_view::TokenView::from),
             marker: std::marker::PhantomData
         }
@@ -210,8 +213,8 @@ impl<Marker> MaybeTokenBucket<Marker> {
 impl<Marker, Token: token::TokenKind> From<Option<Token>> for MaybeTokenBucket<Marker> {
     fn from(token: Option<Token>) -> Self {
         MaybeTokenBucket {
-            begin: graphene::Point::zero(),
-            end: graphene::Point::zero(),
+            begin: 0.0,
+            end: 0.0,
             tv: token.map(TokenKind::into_token).map(token_view::TokenView::from),
             marker: std::marker::PhantomData
         }
@@ -257,8 +260,8 @@ impl<Marker> TokenViewIterableBucket for MaybeTokenBucket<Marker> where LayoutCo
 impl<Marker> MultiTokenBucket<Marker> {
     pub fn from_tokens(tokens: impl Iterator<Item = token::Token>) -> Self {
         MultiTokenBucket {
-            begin: graphene::Point::zero(),
-            end: graphene::Point::zero(),
+            begin: 0.0,
+            end: 0.0,
             tvs: tokens.map(token_view::TokenView::from).collect(),
             marker: std::marker::PhantomData
         }
