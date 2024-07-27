@@ -5,8 +5,9 @@ use std::task;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::listing::cursor;
-use crate::model::listing::layout;
+use crate::model::listing::line as line_model;
 use crate::model::listing::token;
+use crate::model::listing::window;
 use crate::model::selection;
 use crate::util;
 use crate::view::gsc;
@@ -54,8 +55,8 @@ pub struct Line {
     render_node: Option<gsk::RenderNode>,
 }
 
-impl layout::LineView for Line {
-    fn from_line(line: layout::Line) -> Self {
+impl window::LineView for Line {
+    fn from_line(line: line_model::Line) -> Self {
         Line {
             ev_draw: facet::Event::new(),
             ev_work: facet::Event::new_wanted(),
@@ -80,20 +81,20 @@ impl layout::LineView for Line {
 }
 
 impl LineViewType {
-    fn from(line: layout::Line) -> Self {
+    fn from(line: line_model::Line) -> Self {
         match line.ty {
-            layout::LineType::Empty => Self::Empty,
-            layout::LineType::Blank(tok) => Self::Blank(tok.into()),
-            layout::LineType::Title(tok) => Self::Title(tok.into()),
-            layout::LineType::Hexdump { title, node, node_path, node_addr, line_extent, tokens } => Self::Hexdump {
+            line_model::LineType::Empty => Self::Empty,
+            line_model::LineType::Blank(tok) => Self::Blank(tok.into()),
+            line_model::LineType::Title(tok) => Self::Title(tok.into()),
+            line_model::LineType::Hexdump { title, node, node_path, node_addr, line_extent, tokens } => Self::Hexdump {
                 title: title.into(),
                 hexdump: bucket::HexdumpBucket::new(node, node_path, node_addr, line_extent, tokens.into_iter())
             },
-            layout::LineType::Hexstring { title, token } => Self::Hexstring {
+            line_model::LineType::Hexstring { title, token } => Self::Hexstring {
                 title: title.into(),
                 hexstring: token.into()
             },
-            layout::LineType::Summary { title, tokens } => Self::Summary {
+            line_model::LineType::Summary { title, tokens } => Self::Summary {
                 title: title.into(),
                 content: bucket::MultiTokenBucket::from_tokens(tokens.into_iter())
             },

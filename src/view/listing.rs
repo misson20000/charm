@@ -11,8 +11,8 @@ use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
-use crate::model::listing::layout as layout_model;
-use crate::model::listing::layout::LineView;
+use crate::model::listing::window as window_model;
+use crate::model::listing::window::LineView;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view;
@@ -73,7 +73,7 @@ struct Interior {
 
     charm_window: rc::Weak<view::window::CharmWindow>,
     charm_window_id: u64,
-    window: layout_model::Window<line::Line>,
+    window: window_model::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
     hover: Option<(f64, f64)>,
@@ -285,7 +285,7 @@ impl ListingWidget {
 
             charm_window: rc::Rc::downgrade(window),
             charm_window_id: window.id,
-            window: layout_model::Window::new(document.clone()),
+            window: window_model::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
             hover: None,

@@ -11,10 +11,11 @@
 use std::sync;
 
 use crate::model::addr;
-use crate::model::listing::token;
-use crate::model::listing::token::TokenKind;
-use crate::model::document::structure;
 use crate::model::document::change;
+use crate::model::document::structure;
+use crate::model::document;
+use crate::model::listing::token::TokenKind;
+use crate::model::listing::token;
 
 use tracing::instrument;
 
@@ -64,6 +65,23 @@ pub struct TokenizerStackEntry {
     depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,    
+}
+
+/* This lets us provide an alternate, simpler implementation to
+ * certain unit tests to help isolate bugs to either Tokenizer logic
+ * or Window/Line logic. */
+pub trait AbstractTokenizer: Clone {
+    fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self;
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change);
+    fn hit_top(&self) -> bool;
+    fn hit_bottom(&self) -> bool;
+    fn gen_token(&self) -> TokenGenerationResult;
+    fn move_prev(&mut self) -> bool;
+    fn move_next(&mut self) -> bool;
+    fn next_postincrement(&mut self) -> Option<token::Token>;
+    fn prev(&mut self) -> Option<token::Token>;
+    fn in_summary(&self) -> bool;
 }
 
 #[derive(Clone)]
@@ -1658,6 +1676,52 @@ pub mod xml {
                 tn => panic!("invalid token def: '{}'", tn)
             }
         }
+    }
+}
+
+impl AbstractTokenizer for Tokenizer {
+    fn at_beginning(root: sync::Arc<structure::Node>) -> Self {
+        Tokenizer::at_beginning(root)
+    }
+
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self {
+        Tokenizer::at_path(root, path, offset)
+    }
+
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change) {
+        Tokenizer::port_change(self, &new_doc.root, change, &mut PortOptions::default());
+    }
+    
+    fn hit_top(&self) -> bool {
+        Tokenizer::hit_top(self)
+    }
+    
+    fn hit_bottom(&self) -> bool {
+        Tokenizer::hit_bottom(self)
+    }
+    
+    fn gen_token(&self) -> TokenGenerationResult {
+        Tokenizer::gen_token(self)
+    }
+    
+    fn move_prev(&mut self) -> bool {
+        Tokenizer::move_prev(self)
+    }
+
+    fn move_next(&mut self) -> bool {
+        Tokenizer::move_next(self)
+    }
+
+    fn next_postincrement(&mut self) -> Option<token::Token> {
+        Tokenizer::next_postincrement(self)
+    }
+
+    fn prev(&mut self) -> Option<token::Token> {
+        Tokenizer::prev(self)
+    }
+
+    fn in_summary(&self) -> bool {
+        Tokenizer::in_summary(self)
     }
 }
 

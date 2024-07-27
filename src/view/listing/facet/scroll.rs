@@ -4,8 +4,8 @@ use crate::view::config;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
-use crate::model::listing::layout;
-use crate::model::listing::layout::LineView;
+use crate::model::listing::window;
+use crate::model::listing::window::LineView;
 use crate::view::listing::facet;
 use crate::view::listing::line;
 
@@ -23,7 +23,7 @@ pub struct Scroller {
     cursor_direction: EnsureCursorInViewDirection,
 }
 
-type Window = layout::Window<line::Line>;
+type Window = window::Window<line::Line>;
 
 impl Scroller {
     pub fn new(config: sync::Arc<config::Config>) -> Scroller {

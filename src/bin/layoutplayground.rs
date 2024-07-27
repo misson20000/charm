@@ -3,17 +3,18 @@ use std::sync;
 use std::vec;
 
 use charm::model::document;
-use charm::model::listing::layout;
+use charm::model::listing::line;
 use charm::model::listing::token;
 use charm::model::listing::token::TokenKind;
+use charm::model::listing::window;
 
 struct Line {
     indent: usize,
     tokens: vec::Vec<token::Token>
 }
 
-impl layout::LineView for Line {
-    fn from_line(line: layout::Line) -> Self {
+impl window::LineView for Line {
+    fn from_line(line: line::Line) -> Self {
         let tokens: vec::Vec<token::Token> = line.to_tokens().collect();
         
         Line {
@@ -38,7 +39,7 @@ fn main() {
     let xml_path = args.next().expect("expected path to xml");
 
     let document = sync::Arc::new(document::Document::load_from_testing_structure(xml_path).unwrap());
-    let mut window = layout::Window::<Line>::new(document);
+    let mut window = window::Window::<Line>::new(document);
 
     window.resize(150);
 
