@@ -89,6 +89,8 @@ struct Interior {
     config_update_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_event_source: once_cell::sync::OnceCell<helpers::AsyncSubscriber>,
     work_notifier: util::Notifier,
+    work_complete_notifier: util::Notifier,
+    work_incomplete: bool,
     runtime: tokio::runtime::Handle,
 }
 
@@ -238,7 +240,13 @@ glib::wrapper! {
         @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
-struct ListingWidgetWorkFuture(<ListingWidget as glib::clone::Downgrade>::Weak);
+pub struct ListingWidgetWorkFuture {
+    widget: <ListingWidget as glib::clone::Downgrade>::Weak,
+}
+
+pub struct ListingWidgetWorkCompletionFuture {
+    widget: <ListingWidget as glib::clone::Downgrade>::Weak,
+}
 
 impl ListingWidget {
     pub fn new() -> ListingWidget {
@@ -296,6 +304,8 @@ impl ListingWidget {
             config_update_event_source: once_cell::sync::OnceCell::new(),
             work_event_source: once_cell::sync::OnceCell::new(),
             work_notifier: util::Notifier::new(),
+            work_complete_notifier: util::Notifier::new(),
+            work_incomplete: true,
             runtime: window.application.rt.handle().clone(),
         };
 
@@ -312,7 +322,9 @@ impl ListingWidget {
         self.add_tick_callback(|lw, frame_clock| catch_panic! {
             @default(glib::ControlFlow::Break);
             
-            lw.imp().interior.get().unwrap().write().animate(lw, frame_clock)
+            lw.animate(frame_clock);
+
+            glib::ControlFlow::Continue
         });
 
         /* Subscribe to document updates */
@@ -346,7 +358,9 @@ impl ListingWidget {
         }
 
         /* Spawn work task */
-        if interior.work_event_source.set(helpers::spawn_on_main_context(ListingWidgetWorkFuture(self.downgrade()))).is_err() {
+        if interior.work_event_source.set(helpers::spawn_on_main_context(ListingWidgetWorkFuture {
+            widget: self.downgrade()
+        })).is_err() {
             panic!("double-initialized work_event_source");
         }
 
@@ -429,6 +443,12 @@ impl ListingWidget {
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
     }
+    
+    pub fn complete_work(&self) -> ListingWidgetWorkCompletionFuture {
+        ListingWidgetWorkCompletionFuture {
+            widget: self.downgrade()
+        }
+    }
 
     pub fn selection(&self) -> parking_lot::MappedRwLockReadGuard<'_, sync::Arc<selection::ListingSelection>> {
         parking_lot::RwLockReadGuard::map(self.imp().interior.get().unwrap().read(), |int| &int.selection)
@@ -441,6 +461,10 @@ impl ListingWidget {
     pub fn cursor_mut(&self) -> parking_lot::MappedRwLockWriteGuard<'_, crate::model::listing::cursor::Cursor> {
         self.queue_draw();
         parking_lot::RwLockWriteGuard::map(self.imp().interior.get().unwrap().write(), |int| &mut int.cursor.cursor)
+    }
+
+    pub fn animate(&self, frame_clock: &gdk::FrameClock) {
+        self.imp().interior.get().unwrap().write().animate(self, frame_clock)
     }
     
     pub fn bonk(&self) {
@@ -565,7 +589,7 @@ impl Interior {
         self.document = new_document.clone();
         self.rubber_band_begin = None;
 
-        self.work_notifier.notify();
+        self.request_work();
     }
 
     fn selection_updated(&mut self, new_selection: &sync::Arc<selection::ListingSelection>) {
@@ -612,20 +636,27 @@ impl Interior {
 
         self.window.resize(line_count + 2 + (2 * self.scroll.get_lookahead()));
         self.update_breadcrumbs();
-        self.work_notifier.notify();
+        self.request_work();
     }
 
+    fn request_work(&mut self) {
+        self.work_incomplete = true;
+        self.work_notifier.notify();
+    }
+    
     fn work(&mut self, widget: &ListingWidget, cx: &mut task::Context) {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
+
+        let mut work_needed = false;
         
         self.work_notifier.enroll(cx);
 
-        self.document.datapath.poll(cx);
+        work_needed = self.document.datapath.poll(cx) || work_needed;
         
         for line in self.window.line_views.iter_mut() {
-            line.work(&self.document, cx);
+            work_needed = line.work(&self.document, cx) || work_needed;
 
             if line.wants_draw().collect() {
                 widget.queue_draw();
@@ -633,12 +664,16 @@ impl Interior {
         }
 
         if self.cursor.wants_work().collect() {
-            self.cursor.work(&self.document, cx);
+            work_needed = self.cursor.work(&self.document, cx) || work_needed;
         }
         
         if self.cursor.wants_draw().collect() {
             widget.queue_draw();
         }
+
+        self.work_complete_notifier.notify();
+
+        self.work_incomplete = work_needed;
     }
 
     fn collect_events(&mut self, widget: &ListingWidget) {
@@ -646,11 +681,11 @@ impl Interior {
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
 
-        self.cursor.collect_events(widget, &self.work_notifier);
-        self.scroll.collect_events(widget, &self.work_notifier);
+        self.cursor.collect_events(widget, &self.work_notifier, &mut self.work_incomplete);
+        self.scroll.collect_events(widget, &self.work_notifier, &mut self.work_incomplete);
     }
     
-    fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) -> glib::ControlFlow {
+    fn animate(&mut self, widget: &ListingWidget, frame_clock: &gdk::FrameClock) {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
@@ -676,8 +711,6 @@ impl Interior {
         }
         
         self.last_frame = frame_time;
-        
-        glib::ControlFlow::Continue
     }
 
     fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
@@ -896,7 +929,7 @@ impl future::Future for ListingWidgetWorkFuture {
         catch_panic! {
             @default(task::Poll::Ready(()));
         
-            if let Some(lw) = self.0.upgrade() {
+            if let Some(lw) = self.widget.upgrade() {
                 let mut interior = lw.imp().interior.get().unwrap().write();
 
                 /* This gets polled from glib event loop, but we need to be in a tokio runtime. */
@@ -904,8 +937,35 @@ impl future::Future for ListingWidgetWorkFuture {
                 let guard = handle.enter();
                 interior.work(&lw, cx);
                 std::mem::drop(guard);
-                
+
                 task::Poll::Pending
+            } else {
+                task::Poll::Ready(())
+            }
+        }
+    }
+}
+
+impl future::Future for ListingWidgetWorkCompletionFuture {
+    type Output = ();
+
+    fn poll(self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
+        catch_panic! {
+            @default(task::Poll::Ready(()));
+        
+            if let Some(lw) = self.widget.upgrade() {
+                let interior = lw.imp().interior.get().unwrap().read();
+
+                if interior.work_incomplete {
+                    let handle = interior.runtime.clone();
+                    let guard = handle.enter();
+                    interior.work_complete_notifier.enroll(cx);
+                    std::mem::drop(guard);
+                    
+                    task::Poll::Pending
+                } else {
+                    task::Poll::Ready(())
+                }
             } else {
                 task::Poll::Ready(())
             }

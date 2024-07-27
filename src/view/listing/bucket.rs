@@ -57,8 +57,7 @@ fn default_render<'a, Marker>(ctx: RenderArgs<'_>, layout: &mut LayoutController
 
 /* This trait is separate from Bucket so these functions can be impl'd automatically based on TokenViewIterableBucket. */
 pub trait WorkableBucket {
-    /// Returns true if any work was done and a redraw is required.
-    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context) -> bool;
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context, did_work: &mut bool, work_needed: &mut bool);
     fn invalidate_data(&mut self);
 }
 
@@ -80,17 +79,11 @@ pub trait TokenViewIterableBucket: Bucket {
 }
 
 impl<T: TokenViewIterableBucket> WorkableBucket for T {
-    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context) -> bool {
-        let mut did_work = false;
-
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context, did_work: &mut bool, work_needed: &mut bool) {
         for tok in self.iter_token_views_mut() {
             /* don't short-circuit!!! */
-            if tok.work(document, cx) {
-                did_work = true;
-            }
+            tok.work(document, cx, did_work, work_needed)
         }
-
-        did_work
     }
 
     fn invalidate_data(&mut self) {

@@ -203,7 +203,7 @@ impl TokenView {
         self.data_pending = true;
     }
     
-    pub fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+    pub fn work(&mut self, document: &document::Document, cx: &mut task::Context, did_work: &mut bool, work_needed: &mut bool) {
         if self.data_pending {
             let (begin_byte, size) = self.token.absolute_extent().round_out();
             
@@ -211,10 +211,9 @@ impl TokenView {
             document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
             
             self.data_pending = self.data_cache.iter().any(|b| b.pending);
+            *work_needed|= self.data_pending;
 
-            true
-        } else {
-            false
+            *did_work = true;
         }
     }
 }

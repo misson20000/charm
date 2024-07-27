@@ -26,7 +26,7 @@ use std::rc;
 use crate::catch_panic;
 
 pub struct CharmApplication {
-    application: gtk::Application,
+    pub application: gtk::Application,
     rt: tokio::runtime::Runtime,
 
     about_dialog: gtk::AboutDialog,
@@ -79,16 +79,16 @@ impl CharmApplication {
         app
     }
 
-    fn action_new_window(self: &rc::Rc<Self>) {
+    pub fn action_new_window(self: &rc::Rc<Self>) {
         let w = self.new_window();
         w.present();
     }
     
-    fn action_about(self: &rc::Rc<Self>) {
+    pub fn action_about(self: &rc::Rc<Self>) {
         self.about_dialog.present();
     }
 
-    fn new_window(self: &rc::Rc<Self>) -> rc::Rc<window::CharmWindow> {
+    pub fn new_window(self: &rc::Rc<Self>) -> rc::Rc<window::CharmWindow> {
         let window = window::CharmWindow::new(self);
         self.windows.borrow_mut().push(rc::Rc::downgrade(&window));
         window
@@ -114,56 +114,47 @@ impl CharmApplication {
 
         about_dialog
     }
-}
 
-fn setup_tracing() {
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .pretty()
-        .with_max_level(tracing::Level::TRACE)
-        .finish();
+    pub fn launch<F: Fn(&rc::Rc<CharmApplication>) + 'static>(flags: gio::ApplicationFlags, activate: F) {
+        /* we defer initializing CharmApplication until the startup signal */
+        let app_model_for_closures: rc::Rc<once_cell::unsync::OnceCell<rc::Rc<CharmApplication>>> =
+            rc::Rc::new(once_cell::unsync::OnceCell::new());
 
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-}
-
-pub fn launch_application() {
-    setup_tracing();
-    
-    /* we defer initializing CharmApplication until the startup signal */
-    let app_model_for_closures: rc::Rc<once_cell::unsync::OnceCell<rc::Rc<CharmApplication>>> =
-        rc::Rc::new(once_cell::unsync::OnceCell::new());
-    
-    let application =
-        gtk::Application::new(
-            Some("net.xenotoad.charm"),
-            gio::ApplicationFlags::HANDLES_OPEN);
-
-    /* setup signals */
-    
-    /* startup */
-    application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {        
-        // TODO: figure out gtk4 icon hellscape
-        let charm = CharmApplication::new(app.clone());
+        let activate = rc::Rc::new(activate);
         
-        crashreport::install_hook(charm.clone());
+        let application =
+            gtk::Application::new(
+                Some("net.xenotoad.charm"),
+                flags);
+
+        /* setup signals */
         
-        if app_model_for_closures.set(charm).is_err() {
-            panic!("started up more than once?");
-        }
-    }));
+        /* startup */
+        application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {        
+            // TODO: figure out gtk4 icon hellscape
+            let charm = CharmApplication::new(app.clone());
+            
+            crashreport::install_hook(charm.clone());
 
-    /* activate */
-    application.connect_activate(clone!(@strong app_model_for_closures => move |_app| catch_panic! {
-        app_model_for_closures.get().unwrap().action_new_window();
-    }));
+            if app_model_for_closures.set(charm).is_err() {
+                panic!("started up more than once?");
+            }
+        }));
 
-    /* open */
-    application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| catch_panic! {
-        for file in files {
-            let w = app_model_for_closures.get().unwrap().new_window();
-            w.present();
-            action::open_project::open_project(&w, file.clone());
-        }
-    }));
-    
-    application.run();
+        /* activate */
+        application.connect_activate(clone!(@strong app_model_for_closures, @strong activate => move |_app| catch_panic! {
+            activate(app_model_for_closures.get().unwrap());
+        }));
+
+        /* open */
+        application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| catch_panic! {
+            for file in files {
+                let w = app_model_for_closures.get().unwrap().new_window();
+                w.present();
+                action::open_project::open_project(&w, file.clone());
+            }
+        }));
+
+        application.run();   
+    }
 }

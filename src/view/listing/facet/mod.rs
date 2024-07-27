@@ -24,16 +24,19 @@ pub trait Facet {
     fn wants_repick(&self) -> &Event {
         &UNUSED_EVENT
     }
-    
-    fn work(&mut self, _document: &sync::Arc<document::Document>, _cx: &mut task::Context) {
+
+    /// Returns true if more work is necessary
+    fn work(&mut self, _document: &sync::Arc<document::Document>, _cx: &mut task::Context) -> bool {
+        false
     }
 
-    fn collect_events(&mut self, widget: &super::ListingWidget, work_notifier: &util::Notifier) {
+    fn collect_events(&mut self, widget: &super::ListingWidget, work_notifier: &util::Notifier, work_incomplete: &mut bool) {
         if self.wants_draw().collect() {
             widget.queue_draw();
         }
 
         if self.wants_work().collect() {
+            *work_incomplete = true;
             work_notifier.notify();
         }
 

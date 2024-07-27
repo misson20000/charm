@@ -8,7 +8,7 @@ use crate::serialization;
 use gtk::prelude::*;
 use gtk::gio;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     pub document_host: sync::Arc<document::DocumentHost>,
     pub save_file: cell::RefCell<Option<gio::File>>,

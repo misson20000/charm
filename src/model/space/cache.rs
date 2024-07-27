@@ -75,12 +75,16 @@ impl SpaceCache {
         lru.get_mut(&addr).unwrap()
     }
 
-    pub fn poll_blocks(&self, cx: &mut task::Context) {
+    pub fn poll_blocks(&self, cx: &mut task::Context) -> bool {
+        let mut work_needed = false;
         let mut lru_guard = self.lru.lock();
         
         for (_, entry) in lru_guard.iter_mut() {
             entry.poll(cx);
+            work_needed|= !entry.is_finished();
         }
+
+        work_needed
     }
 }
 

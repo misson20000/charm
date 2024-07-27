@@ -91,10 +91,10 @@ impl Filter {
         Filter::fetch_next(iter, &mut range, cx)
     }
 
-    fn poll(&self, cx: &mut task::Context) {
+    fn poll(&self, cx: &mut task::Context) -> bool {
         match self {
             Filter::LoadSpace(f) => f.poll(cx),
-            _ => ()
+            _ => false
         }
     }
 
@@ -127,15 +127,17 @@ impl Filter {
 }
 
 pub trait DataPathExt {
-    fn poll(&self, cx: &mut task::Context);
+    fn poll(&self, cx: &mut task::Context) -> bool;
     fn fetch(&self, range: ByteRecordRange, cx: &mut task::Context);
 }
 
 impl DataPathExt for DataPath {
-    fn poll(&self, cx: &mut task::Context) {
+    fn poll(&self, cx: &mut task::Context) -> bool {
+        let mut work_needed = false;
         for filter in self.iter() {
-            filter.poll(cx);
+            work_needed = filter.poll(cx) || work_needed;
         }
+        work_needed
     }
     
     fn fetch(&self, range: ByteRecordRange, cx: &mut task::Context) {
@@ -337,8 +339,8 @@ impl LoadSpaceFilter {
         self.size
     }
     
-    fn poll(&self, cx: &mut task::Context) {
-        self.cache.poll_blocks(cx);
+    fn poll(&self, cx: &mut task::Context) -> bool {
+        self.cache.poll_blocks(cx)
     }
 
     pub fn to_filter(self) -> Filter {

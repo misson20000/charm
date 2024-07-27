@@ -67,7 +67,7 @@ impl CursorView {
     }
 
     pub fn get_blink(&self) -> bool {
-        /*self.mode == Mode::Command || */self.blink_timer < self.config.cursor_blink_period / 2.0
+        self.config.cursor_blink_period == 0.0 || self.blink_timer < self.config.cursor_blink_period / 2.0
     }
 
     pub fn animate(&mut self, delta: f64) {

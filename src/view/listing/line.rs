@@ -253,18 +253,17 @@ impl facet::Facet for Line {
         &self.ev_work
     }
 
-    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) {
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) -> bool {
         let invalidate = self.current_document.as_ref().map_or(true, |current| !sync::Arc::ptr_eq(current, document));
         let mut updated = false;
+        let mut work_needed = false;
         
         for bucket in self.ty.iter_buckets_mut() {
             if invalidate {
                 bucket.invalidate_data();
             }
 
-            if bucket.work(document, cx) {
-                updated = true;
-            }
+            bucket.work(document, cx, &mut updated, &mut work_needed);
         }
         
         if updated {
@@ -276,5 +275,7 @@ impl facet::Facet for Line {
         if invalidate {
             self.current_document = Some(document.clone());
         }
+
+        work_needed
     }
 }

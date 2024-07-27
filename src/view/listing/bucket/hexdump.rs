@@ -266,7 +266,7 @@ impl bucket::TokenIterableBucket for HexdumpBucket {
 }
 
 impl bucket::WorkableBucket for HexdumpBucket {
-    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context) -> bool {
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context, did_work: &mut bool, work_needed: &mut bool) {
         if self.line_data_pending {
             let (begin_byte, size) = self.line_extent.rebase(self.node_addr).round_out();
             
@@ -274,10 +274,9 @@ impl bucket::WorkableBucket for HexdumpBucket {
             document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.line_cache), cx);
             
             self.line_data_pending = self.line_cache.iter().any(|b| b.pending);
+            *work_needed|= self.line_data_pending;
 
-            true
-        } else {
-            false
+            *did_work = true;
         }
     }
 
