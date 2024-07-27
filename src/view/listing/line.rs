@@ -42,6 +42,12 @@ enum LineViewType {
     },
 }
 
+impl std::fmt::Debug for LineViewType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LineViewType").finish()
+    }
+}
+
 pub struct Line {
     ev_draw: facet::Event,
     ev_work: facet::Event,

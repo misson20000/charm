@@ -1,5 +1,6 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
+use crate::model::listing::line;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 
@@ -15,38 +16,49 @@ impl Cursor {
     pub fn new_transition(token: token::HexdumpToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
+
+        let (offset, low_nybble) = match hint {
+            cursor::TransitionHint::MoveLeftLarge => (addr::Size::from(limit.bytes & !7), false),
+            
+            cursor::TransitionHint::MoveVertical {
+                horizontal_position: cursor::HorizontalPosition::Hexdump(offset_in_line, low_nybble),
+                line,
+                ..
+            } => {
+                let line_extent = match line.ty {
+                    line::LineType::Hexdump { line_extent, .. } => line_extent,
+                    _ => return Err(token::Token::Hexdump(token)),
+                };
+                let offset = line_extent.begin + *offset_in_line;
+                if offset >= extent.end {
+                    return Err(token::Token::Hexdump(token));
+                } else if offset < extent.begin {
+                    /* the first line after a child can have a first token that
+                     * starts in the middle of the line, and the horizontal
+                     * position can point before that token starts. */
+                    (addr::unit::ZERO, false)
+                } else {
+                    (offset - extent.begin, *low_nybble)
+                }
+            },
+            
+            op if op.is_left() => (limit, true),
+            op if op.is_right() => (addr::unit::ZERO, false),
+            _ => (addr::unit::ZERO, false)
+        };
         
         Ok(Cursor {
             token,
             extent,
-            offset: match hint.op {
-                cursor::TransitionOp::MoveLeftLarge => addr::Size::from(limit.bytes & !7),
-                op if op.is_left() => limit,
-                op if op.is_right() => addr::unit::ZERO,
-                _ => match &hint.class {
-                    cursor::TransitionHintClass::Hexdump(hth) => std::cmp::min(hth.offset, limit),
-                    _ => addr::unit::ZERO,
-                },
-            },
-            low_nybble: match (&hint.class, hint.op) {
-                /* decide from op */
-                (_, cursor::TransitionOp::MoveLeftLarge) => false,
-                (_, op) if op.is_left() => true,
-                (_, op) if op.is_right() => false,
-                /* if we have an intended offset and had to truncate it, we should place at the end of the line */
-                (cursor::TransitionHintClass::Hexdump(hth), _) if hth.offset > limit => true,
-                /* if we have an intended offset and didn't have to truncate it, try to carry the low_nybble flag over from a previous HexCursor */
-                (cursor::TransitionHintClass::Hexdump(hth), _) => hth.low_nybble,
-                /* last resort, if the op is seriously misbehaving and is neither left nor right */
-                _ => false,
-            },
+            offset,
+            low_nybble,
         })
     }
     
     pub fn new_placement(token: token::HexdumpToken, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
-        
+
         Ok(Cursor {
             token,
             extent,
@@ -86,13 +98,14 @@ impl cursor::CursorClassExt for Cursor {
         })
     }
     
-    fn get_transition_hint(&self) -> cursor::TransitionHintClass {
-        cursor::TransitionHintClass::Hexdump(HexdumpTransitionHint {
-            offset: self.offset,
-            low_nybble: self.low_nybble
-        })
+    fn get_horizontal_position_in_line(&self, line: &line::Line) -> cursor::HorizontalPosition {
+        if let line::LineType::Hexdump { line_extent, .. } = &line.ty {
+            cursor::HorizontalPosition::Hexdump(self.extent.begin.to_size() + self.offset - line_extent.begin.to_size(), self.low_nybble)
+        } else {
+            panic!("attempted to get horizontal position of HexdumpCursor on a non-Hexdump line");
+        }
     }
-
+    
     fn move_left(&mut self) -> cursor::MovementResult {
         if self.low_nybble {
             self.low_nybble = false;

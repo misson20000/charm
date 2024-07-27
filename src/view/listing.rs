@@ -477,7 +477,12 @@ impl ListingWidget {
 
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(interior.charm_window_id),
-            crashreport::Circumstance::Goto(document.clone(), path.clone(), offset, hint.clone()),
+            crashreport::Circumstance::Goto {
+                document: document.clone(),
+                path: path.clone(),
+                offset,
+                hint: format!("{:?}", hint),
+            },
         ]);
         
         if interior.document.generation() != document.generation() {
@@ -740,8 +745,8 @@ impl Interior {
             /* basic cursor   key    shift  ctrl  */
             (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
             (gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
-            //(gdk::keys::constants::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
+            (gdk::Key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            (gdk::Key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* fast cursor    key    shift  ctrl  */
             //(gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    facet::scroll::EnsureCursorInViewDirection::Up),

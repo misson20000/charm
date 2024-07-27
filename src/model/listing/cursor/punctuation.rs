@@ -1,5 +1,6 @@
 use crate::model::addr;
 use crate::model::listing::cursor;
+use crate::model::listing::line;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 
@@ -10,13 +11,15 @@ pub struct Cursor {
 
 impl Cursor {
     pub fn new_transition(token: token::Token, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
-        if hint.op.is_entry() {
-            /* skip over punctuation tokens for entry */
-            Err(token)
+        if match hint {
+            hint if hint.is_entry() => false,
+            cursor::TransitionHint::MoveVertical { horizontal_position: cursor::HorizontalPosition::Unspecified, .. } => true,
+            cursor::TransitionHint::MoveVertical { .. } => false,
+            _ => true,
+        } {
+            Ok(Cursor { token })
         } else {
-            Ok(Cursor {
-                token
-            })
+            Err(token)
         }
     }
     
@@ -53,10 +56,10 @@ impl cursor::CursorClassExt for Cursor {
         cursor::PlacementHint::Punctuation
     }
     
-    fn get_transition_hint(&self) -> cursor::TransitionHintClass {
-        cursor::TransitionHintClass::Unused
+    fn get_horizontal_position_in_line(&self, _line: &line::Line) -> cursor::HorizontalPosition {
+        cursor::HorizontalPosition::Unspecified
     }
-
+    
     fn move_left(&mut self) -> cursor::MovementResult {
         cursor::MovementResult::HitStart
     }

@@ -3,6 +3,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::listing::line;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 use crate::model::versioned::Versioned;
@@ -52,7 +53,7 @@ pub trait CursorClassExt {
     fn get_offset(&self) -> addr::Size;
     fn get_token(&self) -> token::TokenRef<'_>;
     fn get_placement_hint(&self) -> PlacementHint;
-    fn get_transition_hint(&self) -> TransitionHintClass;
+    fn get_horizontal_position_in_line(&self, line: &line::Line) -> HorizontalPosition;
 
     fn move_left(&mut self) -> MovementResult;
     fn move_right(&mut self) -> MovementResult;
@@ -71,9 +72,20 @@ pub enum CursorClass {
     Punctuation(punctuation::Cursor),
 }
 
+#[derive(Clone, Debug)]
+pub enum HorizontalPosition {
+    Unspecified,
+    Title,
+    Hexdump(addr::Size, bool),
+}
+
 #[derive(Debug)]
 pub struct Cursor {
     tokenizer: tokenizer::Tokenizer,
+    line: line::Line,
+    line_begin: tokenizer::Tokenizer,
+    line_end: tokenizer::Tokenizer,
+    desired_horizontal_position: Option<HorizontalPosition>,
     pub class: CursorClass,
     document: sync::Arc<document::Document>,
 }
@@ -90,19 +102,20 @@ enum UpdateMode {
 impl CursorClass {
     fn place_forward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
-            if !match tokenizer.gen_token() {
+            match tokenizer.gen_token() {
                 tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
-                    Err(_) => tokenizer.move_next(),
+                    Err(_) => {},
                 },
-                tokenizer::TokenGenerationResult::Skip => tokenizer.move_next(),
+                tokenizer::TokenGenerationResult::Skip => {},
                 tokenizer::TokenGenerationResult::Boundary => return Err(PlacementFailure::HitBottomOfAddressSpace)
-            } {
-                /* move_next() returned false */
+            };
+
+            if !tokenizer.move_next() {
                 return Err(PlacementFailure::HitBottomOfAddressSpace)
             }
-        }        
+        }
     }
 
     fn place_backward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
@@ -149,8 +162,17 @@ impl Cursor {
             Err(_) => panic!("unexpected error from CursorClass::place_forward")
         };
 
+        let mut line_end = tokenizer.clone();
+        let (line, mut line_begin, _) = line::Line::containing_tokenizer(&mut line_end);
+        line_begin.canonicalize_next();
+        line_end.canonicalize_next();
+        
         Cursor {
             tokenizer,
+            line,
+            line_begin,
+            line_end,
+            desired_horizontal_position: None,
             class,
             document,
         }
@@ -202,15 +224,93 @@ impl Cursor {
         self.class.is_over(token)
     }
 
-    fn movement<F>(&mut self, mov: F, op: TransitionOp) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
+    /// Finds the next token that the supplied function returns Ok(_) for, and mutates our state to account for being on a new token. If we hit the end of the token stream without seeing Ok(_), the state is not mutated.
+    fn next_token_matching<T, E, F: Fn(token::Token) -> Result<T, E>>(&mut self, acceptor: F) -> Option<T> {
+        let mut tokenizer = self.tokenizer.clone();
+        let mut line = self.line.clone();
+        let mut line_begin = self.line_begin.clone();
+        let mut line_end = self.line_end.clone();
+
+        let obj = loop {
+            match tokenizer.next_preincrement() {
+                None => return None,
+                Some(token) => {
+                    while tokenizer >= line_end {
+                        line_begin = line_end.clone();
+                        line = line::Line::next_from_tokenizer(&mut line_end);
+                        line_end.canonicalize_next();
+                    }
+
+                    line_begin.canonicalize_next();
+
+                    assert!(line.iter_tokens().any(|t| t == token.as_ref()));
+                    
+                    match acceptor(token) {
+                        Ok(obj) => break obj,
+                        Err(_) => continue,
+                    }
+                }
+            }
+        };
+
+        /* We only want to update these in the success case. */
+        self.line = line;
+        self.line_begin = line_begin;
+        self.line_end = line_end;
+        self.tokenizer = tokenizer;
+        
+        Some(obj)
+    }
+
+    /// See [next_token_matching].
+    fn prev_token_matching<T, E, F: Fn(token::Token) -> Result<T, E>>(&mut self, acceptor: F) -> Option<T> {
+        let mut tokenizer = self.tokenizer.clone();
+        let mut line = self.line.clone();
+        let mut line_begin = self.line_begin.clone();
+        let mut line_end = self.line_end.clone();
+
+        let obj = loop {
+            match tokenizer.prev() {
+                None => return None,
+                Some(token) => {
+                    while tokenizer < line_begin {
+                        line_end = line_begin.clone();
+                        line = line::Line::prev_from_tokenizer(&mut line_begin);
+                        line_begin.canonicalize_next();
+                    }
+
+                    line_end.canonicalize_next();
+
+                    assert!(line.iter_tokens().any(|t| t == token.as_ref()));
+                    
+                    match acceptor(token) {
+                        Ok(obj) => break obj,
+                        Err(_) => continue,
+                    }
+                }
+            }
+        };
+
+        /* We only want to update these in the success case. */
+        self.line = line;
+        self.line_begin = line_begin;
+        self.line_end = line_end;
+        self.tokenizer = tokenizer;
+        
+        Some(obj)
+    }
+
+    fn movement<F>(&mut self, mov: F, hint: TransitionHint) -> MovementResult where F: FnOnce(&mut CursorClass) -> MovementResult {
+        self.desired_horizontal_position = None;
+        
         match mov(&mut self.class) {
             /* If the movement hit a token boundary, try moving the cursor to another token. */
-            MovementResult::HitStart => match self.class.try_move_prev_token(self.tokenizer.clone(), op) {
-                Some((cc, tokenizer)) => { (self.class, self.tokenizer) = (cc, tokenizer); MovementResult::Ok }
+            MovementResult::HitStart => match self.prev_token_matching(|tok| CursorClass::new_transition(tok, &hint)) {
+                Some(cc) => { self.class = cc; MovementResult::Ok }
                 None => MovementResult::HitStart
             },
-            MovementResult::HitEnd   => match self.class.try_move_next_token(self.tokenizer.clone(), op) {
-                Some((cc, tokenizer)) => { (self.class, self.tokenizer) = (cc, tokenizer); MovementResult::Ok }
+            MovementResult::HitEnd   => match self.next_token_matching(|tok| CursorClass::new_transition(tok, &hint)) {
+                Some(cc) => { self.class = cc; MovementResult::Ok }
                 None => MovementResult::HitStart
             }
             /* Otherwise, it's a legitimate result. */
@@ -218,15 +318,107 @@ impl Cursor {
         }
     }
     
-    pub fn move_left(&mut self)             -> MovementResult { self.movement(|c| c.move_left(),             TransitionOp::UnspecifiedLeft) }
-    pub fn move_right(&mut self)            -> MovementResult { self.movement(|c| c.move_right(),            TransitionOp::UnspecifiedRight) }
-    //pub fn move_up(&mut self)               -> MovementResult { self.movement(|c| c.move_up(),               TransitionOp::UnspecifiedLeft) }
-    //pub fn move_down(&mut self)             -> MovementResult { self.movement(|c| c.move_down(),             TransitionOp::UnspecifiedRight) }
-    //pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line(), TransitionOp::UnspecifiedLeft) }
-    //pub fn move_to_end_of_line(&mut self)   -> MovementResult { self.movement(|c| c.move_to_end_of_line(),   TransitionOp::UnspecifiedRight) }
-    pub fn move_left_large(&mut self)       -> MovementResult { self.movement(|c| c.move_left_large(),       TransitionOp::MoveLeftLarge) }
-    pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionOp::UnspecifiedRight) }
+    pub fn move_left(&mut self)             -> MovementResult { self.movement(|c| c.move_left(),             TransitionHint::UnspecifiedLeft) }
+    pub fn move_right(&mut self)            -> MovementResult { self.movement(|c| c.move_right(),            TransitionHint::UnspecifiedRight) }
+    //pub fn move_up(&mut self)               -> MovementResult { self.movement(|c| c.move_up(),               TransitionHint::UnspecifiedLeft) }
+    //pub fn move_down(&mut self)             -> MovementResult { self.movement(|c| c.move_down(),             TransitionHint::UnspecifiedRight) }
+    //pub fn move_to_start_of_line(&mut self) -> MovementResult { self.movement(|c| c.move_to_start_of_line(), TransitionHint::UnspecifiedLeft) }
+    //pub fn move_to_end_of_line(&mut self)   -> MovementResult { self.movement(|c| c.move_to_end_of_line(),   TransitionHint::UnspecifiedRight) }
+    pub fn move_left_large(&mut self)       -> MovementResult { self.movement(|c| c.move_left_large(),       TransitionHint::MoveLeftLarge) }
+    pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionHint::UnspecifiedRight) }
 
+    fn move_vertically(&mut self, line: line::Line, line_begin: tokenizer::Tokenizer, line_end: tokenizer::Tokenizer) -> Result<MovementResult, (tokenizer::Tokenizer, tokenizer::Tokenizer)> {
+        let dhp = match &self.desired_horizontal_position {
+            Some(x) => x.clone(),
+            None => self.class.get_horizontal_position_in_line(&self.line),
+        };
+
+        let mut tokenizer = line_begin.clone();
+
+        let hint = TransitionHint::MoveVertical {
+            horizontal_position: &dhp,
+            line: &line,
+            line_end: &line_end
+        };
+
+        self.class = loop {
+            match tokenizer.gen_token() {
+                tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_transition(token, &hint) {
+                    Ok(cc) => break cc,
+                    Err(_tok) => {},
+                },
+                tokenizer::TokenGenerationResult::Skip => {},
+                tokenizer::TokenGenerationResult::Boundary => return Ok(MovementResult::HitEnd),
+            };
+
+            if !tokenizer.move_next() {
+                return Ok(MovementResult::HitEnd);
+            }
+
+            if tokenizer >= line_end {
+                break loop {                    
+                    if let Some(token) = tokenizer.prev() {
+                        if tokenizer < line_begin {
+                            return Err((line_begin, line_end));
+                        }
+
+                        match CursorClass::new_transition(token, &TransitionHint::EndOfLine) {
+                            Ok(cc) => break cc,
+                            Err(_tok) => {},
+                        }
+                    } else {
+                        return Ok(MovementResult::HitStart);
+                    }
+                }
+            }
+        };
+
+        assert!(line.iter_tokens().any(|t| t == self.class.get_token()));
+        
+        self.tokenizer = tokenizer;
+        self.line = line;
+        self.line_begin = line_begin;
+        self.line_end = line_end;
+        
+        self.desired_horizontal_position = Some(dhp);
+
+        Ok(MovementResult::Ok)
+    }
+    
+    pub fn move_up(&mut self) -> MovementResult {
+        let mut line_begin = self.line_begin.clone();
+        
+        loop {
+            let line_end = line_begin.clone();
+            let line = line::Line::prev_from_tokenizer(&mut line_begin);
+            if line.is_empty() {
+                return MovementResult::HitStart;
+            }
+            
+            line_begin = match self.move_vertically(line, line_begin, line_end) {
+                Ok(mr) => return mr,
+                Err((line_begin, _line_end)) => line_begin,
+            }
+        }
+    }
+    
+    pub fn move_down(&mut self) -> MovementResult {
+        let mut line_end = self.line_end.clone();
+
+        loop {
+            let line_begin = line_end.clone();
+            let line = line::Line::next_from_tokenizer(&mut line_end);
+            if line.is_empty() {
+                return MovementResult::HitEnd;
+            }
+
+            line_end = match self.move_vertically(line, line_begin, line_end) {
+                Ok(mr) => return mr,
+                Err((_line_begin, line_end)) => line_end,
+            }
+        }
+    }
+    
     /* previous node */
     pub fn move_prev(&mut self) -> MovementResult {
         todo!();
@@ -239,11 +431,11 @@ impl Cursor {
 
     /*
     pub fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError> {
-        self.class.enter_standard(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryStandard))
+        self.class.enter_standard(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionHint::EntryStandard))
     }
 
     pub fn enter_utf8(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError> {
-        self.class.enter_utf8(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionOp::EntryUTF8))
+        self.class.enter_utf8(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionHint::EntryUTF8))
     }
      */
 
@@ -306,12 +498,7 @@ impl CursorClass {
     }
 
     #[instrument]
-    fn try_move_prev_token(&self, mut tokenizer: tokenizer::Tokenizer, op: TransitionOp) -> Option<(CursorClass, tokenizer::Tokenizer)> {
-        let hint = TransitionHint {
-            op,
-            class: self.get_transition_hint(),
-        };
-        
+    fn try_move_prev_token(&self, mut tokenizer: tokenizer::Tokenizer, hint: TransitionHint) -> Option<(CursorClass, tokenizer::Tokenizer)> {
         loop {
             match tokenizer.prev() {
                 None => {
@@ -332,12 +519,7 @@ impl CursorClass {
     }
 
     #[instrument]
-    fn try_move_next_token(&self, mut tokenizer: tokenizer::Tokenizer, op: TransitionOp) -> Option<(CursorClass, tokenizer::Tokenizer)> {
-        let hint = TransitionHint {
-            op,
-            class: self.get_transition_hint(),
-        };
-        
+    fn try_move_next_token(&self, mut tokenizer: tokenizer::Tokenizer, hint: TransitionHint) -> Option<(CursorClass, tokenizer::Tokenizer)> {
         loop {
             match tokenizer.next_preincrement() {
                 None => {
@@ -370,63 +552,62 @@ pub enum PlacementHint {
 }
 
 impl std::default::Default for PlacementHint {
-    fn default() -> PlacementHint{
-        PlacementHint::Unused
+    fn default() -> Self {
+        Self::Unused
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum TransitionOp {
+pub enum TransitionHint<'a> {
     MoveLeftLarge,
     EntryStandard,
     EntryUTF8,
     UnspecifiedLeft,
     UnspecifiedRight,
+    MoveVertical {
+        horizontal_position: &'a HorizontalPosition,
+        line: &'a line::Line,
+        line_end: &'a tokenizer::Tokenizer,
+    },
+    EndOfLine,
 }
 
-impl TransitionOp {
+impl<'a> TransitionHint<'a> {
     pub fn is_left(&self) -> bool {
         match self {
-            TransitionOp::MoveLeftLarge => true,
-            TransitionOp::EntryStandard => false,
-            TransitionOp::EntryUTF8 => false,
-            TransitionOp::UnspecifiedLeft => true,
-            TransitionOp::UnspecifiedRight => false,
+            TransitionHint::MoveLeftLarge => true,
+            TransitionHint::EntryStandard => false,
+            TransitionHint::EntryUTF8 => false,
+            TransitionHint::UnspecifiedLeft => true,
+            TransitionHint::UnspecifiedRight => false,
+            TransitionHint::MoveVertical { .. } => false,
+            TransitionHint::EndOfLine => true,
         }
     }
 
     pub fn is_right(&self) -> bool {
         match self {
-            TransitionOp::MoveLeftLarge => false,
-            TransitionOp::EntryStandard => true,
-            TransitionOp::EntryUTF8 => true,
-            TransitionOp::UnspecifiedLeft => false,
-            TransitionOp::UnspecifiedRight => true,
+            TransitionHint::MoveLeftLarge => false,
+            TransitionHint::EntryStandard => true,
+            TransitionHint::EntryUTF8 => true,
+            TransitionHint::UnspecifiedLeft => false,
+            TransitionHint::UnspecifiedRight => true,
+            TransitionHint::MoveVertical { .. } => false,
+            TransitionHint::EndOfLine => false,
         }
     }
 
     pub fn is_entry(&self) -> bool {
         match self {
-            TransitionOp::MoveLeftLarge => false,
-            TransitionOp::EntryStandard => true,
-            TransitionOp::EntryUTF8 => true,
-            TransitionOp::UnspecifiedLeft => false,
-            TransitionOp::UnspecifiedRight => false,
+            TransitionHint::MoveLeftLarge => false,
+            TransitionHint::EntryStandard => true,
+            TransitionHint::EntryUTF8 => true,
+            TransitionHint::UnspecifiedLeft => false,
+            TransitionHint::UnspecifiedRight => false,
+            TransitionHint::MoveVertical { .. } => false,
+            TransitionHint::EndOfLine => false,
         }
     }
-}
-
-/// Used to hint at how to transition a cursor from one break to another.
-#[derive(Debug, Clone)]
-pub struct TransitionHint {
-    pub op: TransitionOp,
-    pub class: TransitionHintClass,
-}
-
-#[derive(Debug, Clone)]
-pub enum TransitionHintClass {
-    Hexdump(hexdump::HexdumpTransitionHint),
-    Unused
 }
 
 #[cfg(test)]
@@ -730,5 +911,32 @@ mod tests {
         let document = sync::Arc::new(document::Builder::new(root).build());
 
         Cursor::place(document, &vec![], 0x0.into(), PlacementHint::Unused);
+    }
+
+    #[test]
+    fn vertical_and_horizontal_movement() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x0, |b| b
+                   .name("child")
+                   .size(0x10))
+            .build();
+        
+        let document = sync::Arc::new(document::Builder::new(root).build());
+        
+        let mut cursor = Cursor::place(document, &vec![], 0x0.into(), PlacementHint::Unused);
+        println!("initial:");
+        println!("  line: {:?}", cursor.line);
+        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        cursor.move_up();
+        println!("after move up 1:");
+        println!("  line: {:?}", cursor.line);
+        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        cursor.move_up();
+        println!("after move up 2:");
+        println!("  line: {:?}", cursor.line);
+        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        cursor.move_right();
     }
 }

@@ -42,7 +42,12 @@ pub enum Circumstance {
     InWindow(u64),
     TreeSelectionUpdate(sync::Arc<model::selection::tree::Host>, sync::Arc<document::Document>),
     ListingSelectionUpdate(sync::Arc<model::selection::listing::Host>, sync::Arc<document::Document>),
-    Goto(sync::Arc<document::Document>, document::structure::Path, model::addr::Address, model::listing::cursor::PlacementHint),
+    Goto {
+        document: sync::Arc<document::Document>,
+        path: document::structure::Path,
+        offset: model::addr::Address,
+        hint: String,
+    },
     LWDocumentUpdate(sync::Arc<document::Document>, sync::Arc<document::Document>),
     LWSelectionUpdate(sync::Arc<model::selection::ListingSelection>, sync::Arc<model::selection::ListingSelection>),
 }
@@ -603,8 +608,8 @@ impl Circumstance {
                     write!(d, "    - {:?}\n", change).unwrap();
                 });
             },
-            Circumstance::Goto(_doc, path, addr, hint) => {
-                write!(d, "While performing goto({:?}, {}, {:?}).\n", path, addr, hint)?;
+            Circumstance::Goto { document: _, path, offset, hint } => {
+                write!(d, "While performing goto({:?}, {}, {}).\n", path, offset, hint)?;
             },
             Circumstance::LWDocumentUpdate(old, new) => {
                 write!(d, "While updating listing widget for new document.\n")?;
