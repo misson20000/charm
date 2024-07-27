@@ -62,7 +62,10 @@ enum TokenizerDescent {
 pub struct TokenizerStackEntry {
     stack: Option<sync::Arc<TokenizerStackEntry>>,
     descent: TokenizerDescent,
-    depth: usize,
+    /// How many nodes deep in the hierarchy generated tokens should appear to be (plus or minus one depending on token type)
+    apparent_depth: usize,
+    /// How long the [stack] chain actually is. Used when comparing Tokenizers.
+    logical_depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,    
 }
@@ -91,7 +94,10 @@ pub struct Tokenizer {
      */
     stack: Option<sync::Arc<TokenizerStackEntry>>,
     state: TokenizerState,
-    depth: usize,
+    /// How many nodes deep in the hierarchy generated tokens should appear to be (plus or minus one depending on token type)
+    apparent_depth: usize,
+    /// How long the [stack] chain actually is. Used when comparing Tokenizers.
+    logical_depth: usize,
     pub node: sync::Arc<structure::Node>,
     node_addr: addr::Address,
 }
@@ -182,7 +188,8 @@ struct PortStackState {
     mode: PortStackMode,
     current_path: structure::Path,
     new_stack: Option<sync::Arc<TokenizerStackEntry>>,
-    depth: usize,
+    apparent_depth: usize,
+    logical_depth: usize,
     node_addr: addr::Address,
     node: sync::Arc<structure::Node>,
 }
@@ -193,7 +200,8 @@ impl std::fmt::Debug for PortStackState {
             .field("mode", &self.mode)
             .field("current_path", &self.current_path)
             .field("new_stack", &TokenizerStackDebugHelper(&self.new_stack))
-            .field("depth", &self.depth)
+            .field("apparent_depth", &self.apparent_depth)
+            .field("logical_depth", &self.logical_depth)
             .field("node_addr", &self.node_addr)
             .field("node", &self.node.props.name)
             .finish_non_exhaustive()
@@ -251,7 +259,8 @@ impl Tokenizer {
         Tokenizer {
             stack: None,
             state: TokenizerState::PreBlank,
-            depth: 0,
+            apparent_depth: 0,
+            logical_depth: 0,
             node: root,
             node_addr: addr::unit::NULL,
         }
@@ -261,7 +270,8 @@ impl Tokenizer {
     pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Tokenizer {
         let mut node = &root;
         let mut node_addr = addr::unit::NULL;
-        let mut depth = 0;
+        let mut apparent_depth = 0;
+        let mut logical_depth = 0;
         let mut stack = None;
         let mut summary_prev = false;
         let mut summary_next = match root.props.children_display {
@@ -274,10 +284,13 @@ impl Tokenizer {
                 stack = Some(sync::Arc::new(TokenizerStackEntry {
                     stack: stack.take(),
                     descent: TokenizerDescent::MySummary,
-                    depth,
+                    apparent_depth,
+                    logical_depth,
                     node: node.clone(),
                     node_addr,
                 }));
+                /* This is where the difference between logical and apparent depth comes in. Logical depth tracks actual length of stack linked list. */
+                logical_depth+= 1;
             }
 
             summary_prev = summary_next;
@@ -285,7 +298,8 @@ impl Tokenizer {
             stack = Some(sync::Arc::new(TokenizerStackEntry {
                 stack: stack.take(),
                 descent: if summary_prev { TokenizerDescent::ChildSummary(*child_index) } else { TokenizerDescent::Child(*child_index) },
-                depth,
+                apparent_depth,
+                logical_depth,
                 node: node.clone(),
                 node_addr,
             }));
@@ -293,7 +307,8 @@ impl Tokenizer {
             let childhood = &node.children[*child_index];
             node = &childhood.node;
             node_addr+= childhood.offset.to_size();
-            depth+= 1;
+            apparent_depth+= 1;
+            logical_depth+= 1;
 
             summary_next = summary_next || match node.props.children_display {
                 structure::ChildrenDisplay::Summary => true,
@@ -304,7 +319,8 @@ impl Tokenizer {
         let mut tokenizer = Tokenizer {
             stack,
             state: if summary_prev { TokenizerState::SummaryValueBegin } else { TokenizerState::PreBlank },
-            depth,
+            apparent_depth,
+            logical_depth,
             node: node.clone(),
             node_addr
         };
@@ -415,7 +431,8 @@ impl Tokenizer {
         *self = Tokenizer {
             stack: stack_state.new_stack,
             state: TokenizerState::End, /* this is a placeholder. we finalize the details later... */
-            depth: stack_state.depth,
+            apparent_depth: stack_state.apparent_depth,
+            logical_depth: stack_state.logical_depth,
             node: stack_state.node,
             node_addr: stack_state.node_addr,
         };
@@ -646,7 +663,8 @@ impl Tokenizer {
         Tokenizer {
             stack: None,
             state: TokenizerState::End,
-            depth: 0,
+            apparent_depth: 0,
+            logical_depth: 0,
             node: root.clone(),
             node_addr: addr::unit::NULL,
         }
@@ -658,7 +676,7 @@ impl Tokenizer {
             node: self.node.clone(),
             node_path: self.structure_path(),
             node_addr: self.node_addr,
-            depth: self.depth,
+            depth: self.apparent_depth,
         };
         
         match self.state {
@@ -701,7 +719,7 @@ impl Tokenizer {
                         node: ch.node.clone(),
                         node_path: self.structure_path(),
                         node_addr: self.node_addr + ch.offset.to_size(),
-                        depth: self.depth,
+                        depth: self.apparent_depth,
                     },
                 }.into_token())
             },
@@ -1164,12 +1182,14 @@ impl Tokenizer {
         let parent_entry = TokenizerStackEntry {
             stack: self.stack.take(),
             descent,
-            depth: self.depth,
+            apparent_depth: self.apparent_depth,
+            logical_depth: self.logical_depth,
             node: parent_node,
             node_addr: self.node_addr,
         };
 
-        self.depth+= depth_change;
+        self.apparent_depth+= depth_change;
+        self.logical_depth+= 1;
         self.stack = Some(sync::Arc::new(parent_entry));
         self.state = state_within;
         self.node_addr+= childhood.offset.to_size();
@@ -1189,7 +1209,8 @@ impl Tokenizer {
                         AscendDirection::Next => stack_entry.descent.after_state(&stack_entry)
                     },
                     stack: stack_entry.stack,
-                    depth: stack_entry.depth,
+                    apparent_depth: stack_entry.apparent_depth,
+                    logical_depth: stack_entry.logical_depth,
                     node: stack_entry.node,
                     node_addr: stack_entry.node_addr,
                 };
@@ -1281,7 +1302,7 @@ impl PartialEq for Tokenizer {
             _ => false,
         } || self.stack == other.stack) &&
             self.state == other.state &&
-            self.depth == other.depth &&
+            self.logical_depth == other.logical_depth &&
             sync::Arc::ptr_eq(&self.node, &other.node) &&
             self.node_addr == other.node_addr
     }
@@ -1349,7 +1370,7 @@ impl PartialEq for TokenizerStackEntry {
             _ => false,
         } || self.stack == other.stack) &&
             self.descent == other.descent &&
-            self.depth == other.depth &&
+            self.logical_depth == other.logical_depth &&
             sync::Arc::ptr_eq(&self.node, &other.node) &&
             self.node_addr == other.node_addr
     }
@@ -1364,7 +1385,8 @@ impl PortStackState {
             mode: PortStackMode::Normal,
             current_path: structure::Path::new(),
             new_stack: None,
-            depth: 0,
+            apparent_depth: 0,
+            logical_depth: 0,
             node_addr: addr::unit::NULL,
             node: root,
         }
@@ -1472,12 +1494,14 @@ impl PortStackState {
                 let tse = TokenizerStackEntry {
                     stack: self.new_stack.take(),
                     descent,
-                    depth: self.depth,
+                    apparent_depth: self.apparent_depth,
+                    logical_depth: self.logical_depth,
                     node: parent_node,
                     node_addr: self.node_addr,
                 };
 
-                self.depth+= tse.descent.depth_change();
+                self.apparent_depth+= tse.descent.depth_change();
+                self.logical_depth+= 1;
                 self.node_addr+= childhood.offset.to_size();
                 self.new_stack = Some(sync::Arc::new(tse));
             },
@@ -1499,6 +1523,206 @@ impl PortStackState {
         };
         
         self.push_descent(descent);
+    }
+}
+
+mod cmp {
+    use std::sync;
+    use crate::model::addr;
+    use crate::model::document::structure;
+
+    #[derive(PartialEq)]
+    enum StateOrDescent {
+        State(super::TokenizerState),
+        Descent(super::TokenizerDescent),
+    }
+
+    impl std::cmp::PartialOrd for StateOrDescent {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            match (self, other) {
+                (Self::State(x), Self::State(y)) => x.partial_cmp(y),
+                (Self::Descent(x), Self::Descent(y)) => x.partial_cmp(y),
+                (Self::Descent(_), Self::State(_)) => Self::partial_cmp(other, self).map(std::cmp::Ordering::reverse),
+                (Self::State(x), Self::Descent(y)) => {
+                    let child_index = match y {
+                        super::TokenizerDescent::Child(i) => i,
+                        super::TokenizerDescent::ChildSummary(i) => i,
+                        super::TokenizerDescent::MySummary => return Some(match x {
+                            super::TokenizerState::PreBlank => std::cmp::Ordering::Less,
+                            super::TokenizerState::Title => std::cmp::Ordering::Less,
+                            super::TokenizerState::SummaryPreamble => std::cmp::Ordering::Less,
+                            super::TokenizerState::SummaryEpilogue => std::cmp::Ordering::Greater,
+                            super::TokenizerState::PostBlank => std::cmp::Ordering::Greater,
+                            super::TokenizerState::End => std::cmp::Ordering::Greater,
+                            _ => return None,
+                        }),
+                    };
+
+                    Some(match x {
+                        super::TokenizerState::PreBlank => std::cmp::Ordering::Less,
+                        super::TokenizerState::Title => std::cmp::Ordering::Less,
+                        super::TokenizerState::MetaContent(_, i) if i <= child_index => std::cmp::Ordering::Less,
+                        super::TokenizerState::MetaContent(_, _) => std::cmp::Ordering::Greater,
+                        super::TokenizerState::Hexdump { index, .. } if index == child_index => std::cmp::Ordering::Less,
+                        super::TokenizerState::Hexdump { index, .. } => index.cmp(child_index),
+                        super::TokenizerState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
+                        super::TokenizerState::Hexstring(_, i) => i.cmp(child_index),
+                        super::TokenizerState::SummaryPreamble => std::cmp::Ordering::Less,
+                        super::TokenizerState::SummaryOpener => std::cmp::Ordering::Less,
+                        super::TokenizerState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
+                        super::TokenizerState::SummaryLabel(i) => i.cmp(child_index),
+                        super::TokenizerState::SummarySeparator(i) if i == child_index => std::cmp::Ordering::Greater,
+                        super::TokenizerState::SummarySeparator(i) => i.cmp(child_index),
+                        super::TokenizerState::SummaryCloser => std::cmp::Ordering::Greater,
+                        super::TokenizerState::SummaryEpilogue => std::cmp::Ordering::Greater,
+                        super::TokenizerState::SummaryValueBegin => std::cmp::Ordering::Less,
+                        super::TokenizerState::SummaryValueEnd => std::cmp::Ordering::Greater,
+                        super::TokenizerState::SummaryLeaf => return None,
+                        super::TokenizerState::PostBlank => std::cmp::Ordering::Greater,
+                        super::TokenizerState::End => std::cmp::Ordering::Greater,
+                    })
+                }
+            }
+        }
+    }
+
+    pub struct Item {
+        stack: Option<sync::Arc<super::TokenizerStackEntry>>,
+        sod: StateOrDescent,
+        node: sync::Arc<structure::Node>,
+        logical_depth: usize,
+    }
+
+    impl Item {
+        fn parent(&self) -> Option<Item> {
+            self.stack.as_ref().map(|tse| Self::from(&**tse))
+        }
+    }
+    
+    impl From<&super::Tokenizer> for Item {
+        fn from(t: &super::Tokenizer) -> Self {
+            Self {
+                stack: t.stack.clone(),
+                sod: StateOrDescent::State(t.state.clone()),
+                node: t.node.clone(),
+                logical_depth: t.logical_depth
+            }
+        }
+    }
+
+    impl From<&super::TokenizerStackEntry> for Item {
+        fn from(t: &super::TokenizerStackEntry) -> Self {
+            Self {
+                stack: t.stack.clone(),
+                sod: StateOrDescent::Descent(t.descent.clone()),
+                node: t.node.clone(),
+                logical_depth: t.logical_depth
+            }
+        }
+    }
+
+    fn cmp_same_depth(a: &Item, b: &Item) -> Option<std::cmp::Ordering> {
+        assert_eq!(a.logical_depth, b.logical_depth);
+        
+        if a.logical_depth == 0 {
+            if sync::Arc::ptr_eq(&a.node, &b.node) {
+                return a.sod.partial_cmp(&b.sod);
+            } else {
+                /* We were comparing items from different documents */
+                return None;
+            }
+        }
+
+        match cmp_same_depth(&a.parent().unwrap(), &b.parent().unwrap()) {
+            Some(std::cmp::Ordering::Equal) => a.sod.partial_cmp(&b.sod),
+            x => x
+        }
+    }
+    
+    pub fn partial_cmp(mut a: Item, mut b: Item) -> Option<std::cmp::Ordering> {
+        let critical_depth = std::cmp::min(a.logical_depth, b.logical_depth);
+        while a.logical_depth > critical_depth {
+            a = a.parent().unwrap();
+        }
+        while b.logical_depth > critical_depth {
+            b = b.parent().unwrap();
+        }
+        cmp_same_depth(&a, &b)
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum StateGroup {
+        /* comparable with all */
+        Preamble,
+
+        /* comparable with self, but not comparable with others */
+        NormalContent,
+        SummaryContent,
+        SummaryLeaf,
+
+        /* comparable with all */
+        Postamble,
+    }
+    
+    pub fn state_tuple(state: &super::TokenizerState) -> (StateGroup, usize, usize, addr::Address, usize) {
+        match state {
+            super::TokenizerState::PreBlank => (StateGroup::Preamble, 0, 0, addr::unit::NULL, 0),
+            super::TokenizerState::Title => (StateGroup::Preamble, 1, 0, addr::unit::NULL, 0),
+            super::TokenizerState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::unit::NULL, 0),
+            
+            super::TokenizerState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
+            super::TokenizerState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::TokenizerState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::TokenizerState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
+            super::TokenizerState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
+            super::TokenizerState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
+            super::TokenizerState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
+            super::TokenizerState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::unit::NULL, 0),
+            super::TokenizerState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::unit::NULL, 0),
+            
+            super::TokenizerState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::unit::NULL, 0),
+            
+            super::TokenizerState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::unit::NULL, 0),
+            super::TokenizerState::PostBlank => (StateGroup::Postamble, 1, 0, addr::unit::NULL, 0),
+            super::TokenizerState::End => (StateGroup::Postamble, 2, 0, addr::unit::NULL, 0),
+        }
+    }
+}
+
+impl std::cmp::PartialOrd for Tokenizer {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        cmp::partial_cmp(cmp::Item::from(self), cmp::Item::from(other))
+    }
+}
+
+impl std::cmp::PartialOrd for TokenizerState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let st1 = cmp::state_tuple(self);
+        let st2 = cmp::state_tuple(other);
+
+        match (st1.0, st2.0) {
+            (cmp::StateGroup::Preamble, _) => {},
+            (cmp::StateGroup::Postamble, _) => {},
+            (_, cmp::StateGroup::Preamble) => {},
+            (_, cmp::StateGroup::Postamble) => {},
+            (x, y) if x == y => {},
+
+            /* certain state groups are incomparable */
+            _ => return None,
+        };
+
+        return Some(st1.cmp(&st2));
+    }
+}
+
+impl std::cmp::PartialOrd for TokenizerDescent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Self::Child(x), Self::Child(y)) => Some(x.cmp(y)),
+            (Self::ChildSummary(x), Self::ChildSummary(y)) => Some(x.cmp(y)),
+            (Self::MySummary, Self::MySummary) => Some(std::cmp::Ordering::Equal),
+            _ => None,
+        }
     }
 }
 
@@ -1793,6 +2017,19 @@ mod tests {
             &mut UpwardTokenizerIterator(Tokenizer::at_end(&tc.structure)));
     }
 
+    fn test_cmp(mut tokenizer: Tokenizer) {
+        let mut prev = vec![tokenizer.clone()];
+        while tokenizer.move_next() {
+            for p in &prev {
+                let ordering = p.partial_cmp(&tokenizer);
+                if ordering != Some(std::cmp::Ordering::Less) {
+                    panic!("comparing {:?} to {:?} resulted in incorrect ordering {:?}", p, tokenizer, ordering);
+                }
+            }
+            prev.push(tokenizer.clone());
+        }
+    }
+
     #[test]
     fn simple() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
@@ -1801,12 +2038,24 @@ mod tests {
     }
 
     #[test]
+    fn simple_cmp() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
+        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
+    }
+    
+    #[test]
     fn nesting() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
+    #[test]
+    fn nesting_cmp() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
+        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
+    }
+    
     #[test]
     fn formatting() {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/formatting.xml"));
@@ -1826,6 +2075,12 @@ mod tests {
         let tc = parse_testcase(include_bytes!("tokenizer_tests/summary.xml"));
         test_forward(&tc);
         test_backward(&tc);
+    }
+
+    #[test]
+    fn summary_cmp() {
+        let tc = parse_testcase(include_bytes!("tokenizer_tests/summary.xml"));
+        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
     }
     
     fn seek_to_token(tokenizer: &mut Tokenizer, target: &token::Token) {
@@ -1852,7 +2107,8 @@ mod tests {
 
     fn assert_tokenizers_eq(a: &Tokenizer, b: &Tokenizer) {
         assert_eq!(a.state, b.state);
-        assert_eq!(a.depth, b.depth);
+        assert_eq!(a.apparent_depth, b.apparent_depth);
+        assert_eq!(a.logical_depth, b.logical_depth);
         assert!(sync::Arc::ptr_eq(&a.node, &b.node));
         assert_eq!(a.node_addr, b.node_addr);
 
@@ -1867,7 +2123,8 @@ mod tests {
             };
 
             assert_eq!(stack_item_a.descent, stack_item_b.descent);
-            assert_eq!(stack_item_a.depth, stack_item_b.depth);
+            assert_eq!(stack_item_a.apparent_depth, stack_item_b.apparent_depth);
+            assert_eq!(stack_item_a.logical_depth, stack_item_b.logical_depth);
             assert!(sync::Arc::ptr_eq(&stack_item_a.node, &stack_item_b.node));
             assert_eq!(stack_item_a.node_addr, stack_item_b.node_addr);
             
@@ -1913,22 +2170,26 @@ mod tests {
                     stack: Some(sync::Arc::new(TokenizerStackEntry {
                         stack: None,
                         descent: TokenizerDescent::Child(1),
-                        depth: 0,
+                        apparent_depth: 0,
+                        logical_depth: 0,
                         node: root.clone(),
                         node_addr: 0x0.into(),
                     })),
                     descent: TokenizerDescent::MySummary,
-                    depth: 1,
+                    apparent_depth: 1,
+                    logical_depth: 1,
                     node: root.children[1].node.clone(),
                     node_addr: 0x14.into(),
                 })),
                 descent: TokenizerDescent::ChildSummary(1),
-                depth: 1,
+                apparent_depth: 1,
+                logical_depth: 2, /* ! */
                 node: root.children[1].node.clone(),
                 node_addr: 0x14.into(),
             })),
             state: TokenizerState::SummaryLeaf,
-            depth: 2,
+            apparent_depth: 2,
+            logical_depth: 3,
             node: root.children[1].node.children[1].node.clone(),
             node_addr: 0x34.into(),
         });
