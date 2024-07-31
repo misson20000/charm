@@ -55,6 +55,7 @@ impl<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer> Window<LV, Tokenizer
 
     fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
         F: FnOnce(&mut Tokenizer, &mut sync::Arc<document::Document>) {
+        self.bottom = self.top.clone();
         tokenizer_provider(&mut self.bottom, &mut self.current_document);
         let (first_line, top, _index) = line::Line::containing_tokenizer(&mut self.bottom);
         self.top = top;
