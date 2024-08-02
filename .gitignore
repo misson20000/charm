@@ -1,4 +1,4 @@
 /target
 doc/screenshotter/target
 *.charm
-
+*.DS_Store
