@@ -160,7 +160,7 @@ impl WidgetImpl for ListingWidgetImp {
                 (100, 200, -1, -1)
             },
             gtk::Orientation::Vertical => {
-                (600, 1200, -1, -1)
+                (200, 1200, -1, -1)
             },
             _ => (-1, -1, -1, -1)
         }

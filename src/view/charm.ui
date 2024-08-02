@@ -4,9 +4,11 @@
   <!-- interface-name charm.ui -->
   <requires lib="gtk" version="4.0"/>
   <object class="GtkApplicationWindow" id="toplevel">
-    <property name="height-request">800</property>
+    <property name="default-height">800</property>
+    <property name="default-width">800</property>
+    <property name="height-request">0</property>
     <property name="title">Charm</property>
-    <property name="width-request">800</property>
+    <property name="width-request">0</property>
     <child>
       <object class="GtkBox">
         <property name="orientation">vertical</property>
