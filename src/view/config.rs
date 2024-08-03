@@ -270,7 +270,7 @@ declare_config![Config {
     cursor_blink_period: f64 = 1.0,
 
     #[bind("font")]
-    monospace_font: Font = Font(pango::FontDescription::from_string("Monospace Regular 12")),
+    monospace_font: Font = Font(pango::FontDescription::from_string("Monospace Regular 14")),
 
     show_token_bounds: bool = false,
 
