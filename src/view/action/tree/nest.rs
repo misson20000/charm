@@ -38,10 +38,17 @@ pub fn add_action(window_context: &window::WindowContext) {
     let action = helpers::create_simple_action_strong(action_impl.clone(), "nest", |action| action.activate());
     action.set_enabled(action_impl.enabled());
     
-    action_impl.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action_impl), action_impl.selection_host.clone(), selection, clone!(@weak action => move |action_impl, selection| {
-        *action_impl.selection.borrow_mut() = (selection.clone(), selection.one_range_selected());
-        action.set_enabled(action_impl.enabled());
-    }))).unwrap();
+    action_impl.subscriber.set(
+        helpers::subscribe_to_updates(
+            rc::Rc::downgrade(&action_impl),
+            action_impl.selection_host.clone(),
+            selection,
+            clone!(#[weak] action, move |action_impl, selection| {
+                *action_impl.selection.borrow_mut() = (selection.clone(), selection.one_range_selected());
+                action.set_enabled(action_impl.enabled());
+            })
+        )
+    ).unwrap();
     
     window_context.action_group.add_action(&action);
 }

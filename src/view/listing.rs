@@ -366,7 +366,7 @@ impl ListingWidget {
 
         /* Register keybaord event controller */
         let ec_key = gtk::EventControllerKey::new();
-        ec_key.connect_key_pressed(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| catch_panic! {
+        ec_key.connect_key_pressed(clone!(#[weak(rename_to=lw)] self, #[upgrade_or] glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| catch_panic! {
             @default(glib::Propagation::Proceed);
             
             lw.imp().interior.get().unwrap().write().key_pressed(&lw, keyval, keycode, modifier)
@@ -375,7 +375,7 @@ impl ListingWidget {
 
         /* Register scroll event controller */
         let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        ec_scroll.connect_scroll(clone!(@weak self as lw => @default-return glib::Propagation::Proceed, move |_ecs, dx, dy| catch_panic! {
+        ec_scroll.connect_scroll(clone!(#[weak(rename_to=lw)] self, #[upgrade_or] glib::Propagation::Proceed, move |_ecs, dx, dy| catch_panic! {
             @default(glib::Propagation::Proceed);
             
             lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy)
@@ -384,17 +384,17 @@ impl ListingWidget {
         
         /* Register motion event controller for hovering */
         let ec_motion = gtk::EventControllerMotion::new();
-        ec_motion.connect_motion(clone!(@weak self as lw => move |_ecm, x, y| catch_panic! {
+        ec_motion.connect_motion(clone!(#[weak(rename_to=lw)] self, move |_ecm, x, y| catch_panic! {
             lw.imp().interior.get().unwrap().write().hover(&lw, Some((x, y)))
         }));
-        ec_motion.connect_leave(clone!(@weak self as lw => move |_ecm| catch_panic! {
+        ec_motion.connect_leave(clone!(#[weak(rename_to=lw)] self, move |_ecm| catch_panic! {
             lw.imp().interior.get().unwrap().write().hover(&lw, None)
         }));
         self.add_controller(ec_motion);
 
         /* Context menu */
         let ec_context_menu = gtk::GestureClick::new();
-        ec_context_menu.connect_pressed(clone!(@weak self as lw => move |gesture, _n_press, x, y| catch_panic! {
+        ec_context_menu.connect_pressed(clone!(#[weak(rename_to=lw)] self, move |gesture, _n_press, x, y| catch_panic! {
             let event = gesture.last_event(gesture.current_sequence().as_ref());
 
             if event.map(|ev| ev.triggers_context_menu()).unwrap_or(false) {
@@ -406,10 +406,10 @@ impl ListingWidget {
         
         /* Single click (grab focus & move cursor) */
         let ec_click = gtk::GestureClick::new();
-        ec_click.connect_pressed(clone!(@weak self as lw => move |_gesture, _n_press, _x, _y| catch_panic! {
+        ec_click.connect_pressed(clone!(#[weak(rename_to=lw)] self, move |_gesture, _n_press, _x, _y| catch_panic! {
             lw.grab_focus();
         }));
-        ec_click.connect_released(clone!(@weak self as lw => move |gesture, _n_press, x, y| catch_panic! {
+        ec_click.connect_released(clone!(#[weak(rename_to=lw)] self, move |gesture, _n_press, x, y| catch_panic! {
             lw.imp().interior.get().unwrap().write().move_cursor_to_coordinates(x, y);
             lw.queue_draw();
             gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -420,14 +420,14 @@ impl ListingWidget {
 
         /* Rubber-band selection */
         let ec_select = gtk::GestureDrag::new();
-        ec_select.connect_drag_begin(clone!(@weak self as lw => move |_ecs, x, y| catch_panic! {
+        ec_select.connect_drag_begin(clone!(#[weak(rename_to=lw)] self, move |_ecs, x, y| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_begin(&lw, x, y);
         }));
-        ec_select.connect_drag_update(clone!(@weak self as lw => move |ecs, dx, dy| catch_panic! {
+        ec_select.connect_drag_update(clone!(#[weak(rename_to=lw)] self, move |ecs, dx, dy| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_update(&lw, &ecs, dx, dy);
             ecs.set_state(gtk::EventSequenceState::Claimed);
         }));
-        ec_select.connect_drag_end(clone!(@weak self as lw => move |ecs, dx, dy| catch_panic! {
+        ec_select.connect_drag_end(clone!(#[weak(rename_to=lw)] self, move |ecs, dx, dy| catch_panic! {
             lw.imp().interior.get().unwrap().write().drag_end(&lw, &ecs, dx, dy);
         }));
         ec_select.set_button(1);

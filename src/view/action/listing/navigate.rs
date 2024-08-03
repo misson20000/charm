@@ -70,15 +70,15 @@ pub fn add_action(window_context: &window::WindowContext) {
 
     list.set_model(Some(&action.model));
     list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("navigate-item.ui")))));
-    list.connect_activate(clone!(@weak action => move |_, position| catch_panic! {
+    list.connect_activate(clone!(#[weak] action, move |_, position| catch_panic! {
         action.do_navigate(action.model.item(position));
     }));
     
-    action.entry.connect_changed(clone!(@weak action => move |_| catch_panic! {
+    action.entry.connect_changed(clone!(#[weak] action, move |_| catch_panic! {
         action.refresh_results(None, false);
     }));
 
-    action.entry.connect_activate(clone!(@weak action => move |_| catch_panic! {
+    action.entry.connect_activate(clone!(#[weak] action, move |_| catch_panic! {
         action.do_navigate(action.model.item(0));
     }));
 

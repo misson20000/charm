@@ -40,7 +40,7 @@ pub fn add_actions(window: &rc::Rc<window::CharmWindow>) {
         dialog: create_dialog(window.window.upcast_ref()),
     });
     
-    action.dialog.connect_response(clone!(@weak action => move |_dialog, response_type| catch_panic! {
+    action.dialog.connect_response(clone!(#[weak] action, move |_dialog, response_type| catch_panic! {
         action.respond(response_type);
     }));
     

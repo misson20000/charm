@@ -26,7 +26,7 @@ pub fn create_simple_action<T, F>(obj: &rc::Rc<T>, id: &str, cb: F) -> gio::Simp
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
     let action = gio::SimpleAction::new(id, None);
-    action.connect_activate(clone!(@weak obj => move |_, _| catch_panic! {
+    action.connect_activate(clone!(#[weak] obj, move |_, _| catch_panic! {
         cb(obj)
     }));
     action.set_enabled(true);
@@ -47,7 +47,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
     let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
-    action.connect_change_state(clone!(@weak obj => move |action, state| catch_panic! {
+    action.connect_change_state(clone!(#[weak] obj, move |action, state| catch_panic! {
         cb(action, obj, state.and_then(|var| S::from_variant(var)))
     }));
     action.set_enabled(true);

@@ -402,14 +402,14 @@ impl Item for Color {
         light_button.set_show_editor(true);
         dark_button.set_show_editor(true);
         
-        light_button.connect_rgba_notify(clone!(@weak dark_button, @strong changer => move |lb| {
+        light_button.connect_rgba_notify(clone!(#[weak] dark_button, #[strong] changer, move |lb| {
             changer(Color {
                 light: lb.rgba(),
                 dark: dark_button.rgba()
             });
         }));
         
-        dark_button.connect_rgba_notify(clone!(@weak light_button => move |db| {
+        dark_button.connect_rgba_notify(clone!(#[weak] light_button, move |db| {
             changer(Color {
                 light: light_button.rgba(),
                 dark: db.rgba()

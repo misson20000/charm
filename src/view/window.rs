@@ -246,7 +246,7 @@ impl CharmWindow {
 
         w.props_editor.bind_window(&w);
 
-        w.window.connect_close_request(clone!(@strong w => move |_| catch_panic! {
+        w.window.connect_close_request(clone!(#[strong] w, move |_| catch_panic! {
             @default(glib::Propagation::Proceed);
 
             if let Some(context) = w.context.borrow().as_ref() {
@@ -261,17 +261,17 @@ impl CharmWindow {
                         .modal(true)
                         .build();
 
-                    helpers::bind_simple_action(&w, &dialog, "exit", clone!(@strong dialog => move |w| catch_panic! {
+                    helpers::bind_simple_action(&w, &dialog, "exit", clone!(#[strong] dialog, move |w| catch_panic! {
                         dialog.destroy();
                         w.close_window();
                         w.window.destroy();
                     }));
 
-                    helpers::bind_simple_action(&w, &dialog, "cancel", clone!(@strong dialog => move |_| catch_panic! {
+                    helpers::bind_simple_action(&w, &dialog, "cancel", clone!(#[strong] dialog, move |_| catch_panic! {
                         dialog.destroy();
                     }));
 
-                    helpers::bind_simple_action(&w, &dialog, "save", clone!(@strong dialog => move |w| catch_panic! {
+                    helpers::bind_simple_action(&w, &dialog, "save", clone!(#[strong] dialog, move |w| catch_panic! {
                         dialog.destroy();
                         w.window.lookup_action("save_project").expect("Expected save_project action to have been registered").activate(None);
                         w.close_window();
@@ -288,7 +288,7 @@ impl CharmWindow {
             glib::Propagation::Proceed
         }));
 
-        w.hierarchy_editor.connect_activate(clone!(@weak w => move |he, pos| catch_panic! {
+        w.hierarchy_editor.connect_activate(clone!(#[weak] w, move |he, pos| catch_panic! {
             let guard = w.context.borrow();
             let Some(ctx) = guard.as_ref() else { return };
             let Some(model) = he.model() else { return };
@@ -416,7 +416,7 @@ impl WindowContext {
             sync::Arc::downgrade(&tree_selection_host),
             document_host.clone(),
             document.clone(),
-            clone!(@weak window => move |tree_selection_host, new_document| {
+            clone!(#[weak] window, move |tree_selection_host, new_document| {
                 let _circumstances = crashreport::circumstances([
                     crashreport::Circumstance::InWindow(window.id),
                     crashreport::Circumstance::TreeSelectionUpdate(tree_selection_host.clone(), new_document.clone()),
@@ -444,7 +444,7 @@ impl WindowContext {
             sync::Arc::downgrade(&listing_selection_host),
             document_host.clone(),
             document.clone(),
-            clone!(@weak window => move |listing_selection_host, new_document| {
+            clone!(#[weak] window, move |listing_selection_host, new_document| {
                 let _circumstances = crashreport::circumstances([
                     crashreport::Circumstance::InWindow(window.id),
                     crashreport::Circumstance::ListingSelectionUpdate(listing_selection_host.clone(), new_document.clone()),
@@ -477,7 +477,7 @@ impl WindowContext {
             rc::Rc::downgrade(window),
             document_host.clone(),
             document.clone(),
-            clone!(@strong project => move |w, _| {
+            clone!(#[strong] project, move |w, _| {
                 w.update_title(Some(&project));
             }));
         

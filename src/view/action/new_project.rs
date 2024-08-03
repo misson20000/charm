@@ -37,7 +37,7 @@ pub fn add_actions(window: &rc::Rc<window::CharmWindow>) {
         file_chooser: dialog
     });
 
-    action.file_chooser.connect_response(clone!(@weak action => move |_dialog, response_type| catch_panic! {
+    action.file_chooser.connect_response(clone!(#[weak] action, move |_dialog, response_type| catch_panic! {
         action.file_chooser_response(response_type);
     }));
 

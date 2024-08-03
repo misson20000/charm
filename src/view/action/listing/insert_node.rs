@@ -103,7 +103,7 @@ impl InsertNodeAction {
             action.deactivate();
         });
 
-        dialog.connect_close_request(clone!(@weak action => @default-return glib::Propagation::Proceed, move |_| {
+        dialog.connect_close_request(clone!(#[weak] action, #[upgrade_or] glib::Propagation::Proceed, move |_| {
             catch_panic! {
                 action.deactivate();
             };

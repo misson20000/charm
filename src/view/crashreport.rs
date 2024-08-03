@@ -224,7 +224,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
         documents.set_factory(Some(&lif));
 
         let reopen_action = gio::SimpleAction::new("reopen", None);
-        reopen_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
+        reopen_action.connect_activate(clone!(#[strong] dialog, #[strong] store, move |_, _| {
             /* FFI CALLBACK: already panicking, just double-abort */
             for obj in &store {
                 let Ok(obj) = obj else { continue };
@@ -243,7 +243,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
         dialog.add_action(&reopen_action);
 
         let select_all_action = gio::SimpleAction::new("select_all", None);
-        select_all_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
+        select_all_action.connect_activate(clone!(#[strong] store, move |_, _| {
             /* FFI CALLBACK: already panicking, just double-abort */
             for obj in &store {
                 let Ok(obj) = obj else { continue };
@@ -253,7 +253,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
         dialog.add_action(&select_all_action);
 
         let deselect_all_action = gio::SimpleAction::new("deselect_all", None);
-        deselect_all_action.connect_activate(clone!(@strong dialog, @strong store => move |_, _| {
+        deselect_all_action.connect_activate(clone!(#[strong] store, move |_, _| {
             /* FFI CALLBACK: already panicking, just double-abort */
             for obj in &store {
                 let Ok(obj) = obj else { continue };
@@ -406,7 +406,7 @@ impl CharmRecoverableDocument {
 
         file_chooser_dialog.show();
 
-        file_chooser_dialog.connect_response(clone!(@strong self as rd, @strong crash_dialog => move |dialog, response_type| {
+        file_chooser_dialog.connect_response(clone!(#[strong(rename_to=rd)] self, #[strong] crash_dialog, move |dialog, response_type| {
             *rd.imp().file_chooser_dialog.borrow_mut() = None;
             dialog.destroy();
             

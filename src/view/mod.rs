@@ -149,7 +149,7 @@ impl CharmApplication {
         /* setup signals */
         
         /* startup */
-        application.connect_startup(clone!(@strong app_model_for_closures => move |app| catch_panic! {        
+        application.connect_startup(clone!(#[strong] app_model_for_closures, move |app| catch_panic! {        
             // TODO: figure out gtk4 icon hellscape
             let charm = CharmApplication::new(app.clone());
             
@@ -161,12 +161,12 @@ impl CharmApplication {
         }));
 
         /* activate */
-        application.connect_activate(clone!(@strong app_model_for_closures, @strong activate => move |_app| catch_panic! {
+        application.connect_activate(clone!(#[strong] app_model_for_closures, #[strong] activate, move |_app| catch_panic! {
             activate(app_model_for_closures.get().unwrap());
         }));
 
         /* open */
-        application.connect_open(clone!(@strong app_model_for_closures => move |_app, files, _hint| catch_panic! {
+        application.connect_open(clone!(#[strong] app_model_for_closures, move |_app, files, _hint| catch_panic! {
             for file in files {
                 let w = app_model_for_closures.get().unwrap().new_window();
                 w.present();
