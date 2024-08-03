@@ -33,9 +33,6 @@ pub struct CharmWindow {
     breadcrumbs: gtk::ListView,
     datapath_editor: gtk::TreeView,
     hierarchy_editor: gtk::ColumnView,
-    config_editor: gtk::ListBox,
-    datapath_editor_frame: gtk::Frame,
-    config_editor_frame: gtk::Frame,
     pub props_editor: rc::Rc<props_editor::PropsEditor>,
 
     debug_revert_menu: gio::Menu,
@@ -125,7 +122,6 @@ impl CharmWindow {
             {
                 let view_menu = gio::Menu::new();
                 view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
-                view_menu.append(Some("Internal Configuration Editor"), Some("win.view.config_editor"));
                 view_menu.freeze();
                 menu_bar.append_submenu(Some("View"), &view_menu);
             }
@@ -230,13 +226,9 @@ impl CharmWindow {
             hierarchy_editor.add_controller(gesture);
         }
         
-        let config_editor = view::config_editor::build_config_editor(view::config::INSTANCE.clone());
-        let config_editor_frame: gtk::Frame = builder.object("config_editor_frame").unwrap();
-        config_editor_frame.set_child(Some(&config_editor));
-
-        let props_editor_frame: gtk::Frame = builder.object("props_editor_frame").unwrap();
+        let hierarchy_box: gtk::Box = builder.object("hierarchy_box").unwrap();
         let props_editor = props_editor::PropsEditor::new();
-        props_editor_frame.set_child(Some(props_editor.toplevel()));
+        hierarchy_box.append(props_editor.toplevel());
         
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
@@ -246,9 +238,6 @@ impl CharmWindow {
             breadcrumbs: builder.object("breadcrumbs").unwrap(),
             datapath_editor,
             hierarchy_editor,
-            config_editor,
-            datapath_editor_frame: builder.object("datapath_editor_frame").unwrap(),
-            config_editor_frame,
             props_editor,
             debug_revert_menu,
             context: cell::RefCell::new(None),
@@ -321,23 +310,15 @@ impl CharmWindow {
     
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
-                w.datapath_editor_frame.set_visible(vis);
+                w.datapath_editor.set_visible(vis);
                 act.set_state(&vis.to_variant());
             }
         });
         
-        helpers::bind_stateful_action(&w, &w.window, "view.config_editor", false, |act, w, state| {
-            if let Some(vis) = state {
-                w.config_editor_frame.set_visible(vis);
-                act.set_state(&vis.to_variant());
-            }
-        });
-
         w
     }
     
     pub fn present(&self) {
-        self.config_editor_frame.hide();
         self.window.present();
     }
 

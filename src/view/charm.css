@@ -12,3 +12,7 @@ button.breadcrumb {
 .breadcrumbs {
 	box-shadow: inset 0px 0px 3px #00000088;
 }
+
+.datapath {
+    padding: 5px;
+}

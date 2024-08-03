@@ -26,7 +26,7 @@ use std::rc;
 use crate::catch_panic;
 
 pub struct CharmApplication {
-    pub application: gtk::Application,
+    pub application: adw::Application,
     rt: tokio::runtime::Runtime,
 
     about_dialog: gtk::AboutDialog,
@@ -34,7 +34,7 @@ pub struct CharmApplication {
 }
 
 impl CharmApplication {
-    fn new(application: gtk::Application) -> rc::Rc<CharmApplication> {
+    fn new(application: adw::Application) -> rc::Rc<CharmApplication> {
         let app = rc::Rc::new(CharmApplication {
             application,
             rt: tokio::runtime::Builder::new_multi_thread()
@@ -73,7 +73,7 @@ impl CharmApplication {
 
         /* css */
         let css = gtk::CssProvider::new();
-        css.load_from_data(include_str!("breadcrumbs.css"));
+        css.load_from_data(include_str!("charm.css"));
         gtk::style_context_add_provider_for_display(&gtk::gdk::Display::default().expect("there should be a GDK display"), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         
         app
@@ -123,7 +123,7 @@ impl CharmApplication {
         let activate = rc::Rc::new(activate);
         
         let application =
-            gtk::Application::new(
+            adw::Application::new(
                 Some("net.xenotoad.charm"),
                 flags);
 
