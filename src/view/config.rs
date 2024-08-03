@@ -240,6 +240,7 @@ declare_config![Config {
     
     padding: f64 = 15.0, /* pixels */
 
+    #[bind("indentation-width")]
     indentation_width: f32 = 2.0, /* characters */
 
     #[bind("color-background")]
@@ -512,8 +513,11 @@ impl Item for Font {
     fn bind<F: Fn(Self) + 'static>(builder: &gtk::Builder, id: &str, changer: F) -> Self::Binding {
         let button = builder.object::<gtk::FontButton>(id).unwrap();
 
-        button.set_filter_func(|family, _face| {
-            family.is_monospace()
+        button.set_filter_func(|family, face| {
+            let desc = face.describe();
+            desc.style() == pango::Style::Normal &&
+                desc.weight() == pango::Weight::Normal &&
+                family.is_monospace()
         });
         
         button.connect_font_set(move |b| {
@@ -557,5 +561,23 @@ impl Item for bool {
 
     fn update_binding(&self, binding: &Self::Binding) {
         binding.set_state(*self)
+    }
+}
+
+impl Item for f32 {
+    type Binding = gtk::Adjustment;
+    
+    fn bind<F: Fn(Self) + Clone + 'static>(builder: &gtk::Builder, id: &str, changer: F) -> Self::Binding {
+        let adj = builder.object::<gtk::Adjustment>(id).unwrap();
+
+        adj.connect_value_changed(move |adj| {
+            changer(adj.value() as f32);
+        });
+                                         
+        adj
+    }
+
+    fn update_binding(&self, binding: &Self::Binding) {
+        binding.set_value(*self as f64)
     }
 }

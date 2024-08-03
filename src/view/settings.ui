@@ -12,6 +12,7 @@
     </child>
     <child>
       <object class="GtkStack" id="stack">
+        <property name="vexpand">True</property>
         <child>
           <object class="GtkStackPage">
             <property name="child">
@@ -189,6 +190,14 @@
                 </child>
                 <child>
                   <object class="GtkSpinButton">
+                    <property name="adjustment">
+                      <object class="GtkAdjustment" id="indentation-width">
+                        <property name="page-increment">1.0</property>
+                        <property name="step-increment">1.0</property>
+                        <property name="upper">16.0</property>
+                        <property name="value">2.0</property>
+                      </object>
+                    </property>
                     <property name="halign">start</property>
                     <property name="hexpand">True</property>
                     <layout>

@@ -153,7 +153,8 @@
 	(11,38,"GtkColorButton","color-cursor-background-dark",7,None,None,None,22,None,None),
 	(11,39,"GtkBox",None,7,None,None,None,None,None,None),
 	(11,40,"GtkLabel",None,39,None,None,None,None,None,None),
-	(11,41,"GtkSwitch","dark-mode",39,None,None,None,1,None,None)
+	(11,41,"GtkSwitch","dark-mode",39,None,None,None,1,None,None),
+	(11,42,"GtkAdjustment","indentation-width",11,None,None,None,-1,None,None)
   </object>
   <object_property>
 	(2,20,"GtkGrid","column-spacing","30",None,None,None,None,None,None,None,None,None),
@@ -404,6 +405,7 @@
 	(11,1,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
 	(11,1,"GtkWidget","height-request","0",None,None,None,None,None,None,None,None,None),
 	(11,2,"GtkStackSwitcher","stack","3",None,None,None,None,None,None,None,None,None),
+	(11,3,"GtkWidget","vexpand","True",None,None,None,None,None,None,None,None,None),
 	(11,4,"GtkStackPage","child",None,None,None,None,None,7,None,None,None,None),
 	(11,4,"GtkStackPage","title","Style",None,None,None,None,None,None,None,None,None),
 	(11,5,"GtkStackPage","title","Scrolling",None,None,None,None,None,None,None,None,None),
@@ -422,6 +424,7 @@
 	(11,9,"GtkWidget","hexpand","True",None,None,None,None,None,None,None,None,None),
 	(11,10,"GtkLabel","label","Indentation Width",None,None,None,None,None,None,None,None,None),
 	(11,10,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None),
+	(11,11,"GtkSpinButton","adjustment",None,None,None,None,None,42,None,None,None,None),
 	(11,11,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None),
 	(11,11,"GtkWidget","hexpand","True",None,None,None,None,None,None,None,None,None),
 	(11,12,"GtkWidget","valign","start",None,None,None,None,None,None,None,None,None),
@@ -449,7 +452,11 @@
 	(11,39,"GtkWidget","halign","center",None,None,None,None,None,None,None,None,None),
 	(11,39,"GtkWidget","margin-bottom","10",None,None,None,None,None,None,None,None,None),
 	(11,39,"GtkWidget","margin-top","10",None,None,None,None,None,None,None,None,None),
-	(11,40,"GtkLabel","label","Dark Mode",None,None,None,None,None,None,None,None,None)
+	(11,40,"GtkLabel","label","Dark Mode",None,None,None,None,None,None,None,None,None),
+	(11,42,"GtkAdjustment","page-increment","1.0",None,None,None,None,None,None,None,None,None),
+	(11,42,"GtkAdjustment","step-increment","1.0",None,None,None,None,None,None,None,None,None),
+	(11,42,"GtkAdjustment","upper","16.0",None,None,None,None,None,None,None,None,None),
+	(11,42,"GtkAdjustment","value","2.0",None,None,None,None,None,None,None,None,None)
   </object_property>
   <object_layout_property>
 	(2,20,21,"GtkGridLayoutChild","column","0",None,None,None,None),
