@@ -15,8 +15,8 @@ pub struct Scroller {
     ev_work: facet::Event,
     ev_repick: facet::Event,
 
-    position: f64,
-    velocity: f64,
+    pub position: f64,
+    pub velocity: f64,
     bonked_top: bool,
     bonked_bottom: bool,
     cursor_spring: bool,
@@ -54,55 +54,95 @@ impl Scroller {
         self.config.lookahead
     }
     
-    pub fn scroll_wheel_impulse(&mut self, delta: f64) {
-        self.velocity+= delta * self.config.scroll_wheel_impulse;
-        self.bonked_top = false;
-        self.bonked_bottom = false;
+    pub fn scroll_wheel_impulse(&mut self, delta: f64, kinetic_allowed: bool) {
+        if delta < 0.0 && self.bonked_top {
+            return;
+        }
+
+        if delta > 0.0 && self.bonked_bottom {
+            return;
+        }
+        
+        if kinetic_allowed && self.config.scroll_enable_kinetic {
+            self.velocity+= delta * self.config.scroll_wheel_impulse;
+        } else {
+            self.position+= delta * 3.0;
+        }
+
+        if delta > 0.0 {
+            self.bonked_top = false;
+        }
+
+        if delta < 0.0 {
+            self.bonked_bottom = false;
+        }
+
+        self.ev_draw.want();
+    }
+
+    pub fn scroll_decelerate(&mut self, velocity: f64) {
+        if velocity < 0.0 && self.bonked_top {
+            return;
+        }
+
+        if velocity > 0.0 && self.bonked_bottom {
+            return;
+        }
+        
+        self.velocity = velocity * 1000.0;
+
+        if self.velocity > 0.0 {
+            self.bonked_top = false;
+        }
+
+        if self.velocity < 0.0 {
+            self.bonked_bottom = false;
+        }
 
         self.ev_draw.want();
     }
 
     pub fn animate(&mut self, window: &mut Window, cursor_view: &facet::cursor::CursorView, delta: f64) {
-        {
-            /* try to scroll listing engine, setting bonk flags if necessary */
+        /* try to scroll listing engine, setting bonk flags if necessary */
 
-            if self.position > (self.config.lookahead as f64) {
-                let mut amt = self.position as usize - self.config.lookahead;
-                
-                while amt > 0 {
-                    if window.scroll_down() {
-                        self.position-= 1.0;
-                        amt-= 1;
-                        
-                        /* request work on behalf of the new lines that need to load their content. */
-                        self.ev_work.want();
-                    } else {
-                        /* we are now bonked on the bottom... */
-                        if self.velocity > 0.0 {
-                            self.bonked_bottom = true;
-                        }
-                        break;
+        let bottom_pos = 2.0 * self.config.lookahead as f64 + self.config.page_navigation_leadup as f64;
+        
+        if self.position > (self.config.lookahead as f64) {
+            let mut amt = self.position as usize - self.config.lookahead;
+            
+            while amt > 0 {
+                if window.scroll_down() {
+                    self.position-= 1.0;
+                    amt-= 1;
+                    
+                    /* request work on behalf of the new lines that need to load their content. */
+                    self.ev_work.want();
+                } else {
+                    /* we are now bonked on the bottom... */
+                    if self.velocity > -0.005 && self.position > bottom_pos + 0.005 {
+                        self.bonked_bottom = true;
                     }
+                    break;
                 }
             }
-            
-            if self.position < (self.config.lookahead as f64) {
-                let mut amt = ((self.config.lookahead as f64) - self.position) as usize;
+        }
+        
+        if self.position < (self.config.lookahead as f64) {
+            let mut amt = ((self.config.lookahead as f64) - self.position) as usize;
 
-                while amt > 0 {
-                    if window.scroll_up() {
-                        self.position+= 1.0;
-                        amt-= 1;
+            while amt > 0 {
+                if window.scroll_up() {
+                    self.position+= 1.0;
+                    amt-= 1;
 
-                        /* request work on behalf of the new lines that need to load their content. */
-                        self.ev_work.want();
-                    } else {
-                        /* we are now bonked on the top... */
-                        if self.velocity < 0.0 && self.position < 1.0 {
-                            self.bonked_top = true;
-                        }
-                        break;
+                    /* request work on behalf of the new lines that need to load their content. */
+                    self.ev_work.want();
+                } else {
+                    /* we are now bonked on the top... */
+                    if self.velocity < 0.005 && self.position < -0.005 {
+                        self.bonked_top = true;
                     }
+                    break;
                 }
             }
         }
@@ -111,9 +151,21 @@ impl Scroller {
         if self.bonked_top {
             self.velocity-= self.position * self.config.scroll_spring * delta;
             self.velocity-= self.velocity * self.config.scroll_spring_damping * delta;
+
+            if self.position < 0.01 && self.position > -0.01 && self.velocity < 0.5 && self.velocity > -0.5 {
+                self.velocity = 0.0;
+                self.position = 0.0;
+                self.bonked_top = false;
+            }
         } else if self.bonked_bottom {
-            self.velocity-= (self.position - self.config.lookahead as f64 * 2.0 - self.config.page_navigation_leadup as f64) * self.config.scroll_spring * delta;
+            self.velocity-= (self.position - bottom_pos) * self.config.scroll_spring * delta;
             self.velocity-= self.velocity * self.config.scroll_spring_damping * delta;
+
+            if self.velocity < 0.5 && self.velocity > -0.5 && self.position < bottom_pos+0.01 && self.position > bottom_pos-0.05 {
+                self.velocity = 0.0;
+                self.position = bottom_pos;
+                self.bonked_bottom = false;
+            }
         } else {
             /* apply constant deceleration */
             if self.velocity > 0.0 {

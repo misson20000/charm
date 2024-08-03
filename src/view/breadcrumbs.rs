@@ -141,20 +141,22 @@ impl CharmBreadcrumbWidget {
 
     pub fn list_item_factory(lw: listing::ListingWidget) -> gtk::SignalListItemFactory {
         let slif = gtk::SignalListItemFactory::new();
-        slif.connect_setup(move |_, obj| {
+        slif.connect_setup(move |_, obj| catch_panic! {
+            let obj = obj.downcast_ref::<gtk::ListItem>().unwrap();
             let lw = lw.clone();
-            catch_panic! {
-                obj.set_child(Some(&Self::new(lw)));
-            }
+            obj.set_child(Some(&Self::new(lw)));
             obj.set_activatable(false);
         });
         slif.connect_bind(|_, obj| catch_panic! {
+            let obj = obj.downcast_ref::<gtk::ListItem>().unwrap();
             obj.child().unwrap().downcast::<Self>().unwrap().bind(Some(obj.item().unwrap().downcast::<CharmBreadcrumb>().unwrap()));
         });
         slif.connect_unbind(|_, obj| catch_panic! {
+            let obj = obj.downcast_ref::<gtk::ListItem>().unwrap();
             obj.child().unwrap().downcast::<Self>().unwrap().bind(None);
         });
         slif.connect_teardown(|_, obj| catch_panic! {
+            let obj = obj.downcast_ref::<gtk::ListItem>().unwrap();
             obj.set_child(gtk::Widget::NONE);
         });        
         slif

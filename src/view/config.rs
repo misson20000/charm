@@ -224,9 +224,16 @@ declare_config![Config {
     file_access_delay: u64 = 0, /* milliseconds */
     
     lookahead: usize = 20, /* lines */
+
+    #[bind("scroll-enable-kinetic")]
+    scroll_enable_kinetic: bool = true,
+    
+    #[bind("scroll-wheel-impulse")]
     scroll_wheel_impulse: f64 = 60.0, /* lines/second */
 
+    #[bind("scroll-deceleration")]
     scroll_deceleration: f64 = 400.0, /* lines/second^2 */
+    
     scroll_spring: f64 = 240.0, /* 1/second^2 */
     scroll_spring_damping: f64 = 17.0, /* viscous damping coefficient */
     
@@ -560,7 +567,8 @@ impl Item for bool {
     }
 
     fn update_binding(&self, binding: &Self::Binding) {
-        binding.set_state(*self)
+        binding.set_state(*self);
+        binding.set_active(*self);
     }
 }
 
@@ -579,5 +587,23 @@ impl Item for f32 {
 
     fn update_binding(&self, binding: &Self::Binding) {
         binding.set_value(*self as f64)
+    }
+}
+
+impl Item for f64 {
+    type Binding = gtk::Adjustment;
+    
+    fn bind<F: Fn(Self) + Clone + 'static>(builder: &gtk::Builder, id: &str, changer: F) -> Self::Binding {
+        let adj = builder.object::<gtk::Adjustment>(id).unwrap();
+
+        adj.connect_value_changed(move |adj| {
+            changer(adj.value());
+        });
+                                         
+        adj
+    }
+
+    fn update_binding(&self, binding: &Self::Binding) {
+        binding.set_value(*self)
     }
 }

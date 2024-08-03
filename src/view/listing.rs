@@ -220,12 +220,12 @@ impl WidgetImpl for ListingWidgetImp {
                 snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
             }
             snapshot.restore();
-
+            
             snapshot.pop();
         }
     }
 }
-
+    
 impl ListingWidgetImp {
     fn init(&self, interior: sync::Arc<parking_lot::RwLock<Interior>>) {
         if self.interior.set(interior).is_err() {
@@ -374,11 +374,24 @@ impl ListingWidget {
         self.add_controller(ec_key);
 
         /* Register scroll event controller */
-        let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        ec_scroll.connect_scroll(clone!(#[weak(rename_to=lw)] self, #[upgrade_or] glib::Propagation::Proceed, move |_ecs, dx, dy| catch_panic! {
+        let ec_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::KINETIC);
+        ec_scroll.connect_scroll(clone!(#[weak(rename_to=lw)] self, #[upgrade_or] glib::Propagation::Proceed, move |ecs, dx, dy| catch_panic! {
             @default(glib::Propagation::Proceed);
+
+            let source = ecs.current_event_device().map(|device| device.source());
+
+            let kinetic_allowed = match source {
+                /* scroll wheels are allowed to use kinetic scrolling */
+                Some(gdk::InputSource::Mouse) => true,
+
+                /* trackpads, trackpoints, touch screens, etc. should never use kinetic acceleration */
+                _ => false,
+            };
             
-            lw.imp().interior.get().unwrap().write().scroll(&lw, dx, dy)
+            lw.imp().interior.get().unwrap().write().scroll(&lw, ecs.unit(), dx, dy, kinetic_allowed)
+        }));
+        ec_scroll.connect_decelerate(clone!(#[weak(rename_to=lw)] self, move |ecs, vx, vy| catch_panic! {
+            lw.imp().interior.get().unwrap().write().scroll_decelerate(&lw, ecs.unit(), vx, vy);
         }));
         self.add_controller(ec_scroll);
         
@@ -638,7 +651,7 @@ impl Interior {
         //let line_count = height.div_ceil(line_height) as usize;
         let line_count = (((height * pango::SCALE) + line_height - 1) / line_height) as usize;
 
-        self.window.resize(line_count + 2 + (2 * self.scroll.get_lookahead()));
+        self.window.resize(line_count + (2 * self.scroll.get_lookahead()));
         self.update_breadcrumbs();
         self.request_work();
     }
@@ -766,12 +779,18 @@ impl Interior {
         r
     }
 
-    fn scroll(&mut self, widget: &ListingWidget, _dx: f64, dy: f64) -> glib::Propagation {
+    fn scroll(&mut self, widget: &ListingWidget, unit: gdk::ScrollUnit, _dx: f64, dy: f64, kinetic_allowed: bool) -> glib::Propagation {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
 
-        self.scroll.scroll_wheel_impulse(dy);
+        let divisor = match unit {
+            gdk::ScrollUnit::Wheel => 1.0,
+            gdk::ScrollUnit::Surface => helpers::pango_unscale(self.render.metrics.height()) as f64,
+            _ => 1.0,
+        };
+        
+        self.scroll.scroll_wheel_impulse(dy / divisor, kinetic_allowed);
 
         self.collect_events(widget);
 
@@ -780,6 +799,25 @@ impl Interior {
         glib::Propagation::Stop
     }
 
+    fn scroll_decelerate(&mut self, widget: &ListingWidget, unit: gdk::ScrollUnit, _vx: f64, vy: f64) {
+        let _circumstances = crashreport::circumstances([
+            crashreport::Circumstance::InWindow(self.charm_window_id),
+        ]);
+
+        let divisor = match unit {
+            gdk::ScrollUnit::Wheel => 1.0,
+            gdk::ScrollUnit::Surface => helpers::pango_unscale(self.render.metrics.height()) as f64,
+            _ => 1.0,
+        };
+
+        /* gtk reports velocity in pixels/ms, we expect "units"/second */
+        self.scroll.scroll_decelerate(vy / divisor / 1000.0);
+
+        self.collect_events(widget);
+
+        self.update_breadcrumbs();
+    }
+    
     fn update_breadcrumbs(&self) {
         let mut tok = None;
         
