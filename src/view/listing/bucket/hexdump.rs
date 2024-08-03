@@ -172,7 +172,7 @@ impl bucket::Bucket for HexdumpBucket {
             let column = self.each_part(|column, part| { match part {
                 Part::Gap { width, begin, end } => if begin.map_or(false, |(o, _)| selection.includes(o)) && selection.includes(end.0) {
                     /* Draw gaps that are selected. */
-                    ctx.snapshot.append_color(&ctx.render.config.selection_color, &graphene::Rect::new(
+                    ctx.snapshot.append_color(ctx.render.config.selection_color.rgba(), &graphene::Rect::new(
                         x + space_x + space_width * column as f32,
                         lh + space_y,
                         space_width * width as f32,
@@ -194,10 +194,10 @@ impl bucket::Bucket for HexdumpBucket {
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
-                        ctx.render.gsc_mono.begin(digit, &ctx.render.config.text_color, &mut octet_point)
-                            .selected(selected, &ctx.render.config.selection_color)
-                            .cursor(has_cursor, ctx.cursor, &ctx.render.config.cursor_fg_color, &ctx.render.config.cursor_bg_color)
-                            .placeholder(pending, &ctx.render.config.placeholder_color)
+                        ctx.render.gsc_mono.begin(digit, ctx.render.config.text_color.rgba(), &mut octet_point)
+                            .selected(selected, ctx.render.config.selection_color.rgba())
+                            .cursor(has_cursor, ctx.cursor, ctx.render.config.cursor_fg_color.rgba(), ctx.render.config.cursor_bg_color.rgba())
+                            .placeholder(pending, ctx.render.config.placeholder_color.rgba())
                             .render(ctx.snapshot);
                     }
                 }
@@ -235,9 +235,9 @@ impl bucket::Bucket for HexdumpBucket {
 
                             let mut char_point = graphene::Point::new(x + space_width * i as f32, lh);
                         
-                            ctx.render.gsc_mono.begin(digit, &ctx.render.config.text_color, &mut char_point)
-                                .selected(selected, &ctx.render.config.selection_color)
-                                .placeholder(pending, &ctx.render.config.placeholder_color)
+                            ctx.render.gsc_mono.begin(digit, ctx.render.config.text_color.rgba(), &mut char_point)
+                                .selected(selected, ctx.render.config.selection_color.rgba())
+                                .placeholder(pending, ctx.render.config.placeholder_color.rgba())
                                 .render(ctx.snapshot);
                         }
                     }

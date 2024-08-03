@@ -11,7 +11,6 @@ pub mod helpers;
 pub mod gsc;
 
 pub mod breadcrumbs;
-pub mod config_editor;
 pub mod crashreport;
 pub mod datapath;
 pub mod hierarchy;
@@ -30,19 +29,21 @@ pub struct CharmApplication {
     rt: tokio::runtime::Runtime,
 
     about_dialog: gtk::AboutDialog,
+    settings_dialog: gtk::Window,
     windows: cell::RefCell<Vec<rc::Weak<window::CharmWindow>>>,
 }
 
 impl CharmApplication {
     fn new(application: adw::Application) -> rc::Rc<CharmApplication> {
         let app = rc::Rc::new(CharmApplication {
-            application,
             rt: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build().unwrap(),
 
             about_dialog: Self::create_about_dialog(),
+            settings_dialog: Self::create_settings_dialog(),
             windows: Default::default(),
+            application,
         });
 
         /* application actions */
@@ -63,7 +64,7 @@ impl CharmApplication {
             let _circumstances = crashreport::circumstances([crashreport::Circumstance::InvokingTestCrashAction]);
             panic!("Test crash caused by debug action.");
         });
-
+        
         /* accelerators */
         app.application.set_accels_for_action("app.new_window", &["<Ctrl>N"]);
         app.application.set_accels_for_action("win.open", &["<Ctrl>O"]);
@@ -115,6 +116,20 @@ impl CharmApplication {
         about_dialog
     }
 
+    fn create_settings_dialog() -> gtk::Window {
+        let builder = gtk::Builder::from_string(include_str!("settings.ui"));
+
+        std::mem::forget(config::Config::bind(&builder, config::INSTANCE.clone()));
+        
+        let settings_dialog = gtk::Window::builder()
+            .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
+            .title("Settings")
+            .hide_on_close(true)
+            .build();
+
+        settings_dialog
+    }
+    
     pub fn launch<F: Fn(&rc::Rc<CharmApplication>) + 'static>(flags: gio::ApplicationFlags, activate: F) {
         /* we defer initializing CharmApplication until the startup signal */
         let app_model_for_closures: rc::Rc<once_cell::unsync::OnceCell<rc::Rc<CharmApplication>>> =

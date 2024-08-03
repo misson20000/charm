@@ -210,7 +210,7 @@ impl Line {
         /* draw address into address pane */
         if let Some(addr) = self.ty.visible_address() {
             let mut pos = graphene::Point::new(render.addr_pane_width - render.config.padding as f32, helpers::pango_unscale(render.metrics.height()));
-            gsc::begin_text(&render.pango, &render.font_mono, &render.config.addr_color, &format!("{}", addr), &mut pos).render_right_aligned(&snapshot);
+            gsc::begin_text(&render.pango, &render.font_mono, render.config.addr_color.rgba(), &format!("{}", addr), &mut pos).render_right_aligned(&snapshot);
         }
 
         /* create structs for bucket render implementations to use */

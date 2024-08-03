@@ -204,10 +204,10 @@ impl WidgetImpl for ListingWidgetImp {
             snapshot.push_clip(&graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
             
             /* fill in background */
-            snapshot.append_color(&render.config.background_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
+            snapshot.append_color(render.config.background_color.rgba(), &graphene::Rect::new(0.0, 0.0, widget.width() as f32, widget.height() as f32));
 
             /* fill in address pane */
-            snapshot.append_color(&render.config.addr_pane_color, &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
+            snapshot.append_color(render.config.addr_pane_color.rgba(), &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
             
             /* render lines */
             snapshot.save();

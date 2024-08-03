@@ -95,6 +95,7 @@ impl CharmWindow {
             {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
+                edit_menu.append(Some("Settings..."), Some("win.settings"));
                 /*
                 {
                     let mode_menu = gio::Menu::new();
@@ -307,6 +308,7 @@ impl CharmWindow {
         action::save_project::add_actions(&w);
         action::open_project::add_action(&w);
         action::debug::reopen_current_project::add_action(&w);
+        action::settings::add_action(&w);
     
         helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
             if let Some(vis) = state {
