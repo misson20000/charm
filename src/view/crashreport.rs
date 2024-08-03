@@ -143,6 +143,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
             .resizable(true)
             .title("Charm panic recovery")
             .modal(true)
+            .default_width(800)
             .build();
 
         dialog.present();

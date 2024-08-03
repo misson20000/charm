@@ -9,7 +9,7 @@
     <property name="margin-top">15</property>
     <property name="orientation">vertical</property>
     <property name="spacing">15</property>
-    <property name="width-request">400</property>
+    <property name="vexpand">True</property>
     <child>
       <object class="GtkLabel">
         <property name="hexpand">True</property>
@@ -23,7 +23,8 @@
     </child>
     <child>
       <object class="GtkScrolledWindow">
-        <property name="height-request">400</property>
+        <property name="height-request">250</property>
+        <property name="vexpand">True</property>
         <child>
           <object class="GtkTextView">
             <property name="buffer">
@@ -66,7 +67,8 @@
     </child>
     <child>
       <object class="GtkScrolledWindow">
-        <property name="height-request">400</property>
+        <property name="height-request">250</property>
+        <property name="vexpand">True</property>
         <child>
           <object class="GtkListView" id="documents">
             <property name="show-separators">True</property>
@@ -78,6 +80,7 @@
       <object class="GtkBox">
         <property name="halign">end</property>
         <property name="spacing">15</property>
+        <property name="valign">end</property>
         <child>
           <object class="GtkButton">
             <property name="action-name">app.force_exit</property>
