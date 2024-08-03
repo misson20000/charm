@@ -61,7 +61,6 @@ pub struct RenderDetail {
     gsc_bold: gsc::Cache,
 
     addr_pane_width: f32,
-    ascii_pane_position: f32,
 }
 
 struct Interior {
@@ -577,7 +576,6 @@ impl RenderDetail {
             metrics,
 
             addr_pane_width,
-            ascii_pane_position: 800.0,
         }
     }
 }

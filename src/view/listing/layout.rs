@@ -8,7 +8,9 @@ pub struct LayoutController {
     base_position: f32,
     indent_position: f32,
     main_position: f32,
-    
+
+    /// Minimum distance between main bucket and asciidump bucket
+    asciidump_padding: f32,
     asciidump_origin: f32,
     asciidump_position: f32,
 }
@@ -24,14 +26,17 @@ impl LayoutController {
         let base_position = render.addr_pane_width + render.config.padding as f32;
         let indent_position = base_position + indent_width;
         let main_position = indent_position;
+
+        let normal_main_width = 3.0*render.config.indentation_width + 8.0*3.0 + 1.0 * 8.0*3.0 + 2.0;
         
-        let asciidump_origin = render.ascii_pane_position + render.config.padding as f32;
+        let asciidump_origin = base_position + normal_main_width * helpers::pango_unscale(render.gsc_mono.space_width()) + render.config.padding as f32;
         let asciidump_position = asciidump_origin;
         
         LayoutController {
             base_position,
             indent_position,
             main_position,
+            asciidump_padding: 2.0 * helpers::pango_unscale(render.gsc_mono.space_width()),
             asciidump_position,
             asciidump_origin,
         }
@@ -58,8 +63,8 @@ impl LayoutController {
             self.main_position = self.indent_position;
         }
 
-        if self.main_position > self.asciidump_position {
-            self.asciidump_position = self.main_position;
+        if self.main_position + self.asciidump_padding > self.asciidump_position {
+            self.asciidump_position = self.main_position + self.asciidump_padding;
         }
     }
     
