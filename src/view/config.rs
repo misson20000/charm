@@ -7,7 +7,6 @@ use glib::clone;
 
 use lazy_static::lazy_static;
 use hex_literal::hex;
-use serde::ser::Serialize;
 use serde::ser::SerializeMap;
 use serde::de::Error;
 
@@ -273,6 +272,9 @@ declare_config![Config {
     monospace_font: Font = Font(pango::FontDescription::from_string("Monospace Regular 12")),
 
     show_token_bounds: bool = false,
+
+    #[bind("dark-mode")]
+    dark_mode: bool = true,
 }];
 
 fn config_path() -> Option<std::path::PathBuf> {
@@ -337,6 +339,50 @@ pub fn create_persist_config_task() -> Option<helpers::AsyncSubscriber> {
                 }
             }
         }))
+}
+
+pub fn create_sync_dark_mode_task() -> helpers::AsyncSubscriber {
+    let initial = INSTANCE.get();
+    let style_manager = adw::StyleManager::default();
+
+    let current = sync::Arc::new(sync::Mutex::new(initial.clone()));
+    let current_clone = current.clone();
+
+    style_manager.set_color_scheme(match initial.dark_mode {
+        true => adw::ColorScheme::ForceDark,
+        false => adw::ColorScheme::ForceLight,
+    });
+    
+    style_manager.connect_dark_notify(move |style_manager| {
+        let mut guard = current_clone.lock().unwrap();
+        if style_manager.is_dark() != guard.dark_mode {
+            let new_config = INSTANCE.change(Change::dark_mode(style_manager.is_dark())).unwrap();
+            *guard = new_config;
+        }
+    });
+
+    helpers::subscribe_to_updates(
+        sync::Arc::downgrade(&current),
+        INSTANCE.clone(),
+        initial.clone(),
+        move |current, new_config| {
+            let mut guard = current.lock().unwrap();
+            let mut dark_mode = guard.dark_mode;
+            new_config.changes_since(&**guard, &mut |_config, change| {
+                match change {
+                    Change::dark_mode(value) => dark_mode = *value,
+                    _ => {},
+                };
+            });
+            *guard = new_config.clone();
+
+            std::mem::drop(guard);
+            
+            style_manager.set_color_scheme(match dark_mode {
+                true => adw::ColorScheme::ForceDark,
+                false => adw::ColorScheme::ForceLight,
+            })
+        })
 }
 
 pub type Host = versioned::Host<Config>;
@@ -486,6 +532,30 @@ impl Item for Font {
 
 impl Color {
     pub fn rgba(&self) -> &gdk::RGBA {
-        &self.dark
+        if adw::StyleManager::default().is_dark() {
+            &self.dark
+        } else {
+            &self.light
+        }
+    }
+}
+
+impl Item for bool {
+    type Binding = gtk::Switch;
+    
+    fn bind<F: Fn(Self) + Clone + 'static>(builder: &gtk::Builder, id: &str, changer: F) -> Self::Binding {
+        let switch = builder.object::<gtk::Switch>(id).unwrap();
+
+        switch.connect_active_notify(move |b| {
+            let state = b.is_active();
+            changer(state);
+            b.set_state(state);
+        });
+                                         
+        switch
+    }
+
+    fn update_binding(&self, binding: &Self::Binding) {
+        binding.set_state(*self)
     }
 }

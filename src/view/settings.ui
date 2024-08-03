@@ -177,7 +177,7 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkSwitch"/>
+                      <object class="GtkSwitch" id="dark-mode"/>
                     </child>
                     <layout>
                       <property name="column">0</property>
