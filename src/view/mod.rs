@@ -28,6 +28,7 @@ pub struct CharmApplication {
     pub application: adw::Application,
     rt: tokio::runtime::Runtime,
 
+    persist_config_task: Option<helpers::AsyncSubscriber>,
     about_dialog: gtk::AboutDialog,
     settings_dialog: gtk::Window,
     windows: cell::RefCell<Vec<rc::Weak<window::CharmWindow>>>,
@@ -35,11 +36,14 @@ pub struct CharmApplication {
 
 impl CharmApplication {
     fn new(application: adw::Application) -> rc::Rc<CharmApplication> {
+        let persist_config_task = config::create_persist_config_task();
+        
         let app = rc::Rc::new(CharmApplication {
             rt: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build().unwrap(),
 
+            persist_config_task,
             about_dialog: Self::create_about_dialog(),
             settings_dialog: Self::create_settings_dialog(),
             windows: Default::default(),

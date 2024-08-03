@@ -550,9 +550,9 @@ impl RenderDetail {
     fn new(config: sync::Arc<config::Config>, pg: pango::Context, serial: u64) -> RenderDetail {
         let fm = pg.font_map().unwrap();
 
-        let font_mono = fm.load_font(&pg, &config.monospace_font).expect("expected to be able to load selected font");
+        let font_mono = fm.load_font(&pg, &config.monospace_font.0).expect("expected to be able to load selected font");
 
-        let mut desc_bold = config.monospace_font.clone();
+        let mut desc_bold = config.monospace_font.0.clone();
         desc_bold.set_weight(pango::Weight::Bold);
         let font_bold = fm.load_font(&pg, &desc_bold).expect("expected to be able to load bold variant of selected font");
         

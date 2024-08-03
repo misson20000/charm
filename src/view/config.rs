@@ -7,16 +7,23 @@ use glib::clone;
 
 use lazy_static::lazy_static;
 use hex_literal::hex;
+use serde::ser::Serialize;
+use serde::ser::SerializeMap;
+use serde::de::Error;
 
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 use crate::view::ext::RGBAExt;
+use crate::view::helpers;
 
 #[derive(Clone, Debug)]
 pub struct Color {
     pub light: gdk::RGBA,
     pub dark: gdk::RGBA,
 }
+
+#[derive(Clone, Debug)]
+pub struct Font(pub pango::FontDescription);
 
 pub trait Item: Sized + Clone {
     type Binding;
@@ -75,6 +82,56 @@ macro_rules! declare_config {
 
                     version: core::default::Default::default()
                 }
+            }
+        }
+
+        impl serde::Serialize for $typename {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+                let mut map = serializer.serialize_map(None)?;
+                $(
+                    map.serialize_entry(stringify!($name), &self.$name)?;
+                )*
+                map.end()
+            }
+        }
+        
+        impl<'de> serde::Deserialize<'de> for $typename {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+                const FIELDS: &[&str] = &[$(stringify!($name),)*];
+
+                struct ConfigVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for ConfigVisitor {
+                    type Value = Config;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str(stringify!($typename))
+                    }
+                    
+                    fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error> where V: serde::de::MapAccess<'de> {
+                        let mut config = Config::default();
+                        
+                        while let Some(key) = map.next_key::<String>()? {
+                            match key.as_str() {
+                                $(
+                                    stringify!($name) => {
+                                        match map.next_value() {
+                                            Ok(v) => config.$name = v,
+                                            Err(e) => {
+                                                println!("failed to deserialize {} in {}: {}", stringify!($name), stringify!($typename), e);
+                                            }
+                                        }
+                                    },
+                                )*
+                                _ => {/* ignore unknown keys*/},
+                            }
+                        }
+                        
+                        Ok(config)
+                    }
+                }
+                
+                deserializer.deserialize_struct("Config", FIELDS, ConfigVisitor)
             }
         }
         
@@ -213,15 +270,79 @@ declare_config![Config {
     cursor_blink_period: f64 = 1.0,
 
     #[bind("font")]
-    monospace_font: pango::FontDescription = pango::FontDescription::from_string("Monospace Regular 12"),
+    monospace_font: Font = Font(pango::FontDescription::from_string("Monospace Regular 12")),
 
     show_token_bounds: bool = false,
 }];
 
+fn config_path() -> Option<std::path::PathBuf> {
+    match xdg::BaseDirectories::new() {
+        Ok(bd) => match bd.place_config_file("charm.toml") {
+            Ok(path) => Some(path),
+            Err(e) => {
+                println!("failed to place configuration file within directory: {}", e);
+                None
+            },
+        },
+        Err(e) => {
+            println!("failed to find configuration directory: {}", e);
+            None
+        }
+    }
+}
+
+fn load_config() -> Option<Config> {
+    let config_str = match std::fs::read_to_string(config_path()?) {
+        Ok(config_str) => config_str,
+        /* don't bother printing an error if the config file didn't exist */
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            println!("failed to read configuration: {}", e);
+            return None;
+        }
+    };
+    
+    match toml::from_str(&config_str) {
+        Ok(config) => Some(config),
+        Err(e) => {
+            println!("failed to deserialize configuration: {}", e);
+            None
+        }
+    }
+}
+
+pub fn create_persist_config_task() -> Option<helpers::AsyncSubscriber> {
+    let path = config_path()?;
+
+    let initial = INSTANCE.get();
+    Some(helpers::subscribe_to_updates(
+        std::marker::PhantomData::<()>,
+        INSTANCE.clone(),
+        initial.clone(),
+        move |_, new_config| {
+            if !sync::Arc::ptr_eq(&initial, new_config) {
+                let config_str = match toml::to_string(&**new_config) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        println!("failed to serialize configuration: {}", e);
+                        return
+                    },
+                };
+
+                match std::fs::write(&path, config_str) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        println!("failed to write configuration: {}", e);
+                    },
+                }
+            }
+        }))
+}
+
 pub type Host = versioned::Host<Config>;
 
 lazy_static! {
-    pub static ref INSTANCE: sync::Arc<Host> = sync::Arc::new(Host::default());
+    pub static ref INSTANCE: sync::Arc<Host> = sync::Arc::new(Host::new(load_config().unwrap_or_else(Config::default)));
 }
 
 impl Item for Color {
@@ -257,19 +378,101 @@ impl Item for Color {
     }
 }
 
-impl Item for pango::FontDescription {
+impl serde::Serialize for Color {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("light", &self.light.to_string())?;
+        map.serialize_entry("dark", &self.dark.to_string())?;
+        map.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Color {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+        const FIELDS: &[&str] = &["light", "dark"];
+
+        struct ColorVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ColorVisitor {
+            type Value = Color;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct Color or single color")
+            }
+            
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error> where V: serde::de::MapAccess<'de> {
+                let mut light = None;
+                let mut dark = None;
+                
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "light" => light = Some(gdk::RGBA::parse(map.next_value::<String>()?).map_err(|e| V::Error::custom(e.message))?),
+                        "dark" => dark = Some(gdk::RGBA::parse(map.next_value::<String>()?).map_err(|e| V::Error::custom(e.message))?),
+                        _ => {/* ignore unknown fields */},
+                    }
+                }
+
+                Ok(match (light, dark) {
+                    (None, None) => return Err(V::Error::missing_field("light or dark")),
+                    (Some(light), Some(dark)) => Color { light, dark },
+                    (Some(light), None) => Color { light: light.clone(), dark: light },
+                    (None, Some(dark)) => Color { light: dark.clone(), dark: dark },
+                })
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: serde::de::Error {
+                let rgba = gdk::RGBA::parse(v).map_err(|e| E::custom(e.message))?;
+
+                Ok(Color {
+                    light: rgba.clone(),
+                    dark: rgba
+                })
+            }
+        }
+        
+        deserializer.deserialize_any(ColorVisitor)
+    }
+}
+
+impl serde::Serialize for Font {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        serializer.serialize_str(&self.0.to_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Font {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+        struct FontVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for FontVisitor {
+            type Value = Font;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("font description string")
+            }
+            
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: serde::de::Error {
+                Ok(Font(pango::FontDescription::from_string(v)))
+            }
+        }
+
+        deserializer.deserialize_str(FontVisitor)
+    }
+}
+
+impl Item for Font {
     type Binding = gtk::FontButton;
     
     fn bind<F: Fn(Self) + 'static>(builder: &gtk::Builder, id: &str, changer: F) -> Self::Binding {
         let button = builder.object::<gtk::FontButton>(id).unwrap();
 
-        button.set_filter_func(|family, face| {
+        button.set_filter_func(|family, _face| {
             family.is_monospace()
         });
         
         button.connect_font_set(move |b| {
             if let Some(desc) = b.font_desc() {
-                changer(desc);
+                changer(Font(desc));
             }
         });
                                          
@@ -277,7 +480,7 @@ impl Item for pango::FontDescription {
     }
 
     fn update_binding(&self, binding: &Self::Binding) {
-        binding.set_font_desc(self);
+        binding.set_font_desc(&self.0);
     }
 }
 
