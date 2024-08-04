@@ -144,7 +144,10 @@ impl Cache {
 }
 
 pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a gdk::RGBA, text: &'a str, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl std::iter::DoubleEndedIterator<Item = pango::GlyphString> + 'a> {
+    let old_desc = pg.font_description();
+    pg.set_font_description(Some(&font.describe()));
     let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
+    pg.set_font_description(old_desc.as_ref());
 
     TextBuilder {
         iterator: items.into_iter().map(|item| {
