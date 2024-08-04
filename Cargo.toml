@@ -3,14 +3,14 @@ name = "charm"
 version = "0.1.0"
 authors = ["misson20000 <xenotoad@xenotoad.net>"]
 edition = "2021"
-default-run = "gtk"
 
 [features]
-default = ["gtk"]
+default = ["gtk4_8"]
+gtk4_8 = ["gtk/v4_8", "gtk"]
 gtk = ["dep:gtk"]
 
 [dependencies]
-gtk = { version = "0.9.0", optional = true, package = "gtk4", features = ["v4_8"] }
+gtk = { version = "0.9.0", optional = true, package = "gtk4" }
 glib = "0.20.0"
 futures = "0.3.30"
 lazy_static = "1.5.0"
@@ -45,7 +45,7 @@ assert_matches = "1.5"
 rusty-fork = "0.3.0"
 
 [[bin]]
-name = "gtk"
+name = "charm"
 required-features = ["gtk"]
 
 [[bin]]

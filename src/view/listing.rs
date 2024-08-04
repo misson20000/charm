@@ -388,10 +388,10 @@ impl ListingWidget {
                 _ => false,
             };
             
-            lw.imp().interior.get().unwrap().write().scroll(&lw, ecs.unit(), dx, dy, kinetic_allowed)
+            lw.imp().interior.get().unwrap().write().scroll(&lw, &ecs, dx, dy, kinetic_allowed)
         }));
         ec_scroll.connect_decelerate(clone!(#[weak(rename_to=lw)] self, move |ecs, vx, vy| catch_panic! {
-            lw.imp().interior.get().unwrap().write().scroll_decelerate(&lw, ecs.unit(), vx, vy);
+            lw.imp().interior.get().unwrap().write().scroll_decelerate(&lw, &ecs, vx, vy);
         }));
         self.add_controller(ec_scroll);
         
@@ -779,18 +779,12 @@ impl Interior {
         r
     }
 
-    fn scroll(&mut self, widget: &ListingWidget, unit: gdk::ScrollUnit, _dx: f64, dy: f64, kinetic_allowed: bool) -> glib::Propagation {
+    fn scroll(&mut self, widget: &ListingWidget, ecs: &gtk::EventControllerScroll, _dx: f64, dy: f64, kinetic_allowed: bool) -> glib::Propagation {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
-
-        let divisor = match unit {
-            gdk::ScrollUnit::Wheel => 1.0,
-            gdk::ScrollUnit::Surface => helpers::pango_unscale(self.render.metrics.height()) as f64,
-            _ => 1.0,
-        };
         
-        self.scroll.scroll_wheel_impulse(dy / divisor, kinetic_allowed);
+        self.scroll.scroll_wheel_impulse(dy / facet::scroll::ScrollUnit::from(ecs).divisor(&self.render), kinetic_allowed);
 
         self.collect_events(widget);
 
@@ -799,19 +793,13 @@ impl Interior {
         glib::Propagation::Stop
     }
 
-    fn scroll_decelerate(&mut self, widget: &ListingWidget, unit: gdk::ScrollUnit, _vx: f64, vy: f64) {
+    fn scroll_decelerate(&mut self, widget: &ListingWidget, ecs: &gtk::EventControllerScroll, _vx: f64, vy: f64) {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
 
-        let divisor = match unit {
-            gdk::ScrollUnit::Wheel => 1.0,
-            gdk::ScrollUnit::Surface => helpers::pango_unscale(self.render.metrics.height()) as f64,
-            _ => 1.0,
-        };
-
         /* gtk reports velocity in pixels/ms, we expect "units"/second */
-        self.scroll.scroll_decelerate(vy / divisor / 1000.0);
+        self.scroll.scroll_decelerate(vy / facet::scroll::ScrollUnit::from(ecs).divisor(&self.render));
 
         self.collect_events(widget);
 

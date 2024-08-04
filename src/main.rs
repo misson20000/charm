@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+extern crate charm;
+
 use gtk::gio;
 
 fn setup_tracing() {

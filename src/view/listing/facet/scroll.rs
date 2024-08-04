@@ -6,8 +6,14 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::window;
 use crate::model::listing::window::LineView;
+use crate::view::listing;
 use crate::view::listing::facet;
+use crate::view::listing::helpers;
 use crate::view::listing::line;
+
+/* not used unless gtk4_8 is enabled */
+#[allow(unused_imports)]
+use gtk::gdk;
 
 pub struct Scroller {
     config: sync::Arc<config::Config>,
@@ -21,6 +27,40 @@ pub struct Scroller {
     bonked_bottom: bool,
     cursor_spring: bool,
     cursor_direction: EnsureCursorInViewDirection,
+}
+
+pub enum ScrollUnit {
+    Wheel,
+    Surface,
+    Unknown
+}
+
+#[cfg(feature = "gtk4_8")]
+impl<'a> From<&'a gtk::EventControllerScroll> for ScrollUnit {
+    fn from(ecs: &'a gtk::EventControllerScroll) -> Self {
+        match ecs.unit() {
+            gdk::ScrollUnit::Wheel => Self::Wheel,
+            gdk::ScrollUnit::Surface => Self::Surface,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[cfg(not(feature = "gtk4_8"))]
+impl<'a> From<&'a gtk::EventControllerScroll> for ScrollUnit {
+    fn from(_ecs: &'a gtk::EventControllerScroll) -> Self {
+        Self::Unknown
+    }
+}
+
+impl ScrollUnit {
+    pub fn divisor(&self, render: &listing::RenderDetail) -> f64 {
+        match self {
+            ScrollUnit::Wheel => 1.0,
+            ScrollUnit::Surface => helpers::pango_unscale(render.metrics.height()) as f64,
+            ScrollUnit::Unknown => 1.0,
+        }
+    }
 }
 
 type Window = window::Window<line::Line>;
@@ -89,7 +129,7 @@ impl Scroller {
             return;
         }
         
-        self.velocity = velocity * 1000.0;
+        self.velocity = velocity;
 
         if self.velocity > 0.0 {
             self.bonked_top = false;
