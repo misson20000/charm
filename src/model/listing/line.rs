@@ -36,6 +36,7 @@ pub enum LineType {
     },
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum LinePushResult {
     Accepted,
     Completed,
@@ -266,7 +267,7 @@ impl Line {
             (LineType::Empty, token::Token::Hexstring(token)) => (LineType::Hexstring {
                 title: None,
                 token
-            }, LinePushResult::Completed),
+            }, LinePushResult::Accepted),
 
             /* A title token can occur on the same line as a hexstring if the title is inline and there isn't already a title. */
             (LineType::Hexstring { title: None, token: hexstring_token }, token::Token::Title(token))
@@ -538,5 +539,41 @@ impl fmt::Debug for Line {
             })
             .field("tokens", &self.iter_tokens().map(|tok| token::TokenTestFormat(tok)).collect::<Vec<_>>())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hexstring_backwards_construction() {
+        let node = structure::Node::builder()
+            .name("foo")
+            .size(0x8)
+            .content_display(structure::ContentDisplay::Hexstring)
+            .title_display(structure::TitleDisplay::Inline)
+            .build();
+
+        let mut line = Line::empty();
+
+        assert_eq!(line.push_front(token::Token::Hexstring(token::HexstringToken {
+            common: token::TokenCommon {
+                node: node.clone(),
+                node_path: vec![],
+                node_addr: addr::unit::NULL,
+                depth: 0,
+            },
+            extent: addr::Extent::sized_u64(0, 8),
+        })), LinePushResult::Accepted);
+
+        assert_eq!(line.push_front(token::Token::Title(token::TitleToken {
+            common: token::TokenCommon {
+                node: node.clone(),
+                node_path: vec![],
+                node_addr: addr::unit::NULL,
+                depth: 0,
+            },
+        })), LinePushResult::Accepted);
     }
 }
