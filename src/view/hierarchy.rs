@@ -287,7 +287,7 @@ impl StructureListModel {
         model
     }
 
-    fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) {
+    fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) -> Option<(u32, u32, u32)> {
         let mut i = self.imp().interior.get().unwrap().borrow_mut();
 
         i.document = new_doc.clone();
@@ -300,7 +300,7 @@ impl StructureListModel {
                 i.path.clear();
                 i.children.clear();
                 i.address = addr::unit::NULL;
-                return;
+                return None;
             },
         };
         
@@ -418,18 +418,20 @@ impl StructureListModel {
 
         std::mem::drop(i);
 
-        if let Some((index, added, removed)) = items_changed {
-            self.items_changed(index, added, removed);
-        }
+        items_changed
     }
     
     fn update(&self, new_doc: &sync::Arc<document::Document>) {
         if let Some(i) = self.imp().interior.get().map(|i| i.borrow()) {
             let old_doc = i.document.clone();
             drop(i);
+
+            let mut items_changed_records = vec![];
             
             new_doc.changes_since(&old_doc, &mut |doc, change| {
-                self.port_change(doc, change);
+                if let Some(items_changed) = self.port_change(doc, change) {
+                    items_changed_records.push(items_changed);
+                }
             });
 
             /* We need to avoid notifying gtk of its own property updates. Our system to do this works by filtering out
@@ -440,6 +442,10 @@ impl StructureListModel {
             for item in &self.imp().interior.get().unwrap().borrow().children {
                 item.update_document(new_doc);
                 item.trigger_notifies();                
+            }
+
+            for (index, added, removed) in items_changed_records {
+                self.items_changed(index, added, removed);
             }
         }
     }
