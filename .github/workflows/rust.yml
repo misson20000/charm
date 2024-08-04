@@ -43,7 +43,8 @@ jobs:
           # Default: "false"
           cache-on-failure: ""
       - name: Build
-        run: cargo build --verbose
+        # CI runs Ubuntu Jammy, which has gtk4.6, so we can't enable gtk4.8.
+        run: cargo build --no-default-features -F gtk --verbose
       - name: Run tests
         uses: coactions/setup-xvfb@v1
         with:
