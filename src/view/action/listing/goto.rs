@@ -18,7 +18,7 @@ use gtk::glib;
 use gtk::glib::clone;
 use gtk::gio;
 
-struct NavigateAction {
+struct GotoAction {
     document_host: sync::Arc<document::DocumentHost>,
     document: cell::RefCell<sync::Arc<document::Document>>,
 
@@ -35,7 +35,7 @@ struct NavigateAction {
 }
 
 pub fn add_action(window_context: &window::WindowContext) {
-    let builder = gtk::Builder::from_string(include_str!("navigate.ui"));
+    let builder = gtk::Builder::from_string(include_str!("goto.ui"));
 
     let entry: gtk::Entry = builder.object("entry").unwrap();
     let list: gtk::ListView = builder.object("list").unwrap();
@@ -45,7 +45,7 @@ pub fn add_action(window_context: &window::WindowContext) {
         .application(&window_context.window.upgrade().unwrap().application.application)
         .child(&builder.object::<gtk::Widget>("toplevel").unwrap())
         .resizable(true)
-        .title("Navigate")
+        .title("Goto")
         .transient_for(&window_context.window.upgrade().unwrap().window)
         .hide_on_close(true)
         .destroy_with_parent(true)
@@ -54,7 +54,7 @@ pub fn add_action(window_context: &window::WindowContext) {
 
     let store = gio::ListStore::new::<HitItem>();
     
-    let action = rc::Rc::new(NavigateAction {
+    let action = rc::Rc::new(GotoAction {
         document_host: window_context.project.document_host.clone(),
         document: cell::RefCell::new(window_context.project.document_host.get()),
         lw: window_context.lw.clone(),
@@ -69,9 +69,9 @@ pub fn add_action(window_context: &window::WindowContext) {
     });
 
     list.set_model(Some(&action.model));
-    list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("navigate-item.ui")))));
+    list.set_factory(Some(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(include_bytes!("goto-item.ui")))));
     list.connect_activate(clone!(#[weak] action, move |_, position| catch_panic! {
-        action.do_navigate(action.model.item(position));
+        action.do_goto(action.model.item(position));
     }));
     
     action.entry.connect_changed(clone!(#[weak] action, move |_| catch_panic! {
@@ -79,7 +79,7 @@ pub fn add_action(window_context: &window::WindowContext) {
     }));
 
     action.entry.connect_activate(clone!(#[weak] action, move |_| catch_panic! {
-        action.do_navigate(action.model.item(0));
+        action.do_goto(action.model.item(0));
     }));
 
     action.subscriber.set(helpers::subscribe_to_updates(rc::Rc::downgrade(&action), action.document_host.clone(), action.document.borrow().clone(), |action, new_document| catch_panic! {
@@ -90,10 +90,10 @@ pub fn add_action(window_context: &window::WindowContext) {
         action.dialog.hide();
     });
 
-    window_context.action_group.add_action(&helpers::create_simple_action_strong(action, "navigate", |ina| ina.activate()));
+    window_context.action_group.add_action(&helpers::create_simple_action_strong(action, "goto", |ina| ina.activate()));
 }
 
-impl NavigateAction {
+impl GotoAction {
     fn activate(&self) {
         let cursor = self.lw.cursor();
 
@@ -131,7 +131,7 @@ impl NavigateAction {
         }
     }
 
-    fn do_navigate(&self, item: Option<glib::Object>) {
+    fn do_goto(&self, item: Option<glib::Object>) {
         let item = match item.and_then(|item| item.downcast::<HitItem>().ok()) {
             Some(item) => item,
             None => return
@@ -148,7 +148,7 @@ impl NavigateAction {
     }
 }
 
-impl Drop for NavigateAction {
+impl Drop for GotoAction {
     fn drop(&mut self) {
         self.dialog.destroy();
     }

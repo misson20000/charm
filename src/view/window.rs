@@ -94,7 +94,7 @@ impl CharmWindow {
             }
             {
                 let edit_menu = gio::Menu::new();
-                edit_menu.append(Some("Navigate..."), Some("ctx.navigate"));
+                edit_menu.append(Some("Goto..."), Some("ctx.goto"));
                 edit_menu.append(Some("Settings..."), Some("win.settings"));
                 /*
                 {
@@ -516,7 +516,7 @@ impl WindowContext {
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "word", 2);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
-        action::listing::navigate::add_action(&wc);
+        action::listing::goto::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

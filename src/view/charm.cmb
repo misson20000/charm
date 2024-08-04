@@ -4,7 +4,7 @@
   <ui>
 	(2,None,None,"props-editor.ui",None,None,None,None,None,None,None),
 	(3,None,None,"action/listing/insert-node.ui",None,None,None,None,None,None,None),
-	(4,None,None,"action/listing/navigate.ui",None,None,None,None,None,None,None),
+	(4,None,None,"action/listing/goto.ui",None,None,None,None,None,None,None),
 	(5,None,None,"error-dialog.ui",None,None,None,None,None,None,None),
 	(7,None,None,"crash-dialog.ui",None,None,None,None,None,None,None),
 	(8,1,None,"crash-document-recovery.ui",None,None,None,None,None,None,None),

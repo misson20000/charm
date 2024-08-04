@@ -112,7 +112,7 @@ impl ObjectSubclass for ListingWidgetImp {
             klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
             klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Q"), Some(gtk::NamedAction::new("ctx.insert_qword"))));
             klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Insert"), Some(gtk::NamedAction::new("ctx.insert_node"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("N"), Some(gtk::NamedAction::new("ctx.navigate"))));
+            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("G"), Some(gtk::NamedAction::new("ctx.goto"))));
             klass.set_css_name("listing");
         }
     }
