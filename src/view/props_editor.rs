@@ -16,6 +16,7 @@ use crate::model::versioned::Versioned;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
+use crate::view::window::ErrorReporter;
 
 enum PropsEditorMode {
     Deactivated,

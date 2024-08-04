@@ -9,6 +9,8 @@ use gtk::pango;
 
 use crate::catch_panic;
 use crate::model::versioned;
+use crate::view::error;
+use crate::view::window::ErrorReporter;
 
 pub fn create_simple_action_strong<T, F>(obj: rc::Rc<T>, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(&rc::Rc<T>) + 'static,
@@ -103,4 +105,12 @@ impl Drop for AsyncSubscriber {
 
 pub fn pango_unscale(value: i32) -> f32 {
     value as f32 / pango::SCALE as f32
+}
+
+pub struct TestErrorReporter;
+
+impl ErrorReporter for TestErrorReporter {
+    fn report_error(&self, error: error::Error) {
+        panic!("got error: {}\n{}", error.message(), error.detail());
+    }
 }

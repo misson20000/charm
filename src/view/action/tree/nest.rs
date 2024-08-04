@@ -14,6 +14,7 @@ use crate::model::versioned::Versioned;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
+use crate::view::window::ErrorReporter;
 
 struct NestAction {
     document_host: sync::Arc<document::DocumentHost>,

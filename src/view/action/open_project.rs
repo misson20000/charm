@@ -13,6 +13,7 @@ use crate::view::error;
 use crate::view::helpers;
 use crate::view::project;
 use crate::view::window;
+use crate::view::window::ErrorReporter;
 
 struct OpenProjectAction {
     window: rc::Weak<window::CharmWindow>,

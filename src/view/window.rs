@@ -396,9 +396,15 @@ impl CharmWindow {
             self.set_context(Some(WindowContext::new(self, project)));
             self.present();
         }
-    }
-        
-    pub fn report_error(&self, error: error::Error) {
+    }        
+}
+
+pub trait ErrorReporter {
+    fn report_error(&self, error: error::Error);
+}
+
+impl ErrorReporter for CharmWindow {
+    fn report_error(&self, error: error::Error) {
         let dialog = error.create_dialog(&self.window);
         dialog.present();
     }
@@ -489,7 +495,7 @@ impl WindowContext {
         );
         
         let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
-        let tree_selection_model = selection::TreeSelectionModel::new(window, tree_selection_host.clone(), document_host.clone());
+        let tree_selection_model = selection::TreeSelectionModel::new(window.clone() as rc::Rc<dyn ErrorReporter>, tree_selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
             window: rc::Rc::downgrade(window),

@@ -12,6 +12,7 @@ use crate::model::selection;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
+use crate::view::window::ErrorReporter;
 
 struct DestructureAction {
     document_host: sync::Arc<document::DocumentHost>,

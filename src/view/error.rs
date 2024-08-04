@@ -82,7 +82,7 @@ pub struct Error {
 }
 
 impl Error {
-    fn message(&self) -> String {
+    pub fn message(&self) -> String {
         match self.while_attempting {
             Action::TreeSelectionDocumentUpdate => "Failed to update tree selection in response to a document update.",
             Action::ListingSelectionDocumentUpdate => "Failed to update listing selection in response to a document update.",
@@ -107,7 +107,7 @@ impl Error {
         }.to_string()
     }
 
-    fn detail(&self) -> String {
+    pub fn detail(&self) -> String {
         let mut msg = String::new();
         if let Err(_) = self.write_detail(&mut msg) {
             msg+= "Failed to format details.\n";

@@ -22,6 +22,7 @@ use crate::view::config;
 use crate::view::error;
 use crate::view::gsc;
 use crate::view::helpers;
+use crate::view::window::ErrorReporter;
 
 use gtk::gdk;
 use gtk::gio;

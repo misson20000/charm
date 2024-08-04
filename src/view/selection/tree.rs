@@ -13,7 +13,7 @@ use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view::helpers;
 use crate::view::hierarchy;
-use crate::view::window;
+use crate::view::window::ErrorReporter;
 
 mod imp {
     use std::cell;
@@ -31,11 +31,11 @@ mod imp {
     use crate::view::error;
     use crate::view::helpers;
     use crate::view::hierarchy::NodeItem;
-    use crate::view::window;
-
+    use crate::view::window::ErrorReporter;
+    
     pub struct TreeSelectionModelInterior {
         pub gtk_model: gtk::TreeListModel,
-        pub window: rc::Weak<window::CharmWindow>,
+        pub error_reporter: rc::Weak<dyn ErrorReporter>,
         
         pub selection: sync::Arc<tree_model::Selection>,
         pub selection_host: sync::Arc<tree_model::Host>,
@@ -73,11 +73,11 @@ mod imp {
         }
 
         fn change(&self, interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, change: tree_model::Change) {
-            if let Some(window) = interior.window.upgrade() {
+            if let Some(error_reporter) = interior.error_reporter.upgrade() {
                 match interior.selection_host.change(change) {
                     Ok(new_selection) => self.obj().update_selection(interior, new_selection),
                     Err((error, attempted_version)) => {
-                        window.report_error(error::Error {
+                        error_reporter.report_error(error::Error {
                             while_attempting: error::Action::ModifyTreeSelection,
                             trouble: error::Trouble::TreeSelectionUpdateFailure {
                                 error,
@@ -92,11 +92,11 @@ mod imp {
         }
 
         fn change_multiple<F: FnOnce(&mut TreeSelectionModelInterior) -> Result<sync::Arc<tree_model::Selection>, (tree_model::ApplyError, sync::Arc<tree_model::Selection>)>>(&self, mut interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, cb: F) {
-            if let Some(window) = interior.window.upgrade() {
+            if let Some(error_reporter) = interior.error_reporter.upgrade() {
                 match cb(&mut *interior) {
                     Ok(new_selection) => self.obj().update_selection(interior, new_selection),
                     Err((error, attempted_version)) => {
-                        window.report_error(error::Error {
+                        error_reporter.report_error(error::Error {
                             while_attempting: error::Action::ModifyTreeSelection,
                             trouble: error::Trouble::TreeSelectionUpdateFailure {
                                 error,
@@ -279,7 +279,7 @@ glib::wrapper! {
 }
 
 impl TreeSelectionModel {
-    pub fn new(window: &rc::Rc<window::CharmWindow>, selection_host: sync::Arc<selection::tree::Host>, document_host: sync::Arc<document::DocumentHost>) -> TreeSelectionModel {
+    pub fn new(error_reporter: rc::Rc<dyn ErrorReporter>, selection_host: sync::Arc<selection::tree::Host>, document_host: sync::Arc<document::DocumentHost>) -> TreeSelectionModel {
         let selection = selection_host.get();
         
         let model: TreeSelectionModel = glib::Object::builder().build();
@@ -297,7 +297,7 @@ impl TreeSelectionModel {
         
         *model.imp().interior.borrow_mut() = Some(imp::TreeSelectionModelInterior {
             gtk_model,
-            window: rc::Rc::downgrade(window),
+            error_reporter: rc::Rc::downgrade(&error_reporter),
 
             selection,
             selection_host,

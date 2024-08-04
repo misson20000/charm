@@ -11,6 +11,7 @@ use crate::view::error;
 use crate::view::helpers;
 use crate::view::listing;
 use crate::view::window;
+use crate::view::window::ErrorReporter; 
 
 use gtk::prelude::*;
 use gtk::glib;
