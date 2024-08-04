@@ -161,15 +161,20 @@ impl TokenView {
             },
             token::Token::Hexstring(token) => {
                 for i in 0..token.extent.length().bytes {
-                    let j = i as u8;
+                    let byte_record = self.data_cache.get(i as usize).copied().unwrap_or_default();
+                    let pending = byte_record.pending || !byte_record.loaded;
+
+                    let digit_hi = if pending { gsc::Entry::Space } else { gsc::Entry::Digit((byte_record.value & 0xf0) >> 4) };
+                    let digit_lo = if pending { gsc::Entry::Space } else { gsc::Entry::Digit( byte_record.value & 0x0f      ) };
+                    
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     
                     render.gsc_mono.begin_iter([
-                        gsc::Entry::Digit((j & 0xf0) >> 4),
-                        gsc::Entry::Digit( j & 0x0f      ),
+                        digit_hi, digit_lo
                     ].into_iter(), render.config.text_color.rgba(), &mut pos)
                         .selected(selected, render.config.selection_color.rgba())
+                        .placeholder(pending, render.config.placeholder_color.rgba())
                     // TODO: cursor for hexstring
                         .render(snapshot);
                 }
