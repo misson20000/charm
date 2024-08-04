@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Update and install required dependencies
 RUN apt-get update && apt-get install -y \
     libgtk-4-dev \
+    libadwaita-1-dev \
     libgdk-pixbuf2.0-dev \
     libatk1.0-dev \
     libcairo2-dev \
@@ -32,10 +33,10 @@ RUN git clone https://github.com/misson20000/charm.git /charm
 WORKDIR /charm
 
 # Build the repo using Cargo in release mode
-RUN cargo build --release -F gtk
+RUN cargo build --release
 
 # Output the resulting build file
-CMD ["sh", "-c", "cp -r /charm/target/* /output && ls /output"]
+CMD ["sh", "-c", "cp -r /charm/target/charm /output && ls /output"]
 
 # Set the output directory
 VOLUME ["/output"]
