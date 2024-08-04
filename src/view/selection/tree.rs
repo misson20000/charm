@@ -131,10 +131,6 @@ mod imp {
                         if i.selection.document.is_outdated(&info.document) {
                             panic!("selection document was outdated!");
                         }
-
-                        if info.document.is_outdated(&i.selection.document) {
-                            panic!("list item info document was outdated!");
-                        }
                         
                         i.selection.path_selected(&info.path)
                     })
