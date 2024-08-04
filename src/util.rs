@@ -120,6 +120,8 @@ seq!(N in 1..=6 {
     )*
 });
 
+/* We use a different version of this macro for tests. */
+#[cfg(not(test))]
 #[macro_export]
 macro_rules! catch_panic {
     { @default($fallback:expr); $($body:tt)* } => {
@@ -134,4 +136,69 @@ macro_rules! catch_panic {
     { $($body:tt)* } => {
         catch_panic! { @default(()); $($body)* }
     };
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::rc;
+    use std::cell;
+    use std::any::Any;
+    
+    thread_local! {
+        pub static PANIC_GUARD: cell::RefCell<Option<rc::Rc<cell::RefCell<Option<Box<dyn Any + Send>>>>>> = Default::default();
+    }
+
+    #[macro_export]
+    macro_rules! catch_panic {
+        { @default($fallback:expr); $($body:tt)* } => {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                $($body)*
+            })) {
+                Ok(x) => x,
+                Err(e) => {
+                    $crate::util::test::PANIC_GUARD.with_borrow(|pg| {
+                        if let Some(pg) = &*pg {
+                            let mut guard = pg.borrow_mut();
+                            if guard.is_none() {
+                                *guard = Some(e);
+                            }
+                        }
+                    });
+                    $fallback
+                },
+            }
+        };
+        
+        { $($body:tt)* } => {
+            catch_panic! { @default(()); $($body)* }
+        };
+    }
+    
+    pub struct PanicGuard {
+        pub payload: rc::Rc<cell::RefCell<Option<Box<dyn std::any::Any + Send>>>>,
+    }
+
+    impl PanicGuard {
+        pub fn new() -> Self {
+            let payload: rc::Rc<cell::RefCell<Option<Box<dyn std::any::Any + Send>>>> = Default::default();
+
+            PANIC_GUARD.with_borrow_mut(|pg| *pg = Some(payload.clone()));
+            
+            Self {
+                payload,
+            }
+        }
+
+        pub fn drain(&self) {
+            if let Some(payload) = self.payload.take() {
+                std::panic::resume_unwind(payload);
+            }
+        }
+    }
+
+    impl Drop for PanicGuard {
+        fn drop(&mut self) {
+            self.drain();
+        }
+    }
 }
