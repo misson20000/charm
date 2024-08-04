@@ -568,6 +568,7 @@ impl<'tree, 'nodeinfo> selection::tree::TreeVisitor<'tree> for AlterNodesBulkNod
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glib::clone;
     use rusty_fork::rusty_fork_test;
     
     fn assert_tlr_node_correct(document: &sync::Arc<document::Document>, node: &sync::Arc<structure::Node>, iter: &mut impl std::iter::Iterator<Item = gtk::TreeListRow>) {
@@ -633,6 +634,57 @@ mod tests {
 
             tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(true);
             assert_tlm_correct(&document, &tlm);
+        }
+
+        #[test]
+        fn test_nest_issue_16() {
+            gtk::init().unwrap();
+
+            let root = structure::Node::builder()
+                .name("root")
+                .size(0x1000)
+                .child(0x0, |b| b
+                       .name("A")
+                       .size(0x20))
+                .child(0x20, |b| b
+                       .name("B")
+                       .size(0x20))
+                .child(0x40, |b| b
+                       .name("C")
+                       .size(0x20)
+                       .child(0x0, |b| b
+                              .name("D")
+                              .size(0x10)))
+                .build();
+            
+            let document_host = sync::Arc::new(document::Builder::new(root).host());
+            let mut document = document_host.get();
+            
+            let tlm = create_tree_list_model(document_host.clone(), document.clone(), true);
+            assert_tlm_correct(&document, &tlm);
+
+            for i in 0..tlm.n_items() {
+                let tlr = tlm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
+                println!("{} {:?}", tlr.depth(), tlr.item().unwrap().downcast::<NodeItem>().unwrap().info().props.name);
+            }
+            
+            document = document_host.change(document.nest(
+                structure::SiblingRange::new(vec![], 0, 1),
+                addr::Extent::sized_u64(0x0, 0x40),
+                structure::Properties::default(),
+            )).unwrap();
+
+            tlm.connect_items_changed(clone!(#[strong] document, move |tlm, _, _, _| {
+                println!("");
+                println!("items changed");
+                assert_tlm_correct(&document, &tlm);
+                for i in 0..tlm.n_items() {
+                    let tlr = tlm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
+                    println!("{} {:?}", tlr.depth(), tlr.item().unwrap().downcast::<NodeItem>().unwrap().info().props.name);
+                }
+            }));
+            
+            tlm.model().downcast::<RootListModel>().unwrap().update_document(&document);            
         }
     }
 }

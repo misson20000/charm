@@ -331,3 +331,96 @@ impl TreeSelectionModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::addr;
+    use crate::model::document::structure;
+    use crate::util;
+    use rusty_fork::rusty_fork_test;
+
+    rusty_fork_test! {
+        #[test]
+        fn test_nest_crash_issue_16() {
+            let _pg = util::test::PanicGuard::new();
+            
+            gtk::init().unwrap();
+
+            let root = structure::Node::builder()
+                .name("root")
+                .size(0x1000)
+                .child(0x0, |b| b
+                       .name("A")
+                       .size(0x20))
+                .child(0x20, |b| b
+                       .name("B")
+                       .size(0x20))
+                .child(0x40, |b| b
+                       .name("C")
+                       .size(0x20)
+                       .child(0x0, |b| b
+                              .name("D")
+                              .size(0x10)))
+                .build();
+            
+            let dh = sync::Arc::new(document::Builder::new(root).host());
+            let mut document = dh.get();
+            let mut selection = selection::TreeSelection::new(document.clone());
+            selection.add_single(&[0]);
+            selection.add_single(&[1]);
+            let tsh = sync::Arc::new(selection::tree::Host::new(selection));
+
+            let ter = rc::Rc::new(helpers::test::TestErrorReporter);
+            let tsm = TreeSelectionModel::new(ter.clone(), tsh.clone(), dh.clone());
+            let tlm = tsm.imp().borrow_interior().unwrap().gtk_model.clone();
+            
+            for i in 0..tlm.n_items() {
+                let tlr = tlm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
+                let item = tlr.item().unwrap().downcast::<hierarchy::NodeItem>().unwrap();
+                let info = item.info();
+                println!("{:?} {:?} {:?}", info.path, info.props.name, tsm.is_selected(i));
+            }
+            
+            tsm.connect_items_changed(clone!(move |tsm, p, r, a| {
+                println!("");
+                println!("selection model changed: {}, {}, {}", p, r, a);
+                for i in 0..tsm.n_items() {
+                    let tlr = tsm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
+                    let item = tlr.item().unwrap().downcast::<hierarchy::NodeItem>().unwrap();
+                    let info = item.info();
+                    println!("{:?} {:?} {:?}", info.path, info.props.name, tsm.is_selected(i));
+                }
+            }));
+            
+            document = dh.change(document.nest(
+                structure::SiblingRange::new(vec![], 0, 1),
+                addr::Extent::sized_u64(0x0, 0x40),
+                structure::Properties::default(),
+            )).unwrap();
+            
+            /* tree nest action forces selection, so we do too */
+            let selection = tsh.change(selection::tree::Change::SetSingle(document.clone(), vec![0])).unwrap();
+            let interior = tsm.imp().borrow_interior_mut().unwrap();
+            tsm.update_selection(interior, selection);
+
+            /* panic happens in:
+            TreeSelectionModel::update_selection
+            RootListModel::update_document
+            NodeItem::update_document
+            StructureListModel::update
+            Versioned::changes_since
+            StructureListModel::update closure
+            StructureListModel::port_change
+            emit items_changed signal
+            gtk_tree_list_model_items_changed cb
+            emit items-changed signal
+            TreeSelectionModel::new closure for gtk_model.connect_items_changed
+            emit items-changed signal
+            gtk_list_item_manager_model_items_changed_cb
+            gtk_list_item_manager_ensure_items
+            TreeSelectionModel::imp::is_selected
+            */
+        }
+    }
+}
