@@ -1200,9 +1200,7 @@ impl Tokenizer {
     fn try_ascend(&mut self, dir: AscendDirection) -> bool {
         match std::mem::replace(&mut self.stack, None) {
             Some(stack_entry) => {
-                // TODO: replace this with unwrap_or_clone when it gets stabilized
-                //       https://github.com/rust-lang/rust/issues/93610
-                let stack_entry = sync::Arc::try_unwrap(stack_entry).unwrap_or_else(|arc| (*arc).clone());
+                let stack_entry = sync::Arc::unwrap_or_clone(stack_entry);
                 *self = Tokenizer {
                     state: match dir {
                         AscendDirection::Prev => stack_entry.descent.before_state(&stack_entry),
