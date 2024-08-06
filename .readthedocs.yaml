@@ -1,0 +1,36 @@
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+    rust: "latest"
+  apt_packages:
+    - libgtk-4-dev
+    - libadwaita-1-dev
+    - libgdk-pixbuf2.0-dev
+    - libatk1.0-dev
+    - libcairo2-dev
+    - libjpeg8-dev
+    - libpango1.0-dev
+    - libgif-dev
+    - build-essential
+    - g++
+    - xvfb
+  jobs:
+    # Take screenshots
+    pre_build:
+      - cd doc/screenshotter; xvfb-run cargo run
+
+sphinx:
+  configuration: doc/source/conf.py
+
+formats:
+- pdf
+
+python:
+   install:
+   - requirements: doc/requirements.txt
