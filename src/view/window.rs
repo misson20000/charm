@@ -66,12 +66,23 @@ pub struct WindowContext {
 static NEXT_WINDOW_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
 
 impl CharmWindow {
-    pub fn new(charm: &rc::Rc<CharmApplication>) -> rc::Rc<CharmWindow> {
+    pub fn new(charm: &rc::Rc<CharmApplication>, listing_only: bool) -> rc::Rc<CharmWindow> {
         let id = NEXT_WINDOW_ID.fetch_add(1, sync::atomic::Ordering::Relaxed);
         let builder = gtk::Builder::from_string(include_str!("charm.ui"));
 
-        let window: gtk::ApplicationWindow = builder.object("toplevel").unwrap();
-        window.set_application(Some(&charm.application));
+        let window = gtk::ApplicationWindow::builder()
+            .application(&charm.application)
+            .title("Charm")
+            .build();
+
+        let listing_container = if listing_only {
+            let lo = gtk::Overlay::new();
+            window.set_child(Some(&lo));
+            lo
+        } else {
+            window.set_child(Some(&builder.object::<gtk::Widget>("toplevel").unwrap()));
+            builder.object("listing_overlay").unwrap()
+        };
 
         let debug_revert_menu = gio::Menu::new();
         
@@ -235,7 +246,7 @@ impl CharmWindow {
             application: charm.clone(),
             window,
             id,
-            listing_container: builder.object("listing_overlay").unwrap(),
+            listing_container,
             breadcrumbs: builder.object("breadcrumbs").unwrap(),
             datapath_editor,
             hierarchy_editor,
@@ -386,15 +397,19 @@ impl CharmWindow {
         self.set_context(None);
     }
 
-    pub fn open_project(self: &rc::Rc<Self>, project: project::Project, force: bool) {
-        if self.has_project_open()  && !force {
+    pub fn open_project(self: &rc::Rc<Self>, project: project::Project, force: bool, present: bool) {
+        if self.has_project_open() && !force {
             /* open a new window if this window already has something open in it */
-            let window = self.application.new_window();
+            let window = self.application.new_window(false);
             window.set_context(Some(WindowContext::new(&window, project)));
-            window.present();
+            if present {
+                window.present();
+            }
         } else {
             self.set_context(Some(WindowContext::new(self, project)));
-            self.present();
+            if present {
+                self.present();
+            }
         }
     }        
 }

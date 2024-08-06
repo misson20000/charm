@@ -85,7 +85,7 @@ impl CharmApplication {
     }
 
     pub fn action_new_window(self: &rc::Rc<Self>) {
-        let w = self.new_window();
+        let w = self.new_window(false);
         w.present();
     }
     
@@ -93,8 +93,8 @@ impl CharmApplication {
         self.about_dialog.present();
     }
 
-    pub fn new_window(self: &rc::Rc<Self>) -> rc::Rc<window::CharmWindow> {
-        let window = window::CharmWindow::new(self);
+    pub fn new_window(self: &rc::Rc<Self>, listing_only: bool) -> rc::Rc<window::CharmWindow> {
+        let window = window::CharmWindow::new(self, listing_only);
         self.windows.borrow_mut().push(rc::Rc::downgrade(&window));
         window
     }
@@ -168,7 +168,7 @@ impl CharmApplication {
         /* open */
         application.connect_open(clone!(#[strong] app_model_for_closures, move |_app, files, _hint| catch_panic! {
             for file in files {
-                let w = app_model_for_closures.get().unwrap().new_window();
+                let w = app_model_for_closures.get().unwrap().new_window(false);
                 w.present();
                 action::open_project::open_project(&w, file.clone());
             }

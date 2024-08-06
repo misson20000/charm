@@ -20,10 +20,11 @@ pub struct CursorView {
     pub mode: Mode,
     pub has_focus: bool,
     pub insert: bool,
+    pub hidden: bool,
     
     config: sync::Arc<config::Config>,
     ev_draw: facet::Event,
-    
+
     blink_timer: f64,
     bonk_timer: f32,
 }
@@ -49,6 +50,7 @@ impl CursorView {
             mode: Mode::Command,
             has_focus: true,
             insert: false,
+            hidden: false,
             
             config,
             ev_draw: facet::Event::new(),
@@ -67,7 +69,7 @@ impl CursorView {
     }
 
     pub fn get_blink(&self) -> bool {
-        self.config.cursor_blink_period == 0.0 || self.blink_timer < self.config.cursor_blink_period / 2.0
+        !self.hidden && (self.config.cursor_blink_period == 0.0 || self.blink_timer < self.config.cursor_blink_period / 2.0)
     }
 
     pub fn animate(&mut self, delta: f64) {

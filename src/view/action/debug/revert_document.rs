@@ -39,6 +39,6 @@ impl RevertDocumentAction {
             None => return,
         };
         
-        window.open_project(project, true);
+        window.open_project(project, true, true);
     }
 }

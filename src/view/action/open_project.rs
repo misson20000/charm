@@ -95,7 +95,7 @@ fn try_open_project(window: &rc::Rc<window::CharmWindow>, project_file: gio::Fil
         }
     }
     
-    window.open_project(project::Project::new_from_save(document, project_file), false);
+    window.open_project(project::Project::new_from_save(document, project_file), false, true);
 
     Ok(())
 }

@@ -13,6 +13,8 @@ pub struct LayoutController {
     asciidump_padding: f32,
     asciidump_origin: f32,
     asciidump_position: f32,
+
+    edge: f32,
 }
 
 pub trait LayoutProvider<Marker> {
@@ -21,24 +23,30 @@ pub trait LayoutProvider<Marker> {
 
 impl LayoutController {
     pub fn new(indentation: usize, render: &RenderDetail) -> LayoutController {
-        let indent_width = indentation as f32 * render.config.indentation_width * helpers::pango_unscale(render.gsc_mono.space_width());
+        let space_width = helpers::pango_unscale(render.gsc_mono.space_width());
         
+        let indent_width = indentation as f32 * render.config.indentation_width * space_width;
         let base_position = render.addr_pane_width + render.config.padding as f32;
         let indent_position = base_position + indent_width;
         let main_position = indent_position;
 
-        let normal_main_width = 3.0*render.config.indentation_width + 8.0*3.0 + 1.0 * 8.0*3.0 + 2.0;
+        let typical_main_columns = 3.0 * render.config.indentation_width + 8.0*3.0 + 1.0 * 8.0*3.0;
+        let asciidump_padding_columns = 2.0;
         
-        let asciidump_origin = base_position + normal_main_width * helpers::pango_unscale(render.gsc_mono.space_width()) + render.config.padding as f32;
+        let asciidump_origin = base_position + (typical_main_columns + asciidump_padding_columns) * space_width;
         let asciidump_position = asciidump_origin;
+
+        let typical_asciidump_columns = 16.0;
+        let edge = asciidump_position + (typical_asciidump_columns + 1.0) * space_width;
         
         LayoutController {
             base_position,
             indent_position,
             main_position,
-            asciidump_padding: 2.0 * helpers::pango_unscale(render.gsc_mono.space_width()),
+            asciidump_padding: asciidump_padding_columns * space_width,
             asciidump_position,
             asciidump_origin,
+            edge,
         }
     }
 
@@ -66,6 +74,14 @@ impl LayoutController {
         if self.main_position + self.asciidump_padding > self.asciidump_position {
             self.asciidump_position = self.main_position + self.asciidump_padding;
         }
+
+        if self.main_position + self.asciidump_padding > self.asciidump_position {
+            self.asciidump_position = self.main_position + self.asciidump_padding;
+        }
+
+        if self.asciidump_position > self.edge {
+            self.edge = self.asciidump_position;
+        }
     }
     
     fn allocate_main<F: FnOnce(f32) -> f32>(&mut self, cb: F) {
@@ -76,6 +92,14 @@ impl LayoutController {
     fn allocate_asciidump<F: FnOnce(f32) -> f32>(&mut self, cb: F) {
         self.cascade();
         self.asciidump_position = cb(self.asciidump_position);
+    }
+
+    pub fn base_position(&self) -> f32 {
+        self.base_position
+    }
+    
+    pub fn edge(&self) -> f32 {
+        self.edge
     }
 }
 

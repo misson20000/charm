@@ -233,8 +233,8 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
                 
                 let Some(project) = crd.create_project() else { continue };
 
-                let window = charm.get_ref().new_window();
-                window.open_project(project, true);
+                let window = charm.get_ref().new_window(false);
+                window.open_project(project, true, true);
                 window.present();
             }
 

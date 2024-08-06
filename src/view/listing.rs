@@ -465,6 +465,14 @@ impl ListingWidget {
         let interior = sync::Arc::new(parking_lot::RwLock::new(interior));
         self.imp().init(interior);
     }
+
+    pub fn set_cursor_hidden(&self, cursor_hidden: bool) {
+        self.imp().interior.get().unwrap().write().cursor.hidden = cursor_hidden;
+    }
+    
+    pub fn used_height(&self) -> f32 {
+        self.imp().interior.get().unwrap().read().used_height()
+    }
     
     pub fn complete_work(&self) -> ListingWidgetWorkCompletionFuture {
         ListingWidgetWorkCompletionFuture {
@@ -644,6 +652,10 @@ impl Interior {
                 widget.pango_context(),
                 self.render.serial + 1));
         self.update_breadcrumbs();
+    }
+
+    fn used_height(&self) -> f32 {
+        self.window.line_views.len() as f32 * helpers::pango_unscale(self.render.metrics.height())
     }
     
     fn measure_horizontal(&mut self, _widget: &ListingWidget) -> (i32, i32, i32, i32) {
