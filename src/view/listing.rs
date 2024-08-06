@@ -155,15 +155,23 @@ impl ObjectImpl for ListingWidgetImp {
 
 impl WidgetImpl for ListingWidgetImp {
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
-        /* FFI CALLBACK: panic-safe */
-        match orientation {
-            gtk::Orientation::Horizontal => {
-                (100, 200, -1, -1)
-            },
-            gtk::Orientation::Vertical => {
-                (200, 1200, -1, -1)
-            },
-            _ => (-1, -1, -1, -1)
+        catch_panic! {
+            @default((-1, -1, -1, -1));
+            
+            match orientation {
+                gtk::Orientation::Horizontal => {
+                    let mut interior = match self.interior.get() {
+                        Some(interior) => interior.write(),
+                        None => return (100, 200, -1, -1),
+                    };
+
+                    interior.measure_horizontal(&self.obj())
+                },
+                gtk::Orientation::Vertical => {
+                    (200, 1200, -1, -1)
+                },
+                x => panic!("invalid orientation {:?}", x)
+            }
         }
     }
 
@@ -636,6 +644,12 @@ impl Interior {
                 widget.pango_context(),
                 self.render.serial + 1));
         self.update_breadcrumbs();
+    }
+    
+    fn measure_horizontal(&mut self, _widget: &ListingWidget) -> (i32, i32, i32, i32) {
+        let layout = layout::LayoutController::new(0, &self.render);
+
+        (layout.edge() as i32, layout.edge() as i32, -1, -1)
     }
     
     /// Resize the underlying window.
