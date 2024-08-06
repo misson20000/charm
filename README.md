@@ -1,8 +1,26 @@
-# charm
+# Charm
 
-A structure-first hex editor.
+A structure-first hex editor focused on improving the user experience in manually annotating binary file structure.
 
 ![Screenshot of charm](doc/screenshot.png?raw=true)
+
+## Current Features
+
+- Full 64-bit addressing
+- Asynchronous I/O
+- Guaranteed correct undo
+- Dark mode and light mode
+- Written in Rust
+
+## Near-term Features
+
+- Non-destructive editing
+
+## Planned Features
+
+- Arrays and reusable types
+- Python analyzer API
+- Bit-level addressing (also already halfway there)
 
 ## Building
 
