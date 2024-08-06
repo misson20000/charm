@@ -77,7 +77,7 @@ impl PropsEditor {
         let path_display: gtk::Entry = builder.object("path_display").unwrap();
 
         let title_model = gtk::StringList::new(&["Inline", "Major", "Minor"]);
-        let children_model = gtk::StringList::new(&["Hidden", "Summary", "Full"]);
+        let children_model = gtk::StringList::new(&["Full", "Summary"]);
         let content_model = gtk::StringList::new(&["Hidden", "Hexdump", "Hexstring"]);
         
         let pe = PropsEditor {
@@ -120,9 +120,9 @@ impl PropsEditor {
 
         pe.children_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
             pe.apply_props(structure::MaybeProperties::new_children_display(match dd.selected() {
-                0 => structure::ChildrenDisplay::None,
+                0 => structure::ChildrenDisplay::Full,
                 1 => structure::ChildrenDisplay::Summary,
-                2 => structure::ChildrenDisplay::Full,
+                //2 => structure::ChildrenDisplay::None,
                 gtk::INVALID_LIST_POSITION => return,
                 x => panic!("unexpected selected index: {}", x)
             }));
@@ -320,9 +320,9 @@ impl PropsEditor {
 
         self.children_display.set_model(Some(&self.children_model));
         self.children_display.set_selected(match &props.children_display {
-            Some(structure::ChildrenDisplay::None) => 0,
+            Some(structure::ChildrenDisplay::Full) => 0,
             Some(structure::ChildrenDisplay::Summary) => 1,
-            Some(structure::ChildrenDisplay::Full) => 2,
+            Some(structure::ChildrenDisplay::None) => gtk::INVALID_LIST_POSITION,
             None => gtk::INVALID_LIST_POSITION,
         });
 

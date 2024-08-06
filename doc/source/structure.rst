@@ -58,19 +58,9 @@ Major
 Children Display
 ~~~~~~~~~~~~~~~~
 
-Hidden
-  Neither titles nor content are rendered for children, but their
-  presence still shadows data in the parent node and prevents it from
-  being displayed.
-
-  .. note::
-
-     Apparently not implemented yet?
-
 Full
   All children are displayed as normal, including titles, and their
   presence affects data shadowing.
-
 
 Summary
   The node's entire tree of children are displayed on a single line
@@ -80,9 +70,8 @@ Summary
 
   .. note::
 
-     The Summary children display mode is under development and known to
-     be buggy. It is hidden behind a feature gate by default. TODO:
-     actually feature gate it and describe here how to enable it.
+     The Summary children display mode is not finished and is missing
+     several UI interactions when compared to Full mode.
 
 Content Display
 ~~~~~~~~~~~~~~~
