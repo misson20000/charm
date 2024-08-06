@@ -2,6 +2,7 @@ use charm;
 
 use std::cell;
 use std::rc;
+use std::io::Read;
 
 use gtk::gio;
 use gtk::glib;
@@ -9,6 +10,8 @@ use gtk::prelude::*;
 
 mod prelude;
 mod screenshots;
+
+use prelude::*;
 
 pub enum Element {
     Window(i32, i32),
@@ -99,6 +102,24 @@ pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
     w.window.destroy();
 }
 
+fn load_project(path: &str) -> project::Project {
+    let mut project_bytes = vec![];
+    std::fs::File::open(path).unwrap().read_to_end(&mut project_bytes).unwrap();
+    let document = charm::serialization::deserialize_project(&project_bytes).unwrap();
+
+    /* Open any FileAddressSpaces that don't try to get opened during deserialization. */
+    for filter in &document.datapath {
+        match filter {
+            charm::model::datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
+                space::AddressSpace::File(f) => { f.try_open().unwrap(); },
+            },
+            _ => {}
+        }
+    }
+    
+    project::Project::new_unsaved(document)
+}
+
 fn main() {    
     charm::view::CharmApplication::launch(gio::ApplicationFlags::NON_UNIQUE, move |app| {
         let app = app.clone();
@@ -112,6 +133,7 @@ fn main() {
             
             screenshots::structure::title_display(&app).await;
             screenshots::structure::content_display(&app).await;
+            screenshots::demo::demo(&app).await;
         });
     });
 }

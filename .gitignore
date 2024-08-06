@@ -1,4 +1,6 @@
 /target
-doc/screenshotter/target
 *.charm
-
+doc/screenshotter/target
+doc/screenshotter/*.png
+!doc/screenshotter/projects/*.charm
+doc/build/

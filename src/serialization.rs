@@ -6,6 +6,7 @@ use bincode::Options;
 
 pub use bincode::Error as SerializationError;
 
+#[derive(Debug)]
 pub enum DeserializationError {
     InvalidMagic,
     UnsupportedVersion(u16),
