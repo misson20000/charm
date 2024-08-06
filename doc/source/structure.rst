@@ -112,5 +112,5 @@ Hexdump
 
 Hexstring
   Data is displayed on a single line as a continuous string of
-  hexadecimal bytes. Currently limited to 64 bytes.
+  hexadecimal bytes. Currently limited to 16 bytes.
 

@@ -178,6 +178,14 @@ impl TokenView {
                     // TODO: cursor for hexstring
                         .render(snapshot);
                 }
+
+                if token.truncated {
+                    render.gsc_mono.begin(
+                        gsc::Entry::Punctuation(token::PunctuationKind::Ellipsis),
+                        render.config.text_color.rgba(),
+                        &mut pos)
+                        .render(snapshot);
+                }
             },
 
             /* Internal tokens that shouldn't be drawn. */

@@ -699,10 +699,7 @@ impl Tokenizer {
                 extent,
                 line: line_extent,
             }.into_token()),
-            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken {
-                common: common.adjust_depth(1),
-                extent,
-            }.into_token()),
+            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken::new_maybe_truncate(common.adjust_depth(1), extent).into_token()),
 
             TokenizerState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
                 common,
@@ -753,14 +750,8 @@ impl Tokenizer {
                         index: 0, /* unused */
                     }.into_token(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
-                    structure::ContentDisplay::Hexdump { .. } => token::HexstringToken {
-                        common,
-                        extent,
-                    }.into_token(),
-                    structure::ContentDisplay::Hexstring => token::HexstringToken {
-                        common,
-                        extent,
-                    }.into_token(),
+                    structure::ContentDisplay::Hexdump { .. } => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
+                    structure::ContentDisplay::Hexstring => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
                 })
             },
             TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
@@ -1894,7 +1885,7 @@ pub mod xml {
                     extent: inflate_extent(&self.node),
                     line: inflate_line_extent(&self.node)
                 }.into_token(),
-                "hexstring" => token::HexstringToken { common, extent: inflate_extent(&self.node) }.into_token(),
+                "hexstring" => token::HexstringToken::new_maybe_truncate(common, inflate_extent(&self.node)).into_token(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
         }

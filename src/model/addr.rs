@@ -165,6 +165,13 @@ impl Address {
 }
 
 impl Size {
+    pub const fn new(bytes: u64) -> Self {
+        Size {
+            bytes,
+            bits: 0,
+        }
+    }
+
     fn normalize_signed(bytes: u64, bits: i64) -> Size {
         let mut nbytes = bytes;
         let mut nbits = bits;

@@ -33,6 +33,7 @@ pub struct Cache {
     gs_ascii: [pango::GlyphString; 0x7f-0x20], // ' ', '!', '"', ..., 'y', 'z', '{', '|', '}', '~'
     gs_dot: pango::GlyphString, // "."
     gs_colon: pango::GlyphString, // ": "
+    gs_ellipsis: pango::GlyphString, // "..."
 
     space_width: i32,
 }
@@ -76,6 +77,7 @@ impl Cache {
             gs_ascii: std::array::from_fn(|i| Self::shape(pg, std::str::from_utf8(&[0x20 + i as u8]).unwrap())),
             gs_dot: Self::shape(pg, "."),
             gs_colon: Self::shape(pg, ": "),
+            gs_ellipsis: Self::shape(pg, "..."),
 
             space_width,
         }
@@ -104,6 +106,7 @@ impl Cache {
                 token::PunctuationKind::Comma => Some(&self.gs_comma),
                 token::PunctuationKind::OpenBracket => Some(&self.gs_open),
                 token::PunctuationKind::CloseBracket => Some(&self.gs_close),
+                token::PunctuationKind::Ellipsis => Some(&self.gs_ellipsis),
             },
             Entry::Digit(digit) => self.gs_digit.get(digit as usize),
             Entry::PrintableAscii(ord) if (0x20..0x7f).contains(&ord) => Some(&self.gs_ascii[ord as usize - 0x20]),

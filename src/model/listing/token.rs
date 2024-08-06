@@ -109,6 +109,7 @@ pub struct HexdumpToken  {
 pub struct HexstringToken {
     pub common: TokenCommon,
     pub extent: addr::Extent,
+    pub truncated: bool,
 }
 
 /// Various forms of punctuation used ONLY in summaries.
@@ -125,6 +126,9 @@ pub enum PunctuationKind {
     
     /* should accept cursor */
     CloseBracket,
+
+    /* should not accept cursor */
+    Ellipsis,
 }
 
 #[derive(Clone)]
@@ -309,7 +313,8 @@ impl PunctuationKind {
             PunctuationKind::Space => "<space>",
             PunctuationKind::Comma => ", ",
             PunctuationKind::OpenBracket => "{",
-            PunctuationKind::CloseBracket => "}",            
+            PunctuationKind::CloseBracket => "}",
+            PunctuationKind::Ellipsis => "...",
         }
     }
 
@@ -469,6 +474,27 @@ impl TokenKind for HexstringToken {
 
     fn as_ref(&self) -> TokenRef<'_> {
         TokenRef::Hexstring(self)
+    }
+}
+
+impl HexstringToken {
+    pub fn new_maybe_truncate(common: TokenCommon, extent: addr::Extent) -> HexstringToken {
+        // TODO: make this configurable
+        const LIMIT: addr::Size = addr::Size::new(16);
+
+        if extent.length() > LIMIT {
+            HexstringToken {
+                common,
+                extent: addr::Extent::sized(extent.begin, LIMIT),
+                truncated: true,
+            }
+        } else {
+            HexstringToken {
+                common,
+                extent,
+                truncated: false,
+            }
+        }
     }
 }
 

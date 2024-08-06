@@ -565,6 +565,7 @@ mod tests {
                 depth: 0,
             },
             extent: addr::Extent::sized_u64(0, 8),
+            truncated: false,
         })), LinePushResult::Accepted);
 
         assert_eq!(line.push_front(token::Token::Title(token::TitleToken {
