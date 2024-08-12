@@ -4,10 +4,10 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::line;
+use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 use crate::model::versioned::Versioned;
-use crate::logic::tokenizer;
 
 use enum_dispatch::enum_dispatch;
 use tracing::instrument;
@@ -81,10 +81,10 @@ pub enum HorizontalPosition {
 
 #[derive(Debug)]
 pub struct Cursor {
-    tokenizer: tokenizer::Tokenizer,
+    position: stream::Position,
     line: line::Line,
-    line_begin: tokenizer::Tokenizer,
-    line_end: tokenizer::Tokenizer,
+    line_begin: stream::Position,
+    line_end: stream::Position,
     desired_horizontal_position: Option<HorizontalPosition>,
     pub class: CursorClass,
     document: sync::Arc<document::Document>,
@@ -100,27 +100,27 @@ enum UpdateMode {
 }
 
 impl CursorClass {
-    fn place_forward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_forward(position: &mut stream::Position, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
-            match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
+            match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the next */
                     Err(_) => {},
                 },
-                tokenizer::TokenGenerationResult::Skip => {},
-                tokenizer::TokenGenerationResult::Boundary => return Err(PlacementFailure::HitBottomOfAddressSpace)
+                stream::TokenGenerationResult::Skip => {},
+                stream::TokenGenerationResult::Boundary => return Err(PlacementFailure::HitBottomOfAddressSpace)
             };
 
-            if !tokenizer.move_next() {
+            if !position.move_next() {
                 return Err(PlacementFailure::HitBottomOfAddressSpace)
             }
         }
     }
 
-    fn place_backward(tokenizer: &mut tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_backward(position: &mut stream::Position, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
-            match tokenizer.prev() {
+            match position.prev() {
                 Some(token) => match CursorClass::new_placement(token, offset, hint) {
                     Ok(cursor) => return Ok(cursor),
                     /* failed to place on this token; try the previous */
@@ -135,26 +135,26 @@ impl CursorClass {
 impl Cursor {
     pub fn new(document: sync::Arc<document::Document>) -> Cursor {
         let root = document.root.clone();
-        Self::place_tokenizer(document, tokenizer::Tokenizer::at_beginning(root), addr::unit::NULL, &PlacementHint::default())
+        Self::place_position(document, stream::Position::at_beginning(root), addr::unit::NULL, &PlacementHint::default())
     }
 
     pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Cursor {
         let root = document.root.clone();
-        Self::place_tokenizer(document, tokenizer::Tokenizer::at_path(root, path, offset), offset, &hint)
+        Self::place_position(document, stream::Position::at_path(root, path, offset), offset, &hint)
     }
 
-    fn place_tokenizer(document: sync::Arc<document::Document>, origin: tokenizer::Tokenizer, offset: addr::Address, hint: &PlacementHint) -> Self {
-        let mut tokenizer = origin.clone();
+    fn place_position(document: sync::Arc<document::Document>, origin: stream::Position, offset: addr::Address, hint: &PlacementHint) -> Self {
+        let mut position = origin.clone();
         
-        let class = match CursorClass::place_forward(&mut tokenizer, offset, hint) {
+        let class = match CursorClass::place_forward(&mut position, offset, hint) {
             Ok(cc) => cc,
             Err(PlacementFailure::HitBottomOfAddressSpace) => {
-                tokenizer = origin.clone();
-                match CursorClass::place_backward(&mut tokenizer, offset, hint) {
+                position = origin.clone();
+                match CursorClass::place_backward(&mut position, offset, hint) {
                     Ok(cc) => cc,
                     Err(PlacementFailure::HitTopOfAddressSpace) => match hint {
                         PlacementHint::LastDitch => panic!("expected to be able to place cursor somewhere"),
-                        _ => return Self::place_tokenizer(document, origin, offset, &PlacementHint::LastDitch),
+                        _ => return Self::place_position(document, origin, offset, &PlacementHint::LastDitch),
                     },
                     Err(_) => panic!("unexpected error from CursorClass::place_backward")
                 }
@@ -162,13 +162,13 @@ impl Cursor {
             Err(_) => panic!("unexpected error from CursorClass::place_forward")
         };
 
-        let mut line_end = tokenizer.clone();
-        let (line, mut line_begin, _) = line::Line::containing_tokenizer(&mut line_end);
+        let mut line_end = position.clone();
+        let (line, mut line_begin, _) = line::Line::containing_position(&mut line_end);
         line_begin.canonicalize_next();
         line_end.canonicalize_next();
         
         Cursor {
-            tokenizer,
+            position,
             line,
             line_begin,
             line_end,
@@ -182,10 +182,10 @@ impl Cursor {
     #[instrument]
     fn update_internal(&mut self, document: &sync::Arc<document::Document>, update_mode: UpdateMode) {
         /* if we're using an outdated structure hierarchy root, make a
-         * new tokenizer and try to put the cursor nearby in the new
+         * new position and try to put the cursor nearby in the new
          * hierarchy. */
         if self.document.is_outdated(document) {
-            let mut options = tokenizer::PortOptionsBuilder::new();
+            let mut options = stream::PortOptionsBuilder::new();
             options = options.additional_offset(self.class.get_offset());
 
             match update_mode {
@@ -196,17 +196,17 @@ impl Cursor {
             };
 
             let mut options = options.build();
-            let mut tokenizer = self.tokenizer.clone();
+            let mut position = self.position.clone();
             
             document.changes_since(&self.document, &mut |document, change| {
-                tokenizer.port_change(
+                position.port_change(
                     &document.root,
                     change,
                     &mut options);
             });
 
-            let offset = tokenizer.structure_position_offset() + options.additional_offset.unwrap_or(addr::unit::ZERO);
-            *self = Self::place_tokenizer(document.clone(), tokenizer, offset, &self.class.get_placement_hint());
+            let offset = position.structure_position_offset() + options.additional_offset.unwrap_or(addr::unit::ZERO);
+            *self = Self::place_position(document.clone(), position, offset, &self.class.get_placement_hint());
         }
 
         self.class.update(document);
@@ -226,18 +226,18 @@ impl Cursor {
 
     /// Finds the next token that the supplied function returns Ok(_) for, and mutates our state to account for being on a new token. If we hit the end of the token stream without seeing Ok(_), the state is not mutated.
     fn next_token_matching<T, E, F: Fn(token::Token) -> Result<T, E>>(&mut self, acceptor: F) -> Option<T> {
-        let mut tokenizer = self.tokenizer.clone();
+        let mut position = self.position.clone();
         let mut line = self.line.clone();
         let mut line_begin = self.line_begin.clone();
         let mut line_end = self.line_end.clone();
 
         let obj = loop {
-            match tokenizer.next_preincrement() {
+            match position.next_preincrement() {
                 None => return None,
                 Some(token) => {
-                    while tokenizer >= line_end {
+                    while position >= line_end {
                         line_begin = line_end.clone();
-                        line = line::Line::next_from_tokenizer(&mut line_end);
+                        line = line::Line::next_from_position(&mut line_end);
                         line_end.canonicalize_next();
                     }
 
@@ -257,25 +257,25 @@ impl Cursor {
         self.line = line;
         self.line_begin = line_begin;
         self.line_end = line_end;
-        self.tokenizer = tokenizer;
+        self.position = position;
         
         Some(obj)
     }
 
     /// See [next_token_matching].
     fn prev_token_matching<T, E, F: Fn(token::Token) -> Result<T, E>>(&mut self, acceptor: F) -> Option<T> {
-        let mut tokenizer = self.tokenizer.clone();
+        let mut position = self.position.clone();
         let mut line = self.line.clone();
         let mut line_begin = self.line_begin.clone();
         let mut line_end = self.line_end.clone();
 
         let obj = loop {
-            match tokenizer.prev() {
+            match position.prev() {
                 None => return None,
                 Some(token) => {
-                    while tokenizer < line_begin {
+                    while position < line_begin {
                         line_end = line_begin.clone();
-                        line = line::Line::prev_from_tokenizer(&mut line_begin);
+                        line = line::Line::prev_from_position(&mut line_begin);
                         line_begin.canonicalize_next();
                     }
 
@@ -295,7 +295,7 @@ impl Cursor {
         self.line = line;
         self.line_begin = line_begin;
         self.line_end = line_end;
-        self.tokenizer = tokenizer;
+        self.position = position;
         
         Some(obj)
     }
@@ -327,13 +327,13 @@ impl Cursor {
     pub fn move_left_large(&mut self)       -> MovementResult { self.movement(|c| c.move_left_large(),       TransitionHint::MoveLeftLarge) }
     pub fn move_right_large(&mut self)      -> MovementResult { self.movement(|c| c.move_right_large(),      TransitionHint::UnspecifiedRight) }
 
-    fn move_vertically(&mut self, line: line::Line, line_begin: tokenizer::Tokenizer, line_end: tokenizer::Tokenizer) -> Result<MovementResult, (tokenizer::Tokenizer, tokenizer::Tokenizer)> {
+    fn move_vertically(&mut self, line: line::Line, line_begin: stream::Position, line_end: stream::Position) -> Result<MovementResult, (stream::Position, stream::Position)> {
         let dhp = match &self.desired_horizontal_position {
             Some(x) => x.clone(),
             None => self.class.get_horizontal_position_in_line(&self.line),
         };
 
-        let mut tokenizer = line_begin.clone();
+        let mut position = line_begin.clone();
 
         let hint = TransitionHint::MoveVertical {
             horizontal_position: &dhp,
@@ -342,23 +342,23 @@ impl Cursor {
         };
 
         self.class = loop {
-            match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => match CursorClass::new_transition(token, &hint) {
+            match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => match CursorClass::new_transition(token, &hint) {
                     Ok(cc) => break cc,
                     Err(_tok) => {},
                 },
-                tokenizer::TokenGenerationResult::Skip => {},
-                tokenizer::TokenGenerationResult::Boundary => return Ok(MovementResult::HitEnd),
+                stream::TokenGenerationResult::Skip => {},
+                stream::TokenGenerationResult::Boundary => return Ok(MovementResult::HitEnd),
             };
 
-            if !tokenizer.move_next() {
+            if !position.move_next() {
                 return Ok(MovementResult::HitEnd);
             }
 
-            if tokenizer >= line_end {
+            if position >= line_end {
                 break loop {                    
-                    if let Some(token) = tokenizer.prev() {
-                        if tokenizer < line_begin {
+                    if let Some(token) = position.prev() {
+                        if position < line_begin {
                             return Err((line_begin, line_end));
                         }
 
@@ -375,7 +375,7 @@ impl Cursor {
 
         assert!(line.iter_tokens().any(|t| t == self.class.get_token()));
         
-        self.tokenizer = tokenizer;
+        self.position = position;
         self.line = line;
         self.line_begin = line_begin;
         self.line_end = line_end;
@@ -390,7 +390,7 @@ impl Cursor {
         
         loop {
             let line_end = line_begin.clone();
-            let line = line::Line::prev_from_tokenizer(&mut line_begin);
+            let line = line::Line::prev_from_position(&mut line_begin);
             if line.is_empty() {
                 return MovementResult::HitStart;
             }
@@ -407,7 +407,7 @@ impl Cursor {
 
         loop {
             let line_begin = line_end.clone();
-            let line = line::Line::next_from_tokenizer(&mut line_end);
+            let line = line::Line::next_from_position(&mut line_end);
             if line.is_empty() {
                 return MovementResult::HitEnd;
             }
@@ -440,15 +440,15 @@ impl Cursor {
      */
 
     pub fn structure_path(&self) -> structure::Path {
-        self.tokenizer.structure_path()
+        self.position.structure_path()
     }
 
     pub fn structure_child_index(&self) -> usize {
-        self.tokenizer.structure_position_child()
+        self.position.structure_position_child()
     }
     
     pub fn structure_offset(&self) -> addr::Address {
-        self.tokenizer.structure_position_offset() + self.class.get_offset()
+        self.position.structure_position_offset() + self.class.get_offset()
     }
     
     pub fn document(&self) -> sync::Arc<document::Document> {
@@ -498,16 +498,16 @@ impl CursorClass {
     }
 
     #[instrument]
-    fn try_move_prev_token(&self, mut tokenizer: tokenizer::Tokenizer, hint: TransitionHint) -> Option<(CursorClass, tokenizer::Tokenizer)> {
+    fn try_move_prev_token(&self, mut position: stream::Position, hint: TransitionHint) -> Option<(CursorClass, stream::Position)> {
         loop {
-            match tokenizer.prev() {
+            match position.prev() {
                 None => {
                     return None
                 },
                 Some(token) => {
                     match Self::new_transition(token, &hint) {
                         Ok(cc) => {
-                            return Some((cc, tokenizer));
+                            return Some((cc, position));
                         },
                         Err(_token) => {
                             /* skip this token and try the one before it */
@@ -519,16 +519,16 @@ impl CursorClass {
     }
 
     #[instrument]
-    fn try_move_next_token(&self, mut tokenizer: tokenizer::Tokenizer, hint: TransitionHint) -> Option<(CursorClass, tokenizer::Tokenizer)> {
+    fn try_move_next_token(&self, mut position: stream::Position, hint: TransitionHint) -> Option<(CursorClass, stream::Position)> {
         loop {
-            match tokenizer.next_preincrement() {
+            match position.next_preincrement() {
                 None => {
                     return None
                 },
                 Some(token) => {
                     match Self::new_transition(token, &hint) {
                         Ok(cc) => {
-                            return Some((cc, tokenizer));
+                            return Some((cc, position));
                         },
                         Err(_) => {
                             /* skip this token and try the one after it */
@@ -567,7 +567,7 @@ pub enum TransitionHint<'a> {
     MoveVertical {
         horizontal_position: &'a HorizontalPosition,
         line: &'a line::Line,
-        line_end: &'a tokenizer::Tokenizer,
+        line_end: &'a stream::Position,
     },
     EndOfLine,
 }
@@ -928,15 +928,15 @@ mod tests {
         let mut cursor = Cursor::place(document, &vec![], 0x0.into(), PlacementHint::Unused);
         println!("initial:");
         println!("  line: {:?}", cursor.line);
-        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        println!("  line positions: {:?}-{:?}", cursor.line_begin, cursor.line_end);
         cursor.move_up();
         println!("after move up 1:");
         println!("  line: {:?}", cursor.line);
-        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        println!("  line positions: {:?}-{:?}", cursor.line_begin, cursor.line_end);
         cursor.move_up();
         println!("after move up 2:");
         println!("  line: {:?}", cursor.line);
-        println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
+        println!("  line positions: {:?}-{:?}", cursor.line_begin, cursor.line_end);
         cursor.move_right();
     }
 

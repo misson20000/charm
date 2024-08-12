@@ -110,7 +110,7 @@ impl Document {
     pub fn load_from_testing_structure<P: AsRef<std::path::Path>>(path: P) -> Result<Document, LoadForTestingError> {
         let xml = std::fs::read_to_string(path)?;
         let xml = roxmltree::Document::parse(&xml)?;
-        let tc = crate::logic::tokenizer::xml::Testcase::from_xml(&xml);
+        let tc = crate::model::listing::stream::xml::Testcase::from_xml(&xml);
 
         Ok(Document {
             root: tc.structure,

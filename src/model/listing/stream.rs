@@ -1,13 +1,6 @@
 //! This module includes the logic that converts from a document structure
 //! hierarchy into a seekable stream of tokens.
 
-// TODO: rework the concept of a tokenizer into a TokenCursor or
-// something like it.  also, to reconcile the two different
-// interpretations of movement (re: turning around directions, whether
-// a position is on an token or on a border), we should expose two
-// wrapper unit types that you have to do all movement through to
-// specify which type of movement you want.
-
 use std::sync;
 
 use crate::model::addr;
@@ -20,7 +13,7 @@ use crate::model::listing::token;
 use tracing::instrument;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum TokenizerState {
+enum PositionState {
     PreBlank,
     Title,
     
@@ -52,28 +45,28 @@ enum TokenizerState {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum TokenizerDescent {
+enum Descent {
     Child(usize),
     ChildSummary(usize),
     MySummary,
 }
 
 #[derive(Clone)]
-pub struct TokenizerStackEntry {
-    stack: Option<sync::Arc<TokenizerStackEntry>>,
-    descent: TokenizerDescent,
+pub struct StackEntry {
+    stack: Option<sync::Arc<StackEntry>>,
+    descent: Descent,
     /// How many nodes deep in the hierarchy generated tokens should appear to be (plus or minus one depending on token type)
     apparent_depth: usize,
-    /// How long the [stack] chain actually is. Used when comparing Tokenizers.
+    /// How long the [stack] chain actually is. Used when comparing Positions.
     logical_depth: usize,
     node: sync::Arc<structure::Node>,
     node_addr: addr::Address,    
 }
 
 /* This lets us provide an alternate, simpler implementation to
- * certain unit tests to help isolate bugs to either Tokenizer logic
+ * certain unit tests to help isolate bugs to either Position logic
  * or Window/Line logic. */
-pub trait AbstractTokenizer: Clone {
+pub trait AbstractPosition: Clone {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
     fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self;
     fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change);
@@ -88,15 +81,15 @@ pub trait AbstractTokenizer: Clone {
 }
 
 #[derive(Clone)]
-pub struct Tokenizer {
+pub struct Position {
     /* invariants:
        - stack should always contain a path all the way back to the root node
      */
-    stack: Option<sync::Arc<TokenizerStackEntry>>,
-    state: TokenizerState,
+    stack: Option<sync::Arc<StackEntry>>,
+    state: PositionState,
     /// How many nodes deep in the hierarchy generated tokens should appear to be (plus or minus one depending on token type)
     apparent_depth: usize,
-    /// How long the [stack] chain actually is. Used when comparing Tokenizers.
+    /// How long the [stack] chain actually is. Used when comparing Positions.
     logical_depth: usize,
     pub node: sync::Arc<structure::Node>,
     node_addr: addr::Address,
@@ -113,20 +106,20 @@ enum AscendDirection {
     Prev, Next
 }
 
-struct TokenizerStackDebugHelper<'a>(&'a Option<sync::Arc<TokenizerStackEntry>>);
+struct StackDebugHelper<'a>(&'a Option<sync::Arc<StackEntry>>);
 
-impl std::fmt::Debug for Tokenizer {
+impl std::fmt::Debug for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tokenizer")
+        f.debug_struct("Position")
             .field("state", &self.state)
             .field("node", &self.node.props.name)
             .field("node_addr", &self.node_addr)
-            .field("stack", &TokenizerStackDebugHelper(&self.stack))
+            .field("stack", &StackDebugHelper(&self.stack))
             .finish_non_exhaustive()
     }
 }
 
-impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
+impl<'a> std::fmt::Debug for StackDebugHelper<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut dl = f.debug_list();
         let mut i = self.0;
@@ -140,7 +133,7 @@ impl<'a> std::fmt::Debug for TokenizerStackDebugHelper<'a> {
     }
 }
 
-impl std::fmt::Debug for TokenizerStackEntry {
+impl std::fmt::Debug for StackEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Entry")
             .field("descent", &self.descent)
@@ -187,7 +180,7 @@ enum PortStackMode {
 struct PortStackState {
     mode: PortStackMode,
     current_path: structure::Path,
-    new_stack: Option<sync::Arc<TokenizerStackEntry>>,
+    new_stack: Option<sync::Arc<StackEntry>>,
     apparent_depth: usize,
     logical_depth: usize,
     node_addr: addr::Address,
@@ -199,7 +192,7 @@ impl std::fmt::Debug for PortStackState {
         f.debug_struct("PortStackState")
             .field("mode", &self.mode)
             .field("current_path", &self.current_path)
-            .field("new_stack", &TokenizerStackDebugHelper(&self.new_stack))
+            .field("new_stack", &StackDebugHelper(&self.new_stack))
             .field("apparent_depth", &self.apparent_depth)
             .field("logical_depth", &self.logical_depth)
             .field("node_addr", &self.node_addr)
@@ -210,7 +203,7 @@ impl std::fmt::Debug for PortStackState {
 
 #[derive(Debug)]
 enum IntermediatePortState {
-    Finished(TokenizerState),
+    Finished(PositionState),
 
     NormalContent(Option<addr::Address>, usize),
     SummaryLabel(usize),
@@ -245,12 +238,12 @@ impl Default for PortOptionsBuilder {
     }
 }
 
-impl Tokenizer {
-    /// Creates a new tokenizer seeked to the root of the structure hierarchy and the beginning of the token stream.
-    pub fn at_beginning(root: sync::Arc<structure::Node>) -> Tokenizer {
-        Tokenizer {
+impl Position {
+    /// Creates a new position seeked to the root of the structure hierarchy and the beginning of the token stream.
+    pub fn at_beginning(root: sync::Arc<structure::Node>) -> Position {
+        Position {
             stack: None,
-            state: TokenizerState::PreBlank,
+            state: PositionState::PreBlank,
             apparent_depth: 0,
             logical_depth: 0,
             node: root,
@@ -258,8 +251,8 @@ impl Tokenizer {
         }
     }
 
-    /// Creates a new tokenizer positioned at a specific offset within the node at the given path.
-    pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Tokenizer {
+    /// Creates a new position positioned at a specific offset within the node at the given path.
+    pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Position {
         let mut node = &root;
         let mut node_addr = addr::unit::NULL;
         let mut apparent_depth = 0;
@@ -273,9 +266,9 @@ impl Tokenizer {
                 
         for child_index in path {
             if !summary_prev && summary_next {
-                stack = Some(sync::Arc::new(TokenizerStackEntry {
+                stack = Some(sync::Arc::new(StackEntry {
                     stack: stack.take(),
-                    descent: TokenizerDescent::MySummary,
+                    descent: Descent::MySummary,
                     apparent_depth,
                     logical_depth,
                     node: node.clone(),
@@ -287,9 +280,9 @@ impl Tokenizer {
 
             summary_prev = summary_next;
 
-            stack = Some(sync::Arc::new(TokenizerStackEntry {
+            stack = Some(sync::Arc::new(StackEntry {
                 stack: stack.take(),
-                descent: if summary_prev { TokenizerDescent::ChildSummary(*child_index) } else { TokenizerDescent::Child(*child_index) },
+                descent: if summary_prev { Descent::ChildSummary(*child_index) } else { Descent::Child(*child_index) },
                 apparent_depth,
                 logical_depth,
                 node: node.clone(),
@@ -308,9 +301,9 @@ impl Tokenizer {
             };
         }
         
-        let mut tokenizer = Tokenizer {
+        let mut position = Position {
             stack,
-            state: if summary_prev { TokenizerState::SummaryValueBegin } else { TokenizerState::PreBlank },
+            state: if summary_prev { PositionState::SummaryValueBegin } else { PositionState::PreBlank },
             apparent_depth,
             logical_depth,
             node: node.clone(),
@@ -318,13 +311,13 @@ impl Tokenizer {
         };
 
         if offset > addr::unit::NULL {
-            tokenizer.seek_in_node_to_offset(offset, summary_next);
+            position.seek_in_node_to_offset(offset, summary_next);
         }
         
-        tokenizer
+        position
     }
     
-    /// Applies a single change to the tokenizer state.
+    /// Applies a single change to the position state.
     #[instrument]
     pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &mut PortOptions) {
         /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
@@ -339,9 +332,9 @@ impl Tokenizer {
             (PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent: _, .. }, _) if stack_state.children_summarized() => IntermediatePortState::SummaryLabel(*first_deleted_child_index),
             (PortStackMode::Deleted { node: _, first_deleted_child_index, offset_within_parent, .. }, state) => {
                 let offset_within_child = match state {
-                    TokenizerState::MetaContent(offset, _) => *offset,
-                    TokenizerState::Hexdump { extent, .. } => extent.begin,
-                    TokenizerState::Hexstring(extent, _) => extent.begin,
+                    PositionState::MetaContent(offset, _) => *offset,
+                    PositionState::Hexdump { extent, .. } => extent.begin,
+                    PositionState::Hexstring(extent, _) => extent.begin,
                     _ => addr::unit::NULL
                 };
                 
@@ -350,80 +343,80 @@ impl Tokenizer {
 
             /* We were in a child that got destructured. Our old state tells us about where we were in that child. */
             (PortStackMode::Destructuring { destructured_childhood, destructured_child_index, summary: false }, state) => match state {
-                TokenizerState::PreBlank
-                    | TokenizerState::Title
-                    | TokenizerState::SummaryPreamble
-                    | TokenizerState::SummaryOpener
-                    | TokenizerState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                PositionState::PreBlank
+                    | PositionState::Title
+                    | PositionState::SummaryPreamble
+                    | PositionState::SummaryOpener
+                    | PositionState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
                 
-                TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
-                TokenizerState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
+                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
 
-                TokenizerState::SummaryLabel(i)
-                    | TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
+                PositionState::SummaryLabel(i)
+                    | PositionState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
 
-                TokenizerState::SummaryValueEnd
-                    | TokenizerState::SummaryEpilogue
-                    | TokenizerState::SummaryCloser
-                    | TokenizerState::PostBlank
-                    | TokenizerState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
+                PositionState::SummaryValueEnd
+                    | PositionState::SummaryEpilogue
+                    | PositionState::SummaryCloser
+                    | PositionState::PostBlank
+                    | PositionState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
             },
             // TODO: try harder here
             (PortStackMode::Destructuring { destructured_child_index, summary: true, .. }, _) => IntermediatePortState::SummaryLabel(*destructured_child_index),
 
             /* If a node was switched from ChildrenDisplay::Full to ChildrenDisplay::Summary, we want to stay on the
              * title or preblank if we were on them, but otherwise we pretend as if we're in PortStackMode::Summary and
-             * fixup the TokenizerDescent::MySummary later. */
-            (PortStackMode::Normal, TokenizerState::PreBlank) => IntermediatePortState::Finished(TokenizerState::PreBlank),
-            (PortStackMode::Normal, TokenizerState::Title) => IntermediatePortState::Finished(TokenizerState::Title),
+             * fixup the Descent::MySummary later. */
+            (PortStackMode::Normal, PositionState::PreBlank) => IntermediatePortState::Finished(PositionState::PreBlank),
+            (PortStackMode::Normal, PositionState::Title) => IntermediatePortState::Finished(PositionState::Title),
             
             (PortStackMode::Normal, state) if !stack_state.children_summarized() => match state {
-                TokenizerState::PreBlank => IntermediatePortState::Finished(TokenizerState::PreBlank),
-                TokenizerState::Title => IntermediatePortState::Finished(TokenizerState::Title),
+                PositionState::PreBlank => IntermediatePortState::Finished(PositionState::PreBlank),
+                PositionState::Title => IntermediatePortState::Finished(PositionState::Title),
                 
-                TokenizerState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
-                TokenizerState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
-                TokenizerState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
+                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
-                TokenizerState::SummaryPreamble => IntermediatePortState::Finished(TokenizerState::Title),
-                TokenizerState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
-                TokenizerState::SummaryLabel(i) => IntermediatePortState::NormalContent(None, *i),
-                TokenizerState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, *i),
-                TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::End),
-                TokenizerState::SummaryEpilogue => IntermediatePortState::Finished(TokenizerState::PostBlank),
-                TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::Title),
-                TokenizerState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
-                TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::End),
+                PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::Title),
+                PositionState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
+                PositionState::SummaryLabel(i) => IntermediatePortState::NormalContent(None, *i),
+                PositionState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, *i),
+                PositionState::SummaryCloser => IntermediatePortState::Finished(PositionState::End),
+                PositionState::SummaryEpilogue => IntermediatePortState::Finished(PositionState::PostBlank),
+                PositionState::SummaryValueBegin => IntermediatePortState::Finished(PositionState::Title),
+                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
+                PositionState::SummaryValueEnd => IntermediatePortState::Finished(PositionState::End),
 
-                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::PostBlank),
-                TokenizerState::End => IntermediatePortState::Finished(TokenizerState::End),
+                PositionState::PostBlank => IntermediatePortState::Finished(PositionState::PostBlank),
+                PositionState::End => IntermediatePortState::Finished(PositionState::End),
             },
 
             (PortStackMode::Normal | PortStackMode::Summary, state) => match state {
                 // TODO: these are maybe wrong and should be tested
-                TokenizerState::PreBlank =>
-                    IntermediatePortState::Finished(TokenizerState::SummaryValueBegin),
-                TokenizerState::Title =>
-                    IntermediatePortState::Finished(TokenizerState::SummaryValueBegin),
+                PositionState::PreBlank =>
+                    IntermediatePortState::Finished(PositionState::SummaryValueBegin),
+                PositionState::Title =>
+                    IntermediatePortState::Finished(PositionState::SummaryValueBegin),
                 
-                TokenizerState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
-                TokenizerState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
-                TokenizerState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
+                PositionState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
+                PositionState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
+                PositionState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
 
-                TokenizerState::SummaryPreamble => IntermediatePortState::Finished(TokenizerState::SummaryPreamble),
-                TokenizerState::SummaryOpener => IntermediatePortState::Finished(TokenizerState::SummaryOpener),
-                TokenizerState::SummaryLabel(i) => IntermediatePortState::SummaryLabel(*i),
-                TokenizerState::SummarySeparator(i) => IntermediatePortState::SummarySeparator(*i),
-                TokenizerState::SummaryCloser => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
-                TokenizerState::SummaryEpilogue => IntermediatePortState::Finished(TokenizerState::SummaryEpilogue),
-                TokenizerState::SummaryValueBegin => IntermediatePortState::Finished(TokenizerState::SummaryValueBegin),
-                TokenizerState::SummaryLeaf => IntermediatePortState::Finished(TokenizerState::SummaryLeaf),
-                TokenizerState::SummaryValueEnd => IntermediatePortState::Finished(TokenizerState::SummaryValueEnd),
+                PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::SummaryPreamble),
+                PositionState::SummaryOpener => IntermediatePortState::Finished(PositionState::SummaryOpener),
+                PositionState::SummaryLabel(i) => IntermediatePortState::SummaryLabel(*i),
+                PositionState::SummarySeparator(i) => IntermediatePortState::SummarySeparator(*i),
+                PositionState::SummaryCloser => IntermediatePortState::Finished(PositionState::SummaryCloser),
+                PositionState::SummaryEpilogue => IntermediatePortState::Finished(PositionState::SummaryEpilogue),
+                PositionState::SummaryValueBegin => IntermediatePortState::Finished(PositionState::SummaryValueBegin),
+                PositionState::SummaryLeaf => IntermediatePortState::Finished(PositionState::SummaryLeaf),
+                PositionState::SummaryValueEnd => IntermediatePortState::Finished(PositionState::SummaryValueEnd),
 
-                TokenizerState::PostBlank => IntermediatePortState::Finished(TokenizerState::SummaryEpilogue),
-                TokenizerState::End => IntermediatePortState::Finished(TokenizerState::SummaryCloser),
+                PositionState::PostBlank => IntermediatePortState::Finished(PositionState::SummaryEpilogue),
+                PositionState::End => IntermediatePortState::Finished(PositionState::SummaryCloser),
             }
         };
 
@@ -440,9 +433,9 @@ impl Tokenizer {
         
         let is_summary = stack_state.summarized();
 
-        *self = Tokenizer {
+        *self = Position {
             stack: stack_state.new_stack,
-            state: TokenizerState::End, /* this is a placeholder. we finalize the details later... */
+            state: PositionState::End, /* this is a placeholder. we finalize the details later... */
             apparent_depth: stack_state.apparent_depth,
             logical_depth: stack_state.logical_depth,
             node: stack_state.node,
@@ -481,7 +474,7 @@ impl Tokenizer {
                 } else if let Some(offset) = offset.as_mut() {
                     if new_childhood.extent().includes(*offset) {
                         /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
-                        self.descend(if is_summary { TokenizerDescent::ChildSummary(*affected_index) } else { TokenizerDescent::Child(*affected_index) }, TokenizerState::End);
+                        self.descend(if is_summary { Descent::ChildSummary(*affected_index) } else { Descent::Child(*affected_index) }, PositionState::End);
 
                         *index = 0;
                         *offset-= new_childhood.offset.to_size();
@@ -509,7 +502,7 @@ impl Tokenizer {
                         /* descend into the new node. */
                         let new_nest_offset = new_nest.offset;
                         
-                        self.descend(if is_summary { TokenizerDescent::ChildSummary(range.first) } else { TokenizerDescent::Child(range.first) }, TokenizerState::End);
+                        self.descend(if is_summary { Descent::ChildSummary(range.first) } else { Descent::Child(range.first) }, PositionState::End);
 
                         // TODO: is there something more helpful we could do here?
                         *index = 0;
@@ -558,14 +551,14 @@ impl Tokenizer {
                 } else {
                     None
                 });
-                TokenizerState::MetaContent(line_begin, index)
+                PositionState::MetaContent(line_begin, index)
             },
 
-            /* Real TokenizerState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
-            IntermediatePortState::SummaryLabel(index) if index < children.len() => TokenizerState::SummaryLabel(index),
-            IntermediatePortState::SummarySeparator(index) if index < children.len() => TokenizerState::SummarySeparator(index),
-            IntermediatePortState::SummaryLabel(_) => TokenizerState::SummaryCloser,
-            IntermediatePortState::SummarySeparator(_) => TokenizerState::SummaryCloser,
+            /* Real PositionState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
+            IntermediatePortState::SummaryLabel(index) if index < children.len() => PositionState::SummaryLabel(index),
+            IntermediatePortState::SummarySeparator(index) if index < children.len() => PositionState::SummarySeparator(index),
+            IntermediatePortState::SummaryLabel(_) => PositionState::SummaryCloser,
+            IntermediatePortState::SummarySeparator(_) => PositionState::SummaryCloser,
         };
 
         /* Adjust our stream position to actually be on a token. */
@@ -577,9 +570,9 @@ impl Tokenizer {
         }
     }
 
-    /// Used to recurse to the base of the tokenizer stack so we can start porting from the top down. Returns whether or not to keep going.
+    /// Used to recurse to the base of the stack so we can start porting from the top down. Returns whether or not to keep going.
     #[instrument]
-    fn port_recurse(tok: &TokenizerStackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> PortStackState {
+    fn port_recurse(tok: &StackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> PortStackState {
         match &tok.stack {
             Some(parent) => {
                 let mut state = Self::port_recurse(parent, new_root, change);
@@ -595,15 +588,15 @@ impl Tokenizer {
         }
     }
 
-    /// Applies a change to a single item in the tokenizer stack. If we need to stop descending in the middle of the stack, return the 
+    /// Applies a change to a single item in the stack. If we need to stop descending in the middle of the stack, return the 
     #[instrument]
-    fn port_stack_entry(state: &mut PortStackState, old_tok: &TokenizerStackEntry, change: &change::Change) {
+    fn port_stack_entry(state: &mut PortStackState, old_tok: &StackEntry, change: &change::Change) {
         /* This logic more-or-less mirrors change::update_path */
         let child_index = match old_tok.descent {
-            TokenizerDescent::Child(child_index) | TokenizerDescent::ChildSummary(child_index) => child_index,
+            Descent::Child(child_index) | Descent::ChildSummary(child_index) => child_index,
             
             /* This is handled implicitly by PortStackState::push behavior. */
-            TokenizerDescent::MySummary => return,
+            Descent::MySummary => return,
         };
         
         match &change.ty {
@@ -654,12 +647,12 @@ impl Tokenizer {
         
         if summary {
             if self.node.children.len() > 0 {
-                self.state = TokenizerState::SummaryLabel(index);
+                self.state = PositionState::SummaryLabel(index);
             } else {
-                self.state = TokenizerState::SummaryLeaf;
+                self.state = PositionState::SummaryLeaf;
             }
         } else {
-            self.state = TokenizerState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
+            self.state = PositionState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
         }
 
         while match self.gen_token() {
@@ -670,11 +663,11 @@ impl Tokenizer {
         }
     }
     
-    /// Creates a new tokenizer seeked to the end of the token stream.
-    pub fn at_end(root: &sync::Arc<structure::Node>) -> Tokenizer {
-        Tokenizer {
+    /// Creates a new position seeked to the end of the token stream.
+    pub fn at_end(root: &sync::Arc<structure::Node>) -> Position {
+        Position {
             stack: None,
-            state: TokenizerState::End,
+            state: PositionState::End,
             apparent_depth: 0,
             logical_depth: 0,
             node: root.clone(),
@@ -692,7 +685,7 @@ impl Tokenizer {
         };
         
         match self.state {
-            TokenizerState::PreBlank => if self.node.props.title_display.has_blanks() {
+            PositionState::PreBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::BlankLineToken {
                     common,
                     accepts_cursor: false,
@@ -700,28 +693,28 @@ impl Tokenizer {
             } else {
                 TokenGenerationResult::Skip
             },
-            TokenizerState::Title => TokenGenerationResult::Ok(token::TitleToken {
+            PositionState::Title => TokenGenerationResult::Ok(token::TitleToken {
                 common,
             }.into_token()),
             
-            TokenizerState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            TokenizerState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
+            PositionState::MetaContent(_, _) => TokenGenerationResult::Skip,
+            PositionState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
                 common: common.adjust_depth(1),
                 index,
                 extent,
                 line: line_extent,
             }.into_token()),
-            TokenizerState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken::new_maybe_truncate(common.adjust_depth(1), extent).into_token()),
+            PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken::new_maybe_truncate(common.adjust_depth(1), extent).into_token()),
 
-            TokenizerState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
+            PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
                 common,
             }.into_token()),
-            TokenizerState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+            PositionState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                 common,
                 kind: token::PunctuationKind::OpenBracket,
                 index: 0, /* unused */
             }.into_token()),
-            TokenizerState::SummaryLabel(i) => {
+            PositionState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
                 TokenGenerationResult::Ok(token::SummaryLabelToken {
                     common: token::TokenCommon {
@@ -732,7 +725,7 @@ impl Tokenizer {
                     },
                 }.into_token())
             },
-            TokenizerState::SummarySeparator(i) => if i+1 < self.node.children.len() {
+            PositionState::SummarySeparator(i) => if i+1 < self.node.children.len() {
                 TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                     common,
                     kind: token::PunctuationKind::Comma,
@@ -741,17 +734,17 @@ impl Tokenizer {
             } else {
                 TokenGenerationResult::Skip
             },
-            TokenizerState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+            PositionState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
                 common,
                 kind: token::PunctuationKind::CloseBracket,
                 index: 0, /* unused */
             }.into_token()),
-            TokenizerState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogueToken {
+            PositionState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogueToken {
                 common,
             }.into_token()),
             
-            TokenizerState::SummaryValueBegin => TokenGenerationResult::Skip,
-            TokenizerState::SummaryLeaf => {
+            PositionState::SummaryValueBegin => TokenGenerationResult::Skip,
+            PositionState::SummaryLeaf => {
                 let limit = std::cmp::min(16.into(), self.node.size);
                 let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
                 
@@ -766,9 +759,9 @@ impl Tokenizer {
                     structure::ContentDisplay::Hexstring => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
                 })
             },
-            TokenizerState::SummaryValueEnd => TokenGenerationResult::Skip,
+            PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
 
-            TokenizerState::PostBlank => if self.node.props.title_display.has_blanks() {
+            PositionState::PostBlank => if self.node.props.title_display.has_blanks() {
                 TokenGenerationResult::Ok(token::BlankLineToken {
                     common: common.adjust_depth(1),
                     accepts_cursor: true,
@@ -776,7 +769,7 @@ impl Tokenizer {
             } else {
                 TokenGenerationResult::Skip
             },
-            TokenizerState::End => TokenGenerationResult::Skip,
+            PositionState::End => TokenGenerationResult::Skip,
         }
     }
 
@@ -839,19 +832,19 @@ impl Tokenizer {
     /// Returns true when successful, or false if hit the beginning of the token stream.
     pub fn move_prev(&mut self) -> bool {
         match self.state {
-            TokenizerState::PreBlank => {
+            PositionState::PreBlank => {
                 self.try_ascend(AscendDirection::Prev)
             },
-            TokenizerState::Title => {
-                self.state = TokenizerState::PreBlank;
+            PositionState::Title => {
+                self.state = PositionState::PreBlank;
                 true
             },
-            TokenizerState::SummaryPreamble => {
-                self.state = TokenizerState::Title;
+            PositionState::SummaryPreamble => {
+                self.state = PositionState::Title;
                 true
             },
             
-            TokenizerState::MetaContent(offset, index) => {
+            PositionState::MetaContent(offset, index) => {
                 let prev_child_option = match index {
                     0 => None,
                     /* Something is seriously wrong if index was farther than one-past-the-end. */
@@ -862,9 +855,9 @@ impl Tokenizer {
                 if let Some((prev_child_index, prev_child)) = prev_child_option {
                     if prev_child.end() >= offset {
                         self.descend(
-                            TokenizerDescent::Child(prev_child_index),
+                            Descent::Child(prev_child_index),
                             /* Descend to thse end of the child. */
-                            TokenizerState::End);
+                            PositionState::End);
 
                         return true;
                     }
@@ -877,100 +870,100 @@ impl Tokenizer {
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
                     
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(interstitial.begin, index),
+                        structure::ContentDisplay::None => PositionState::MetaContent(interstitial.begin, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
                             let line_extent = self.get_line_extent(offset - addr::unit::BIT, line_pitch);
 
-                            TokenizerState::Hexdump {
+                            PositionState::Hexdump {
                                 extent: addr::Extent::between(std::cmp::max(interstitial.begin, line_extent.begin), offset),
                                 line_extent,
                                 index
                             }
                         }
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
                     };
                     
                     return true;
                 }
                 
                 /* We're pointed at the beginning. Emit the title block. */
-                self.state = TokenizerState::Title;
+                self.state = PositionState::Title;
                 true
             },
-            TokenizerState::Hexstring(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.begin, index);
+            PositionState::Hexstring(extent, index) => {
+                self.state = PositionState::MetaContent(extent.begin, index);
                 true
             },
-            TokenizerState::Hexdump { extent, index, .. } => {
-                self.state = TokenizerState::MetaContent(extent.begin, index);
+            PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.begin, index);
                 true
             },
 
-            TokenizerState::SummaryOpener => {
+            PositionState::SummaryOpener => {
                 self.try_ascend(AscendDirection::Prev)
             },
-            TokenizerState::SummaryLabel(i) => {
+            PositionState::SummaryLabel(i) => {
                 if i == 0 {
-                    self.state = TokenizerState::SummaryOpener;
+                    self.state = PositionState::SummaryOpener;
                 } else {
-                    self.state = TokenizerState::SummarySeparator(i-1);
+                    self.state = PositionState::SummarySeparator(i-1);
                 }
                 true
             },
-            TokenizerState::SummarySeparator(i) => {
+            PositionState::SummarySeparator(i) => {
                 self.descend(
-                    TokenizerDescent::ChildSummary(i),
-                    TokenizerState::SummaryValueEnd);
+                    Descent::ChildSummary(i),
+                    PositionState::SummaryValueEnd);
                 true
             },
-            TokenizerState::SummaryCloser => {
+            PositionState::SummaryCloser => {
                 if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryOpener;
+                    self.state = PositionState::SummaryOpener;
                 } else {
-                    self.state = TokenizerState::SummarySeparator(self.node.children.len()-1);
+                    self.state = PositionState::SummarySeparator(self.node.children.len()-1);
                 }
                 true
             },
-            TokenizerState::SummaryEpilogue => {
+            PositionState::SummaryEpilogue => {
                 self.descend(
-                    TokenizerDescent::MySummary,
-                    TokenizerState::SummaryCloser);
+                    Descent::MySummary,
+                    PositionState::SummaryCloser);
                 true
             },
             
-            TokenizerState::SummaryValueBegin => {
+            PositionState::SummaryValueBegin => {
                 // should take us to SummaryLabel(i)
                 self.try_ascend(AscendDirection::Prev)
             },
-            TokenizerState::SummaryLeaf => {
-                self.state = TokenizerState::SummaryValueBegin;
+            PositionState::SummaryLeaf => {
+                self.state = PositionState::SummaryValueBegin;
                 true
             },
-            TokenizerState::SummaryValueEnd => {
+            PositionState::SummaryValueEnd => {
                 if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryLeaf;
+                    self.state = PositionState::SummaryLeaf;
                 } else {
-                    self.state = TokenizerState::SummaryCloser;
+                    self.state = PositionState::SummaryCloser;
                 }
                 true
             },
 
-            TokenizerState::PostBlank => {
+            PositionState::PostBlank => {
                 match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
-                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                        self.state = PositionState::MetaContent(self.node.size.to_addr(), self.node.children.len());
                     },
                     structure::ChildrenDisplay::Summary => {
-                        self.state = TokenizerState::SummaryEpilogue;
+                        self.state = PositionState::SummaryEpilogue;
                     },
                     structure::ChildrenDisplay::Full => {
-                        self.state = TokenizerState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                        self.state = PositionState::MetaContent(self.node.size.to_addr(), self.node.children.len());
                     },
                 }
                 true
             },
-            TokenizerState::End => {
-                self.state = TokenizerState::PostBlank;
+            PositionState::End => {
+                self.state = PositionState::PostBlank;
                 true
             },
         }
@@ -980,41 +973,41 @@ impl Tokenizer {
     /// Returns true when successful, or false if hit the end of the token stream.
     pub fn move_next(&mut self) -> bool {
         match self.state {
-            TokenizerState::PreBlank => {
-                self.state = TokenizerState::Title;
+            PositionState::PreBlank => {
+                self.state = PositionState::Title;
                 true
             },
-            TokenizerState::Title => {
+            PositionState::Title => {
                 match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
-                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
+                        self.state = PositionState::MetaContent(addr::unit::NULL, 0);
                     },
                     structure::ChildrenDisplay::Summary => {
-                        self.state = TokenizerState::SummaryPreamble;
+                        self.state = PositionState::SummaryPreamble;
                     },
                     structure::ChildrenDisplay::Full => {
-                        self.state = TokenizerState::MetaContent(addr::unit::NULL, 0);
+                        self.state = PositionState::MetaContent(addr::unit::NULL, 0);
                     },
                 }
                 true
             },
-            TokenizerState::SummaryPreamble => {
+            PositionState::SummaryPreamble => {
                 self.descend(
-                    TokenizerDescent::MySummary,
-                    TokenizerState::SummaryOpener);
+                    Descent::MySummary,
+                    PositionState::SummaryOpener);
                 true
 
             },
-            TokenizerState::MetaContent(offset, index) => {
+            PositionState::MetaContent(offset, index) => {
                 let next_child_option = self.node.children.get(index).map(|child| (index, child));
                 
                 /* Descend, if we can. */
                 if let Some((next_child_index, next_child)) = next_child_option {
                     if next_child.offset <= offset {
                         self.descend(
-                            TokenizerDescent::Child(next_child_index),
+                            Descent::Child(next_child_index),
                             /* Descend to the beginning of the child. */
-                            TokenizerState::PreBlank);
+                            PositionState::PreBlank);
 
                         return true;
                     }
@@ -1027,86 +1020,86 @@ impl Tokenizer {
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
 
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => TokenizerState::MetaContent(interstitial.end, index),
+                        structure::ContentDisplay::None => PositionState::MetaContent(interstitial.end, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
                             let line_extent = self.get_line_extent(offset, line_pitch);
                             
-                            TokenizerState::Hexdump {
+                            PositionState::Hexdump {
                                 extent: addr::Extent::between(offset, std::cmp::min(line_extent.end, interstitial.end)),
                                 line_extent,
                                 index
                             }
                         },
-                        structure::ContentDisplay::Hexstring => TokenizerState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
                     };
 
                     return true;
                 }
 
                 /* We were pointed at (or past!) the end. */
-                self.state = TokenizerState::PostBlank;
+                self.state = PositionState::PostBlank;
                 true
             },
-            TokenizerState::Hexstring(extent, index) => {
-                self.state = TokenizerState::MetaContent(extent.end, index);
+            PositionState::Hexstring(extent, index) => {
+                self.state = PositionState::MetaContent(extent.end, index);
                 true
             },
-            TokenizerState::Hexdump { extent, index, .. } => {
-                self.state = TokenizerState::MetaContent(extent.end, index);
+            PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.end, index);
                 true
             },
 
-            TokenizerState::SummaryOpener => {
+            PositionState::SummaryOpener => {
                 if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryCloser;
+                    self.state = PositionState::SummaryCloser;
                 } else {
-                    self.state = TokenizerState::SummaryLabel(0);
+                    self.state = PositionState::SummaryLabel(0);
                 }
                 true
             },
-            TokenizerState::SummaryLabel(i) => {
+            PositionState::SummaryLabel(i) => {
                 self.descend(
-                    TokenizerDescent::ChildSummary(i),
-                    TokenizerState::SummaryValueBegin);
+                    Descent::ChildSummary(i),
+                    PositionState::SummaryValueBegin);
                 true
             },
-            TokenizerState::SummarySeparator(i) => {
+            PositionState::SummarySeparator(i) => {
                 if self.node.children.len() == i + 1 {
-                    self.state = TokenizerState::SummaryCloser;
+                    self.state = PositionState::SummaryCloser;
                 } else {
-                    self.state = TokenizerState::SummaryLabel(i+1);
+                    self.state = PositionState::SummaryLabel(i+1);
                 }
                 true
             },
-            TokenizerState::SummaryCloser => {
+            PositionState::SummaryCloser => {
                 self.try_ascend(AscendDirection::Next)
             },
-            TokenizerState::SummaryEpilogue => {
-                self.state = TokenizerState::PostBlank;
+            PositionState::SummaryEpilogue => {
+                self.state = PositionState::PostBlank;
                 true
             },
 
-            TokenizerState::SummaryValueBegin => {
+            PositionState::SummaryValueBegin => {
                 if self.node.children.is_empty() {
-                    self.state = TokenizerState::SummaryLeaf;
+                    self.state = PositionState::SummaryLeaf;
                 } else {
-                    self.state = TokenizerState::SummaryOpener;
+                    self.state = PositionState::SummaryOpener;
                 }
                 true
             },
-            TokenizerState::SummaryLeaf => {
-                self.state = TokenizerState::SummaryValueEnd;
+            PositionState::SummaryLeaf => {
+                self.state = PositionState::SummaryValueEnd;
                 true
             },
-            TokenizerState::SummaryValueEnd => {
+            PositionState::SummaryValueEnd => {
                 self.try_ascend(AscendDirection::Next)
             },
 
-            TokenizerState::PostBlank => {
-                self.state = TokenizerState::End;
+            PositionState::PostBlank => {
+                self.state = PositionState::End;
                 true
             },
-            TokenizerState::End => {
+            PositionState::End => {
                 self.try_ascend(AscendDirection::Next)
             },
         }
@@ -1123,7 +1116,7 @@ impl Tokenizer {
         None
     }
     
-    /// Use this when you're trying to have the tokenizer's position represent an element.
+    /// Use this when you're trying to have the position represent an element.
     pub fn next_preincrement(&mut self) -> Option<token::Token> {
         while {
             self.move_next()
@@ -1137,7 +1130,7 @@ impl Tokenizer {
         None
     }
     
-    /// Use this when you're trying to have the tokenizer's position represent a border between tokens.
+    /// Use this when you're trying to have the position represent a boundary between tokens.
     pub fn next_postincrement(&mut self) -> Option<token::Token> {
         let mut token;
         while {
@@ -1166,7 +1159,7 @@ impl Tokenizer {
         }
     }
 
-    /// Pushes an entry onto the tokenizer stack and sets up for traversing
+    /// Pushes an entry onto the stack and sets up for traversing
     /// a child node.
     ///
     /// # Arguments
@@ -1176,13 +1169,13 @@ impl Tokenizer {
     ///
     fn descend(
         &mut self,
-        descent: TokenizerDescent,
-        state_within: TokenizerState) {
+        descent: Descent,
+        state_within: PositionState) {
         let childhood = descent.childhood(&self.node);
         let parent_node = std::mem::replace(&mut self.node, childhood.node);
         let depth_change = descent.depth_change();
         
-        let parent_entry = TokenizerStackEntry {
+        let parent_entry = StackEntry {
             stack: self.stack.take(),
             descent,
             apparent_depth: self.apparent_depth,
@@ -1204,7 +1197,7 @@ impl Tokenizer {
         match std::mem::replace(&mut self.stack, None) {
             Some(stack_entry) => {
                 let stack_entry = sync::Arc::unwrap_or_clone(stack_entry);
-                *self = Tokenizer {
+                *self = Position {
                     state: match dir {
                         AscendDirection::Prev => stack_entry.descent.before_state(&stack_entry),
                         AscendDirection::Next => stack_entry.descent.after_state(&stack_entry)
@@ -1223,14 +1216,14 @@ impl Tokenizer {
     
     pub fn hit_bottom(&self) -> bool {
         match self.state {
-            TokenizerState::End => self.stack.is_none(),
+            PositionState::End => self.stack.is_none(),
             _ => false
         }
     }
 
     pub fn hit_top(&self) -> bool {
         match self.state {
-            TokenizerState::PreBlank => self.stack.is_none(),
+            PositionState::PreBlank => self.stack.is_none(),
             _ => false
         }
     }
@@ -1238,34 +1231,34 @@ impl Tokenizer {
     pub fn structure_path(&self) -> structure::Path {
         let mut path = Vec::new();
 
-        TokenizerStackEntry::build_path(&self.stack, &mut path);
+        StackEntry::build_path(&self.stack, &mut path);
         
         path
     }
 
     pub fn structure_position_child(&self) -> usize {
         match self.state {
-            TokenizerState::MetaContent(_, ch) => ch,
-            TokenizerState::Hexdump { index: ch, .. } => ch,
-            TokenizerState::Hexstring(_, ch) => ch,
-            TokenizerState::SummaryLabel(ch) => ch,
-            TokenizerState::SummarySeparator(ch) => ch,
-            TokenizerState::SummaryCloser => self.node.children.len(),
-            TokenizerState::SummaryEpilogue => self.node.children.len(),
-            TokenizerState::PostBlank => self.node.children.len(),
-            TokenizerState::End => self.node.children.len(),
+            PositionState::MetaContent(_, ch) => ch,
+            PositionState::Hexdump { index: ch, .. } => ch,
+            PositionState::Hexstring(_, ch) => ch,
+            PositionState::SummaryLabel(ch) => ch,
+            PositionState::SummarySeparator(ch) => ch,
+            PositionState::SummaryCloser => self.node.children.len(),
+            PositionState::SummaryEpilogue => self.node.children.len(),
+            PositionState::PostBlank => self.node.children.len(),
+            PositionState::End => self.node.children.len(),
             _ => 0,
         }
     }
 
     pub fn structure_position_offset(&self) -> addr::Address {
         match self.state {
-            TokenizerState::MetaContent(offset, _) => offset,
-            TokenizerState::Hexdump { extent, .. } => extent.begin,
-            TokenizerState::Hexstring(extent, _) => extent.begin,
-            TokenizerState::SummaryEpilogue => self.node.size.to_addr(),
-            TokenizerState::PostBlank => self.node.size.to_addr(),
-            TokenizerState::End => self.node.size.to_addr(),
+            PositionState::MetaContent(offset, _) => offset,
+            PositionState::Hexdump { extent, .. } => extent.begin,
+            PositionState::Hexstring(extent, _) => extent.begin,
+            PositionState::SummaryEpilogue => self.node.size.to_addr(),
+            PositionState::PostBlank => self.node.size.to_addr(),
+            PositionState::End => self.node.size.to_addr(),
             // TODO: probably some missing here, need to figure out what is intuitive to the user.
             _ => addr::unit::NULL
         }
@@ -1274,29 +1267,29 @@ impl Tokenizer {
     /// Returns true if the token that would be returned by gen_token() is part of a summary.
     pub fn in_summary(&self) -> bool {
         match self.state {
-            TokenizerState::PreBlank => false,
-            TokenizerState::Title => false,
-            TokenizerState::MetaContent(_, _) => false,
-            TokenizerState::Hexdump { .. } => false,
-            TokenizerState::Hexstring(_, _) => false,
+            PositionState::PreBlank => false,
+            PositionState::Title => false,
+            PositionState::MetaContent(_, _) => false,
+            PositionState::Hexdump { .. } => false,
+            PositionState::Hexstring(_, _) => false,
 
-            TokenizerState::SummaryPreamble => true,
-            TokenizerState::SummaryOpener => true,
-            TokenizerState::SummaryLabel(_) => true,
-            TokenizerState::SummarySeparator(_) => true,
-            TokenizerState::SummaryCloser => true,
-            TokenizerState::SummaryEpilogue => true,
-            TokenizerState::SummaryValueBegin => true,
-            TokenizerState::SummaryLeaf => true,
-            TokenizerState::SummaryValueEnd => true,
+            PositionState::SummaryPreamble => true,
+            PositionState::SummaryOpener => true,
+            PositionState::SummaryLabel(_) => true,
+            PositionState::SummarySeparator(_) => true,
+            PositionState::SummaryCloser => true,
+            PositionState::SummaryEpilogue => true,
+            PositionState::SummaryValueBegin => true,
+            PositionState::SummaryLeaf => true,
+            PositionState::SummaryValueEnd => true,
 
-            TokenizerState::PostBlank => false,
-            TokenizerState::End => false,
+            PositionState::PostBlank => false,
+            PositionState::End => false,
         }
     }
 }
 
-impl PartialEq for Tokenizer {
+impl PartialEq for Position {
     fn eq(&self, other: &Self) -> bool {
         (match (&self.stack, &other.stack) {
             (Some(x), Some(y)) => sync::Arc::ptr_eq(x, y),
@@ -1309,15 +1302,15 @@ impl PartialEq for Tokenizer {
     }
 }
 
-impl Eq for Tokenizer {
+impl Eq for Position {
 }
 
-impl TokenizerDescent {
+impl Descent {
     fn childhood(&self, node: &sync::Arc<structure::Node>) -> structure::Childhood {
         match self {
-            TokenizerDescent::Child(i) => node.children[*i].clone(),
-            TokenizerDescent::ChildSummary(i) => node.children[*i].clone(),
-            TokenizerDescent::MySummary => structure::Childhood {
+            Descent::Child(i) => node.children[*i].clone(),
+            Descent::ChildSummary(i) => node.children[*i].clone(),
+            Descent::MySummary => structure::Childhood {
                 node: node.clone(),
                 offset: addr::unit::NULL,
             },
@@ -1326,37 +1319,37 @@ impl TokenizerDescent {
 
     fn depth_change(&self) -> usize {
         match self {
-            TokenizerDescent::Child(_) | TokenizerDescent::ChildSummary(_) => 1,
-            TokenizerDescent::MySummary => 0,
+            Descent::Child(_) | Descent::ChildSummary(_) => 1,
+            Descent::MySummary => 0,
         }
     }
 
-    fn before_state(&self, stack_entry: &TokenizerStackEntry) -> TokenizerState {
+    fn before_state(&self, stack_entry: &StackEntry) -> PositionState {
         match self {
-            TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].offset, *i),
-            TokenizerDescent::ChildSummary(i) => TokenizerState::SummaryLabel(*i),
-            TokenizerDescent::MySummary => TokenizerState::SummaryPreamble,
+            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.children[*i].offset, *i),
+            Descent::ChildSummary(i) => PositionState::SummaryLabel(*i),
+            Descent::MySummary => PositionState::SummaryPreamble,
         }
     }
 
-    fn after_state(&self, stack_entry: &TokenizerStackEntry) -> TokenizerState {
+    fn after_state(&self, stack_entry: &StackEntry) -> PositionState {
         match self {
-            TokenizerDescent::Child(i) => TokenizerState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
-            TokenizerDescent::ChildSummary(i) => TokenizerState::SummarySeparator(*i),
-            TokenizerDescent::MySummary => TokenizerState::SummaryEpilogue,
+            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
+            Descent::ChildSummary(i) => PositionState::SummarySeparator(*i),
+            Descent::MySummary => PositionState::SummaryEpilogue,
         }
     }
 
     fn build_path(&self, path: &mut structure::Path) {
         match self {
-            TokenizerDescent::Child(i) | TokenizerDescent::ChildSummary(i) => path.push(*i),
-            TokenizerDescent::MySummary => {},
+            Descent::Child(i) | Descent::ChildSummary(i) => path.push(*i),
+            Descent::MySummary => {},
         }        
     }
 }
 
-impl TokenizerStackEntry {
-    fn build_path(entry: &Option<sync::Arc<TokenizerStackEntry>>, path: &mut structure::Path) {
+impl StackEntry {
+    fn build_path(entry: &Option<sync::Arc<StackEntry>>, path: &mut structure::Path) {
         if let Some(tse) = entry {
             Self::build_path(&tse.stack, path);
             tse.descent.build_path(path);
@@ -1364,8 +1357,8 @@ impl TokenizerStackEntry {
     }
 }
 
-impl TokenizerState {
-    /// Returns whether or not this state represents a state that should only exist within a TokenizerDescent::MySummary
+impl PositionState {
+    /// Returns whether or not this state represents a state that should only exist within a Descent::MySummary
     /// stack entry.
     fn is_summary(&self) -> bool {
         match self {
@@ -1384,7 +1377,7 @@ impl TokenizerState {
     }
 }
 
-impl PartialEq for TokenizerStackEntry {
+impl PartialEq for StackEntry {
     fn eq(&self, other: &Self) -> bool {
         (match (&self.stack, &other.stack) {
             (Some(x), Some(y)) => sync::Arc::ptr_eq(x, y),
@@ -1397,7 +1390,7 @@ impl PartialEq for TokenizerStackEntry {
     }
 }
 
-impl Eq for TokenizerStackEntry {
+impl Eq for StackEntry {
 }
 
 impl PortStackState {
@@ -1491,7 +1484,7 @@ impl PortStackState {
         match self.mode {
             PortStackMode::Normal => {
                 /* Need to insert MySummary */
-                self.push_descent(TokenizerDescent::MySummary);
+                self.push_descent(Descent::MySummary);
                 self.mode = PortStackMode::Summary;
             },
             PortStackMode::Summary => {
@@ -1504,7 +1497,7 @@ impl PortStackState {
         }
     }
 
-    fn push_descent(&mut self, descent: TokenizerDescent) {
+    fn push_descent(&mut self, descent: Descent) {
         descent.build_path(&mut self.current_path);
         
         match &mut self.mode {
@@ -1512,7 +1505,7 @@ impl PortStackState {
                 let childhood = descent.childhood(&self.node);
                 let parent_node = std::mem::replace(&mut self.node, childhood.node);
 
-                let tse = TokenizerStackEntry {
+                let tse = StackEntry {
                     stack: self.new_stack.take(),
                     descent,
                     apparent_depth: self.apparent_depth,
@@ -1556,8 +1549,8 @@ impl PortStackState {
     fn push(&mut self, child: usize) {
         let descent = match self.node.props.children_display {
             structure::ChildrenDisplay::None => todo!(),
-            structure::ChildrenDisplay::Summary => { self.summarize(); TokenizerDescent::ChildSummary(child) }
-            structure::ChildrenDisplay::Full => TokenizerDescent::Child(child),
+            structure::ChildrenDisplay::Summary => { self.summarize(); Descent::ChildSummary(child) }
+            structure::ChildrenDisplay::Full => Descent::Child(child),
         };
         
         self.push_descent(descent);
@@ -1571,8 +1564,8 @@ mod cmp {
 
     #[derive(PartialEq)]
     enum StateOrDescent {
-        State(super::TokenizerState),
-        Descent(super::TokenizerDescent),
+        State(super::PositionState),
+        Descent(super::Descent),
     }
 
     impl std::cmp::PartialOrd for StateOrDescent {
@@ -1583,41 +1576,41 @@ mod cmp {
                 (Self::Descent(_), Self::State(_)) => Self::partial_cmp(other, self).map(std::cmp::Ordering::reverse),
                 (Self::State(x), Self::Descent(y)) => {
                     let child_index = match y {
-                        super::TokenizerDescent::Child(i) => i,
-                        super::TokenizerDescent::ChildSummary(i) => i,
-                        super::TokenizerDescent::MySummary => return Some(match x {
-                            super::TokenizerState::PreBlank => std::cmp::Ordering::Less,
-                            super::TokenizerState::Title => std::cmp::Ordering::Less,
-                            super::TokenizerState::SummaryPreamble => std::cmp::Ordering::Less,
-                            super::TokenizerState::SummaryEpilogue => std::cmp::Ordering::Greater,
-                            super::TokenizerState::PostBlank => std::cmp::Ordering::Greater,
-                            super::TokenizerState::End => std::cmp::Ordering::Greater,
+                        super::Descent::Child(i) => i,
+                        super::Descent::ChildSummary(i) => i,
+                        super::Descent::MySummary => return Some(match x {
+                            super::PositionState::PreBlank => std::cmp::Ordering::Less,
+                            super::PositionState::Title => std::cmp::Ordering::Less,
+                            super::PositionState::SummaryPreamble => std::cmp::Ordering::Less,
+                            super::PositionState::SummaryEpilogue => std::cmp::Ordering::Greater,
+                            super::PositionState::PostBlank => std::cmp::Ordering::Greater,
+                            super::PositionState::End => std::cmp::Ordering::Greater,
                             _ => return None,
                         }),
                     };
 
                     Some(match x {
-                        super::TokenizerState::PreBlank => std::cmp::Ordering::Less,
-                        super::TokenizerState::Title => std::cmp::Ordering::Less,
-                        super::TokenizerState::MetaContent(_, i) if i <= child_index => std::cmp::Ordering::Less,
-                        super::TokenizerState::MetaContent(_, _) => std::cmp::Ordering::Greater,
-                        super::TokenizerState::Hexdump { index, .. } if index == child_index => std::cmp::Ordering::Less,
-                        super::TokenizerState::Hexdump { index, .. } => index.cmp(child_index),
-                        super::TokenizerState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
-                        super::TokenizerState::Hexstring(_, i) => i.cmp(child_index),
-                        super::TokenizerState::SummaryPreamble => std::cmp::Ordering::Less,
-                        super::TokenizerState::SummaryOpener => std::cmp::Ordering::Less,
-                        super::TokenizerState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
-                        super::TokenizerState::SummaryLabel(i) => i.cmp(child_index),
-                        super::TokenizerState::SummarySeparator(i) if i == child_index => std::cmp::Ordering::Greater,
-                        super::TokenizerState::SummarySeparator(i) => i.cmp(child_index),
-                        super::TokenizerState::SummaryCloser => std::cmp::Ordering::Greater,
-                        super::TokenizerState::SummaryEpilogue => std::cmp::Ordering::Greater,
-                        super::TokenizerState::SummaryValueBegin => std::cmp::Ordering::Less,
-                        super::TokenizerState::SummaryValueEnd => std::cmp::Ordering::Greater,
-                        super::TokenizerState::SummaryLeaf => return None,
-                        super::TokenizerState::PostBlank => std::cmp::Ordering::Greater,
-                        super::TokenizerState::End => std::cmp::Ordering::Greater,
+                        super::PositionState::PreBlank => std::cmp::Ordering::Less,
+                        super::PositionState::Title => std::cmp::Ordering::Less,
+                        super::PositionState::MetaContent(_, i) if i <= child_index => std::cmp::Ordering::Less,
+                        super::PositionState::MetaContent(_, _) => std::cmp::Ordering::Greater,
+                        super::PositionState::Hexdump { index, .. } if index == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::Hexdump { index, .. } => index.cmp(child_index),
+                        super::PositionState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::Hexstring(_, i) => i.cmp(child_index),
+                        super::PositionState::SummaryPreamble => std::cmp::Ordering::Less,
+                        super::PositionState::SummaryOpener => std::cmp::Ordering::Less,
+                        super::PositionState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::SummaryLabel(i) => i.cmp(child_index),
+                        super::PositionState::SummarySeparator(i) if i == child_index => std::cmp::Ordering::Greater,
+                        super::PositionState::SummarySeparator(i) => i.cmp(child_index),
+                        super::PositionState::SummaryCloser => std::cmp::Ordering::Greater,
+                        super::PositionState::SummaryEpilogue => std::cmp::Ordering::Greater,
+                        super::PositionState::SummaryValueBegin => std::cmp::Ordering::Less,
+                        super::PositionState::SummaryValueEnd => std::cmp::Ordering::Greater,
+                        super::PositionState::SummaryLeaf => return None,
+                        super::PositionState::PostBlank => std::cmp::Ordering::Greater,
+                        super::PositionState::End => std::cmp::Ordering::Greater,
                     })
                 }
             }
@@ -1625,7 +1618,7 @@ mod cmp {
     }
 
     pub struct Item {
-        stack: Option<sync::Arc<super::TokenizerStackEntry>>,
+        stack: Option<sync::Arc<super::StackEntry>>,
         sod: StateOrDescent,
         node: sync::Arc<structure::Node>,
         logical_depth: usize,
@@ -1637,8 +1630,8 @@ mod cmp {
         }
     }
     
-    impl From<&super::Tokenizer> for Item {
-        fn from(t: &super::Tokenizer) -> Self {
+    impl From<&super::Position> for Item {
+        fn from(t: &super::Position) -> Self {
             Self {
                 stack: t.stack.clone(),
                 sod: StateOrDescent::State(t.state.clone()),
@@ -1648,8 +1641,8 @@ mod cmp {
         }
     }
 
-    impl From<&super::TokenizerStackEntry> for Item {
-        fn from(t: &super::TokenizerStackEntry) -> Self {
+    impl From<&super::StackEntry> for Item {
+        fn from(t: &super::StackEntry) -> Self {
             Self {
                 stack: t.stack.clone(),
                 sod: StateOrDescent::Descent(t.descent.clone()),
@@ -1702,38 +1695,38 @@ mod cmp {
         Postamble,
     }
     
-    pub fn state_tuple(state: &super::TokenizerState) -> (StateGroup, usize, usize, addr::Address, usize) {
+    pub fn state_tuple(state: &super::PositionState) -> (StateGroup, usize, usize, addr::Address, usize) {
         match state {
-            super::TokenizerState::PreBlank => (StateGroup::Preamble, 0, 0, addr::unit::NULL, 0),
-            super::TokenizerState::Title => (StateGroup::Preamble, 1, 0, addr::unit::NULL, 0),
-            super::TokenizerState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::unit::NULL, 0),
+            super::PositionState::PreBlank => (StateGroup::Preamble, 0, 0, addr::unit::NULL, 0),
+            super::PositionState::Title => (StateGroup::Preamble, 1, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::unit::NULL, 0),
             
-            super::TokenizerState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
-            super::TokenizerState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
-            super::TokenizerState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
-            super::TokenizerState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
-            super::TokenizerState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
-            super::TokenizerState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
-            super::TokenizerState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
-            super::TokenizerState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::unit::NULL, 0),
-            super::TokenizerState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::unit::NULL, 0),
+            super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
+            super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
+            super::PositionState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
+            super::PositionState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::unit::NULL, 0),
             
-            super::TokenizerState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::unit::NULL, 0),
             
-            super::TokenizerState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::unit::NULL, 0),
-            super::TokenizerState::PostBlank => (StateGroup::Postamble, 1, 0, addr::unit::NULL, 0),
-            super::TokenizerState::End => (StateGroup::Postamble, 2, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::unit::NULL, 0),
+            super::PositionState::PostBlank => (StateGroup::Postamble, 1, 0, addr::unit::NULL, 0),
+            super::PositionState::End => (StateGroup::Postamble, 2, 0, addr::unit::NULL, 0),
         }
     }
 }
 
-impl std::cmp::PartialOrd for Tokenizer {
+impl std::cmp::PartialOrd for Position {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         cmp::partial_cmp(cmp::Item::from(self), cmp::Item::from(other))
     }
 }
 
-impl std::cmp::PartialOrd for TokenizerState {
+impl std::cmp::PartialOrd for PositionState {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         let st1 = cmp::state_tuple(self);
         let st2 = cmp::state_tuple(other);
@@ -1753,7 +1746,7 @@ impl std::cmp::PartialOrd for TokenizerState {
     }
 }
 
-impl std::cmp::PartialOrd for TokenizerDescent {
+impl std::cmp::PartialOrd for Descent {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (Self::Child(x), Self::Child(y)) => Some(x.cmp(y)),
@@ -1941,49 +1934,49 @@ pub mod xml {
     }
 }
 
-impl AbstractTokenizer for Tokenizer {
+impl AbstractPosition for Position {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self {
-        Tokenizer::at_beginning(root)
+        Position::at_beginning(root)
     }
 
     fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self {
-        Tokenizer::at_path(root, path, offset)
+        Position::at_path(root, path, offset)
     }
 
     fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change) {
-        Tokenizer::port_change(self, &new_doc.root, change, &mut PortOptions::default());
+        Position::port_change(self, &new_doc.root, change, &mut PortOptions::default());
     }
     
     fn hit_top(&self) -> bool {
-        Tokenizer::hit_top(self)
+        Position::hit_top(self)
     }
     
     fn hit_bottom(&self) -> bool {
-        Tokenizer::hit_bottom(self)
+        Position::hit_bottom(self)
     }
     
     fn gen_token(&self) -> TokenGenerationResult {
-        Tokenizer::gen_token(self)
+        Position::gen_token(self)
     }
     
     fn move_prev(&mut self) -> bool {
-        Tokenizer::move_prev(self)
+        Position::move_prev(self)
     }
 
     fn move_next(&mut self) -> bool {
-        Tokenizer::move_next(self)
+        Position::move_next(self)
     }
 
     fn next_postincrement(&mut self) -> Option<token::Token> {
-        Tokenizer::next_postincrement(self)
+        Position::next_postincrement(self)
     }
 
     fn prev(&mut self) -> Option<token::Token> {
-        Tokenizer::prev(self)
+        Position::prev(self)
     }
 
     fn in_summary(&self) -> bool {
-        Tokenizer::in_summary(self)
+        Position::in_summary(self)
     }
 }
 
@@ -1997,10 +1990,10 @@ mod tests {
     use crate::model::document;
     use crate::model::versioned::Versioned;
     
-    struct DownwardTokenizerIterator(Tokenizer);
-    struct UpwardTokenizerIterator(Tokenizer);
+    struct DownwardPositionIterator(Position);
+    struct UpwardPositionIterator(Position);
 
-    impl iter::Iterator for DownwardTokenizerIterator {
+    impl iter::Iterator for DownwardPositionIterator {
         type Item = token::Token;
         
         fn next(&mut self) -> Option<token::Token> {
@@ -2017,7 +2010,7 @@ mod tests {
         }
     }
 
-    impl iter::Iterator for UpwardTokenizerIterator {
+    impl iter::Iterator for UpwardPositionIterator {
         type Item = token::Token;
         
         fn next(&mut self) -> Option<token::Token> {
@@ -2046,104 +2039,104 @@ mod tests {
     fn test_forward(tc: &xml::Testcase) {
         itertools::assert_equal(
             tc.expected_tokens.iter().map(|x| x.clone()),
-            &mut DownwardTokenizerIterator(Tokenizer::at_beginning(tc.structure.clone())));
+            &mut DownwardPositionIterator(Position::at_beginning(tc.structure.clone())));
     }
 
     fn test_backward(tc: &xml::Testcase) {
         itertools::assert_equal(
             tc.expected_tokens.iter().rev().map(|x| x.clone()),
-            &mut UpwardTokenizerIterator(Tokenizer::at_end(&tc.structure)));
+            &mut UpwardPositionIterator(Position::at_end(&tc.structure)));
     }
 
-    fn test_cmp(mut tokenizer: Tokenizer) {
-        let mut prev = vec![tokenizer.clone()];
-        while tokenizer.move_next() {
+    fn test_cmp(mut position: Position) {
+        let mut prev = vec![position.clone()];
+        while position.move_next() {
             for p in &prev {
-                let ordering = p.partial_cmp(&tokenizer);
+                let ordering = p.partial_cmp(&position);
                 if ordering != Some(std::cmp::Ordering::Less) {
-                    panic!("comparing {:?} to {:?} resulted in incorrect ordering {:?}", p, tokenizer, ordering);
+                    panic!("comparing {:?} to {:?} resulted in incorrect ordering {:?}", p, position, ordering);
                 }
             }
-            prev.push(tokenizer.clone());
+            prev.push(position.clone());
         }
     }
 
     #[test]
     fn simple() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
+        let tc = parse_testcase(include_bytes!("stream_tests/simple.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
     #[test]
     fn simple_cmp() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/simple.xml"));
-        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
+        let tc = parse_testcase(include_bytes!("stream_tests/simple.xml"));
+        test_cmp(Position::at_beginning(tc.structure.clone()));
     }
     
     #[test]
     fn nesting() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
+        let tc = parse_testcase(include_bytes!("stream_tests/nesting.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
     #[test]
     fn nesting_cmp() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/nesting.xml"));
-        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
+        let tc = parse_testcase(include_bytes!("stream_tests/nesting.xml"));
+        test_cmp(Position::at_beginning(tc.structure.clone()));
     }
     
     #[test]
     fn formatting() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/formatting.xml"));
+        let tc = parse_testcase(include_bytes!("stream_tests/formatting.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
     #[test]
     fn content_display() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/content_display.xml"));
+        let tc = parse_testcase(include_bytes!("stream_tests/content_display.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
     #[test]
     fn summary() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/summary.xml"));
+        let tc = parse_testcase(include_bytes!("stream_tests/summary.xml"));
         test_forward(&tc);
         test_backward(&tc);
     }
 
     #[test]
     fn summary_cmp() {
-        let tc = parse_testcase(include_bytes!("tokenizer_tests/summary.xml"));
-        test_cmp(Tokenizer::at_beginning(tc.structure.clone()));
+        let tc = parse_testcase(include_bytes!("stream_tests/summary.xml"));
+        test_cmp(Position::at_beginning(tc.structure.clone()));
     }
     
-    fn seek_to_token(tokenizer: &mut Tokenizer, target: &token::Token) {
-        while match tokenizer.gen_token() {
+    fn seek_to_token(position: &mut Position, target: &token::Token) {
+        while match position.gen_token() {
             TokenGenerationResult::Ok(token) => &token != target,
             TokenGenerationResult::Skip => true,
             TokenGenerationResult::Boundary => panic!("couldn't find token"),
         } {
-            if !tokenizer.move_next() {
+            if !position.move_next() {
                 panic!("hit end of token stream");
             }
         }        
     }
 
-    fn peek(tokenizer: &mut Tokenizer) -> token::Token {
+    fn peek(position: &mut Position) -> token::Token {
         loop {
-            match tokenizer.gen_token() {
+            match position.gen_token() {
                 TokenGenerationResult::Ok(token) => return token,
-                TokenGenerationResult::Skip => assert!(tokenizer.move_next()),
+                TokenGenerationResult::Skip => assert!(position.move_next()),
                 TokenGenerationResult::Boundary => panic!("couldn't find token"),
             }
         }        
     }
 
-    fn assert_tokenizers_eq(a: &Tokenizer, b: &Tokenizer) {
+    fn assert_positions_eq(a: &Position, b: &Position) {
         assert_eq!(a.state, b.state);
         assert_eq!(a.apparent_depth, b.apparent_depth);
         assert_eq!(a.logical_depth, b.logical_depth);
@@ -2200,32 +2193,32 @@ mod tests {
                    .size(0x4))
             .build();
 
-        let tok = Tokenizer::at_path(root.clone(), &vec![1, 1], 0x10.into());
+        let tok = Position::at_path(root.clone(), &vec![1, 1], 0x10.into());
 
-        assert_eq!(tok, Tokenizer {
-            stack: Some(sync::Arc::new(TokenizerStackEntry {
-                stack: Some(sync::Arc::new(TokenizerStackEntry {
-                    stack: Some(sync::Arc::new(TokenizerStackEntry {
+        assert_eq!(tok, Position {
+            stack: Some(sync::Arc::new(StackEntry {
+                stack: Some(sync::Arc::new(StackEntry {
+                    stack: Some(sync::Arc::new(StackEntry {
                         stack: None,
-                        descent: TokenizerDescent::Child(1),
+                        descent: Descent::Child(1),
                         apparent_depth: 0,
                         logical_depth: 0,
                         node: root.clone(),
                         node_addr: 0x0.into(),
                     })),
-                    descent: TokenizerDescent::MySummary,
+                    descent: Descent::MySummary,
                     apparent_depth: 1,
                     logical_depth: 1,
                     node: root.children[1].node.clone(),
                     node_addr: 0x14.into(),
                 })),
-                descent: TokenizerDescent::ChildSummary(1),
+                descent: Descent::ChildSummary(1),
                 apparent_depth: 1,
                 logical_depth: 2, /* ! */
                 node: root.children[1].node.clone(),
                 node_addr: 0x14.into(),
             })),
-            state: TokenizerState::SummaryLeaf,
+            state: PositionState::SummaryLeaf,
             apparent_depth: 2,
             logical_depth: 3,
             node: root.children[1].node.children[1].node.clone(),
@@ -2234,32 +2227,32 @@ mod tests {
     }
     
     fn assert_port_functionality(old_doc: &document::Document, new_doc: &document::Document, records: &[(token::Token, token::Token, PortOptions, PortOptions)]) {
-        let mut tokenizers: Vec<(Tokenizer, &token::Token, &token::Token, &PortOptions, &PortOptions)> = records.iter().map(
+        let mut positions: Vec<(Position, &token::Token, &token::Token, &PortOptions, &PortOptions)> = records.iter().map(
             |(before_token, after_token, before_options, after_options)| (
-                Tokenizer::at_beginning(old_doc.root.clone()),
+                Position::at_beginning(old_doc.root.clone()),
                 before_token,
                 after_token,
                 before_options,
                 after_options)
         ).collect();
 
-        for (tokenizer, before_token, _after_token, _, _) in tokenizers.iter_mut() {
-            seek_to_token(tokenizer, before_token);
+        for (position, before_token, _after_token, _, _) in positions.iter_mut() {
+            seek_to_token(position, before_token);
         }
 
-        for (tokenizer, _before_token, after_token, options_before, options_after) in tokenizers.iter_mut() {
-            println!("tokenizer before port: {:#?}", tokenizer);
+        for (position, _before_token, after_token, options_before, options_after) in positions.iter_mut() {
+            println!("position before port: {:#?}", position);
             let mut options = options_before.clone();
-            new_doc.changes_since_ref(old_doc, &mut |doc, change| tokenizer.port_change(&doc.root, change, &mut options));
-            println!("tokenizer after port: {:#?}", tokenizer);
+            new_doc.changes_since_ref(old_doc, &mut |doc, change| position.port_change(&doc.root, change, &mut options));
+            println!("position after port: {:#?}", position);
             
-            assert_eq!(&peek(tokenizer), *after_token);
+            assert_eq!(&peek(position), *after_token);
             assert_eq!(&options, *options_after);
 
-            /* Check that the ported tokenizer is the same as if we had created a new tokenizer and seeked it (if only we knew where to seek it to...), i.e. its internal state isn't corrupted in a way that doesn't happen during normal tokenizer movement. */
-            let mut clean_tokenizer = Tokenizer::at_beginning(new_doc.root.clone());
-            seek_to_token(&mut clean_tokenizer, after_token);
-            assert_tokenizers_eq(&tokenizer, &clean_tokenizer);
+            /* Check that the ported position is the same as if we had created a new position and seeked it (if only we knew where to seek it to...), i.e. its internal state isn't corrupted in a way that doesn't happen during normal position movement. */
+            let mut clean_position = Position::at_beginning(new_doc.root.clone());
+            seek_to_token(&mut clean_position, after_token);
+            assert_positions_eq(&position, &clean_position);
         }        
     }
     

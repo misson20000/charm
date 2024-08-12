@@ -6,9 +6,9 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::line;
+use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::versioned::Versioned;
-use crate::logic::tokenizer;
 
 pub trait LineView {
     fn from_line(line: line::Line) -> Self;
@@ -19,10 +19,10 @@ pub trait LineView {
 /// A listing window with a fixed height. Useful for scrolling by lines.
 /// It is up to the user to make sure that this gets properly notified with structure invalidation events.
 #[derive(Clone)]
-pub struct Window<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer = tokenizer::Tokenizer> {
+pub struct Window<LV: LineView, Position: stream::AbstractPosition = stream::Position> {
     pub current_document: sync::Arc<document::Document>,
-    top: Tokenizer,
-    bottom: Tokenizer,
+    top: Position,
+    bottom: Position,
     
     pub line_views: collections::VecDeque<LV>,
     pub window_height: usize,
@@ -30,11 +30,11 @@ pub struct Window<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer = tokeni
     pub wants_update: bool,
 }
 
-impl<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer> Window<LV, Tokenizer> {
-    pub fn new(doc: sync::Arc<document::Document>) -> Window<LV, Tokenizer> {
+impl<LV: LineView, Position: stream::AbstractPosition> Window<LV, Position> {
+    pub fn new(doc: sync::Arc<document::Document>) -> Window<LV, Position> {
         Window {
-            top: Tokenizer::at_beginning(doc.root.clone()),
-            bottom: Tokenizer::at_beginning(doc.root.clone()),
+            top: Position::at_beginning(doc.root.clone()),
+            bottom: Position::at_beginning(doc.root.clone()),
             
             current_document: doc,
             
@@ -50,14 +50,14 @@ impl<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer> Window<LV, Tokenizer
     pub fn seek(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> usize {
         self.current_document = document;
         let root = self.current_document.root.clone();
-        self.repopulate_window(move |tok, _| *tok = Tokenizer::at_path(root, path, offset))
+        self.repopulate_window(move |tok, _| *tok = Position::at_path(root, path, offset))
     }
 
-    fn repopulate_window<F>(&mut self, tokenizer_provider: F) -> usize where
-        F: FnOnce(&mut Tokenizer, &mut sync::Arc<document::Document>) {
+    fn repopulate_window<F>(&mut self, position_provider: F) -> usize where
+        F: FnOnce(&mut Position, &mut sync::Arc<document::Document>) {
         self.bottom = self.top.clone();
-        tokenizer_provider(&mut self.bottom, &mut self.current_document);
-        let (first_line, top, _index) = line::Line::containing_tokenizer(&mut self.bottom);
+        position_provider(&mut self.bottom, &mut self.current_document);
+        let (first_line, top, _index) = line::Line::containing_position(&mut self.bottom);
         self.top = top;
         self.line_views.clear();
 
@@ -90,7 +90,7 @@ impl<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer> Window<LV, Tokenizer
             return;
         }
 
-        let line = line::Line::prev_from_tokenizer(&mut self.top);
+        let line = line::Line::prev_from_position(&mut self.top);
 
         if line.is_empty() {
             assert!(self.top.hit_top());
@@ -105,7 +105,7 @@ impl<LV: LineView, Tokenizer: tokenizer::AbstractTokenizer> Window<LV, Tokenizer
             return;
         }
 
-        let line = line::Line::next_from_tokenizer(&mut self.bottom);
+        let line = line::Line::next_from_position(&mut self.bottom);
         
         if line.is_empty() {
             assert!(self.bottom.hit_bottom());
@@ -242,7 +242,7 @@ mod tests {
         assert!(window.scroll_up());
     }
 
-    fn print_lines<Tokenizer: tokenizer::AbstractTokenizer>(window: &Window<line::Line, Tokenizer>) {
+    fn print_lines<Position: stream::AbstractPosition>(window: &Window<line::Line, Position>) {
         for l in &window.line_views {
             print!("  ");
             for t in l.iter_tokens() {
@@ -378,7 +378,7 @@ mod tests {
     }
     
     #[test]
-    fn containing_tokenizer() {
+    fn containing_position() {
         let root = structure::Node::builder()
             .name("root")
             .size(0x40)
@@ -407,30 +407,30 @@ mod tests {
             .build();
 
         /* Pregenerate all the lines from a simple forward walk through the whole document. */
-        let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
+        let mut position = stream::Position::at_beginning(root.clone());
         let mut lines = vec![];
         loop {
-            let mut begin = tokenizer.clone();
+            let mut begin = position.clone();
             begin.canonicalize_next();
             
-            let line = line::Line::next_from_tokenizer(&mut tokenizer);
+            let line = line::Line::next_from_position(&mut position);
             if line.is_empty() {
                 break;
             }
 
-            let mut end = tokenizer.clone();
+            let mut end = position.clone();
             end.canonicalize_next();
             
             lines.push((begin, line, end));
         }
 
-        let mut tokenizer = tokenizer::Tokenizer::at_beginning(root.clone());
+        let mut position = stream::Position::at_beginning(root.clone());
         let mut i = 0;
         loop {
-            let token = match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
-                tokenizer::TokenGenerationResult::Boundary => break,
+            let token = match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => if position.move_next() { continue } else { break },
+                stream::TokenGenerationResult::Boundary => break,
             };
 
             let expected_index_in_line = loop {
@@ -441,27 +441,27 @@ mod tests {
                 }
             };
             
-            let mut line_end = tokenizer.clone();
-            let (line, mut line_begin, index_in_line) = line::Line::containing_tokenizer(&mut line_end);
+            let mut line_end = position.clone();
+            let (line, mut line_begin, index_in_line) = line::Line::containing_position(&mut line_end);
             line_begin.canonicalize_next();
             line_end.canonicalize_next();
             
             if line != lines[i].1 || index_in_line != expected_index_in_line || line_begin != lines[i].0 || line_end != lines[i].2 {
                 println!("seeked to {:?}", token);
                 println!("line from forward walk        : {}", lines[i].1);
-                println!("line from containing_tokenizer: {}", line);
+                println!("line from containing_position: {}", line);
                 println!("expected index {}, got index {}", expected_index_in_line, index_in_line);
                 
-                println!("begin tokenizer [actual]  : {:#?}", line_begin);
-                println!("begin tokenizer [expected]: {:#?}", lines[i].0);
+                println!("begin position [actual]  : {:#?}", line_begin);
+                println!("begin position [expected]: {:#?}", lines[i].0);
                     
-                println!("end tokenizer [actual]  : {:#?}", line_end);
-                println!("end tokenizer [expected]: {:#?}", lines[i].2);
+                println!("end position [actual]  : {:#?}", line_end);
+                println!("end position [expected]: {:#?}", lines[i].2);
                 
                 panic!("mismatched");
             }
 
-            tokenizer.move_next();
+            position.move_next();
         }
     }
 }

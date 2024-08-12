@@ -8,9 +8,9 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::document::structure;
+use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
-use crate::logic::tokenizer;
 use crate::util;
 
 #[derive(Clone)]
@@ -56,19 +56,19 @@ impl Line {
         }
     }
 
-    /// Figures out what line contains the token immediately after the tokenizer's position. Moves the referenced tokenizer to the end of that line, and returns the line, a tokenizer pointing to the beginning of the line, and the index of the specified token within that line.
-    pub fn containing_tokenizer<Tokenizer: tokenizer::AbstractTokenizer>(tokenizer: &mut Tokenizer) -> (Self, Tokenizer, usize) {
+    /// Figures out what line contains the token immediately after the position. Moves the referenced position to the end of that line, and returns the line, a position pointing to the beginning of the line, and the index of the specified token within that line.
+    pub fn containing_position<Position: stream::AbstractPosition>(position: &mut Position) -> (Self, Position, usize) {
         /* Put the first token on the line. */
         let mut line = Line::from_token(loop {
-            match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => break token,
+            match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => break token,
                 /* If we hit the end, just return an empty line. */
-                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { return (Self::empty(), tokenizer.clone(), 0) },
-                tokenizer::TokenGenerationResult::Boundary => return (Self::empty(), tokenizer.clone(), 0)
+                stream::TokenGenerationResult::Skip => if position.move_next() { continue } else { return (Self::empty(), position.clone(), 0) },
+                stream::TokenGenerationResult::Boundary => return (Self::empty(), position.clone(), 0)
             }
-        }, tokenizer.in_summary());
+        }, position.in_summary());
 
-        let mut prev = tokenizer.clone();
+        let mut prev = position.clone();
         let mut index = 0;
         
         /* Walk `prev` back to the beginning of the line. */
@@ -78,9 +78,9 @@ impl Line {
             }
 
             if match line.push_front(match prev.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => continue,
-                tokenizer::TokenGenerationResult::Boundary => break,
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => continue,
+                stream::TokenGenerationResult::Boundary => break,
             }) {
                 LinePushResult::Accepted => { index+= 1; continue },
                 LinePushResult::Completed => { index+= 1; break },
@@ -93,40 +93,40 @@ impl Line {
             }
         }
         
-        /* Walk `tokenizer` to the end of the line. */
-        tokenizer.move_next();
+        /* Walk `position` to the end of the line. */
+        position.move_next();
         loop {
-            match line.push_back(match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
-                tokenizer::TokenGenerationResult::Boundary => break,
+            match line.push_back(match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => if position.move_next() { continue } else { break },
+                stream::TokenGenerationResult::Boundary => break,
             }) {
-                LinePushResult::Accepted => tokenizer.move_next(),
-                LinePushResult::Completed => { tokenizer.move_next(); break },
+                LinePushResult::Accepted => position.move_next(),
+                LinePushResult::Completed => { position.move_next(); break },
                 LinePushResult::Rejected => break,
-                LinePushResult::BadPosition => tokenizer.move_next(),
+                LinePushResult::BadPosition => position.move_next(),
             };
         }
 
         // TODO: move this to tests?
-        assert_eq!(line, Self::next_from_tokenizer(&mut prev.clone()));
+        assert_eq!(line, Self::next_from_position(&mut prev.clone()));
 
         (line, prev, index)
     }
     
-    /// Returns the line ending at the tokenizer's current position, and moves the tokenizer to the beginning of that line.
-    pub fn prev_from_tokenizer(tokenizer: &mut impl tokenizer::AbstractTokenizer) -> Self {
+    /// Returns the line ending at the position, and moves the position to the beginning of that line.
+    pub fn prev_from_position(position: &mut impl stream::AbstractPosition) -> Self {
         let mut line = Self::empty();
 
         loop {
-            if !tokenizer.move_prev() {
+            if !position.move_prev() {
                 break;
             }
 
-            if match line.push_front(match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => continue,
-                tokenizer::TokenGenerationResult::Boundary => break,
+            if match line.push_front(match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => continue,
+                stream::TokenGenerationResult::Boundary => break,
             }) {
                 LinePushResult::Accepted => continue,
                 LinePushResult::Completed => break,
@@ -134,7 +134,7 @@ impl Line {
                 LinePushResult::BadPosition => false,
             } {
                 /* roll the state back */
-                assert!(tokenizer.move_next());
+                assert!(position.move_next());
                 break;
             }
         }
@@ -142,20 +142,20 @@ impl Line {
         line
     }
 
-    /// Returns the line beginning at the tokenizer's current position, and moves the tokenizer to the end of that line.
-    pub fn next_from_tokenizer(tokenizer: &mut impl tokenizer::AbstractTokenizer) -> Self {
+    /// Returns the line beginning at the position, and moves the position to the end of that line.
+    pub fn next_from_position(position: &mut impl stream::AbstractPosition) -> Self {
         let mut line = Line::empty();
 
         loop {
-            match line.push_back(match tokenizer.gen_token() {
-                tokenizer::TokenGenerationResult::Ok(token) => token,
-                tokenizer::TokenGenerationResult::Skip => if tokenizer.move_next() { continue } else { break },
-                tokenizer::TokenGenerationResult::Boundary => break,
+            match line.push_back(match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => if position.move_next() { continue } else { break },
+                stream::TokenGenerationResult::Boundary => break,
             }) {
-                LinePushResult::Accepted => tokenizer.move_next(),
-                LinePushResult::Completed => { tokenizer.move_next(); break },
+                LinePushResult::Accepted => position.move_next(),
+                LinePushResult::Completed => { position.move_next(); break },
                 LinePushResult::Rejected => break,
-                LinePushResult::BadPosition => tokenizer.move_next(),
+                LinePushResult::BadPosition => position.move_next(),
             };
         }
 
