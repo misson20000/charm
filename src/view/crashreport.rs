@@ -132,7 +132,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
         
         if PANIC_DIALOG_OPEN.swap(true, sync::atomic::Ordering::Relaxed) {
             println!("Attempted to open panic dialog when it was already open.");
-            std::process::abort();
+            return;
         }
         
         /* Build and open the crash report dialog first so we don't immediately exit the application when we close the last CharmWindow. */
