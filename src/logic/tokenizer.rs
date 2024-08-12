@@ -2486,4 +2486,75 @@ mod tests {
             ),
         ]);
     }
+
+    #[test]
+    fn port_root_only_summary() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+
+        let props = structure::Properties {
+            name: "root".to_string(),
+            children_display: structure::ChildrenDisplay::Summary,
+            ..Default::default()
+        };
+        
+        new_doc.change_for_debug(old_doc.alter_node(vec![], props)).unwrap();
+
+        let new_root = new_doc.root.clone();
+        
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* title */
+            (
+                token::Token::Title(token::TitleToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 0,
+                    },
+                }),
+                token::Token::Title(token::TitleToken {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 0,
+                    },
+                }),
+                PortOptionsBuilder::new().build(),
+                PortOptionsBuilder::new().build(),
+            ),
+            /* offset 0x0 */
+            (
+                token::Token::Hexdump(token::HexdumpToken {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    index: 0,
+                    extent: addr::Extent::sized_u64(0x0, 0x10),
+                    line: addr::Extent::sized_u64(0x0, 0x10),
+                }),
+                token::Token::SummaryPunctuation(token::SummaryPunctuationToken {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::unit::NULL,
+                        depth: 1,
+                    },
+                    kind: token::PunctuationKind::OpenBracket,
+                    index: 0,
+                }),
+                PortOptionsBuilder::new().additional_offset(0x0).build(),
+                PortOptionsBuilder::new().additional_offset(0x0).build(),
+            ),
+        ]);
+    }
 }

@@ -939,4 +939,36 @@ mod tests {
         println!("  line tokenizers: {:?}-{:?}", cursor.line_begin, cursor.line_end);
         cursor.move_right();
     }
+
+    #[test]
+    fn summary_swap() {
+        let document_host = sync::Arc::new(document::Builder::default().host());
+        let document = document_host.get();
+        let mut cursor = Cursor::new(document.clone());
+
+        /* when the cursor is first created, it should be placed on the first hexdump token. */
+        assert_eq!(cursor.class.get_token(), token::Token::Hexdump(token::HexdumpToken {
+            common: token::TokenCommon {
+                node: document.root.clone(),
+                node_path: structure::Path::default(),
+                node_addr: addr::unit::NULL,
+                depth: 1,
+            },
+            index: 0,
+            extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+        }).as_ref());
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+
+        let document = document_host.change(document.alter_node(vec![], structure::Properties {
+            name: "root".to_string(),
+            children_display: structure::ChildrenDisplay::Summary,
+            ..Default::default()
+        })).unwrap();
+
+        cursor.update(&document);
+
+        panic!("TODO: finish this test");
+        // TODO: assert it goes to the right place
+    }
 }
