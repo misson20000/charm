@@ -968,7 +968,15 @@ mod tests {
 
         cursor.update(&document);
 
-        panic!("TODO: finish this test");
-        // TODO: assert it goes to the right place
+        assert_eq!(cursor.class.get_token(), token::Token::SummaryPunctuation(token::SummaryPunctuationToken {
+            common: token::TokenCommon {
+                node: document.root.clone(),
+                node_path: structure::Path::default(),
+                node_addr: addr::unit::NULL,
+                depth: 0,
+            },
+            kind: token::PunctuationKind::CloseBracket,
+            index: 0,
+        }).as_ref());
     }
 }
