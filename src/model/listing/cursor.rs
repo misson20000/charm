@@ -439,6 +439,10 @@ impl Cursor {
     }
      */
 
+    pub fn addr(&self) -> addr::Address {
+        self.class.get_addr()
+    }
+    
     pub fn structure_path(&self) -> structure::Path {
         self.position.structure_path()
     }

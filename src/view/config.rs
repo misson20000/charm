@@ -276,6 +276,12 @@ declare_config![Config {
     
     cursor_blink_period: f64 = 1.0,
 
+    mode_text_color: Color = color!("090909ff"),
+    mode_defocused_color: Color = color!("606060ff"),
+    mode_command_color: Color = color!("8891efff"),
+    mode_entry_color: Color = color!("ffbf48ff"),
+    mode_text_entry_color: Color = color!("ff4921ff"),
+    
     #[bind("font")]
     monospace_font: Font = Font(pango::FontDescription::from_string("Monospace Regular 14")),
 

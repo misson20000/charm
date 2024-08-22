@@ -39,6 +39,7 @@ mod token_view;
 mod line;
 mod layout;
 mod pick;
+mod mode;
 
 use facet::Facet;
 
@@ -76,6 +77,7 @@ struct Interior {
     window: window_model::Window<line::Line>,
     cursor: facet::cursor::CursorView,
     scroll: facet::scroll::Scroller,
+    mode: mode::Mode,
     hover: Option<(f64, f64)>,
     rubber_band_begin: Option<pick::Triplet>,
     popover_menu: gtk::PopoverMenu,
@@ -218,17 +220,51 @@ impl WidgetImpl for ListingWidgetImp {
             snapshot.append_color(render.config.addr_pane_color.rgba(), &graphene::Rect::new(0.0, 0.0, render.addr_pane_width, widget.height() as f32));
             
             /* render lines */
+            let lh = helpers::pango_unscale(render.metrics.height());
             snapshot.save();
-            snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -helpers::pango_unscale(render.metrics.height())));
+            snapshot.translate(&graphene::Point::new(0.0, interior.scroll.get_position() as f32 * -lh));
 
             for line in interior.window.line_views.iter_mut() {
                 if let Some(node) = line.render(&interior.cursor, selection, &*render) {
                     snapshot.append_node(node);
                 }
                 
-                snapshot.translate(&graphene::Point::new(0.0, helpers::pango_unscale(render.metrics.height())));
+                snapshot.translate(&graphene::Point::new(0.0, lh));
             }
             snapshot.restore();
+
+            /* render mode line */
+            let ml_pad = 5.0;
+            let ml_height = lh + ml_pad * 2.0;
+            snapshot.append_color(render.config.background_color.rgba(), &graphene::Rect::new(0.0, widget.height() as f32 - ml_height, widget.width() as f32, ml_height));
+            gsc::begin_text(
+                &render.pango,
+                &render.font_mono,
+                render.config.text_color.rgba(),
+                &format!("{}", interior.cursor.cursor.addr()),
+                &mut graphene::Point::new(render.addr_pane_width + render.config.padding as f32, widget.height() as f32 - ml_pad - helpers::pango_unscale(render.metrics.descent()))
+            ).render(&snapshot);
+
+            let mode_color = if interior.cursor.has_focus {
+                interior.mode.color(&render.config)
+            } else {
+                render.config.mode_defocused_color.rgba()
+            };
+            
+            snapshot.append_color(mode_color, &graphene::Rect::new(0.0, widget.height() as f32 - ml_height, render.addr_pane_width, ml_height));
+            gsc::begin_text(
+                &render.pango,
+                &render.font_bold,
+                render.config.mode_text_color.rgba(),
+                interior.mode.name(),
+                &mut graphene::Point::new(render.config.padding as f32, widget.height() as f32 - ml_pad - helpers::pango_unscale(render.metrics.descent()))
+            ).render(&snapshot);
+
+            /* draw frame outline */
+            snapshot.append_color(mode_color, &graphene::Rect::new(0.0, 0.0, widget.width() as f32, 2.0));
+            snapshot.append_color(mode_color, &graphene::Rect::new(0.0, 0.0, 2.0, widget.height() as f32 - ml_height));
+            snapshot.append_color(mode_color, &graphene::Rect::new(0.0, widget.height() as f32 - ml_height - 2.0, widget.width() as f32, 2.0));
+            snapshot.append_color(mode_color, &graphene::Rect::new(widget.width() as f32 - 2.0, 0.0, 2.0, widget.height() as f32 - ml_height));
             
             snapshot.pop();
         }
@@ -297,6 +333,7 @@ impl ListingWidget {
             window: window_model::Window::new(document.clone()),
             cursor: facet::cursor::CursorView::new(document.clone(), config.clone()),
             scroll: facet::scroll::Scroller::new(config.clone()),
+            mode: mode::Mode::default(),
             hover: None,
             rubber_band_begin: None,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
