@@ -7,7 +7,6 @@ use crate::model::listing::token::TokenKind;
 #[derive(Debug)]
 pub struct Cursor {
     pub token: token::HexdumpToken,
-    pub extent: addr::Extent,
     pub offset: addr::Size,
     pub low_nybble: bool,
 }
@@ -49,7 +48,6 @@ impl Cursor {
         
         Ok(Cursor {
             token,
-            extent,
             offset,
             low_nybble,
         })
@@ -61,7 +59,6 @@ impl Cursor {
 
         Ok(Cursor {
             token,
-            extent,
             offset: match offset {
                 offset if offset < extent.begin => addr::unit::ZERO,
                 offset if offset >= extent.begin + limit => limit,
@@ -72,6 +69,10 @@ impl Cursor {
                 _ => false,
             },
         })
+    }
+
+    pub fn extent(&self) -> addr::Extent {
+        self.token.extent
     }
 }
 
@@ -100,7 +101,7 @@ impl cursor::CursorClassExt for Cursor {
     
     fn get_horizontal_position_in_line(&self, line: &line::Line) -> cursor::HorizontalPosition {
         if let line::LineType::Hexdump { line_extent, .. } = &line.ty {
-            cursor::HorizontalPosition::Hexdump(self.extent.begin.to_size() + self.offset - line_extent.begin.to_size(), self.low_nybble)
+            cursor::HorizontalPosition::Hexdump(self.extent().begin.to_size() + self.offset - line_extent.begin.to_size(), self.low_nybble)
         } else {
             panic!("attempted to get horizontal position of HexdumpCursor on a non-Hexdump line");
         }
@@ -122,7 +123,7 @@ impl cursor::CursorClassExt for Cursor {
     fn move_right(&mut self) -> cursor::MovementResult {
         if self.low_nybble {
             let offset = self.offset + addr::unit::BYTE;
-            if offset >= self.extent.length() {
+            if offset >= self.extent().length() {
                 cursor::MovementResult::HitEnd
             } else {
                 self.offset = offset;
@@ -151,7 +152,7 @@ impl cursor::CursorClassExt for Cursor {
 
     fn move_right_large(&mut self) -> cursor::MovementResult {
         let offset = addr::Size::from(self.offset.bytes & !7);
-        let length = self.extent.length();
+        let length = self.extent().length();
 
         if offset + addr::unit::QWORD >= length {
             cursor::MovementResult::HitEnd

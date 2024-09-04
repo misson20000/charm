@@ -190,7 +190,7 @@ impl bucket::Bucket for HexdumpBucket {
                     /* render nybbles */
                     for low_nybble in [false, true] {
                         let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
-                        let has_cursor = hex_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.node) && hxc.extent.begin + hxc.offset == offset && hxc.low_nybble == low_nybble);
+                        let has_cursor = hex_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.node) && hxc.extent().begin + hxc.offset == offset && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
