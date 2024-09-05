@@ -182,8 +182,13 @@ impl bucket::Bucket for HexdumpBucket {
                 Part::Octet { offset, next_offset: _, token: _ } => {
                     // TODO: deal with bit-sized gutter pitches
                     let byte_record = self.line_cache.get((offset - self.line_extent.begin).bytes as usize).copied().unwrap_or_default();
+                    let mut text_color = ctx.render.config.text_color.rgba();
                     let pending = byte_record.pending || !byte_record.loaded;
                     let selected = selection.includes(offset);
+
+                    if byte_record.overwritten || byte_record.inserted {
+                        text_color = ctx.render.config.edit_color.rgba();
+                    }
                     
                     let mut octet_point = graphene::Point::new(x + space_width * column as f32, lh);
                     
@@ -194,7 +199,7 @@ impl bucket::Bucket for HexdumpBucket {
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
-                        ctx.render.gsc_mono.begin(digit, ctx.render.config.text_color.rgba(), &mut octet_point)
+                        ctx.render.gsc_mono.begin(digit, text_color, &mut octet_point)
                             .selected(selected, ctx.render.config.selection_color.rgba())
                             .cursor(has_cursor, ctx.cursor, ctx.render.config.cursor_fg_color.rgba(), ctx.render.config.cursor_bg_color.rgba())
                             .placeholder(pending, ctx.render.config.placeholder_color.rgba())

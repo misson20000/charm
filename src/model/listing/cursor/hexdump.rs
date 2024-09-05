@@ -1,4 +1,10 @@
+use std::task;
+use std::vec;
+
 use crate::model::addr;
+use crate::model::datapath;
+use crate::model::datapath::DataPathExt;
+use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
 use crate::model::listing::token;
@@ -9,6 +15,9 @@ pub struct Cursor {
     pub token: token::HexdumpToken,
     pub offset: addr::Size,
     pub low_nybble: bool,
+
+    data_cache: vec::Vec<datapath::ByteRecord>,
+    data_pending: bool,
 }
 
 impl Cursor {
@@ -50,6 +59,9 @@ impl Cursor {
             token,
             offset,
             low_nybble,
+            
+            data_cache: vec::Vec::new(),
+            data_pending: true,
         })
     }
     
@@ -68,6 +80,9 @@ impl Cursor {
                 cursor::PlacementHint::Hexdump(hph) => hph.low_nybble,
                 _ => false,
             },
+
+            data_cache: vec::Vec::new(),
+            data_pending: true,
         })
     }
 
@@ -163,33 +178,12 @@ impl cursor::CursorClassExt for Cursor {
         }
     }
 
-    /*
-    fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
-        let nybble = match key {
-            cursor::key::Key::_0 => 0,
-            cursor::key::Key::_1 => 1,
-            cursor::key::Key::_2 => 2,
-            cursor::key::Key::_3 => 3,
-            cursor::key::Key::_4 => 4,
-            cursor::key::Key::_5 => 5,
-            cursor::key::Key::_6 => 6,
-            cursor::key::Key::_7 => 7,
-            cursor::key::Key::_8 => 8,
-            cursor::key::Key::_9 => 9,
-            cursor::key::Key::a => 0xa,
-            cursor::key::Key::b => 0xb,
-            cursor::key::Key::c => 0xc,
-            cursor::key::Key::d => 0xd,
-            cursor::key::Key::e => 0xe,
-            cursor::key::Key::f => 0xf,
-            _ => return Err(cursor::EntryError::KeyNotRecognized)
-        };
-
+    fn enter_hex(&mut self, document_host: &document::DocumentHost, document: &document::Document, nybble: u8) -> Result<cursor::MovementResult, cursor::EntryError> {
         let i = self.offset.bytes as usize;
-        let extent = self.lg.as_hex_line().extent;
-        let loc = extent.begin.byte + self.offset.bytes;
-        let shift = extent.begin.bit;
-
+        let loc = self.token.absolute_extent().begin.byte + self.offset.bytes;
+        let shift = self.token.absolute_extent().begin.bit;
+        let insert = false; // TODO
+        
         /*
          * +-----------------+-----------------+
          * | 0 1 2 3 4 5 6 7 | 0 1 2 3 4 5 6 7 |
@@ -197,31 +191,46 @@ impl cursor::CursorClassExt for Cursor {
          * 
          */
 
-        if self.low_nybble && shift <= 4 {
-            let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
+        let raw = self.data_cache.get(i).and_then(datapath::ByteRecord::get_loaded).ok_or(cursor::EntryError::DataNotLoaded)?;
+        
+        let change = if self.low_nybble && shift <= 4 {
             let mask = 0xF << shift;
             
-            document_host.patch_byte(loc, (raw & !mask) | (nybble << shift));
+            document.patch_byte(loc, (raw & !mask) | (nybble << shift))
         } else if !self.low_nybble && shift == 0 {
-            let raw = self.lg.as_hex_line().bytes[i].get_loaded().ok_or(cursor::EntryError::DataNotLoaded)?;
             let mask = 0xF << 4;
             
             if insert {
-                document_host.insert_byte(loc, (raw & !mask) | (nybble << 4));
+                document.insert_byte(loc, (raw & !mask) | (nybble << 4))
             } else {
-                document_host.patch_byte(loc, (raw & !mask) | (nybble << 4));
+                document.patch_byte(loc, (raw & !mask) | (nybble << 4))
             }
         } else {
             todo!(); // TODO
-        }
+        };
+
+        document_host.change(change)?;
 
         Ok(self.move_right())
     }
 
-    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::KeyNotRecognized) // TODO
-}
-    */
+    fn invalidate_data(&mut self) {
+        self.data_cache.clear();
+        self.data_pending = true;
+    }
+    
+    fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+        if self.data_pending {
+            let (begin_byte, size) = self.token.absolute_extent().round_out();
+            
+            self.data_cache.resize(size as usize, datapath::ByteRecord::default());
+            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
+            
+            self.data_pending = self.data_cache.iter().any(|b| b.pending);
+        }
+        
+        self.data_pending
+    }
 }
 
 #[derive(Debug, Clone)]

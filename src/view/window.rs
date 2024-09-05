@@ -107,17 +107,16 @@ impl CharmWindow {
                 let edit_menu = gio::Menu::new();
                 edit_menu.append(Some("Goto..."), Some("ctx.goto"));
                 edit_menu.append(Some("Settings..."), Some("win.settings"));
-                /*
+
                 {
                     let mode_menu = gio::Menu::new();
-                    mode_menu.append(Some("Command mode"), Some("listing.mode::command"));
-                    mode_menu.append(Some("Hex entry"), Some("listing.mode::entry"));
-                    mode_menu.append(Some("Text entry (UTF8)"), Some("listing.mode::utf8"));
-                    mode_menu.append(Some("Insert"), Some("listing.insert_mode"));
+                    mode_menu.append(Some("Command mode"), Some("ctx.mode::command"));
+                    mode_menu.append(Some("Hex entry"), Some("ctx.mode::entry"));
+                    mode_menu.append(Some("Text entry (UTF8)"), Some("ctx.mode::utf8"));
                     edit_menu.append_section(Some("Edit Mode"), &mode_menu);
                     mode_menu.freeze();
-            }
-                */
+                }
+
                 edit_menu.freeze();
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
@@ -538,6 +537,7 @@ impl WindowContext {
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
         action::listing::goto::add_action(&wc);
+        action::listing::mode::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

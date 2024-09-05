@@ -1,4 +1,5 @@
 use std::sync;
+use std::task;
 
 use crate::model::addr;
 use crate::model::document;
@@ -34,13 +35,15 @@ pub enum PlacementFailure {
     HitTopOfAddressSpace,
 }
 
+#[derive(Debug)]
 pub enum EntryError {
     DataNotLoaded,
-    KeyNotRecognized,
-    /// key was recognized, but invalid for entry in this location
     InvalidForPosition,
-    /// key was recognized, but invalid for entry for this type of cursor
     InvalidForType,
+    ChangeError {
+        err: document::change::ApplyError,
+        document: sync::Arc<document::Document>,
+    },
 }
 
 #[enum_dispatch]
@@ -60,8 +63,16 @@ pub trait CursorClassExt {
     fn move_left_large(&mut self) -> MovementResult;
     fn move_right_large(&mut self) -> MovementResult;
 
-    //fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError>;
-    //fn enter_utf8    (&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError>;
+    fn enter_hex(&mut self, _document_host: &document::DocumentHost, _document: &document::Document, _nybble: u8) -> Result<MovementResult, EntryError> {
+        Err(EntryError::InvalidForType)
+    }
+
+    fn invalidate_data(&mut self) {
+    }
+
+    fn work(&mut self, _document: &document::Document, _cx: &mut task::Context) -> bool {
+        false
+    }
 }
 
 #[enum_dispatch(CursorClassExt)]
@@ -429,15 +440,9 @@ impl Cursor {
         todo!();
     }
 
-    /*
-    pub fn enter_standard(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError> {
-        self.class.enter_standard(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionHint::EntryStandard))
+    pub fn enter_hex(&mut self, document_host: &document::DocumentHost, nybble: u8) -> Result<MovementResult, EntryError> {
+        self.class.enter_hex(document_host, &*self.document, nybble).map(|mr| self.movement(|_| mr, TransitionHint::Entry))
     }
-
-    pub fn enter_utf8(&mut self, document_host: &document::DocumentHost, insert: bool, key: &key::Key) -> Result<MovementResult, EntryError> {
-        self.class.enter_utf8(document_host, insert, key).map(|mr| self.movement(|_| mr, TransitionHint::EntryUTF8))
-    }
-     */
 
     pub fn addr(&self) -> addr::Address {
         self.class.get_addr()
@@ -564,8 +569,7 @@ impl std::default::Default for PlacementHint {
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionHint<'a> {
     MoveLeftLarge,
-    EntryStandard,
-    EntryUTF8,
+    Entry,
     UnspecifiedLeft,
     UnspecifiedRight,
     MoveVertical {
@@ -580,8 +584,7 @@ impl<'a> TransitionHint<'a> {
     pub fn is_left(&self) -> bool {
         match self {
             TransitionHint::MoveLeftLarge => true,
-            TransitionHint::EntryStandard => false,
-            TransitionHint::EntryUTF8 => false,
+            TransitionHint::Entry => false,
             TransitionHint::UnspecifiedLeft => true,
             TransitionHint::UnspecifiedRight => false,
             TransitionHint::MoveVertical { .. } => false,
@@ -592,8 +595,7 @@ impl<'a> TransitionHint<'a> {
     pub fn is_right(&self) -> bool {
         match self {
             TransitionHint::MoveLeftLarge => false,
-            TransitionHint::EntryStandard => true,
-            TransitionHint::EntryUTF8 => true,
+            TransitionHint::Entry => true,
             TransitionHint::UnspecifiedLeft => false,
             TransitionHint::UnspecifiedRight => true,
             TransitionHint::MoveVertical { .. } => false,
@@ -604,12 +606,20 @@ impl<'a> TransitionHint<'a> {
     pub fn is_entry(&self) -> bool {
         match self {
             TransitionHint::MoveLeftLarge => false,
-            TransitionHint::EntryStandard => true,
-            TransitionHint::EntryUTF8 => true,
+            TransitionHint::Entry => true,
             TransitionHint::UnspecifiedLeft => false,
             TransitionHint::UnspecifiedRight => false,
             TransitionHint::MoveVertical { .. } => false,
             TransitionHint::EndOfLine => false,
+        }
+    }
+}
+
+impl From<(document::change::ApplyError, sync::Arc<document::Document>)> for EntryError {
+    fn from(err: (document::change::ApplyError, sync::Arc<document::Document>)) -> EntryError {
+        EntryError::ChangeError {
+            err: err.0,
+            document: err.1,
         }
     }
 }

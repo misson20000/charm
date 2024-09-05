@@ -1,6 +1,7 @@
 use std::sync;
 
 use crate::model::addr;
+use crate::model::datapath;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
@@ -51,6 +52,8 @@ pub enum ChangeType {
     DeleteRange {
         range: structure::SiblingRange,
     },
+
+    StackFilter(datapath::Filter),
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +214,7 @@ impl Change {
                     UpdatePathResult::Unmoved
                 }
             },
+            ChangeType::StackFilter(_) => UpdatePathResult::Unmoved,
         }
     }
 
@@ -285,6 +289,8 @@ impl Change {
                     UpdateRangeResult::Unmoved(subject)
                 }
             },
+
+            ChangeType::StackFilter(_) => UpdateRangeResult::Unmoved(subject),
         }
     }
 
@@ -338,6 +344,7 @@ impl Change {
                                 | UpdateRangeResult::Inserted { .. }
                             => Err(UpdateError::RangeSplit),
                         },
+                        ChangeType::StackFilter(_) => Err(UpdateError::NotYetImplemented),
                     }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
@@ -459,6 +466,16 @@ impl Change {
 
                 Ok(())
             })?),
+            ChangeType::StackFilter(filter) => {
+                if let Some(top_filter) = document.datapath.last() {
+                    if let Some(stacked_filter) = datapath::Filter::stack(top_filter, filter) {
+                        document.datapath.set(document.datapath.len() - 1, stacked_filter);
+                        return Ok(());
+                    }
+                }
+
+                document.datapath.push_back(filter.clone());
+            }
         };
 
         Ok(())
@@ -472,6 +489,7 @@ impl Change {
             ChangeType::Nest { range, .. } => format!("Nest children under {}", document.describe_path(&range.parent)),
             ChangeType::Destructure { parent, .. } => format!("Destructure child under {}", document.describe_path(parent)),
             ChangeType::DeleteRange { range, .. } => format!("Delete children under {}", document.describe_path(&range.parent)),
+            ChangeType::StackFilter(f) => format!("{}", f.human_details()),
         }
     }
 }
@@ -794,6 +812,7 @@ mod tests {
             ChangeType::Nest { .. } => test_update_path_through_nest(),
             ChangeType::Destructure { .. } => test_update_path_through_destructure(),
             ChangeType::DeleteRange { .. } => test_update_path_through_delete_range(),
+            ChangeType::StackFilter(_) => {},
             /* Make tests for your new ChangeType! */
         }
     }
@@ -1174,6 +1193,7 @@ mod tests {
             ChangeType::Nest { .. } => test_structural_change_nest(),
             ChangeType::Destructure { .. } => test_structural_change_destructure(),
             ChangeType::DeleteRange { .. } => test_structural_change_delete_range(),
+            ChangeType::StackFilter(_) => {},
             /* Make tests for your new ChangeType! */
         }
     }

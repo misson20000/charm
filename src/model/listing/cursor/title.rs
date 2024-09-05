@@ -80,14 +80,4 @@ impl cursor::CursorClassExt for Cursor {
     fn move_right_large(&mut self) -> cursor::MovementResult {
         cursor::MovementResult::HitEnd
     }
-
-    /*
-    fn enter_standard(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::KeyNotRecognized)
-    }
-
-    fn enter_utf8(&mut self, _document_host: &document::DocumentHost, _insert: bool, _key: &cursor::key::Key) -> Result<cursor::MovementResult, cursor::EntryError> {
-        Err(cursor::EntryError::KeyNotRecognized)
-}
-    */
 }

@@ -103,7 +103,6 @@
 	(10,1,"GtkBox","toplevel",None,None,None,None,None,None,None),
 	(10,2,"GtkPopoverMenuBar","menu_bar",1,None,None,None,None,None,None),
 	(10,3,"GtkPaned","paned_main_area",1,None,None,None,1,None,None),
-	(10,4,"GtkTreeView","datapath_editor",3,None,None,None,None,None,None),
 	(10,5,"GtkPaned","paned_upper_half",3,None,None,None,None,None,None),
 	(10,6,"GtkBox","listing_box",5,None,None,None,None,None,None),
 	(10,7,"GtkScrolledWindow",None,6,None,None,None,None,None,None),
@@ -112,6 +111,8 @@
 	(10,10,"GtkBox","hierarchy_box",5,None,None,None,None,None,None),
 	(10,11,"GtkScrolledWindow",None,10,None,None,None,None,None,None),
 	(10,12,"GtkColumnView","hierarchy_editor",11,None,None,None,None,None,None),
+	(10,13,"GtkScrolledWindow",None,3,None,None,None,-1,None,None),
+	(10,14,"GtkTreeView","datapath_editor",13,None,None,None,-1,None,None),
 	(11,1,"GtkBox","toplevel",None,None,None,None,-1,None,None),
 	(11,2,"GtkStackSwitcher",None,1,None,None,None,None,None,None),
 	(11,3,"GtkStack","stack",1,None,None,None,1,None,None),
@@ -388,7 +389,7 @@
 	(9,6,"GtkWidget","halign","start",None,None,None,None,None,None,None,None,None),
 	(10,1,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
 	(10,3,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
-	(10,3,"GtkPaned","end-child",None,None,None,None,None,4,None,None,None,None),
+	(10,3,"GtkPaned","end-child",None,None,None,None,None,13,None,None,None,None),
 	(10,3,"GtkPaned","resize-end-child","False",None,None,None,None,None,None,None,None,None),
 	(10,3,"GtkPaned","shrink-end-child","False",None,None,None,None,None,None,None,None,None),
 	(10,3,"GtkPaned","shrink-start-child","False",None,None,None,None,None,None,None,None,None),
@@ -409,6 +410,7 @@
 	(10,10,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
 	(10,11,"GtkWidget","hexpand","True",None,None,None,None,None,None,None,None,None),
 	(10,11,"GtkWidget","vexpand","True",None,None,None,None,None,None,None,None,None),
+	(10,13,"GtkScrolledWindow","child",None,None,None,None,None,14,None,None,None,None),
 	(11,1,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
 	(11,1,"GtkWidget","height-request","0",None,None,None,None,None,None,None,None,None),
 	(11,2,"GtkStackSwitcher","stack","3",None,None,None,None,None,None,None,None,None),
@@ -759,11 +761,6 @@
 	(2,8,6,"GtkButton","clicked","handle_save_as",None,None,1,None,None)
   </object_signal>
   <object_data>
-	(8,1,"GtkWidget",2,2,None,1,None,None,None,None),
-	(10,4,"GtkWidget",1,1,None,None,None,None,None,None),
-	(10,4,"GtkWidget",2,2,None,1,None,None,None,None)
+	(8,1,"GtkWidget",2,2,None,1,None,None,None,None)
   </object_data>
-  <object_data_arg>
-	(10,4,"GtkWidget",2,2,"name","datapath")
-  </object_data_arg>
 </cambalache-project>

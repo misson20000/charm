@@ -402,6 +402,8 @@ impl StructureListModel {
                 Some((range.first as u32, count_removed as u32, 0))
             },
             change::ChangeType::DeleteRange { .. } => None,
+
+            change::ChangeType::StackFilter(_) => None,
         };
 
         /* Fixup children's paths and node pointers */

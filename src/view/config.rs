@@ -262,6 +262,8 @@ declare_config![Config {
     #[bind("color-text")]
     text_color: Color = color!("121214ff", "dbdbe6ff"),
 
+    edit_color: Color = color!("ffff00ff", "ffff00ff"),
+    
     #[bind("color-placeholder")]
     placeholder_color: Color = color!("141414ff"),
 
@@ -276,6 +278,7 @@ declare_config![Config {
     
     cursor_blink_period: f64 = 1.0,
 
+    mode_line_color: Color = color!("404040ff"),
     mode_text_color: Color = color!("090909ff"),
     mode_defocused_color: Color = color!("606060ff"),
     mode_command_color: Color = color!("8891efff"),

@@ -2,10 +2,12 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
+use crate::model::listing::cursor::CursorClassExt;
 use crate::view::config;
 use crate::view::listing::facet;
 
 use std::sync;
+use std::task;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -24,6 +26,7 @@ pub struct CursorView {
     
     config: sync::Arc<config::Config>,
     ev_draw: facet::Event,
+    ev_work: facet::Event,
 
     blink_timer: f64,
     bonk_timer: f32,
@@ -37,6 +40,7 @@ impl std::fmt::Debug for CursorView {
             .field("has_focus", &self.has_focus)
             .field("insert", &self.insert)
             .field("ev_draw", &self.ev_draw)
+            .field("ev_work", &self.ev_work)
             .field("blink_timer", &self.blink_timer)
             .field("bonk_timer", &self.bonk_timer)
             .finish_non_exhaustive()
@@ -54,6 +58,7 @@ impl CursorView {
             
             config,
             ev_draw: facet::Event::new(),
+            ev_work: facet::Event::new_wanted(),
             
             blink_timer: 0.0,
             bonk_timer: 0.0,
@@ -123,6 +128,7 @@ impl CursorView {
     // TODO: macro this
     fn movement<F>(&mut self, mov: F) where F: FnOnce(&mut cursor::Cursor) -> cursor::MovementResult {
         self.ev_draw.want();
+        self.ev_work.want();
         self.blink();
 
         let result = mov(&mut self.cursor);
@@ -146,32 +152,43 @@ impl CursorView {
 
     pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
         self.blink();
+        self.ev_draw.want();
+        self.ev_work.want();
         self.cursor.goto(document, path, offset, hint)
     }
+
+    pub fn set(&mut self, new: cursor::Cursor) {
+        self.blink();
+        self.ev_draw.want();
+        self.ev_work.want();
+        self.cursor = new;
+    }
     
-    /*
-    pub fn entry(&mut self, document_host: &document::DocumentHost, key: &gdk::EventKey) -> bool {
-        match match self.mode {
-            Mode::Command => return false,
-            Mode::Entry => {
-                self.events.want_draw();
-                self.cursor.enter_standard(document_host, self.insert, &cursor::key::Key::from(key))
-            },
-            Mode::TextEntry => {
-                self.events.want_draw();
-                self.cursor.enter_utf8(document_host, self.insert, &cursor::key::Key::from(key))
-            },
-        } {
-            Ok(cursor::MovementResult::Ok) => { self.blink(); true },
-            Err(cursor::EntryError::KeyNotRecognized) => { self.blink(); false },
-            _ => { self.bonk(); true }
+    pub fn enter_hex(&mut self, document_host: &document::DocumentHost, nybble: u8) -> Result<(), cursor::EntryError> {
+        self.ev_draw.want();
+        self.ev_work.want();
+        self.blink();
+
+        match self.cursor.enter_hex(document_host, nybble) {
+            Ok(cursor::MovementResult::Ok) => (),
+            Ok(_) => self.bonk(),
+            Err(e) => return Err(e)
         }
-}
-    */
+
+        Ok(())
+    }
 }
 
 impl facet::Facet for CursorView {
     fn wants_draw(&self) -> &facet::Event {
         &self.ev_draw
+    }
+
+    fn wants_work(&self) -> &facet::Event {
+        &self.ev_work
+    }
+
+    fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) -> bool {
+        self.cursor.class.work(document, cx)
     }
 }

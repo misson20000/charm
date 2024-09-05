@@ -39,7 +39,7 @@ mod token_view;
 mod line;
 mod layout;
 mod pick;
-mod mode;
+pub mod mode;
 
 use facet::Facet;
 
@@ -110,12 +110,38 @@ impl ObjectSubclass for ListingWidgetImp {
 
     fn class_init(klass: &mut Self::Class) {
         catch_panic! {
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("B"), Some(gtk::NamedAction::new("ctx.insert_byte"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("W"), Some(gtk::NamedAction::new("ctx.insert_word"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("D"), Some(gtk::NamedAction::new("ctx.insert_dword"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Q"), Some(gtk::NamedAction::new("ctx.insert_qword"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Insert"), Some(gtk::NamedAction::new("ctx.insert_node"))));
-            klass.add_shortcut(&gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("G"), Some(gtk::NamedAction::new("ctx.goto"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("B"),
+                Some(gtk::NamedAction::new("ctx.insert_byte"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("W"),
+                Some(gtk::NamedAction::new("ctx.insert_word"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("D"),
+                Some(gtk::NamedAction::new("ctx.insert_dword"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("Q"),
+                Some(gtk::NamedAction::new("ctx.insert_qword"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("Insert"),
+                Some(gtk::NamedAction::new("ctx.insert_node"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("G"),
+                Some(gtk::NamedAction::new("ctx.goto"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("E"),
+                /* NamedAction doesn't support detailed action strings */
+                Some(gtk::CallbackAction::new(|w, _| match w.activate_action("ctx.mode", Some(&"entry".to_variant())) {
+                    Ok(()) => glib::Propagation::Stop,
+                    Err(_) => glib::Propagation::Proceed
+                }))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("Return"),
+                /* NamedAction doesn't support detailed action strings */
+                Some(gtk::CallbackAction::new(|w, _| match w.activate_action("ctx.mode", Some(&"command".to_variant())) {
+                    Ok(()) => glib::Propagation::Stop,
+                    Err(_) => glib::Propagation::Proceed
+                }))));
             klass.set_css_name("listing");
         }
     }
@@ -410,7 +436,7 @@ impl ListingWidget {
             panic!("double-initialized work_event_source");
         }
 
-        /* Register keybaord event controller */
+        /* Register keyboard event controller */
         let ec_key = gtk::EventControllerKey::new();
         ec_key.connect_key_pressed(clone!(#[weak(rename_to=lw)] self, #[upgrade_or] glib::Propagation::Proceed, move |_eck, keyval, keycode, modifier| catch_panic! {
             @default(glib::Propagation::Proceed);
@@ -469,8 +495,9 @@ impl ListingWidget {
             lw.grab_focus();
         }));
         ec_click.connect_released(clone!(#[weak(rename_to=lw)] self, move |gesture, _n_press, x, y| catch_panic! {
-            lw.imp().interior.get().unwrap().write().move_cursor_to_coordinates(x, y);
-            lw.queue_draw();
+            let mut interior = lw.imp().interior.get().unwrap().write();
+            interior.move_cursor_to_coordinates(x, y);
+            interior.collect_events(&lw);
             gesture.set_state(gtk::EventSequenceState::Claimed);
         }));
         ec_click.set_button(1);
@@ -526,7 +553,6 @@ impl ListingWidget {
     }
     
     pub fn cursor_mut(&self) -> parking_lot::MappedRwLockWriteGuard<'_, crate::model::listing::cursor::Cursor> {
-        self.queue_draw();
         parking_lot::RwLockWriteGuard::map(self.imp().interior.get().unwrap().write(), |int| &mut int.cursor.cursor)
     }
 
@@ -559,10 +585,15 @@ impl ListingWidget {
 
         interior.cursor.goto(document.clone(), path, offset, hint);
         interior.scroll.ensure_cursor_is_in_view(&mut interior.window, &mut interior.cursor, facet::scroll::EnsureCursorInViewDirection::Any);
-
-        self.queue_draw();
+        interior.collect_events(self);
     }
 
+    pub fn set_mode(&self, mode: mode::Mode) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+        interior.mode = mode;
+        self.queue_draw();
+    }
+    
     fn open_context_menu(&self, x: f64, y: f64) {
         let interior = self.imp().interior.get().unwrap().read();
         
@@ -589,21 +620,21 @@ impl ListingWidget {
     fn document_updated(&self, new_document: &sync::Arc<document::Document>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.document_updated(new_document);
-
+        interior.collect_events(self);
         self.queue_draw();
     }
 
     fn selection_updated(&self, new_selection: &sync::Arc<selection::ListingSelection>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.selection_updated(new_selection);
-
+        interior.collect_events(self);
         self.queue_draw();
     }
 
     fn config_updated(&self, new_config: &sync::Arc<config::Config>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.config_updated(new_config, self);
-
+        interior.collect_events(self);
         self.queue_draw();
     }
 
@@ -744,9 +775,9 @@ impl Interior {
             }
         }
 
-        if self.cursor.wants_work().collect() {
-            work_needed = self.cursor.work(&self.document, cx) || work_needed;
-        }
+        self.cursor.wants_work().collect();
+        
+        work_needed = self.cursor.work(&self.document, cx) || work_needed;
         
         if self.cursor.wants_draw().collect() {
             widget.queue_draw();
@@ -794,6 +825,26 @@ impl Interior {
         self.last_frame = frame_time;
     }
 
+    fn cursor_entry<F, T>(&mut self, cb: F, arg: T) -> glib::Propagation
+    where F: FnOnce(&mut facet::cursor::CursorView, &document::DocumentHost, T) -> Result<(), cursor::EntryError> {
+        match cb(&mut self.cursor, &*self.document_host, arg) {
+            Err(cursor::EntryError::ChangeError { err, document }) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                while_attempting: error::Action::DataEntry,
+                trouble: error::Trouble::DocumentUpdateFailure {
+                    error: err,
+                    attempted_version: document,
+                },
+                level: error::Level::Warning,
+                is_bug: false,
+            })); },
+            Err(e) => println!("entry error: {:?}", e),
+            _ => (),
+        }
+        
+        self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, facet::scroll::EnsureCursorInViewDirection::Down);
+        glib::Propagation::Stop
+    }
+    
     fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
     where F: FnOnce(&mut facet::cursor::CursorView) {
         cb(&mut self.cursor);
@@ -817,24 +868,37 @@ impl Interior {
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
 
-        let r = match (keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
-            /* basic cursor   key    shift  ctrl  */
-            (gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
-            (gdk::Key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
-            (gdk::Key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
+        let r = match (&self.mode, keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
+            /* basic cursor movement keys */
+            /*  key              shift  ctrl  */
+            (_, gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
 
-            /* fast cursor    key    shift  ctrl  */
-            //(gdk::keys::constants::Left,  false, true ) => self.cursor_transaction(|c| c.move_left_large(),    facet::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Right, false, true ) => self.cursor_transaction(|c| c.move_right_large(),   facet::scroll::EnsureCursorInViewDirection::Down),
-            //(gdk::keys::constants::Up,    false, true ) => self.cursor_transaction(|c| c.move_up_to_break(),   facet::scroll::EnsureCursorInViewDirection::Up),
-            //(gdk::keys::constants::Down,  false, true ) => self.cursor_transaction(|c| c.move_down_to_break(), facet::scroll::EnsureCursorInViewDirection::Down),
-
-            /* basic scroll   key         shift  ctrl  */
-            (gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); glib::Propagation::Stop },
-            (gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); glib::Propagation::Stop },
+            /* basic scroll keys */
+            /* key                   shift  ctrl  */
+            (_, gdk::Key::Page_Up,   false, false) => { self.scroll.page_up(&self.window); glib::Propagation::Stop },
+            (_, gdk::Key::Page_Down, false, false) => { self.scroll.page_down(&self.window); glib::Propagation::Stop },
             
-            //_ => self.cursor_transaction_fallible(|c| c.entry(&document_host, ek), facet::scroll::EnsureCursorInViewDirection::Any),
+            /* hex entry */
+            (mode::Mode::Entry, gdk::Key::_0, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x0),
+            (mode::Mode::Entry, gdk::Key::_1, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x1),
+            (mode::Mode::Entry, gdk::Key::_2, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x2),
+            (mode::Mode::Entry, gdk::Key::_3, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x3),
+            (mode::Mode::Entry, gdk::Key::_4, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x4),
+            (mode::Mode::Entry, gdk::Key::_5, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x5),
+            (mode::Mode::Entry, gdk::Key::_6, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x6),
+            (mode::Mode::Entry, gdk::Key::_7, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x7),
+            (mode::Mode::Entry, gdk::Key::_8, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x8),
+            (mode::Mode::Entry, gdk::Key::_9, false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0x9),
+            (mode::Mode::Entry, gdk::Key::a , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xa),
+            (mode::Mode::Entry, gdk::Key::b , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xb),
+            (mode::Mode::Entry, gdk::Key::c , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xc),
+            (mode::Mode::Entry, gdk::Key::d , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xd),
+            (mode::Mode::Entry, gdk::Key::e , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xe),
+            (mode::Mode::Entry, gdk::Key::f , false, false) => self.cursor_entry(facet::cursor::CursorView::enter_hex, 0xf),
+            
             _ => glib::Propagation::Proceed,
         };
 
@@ -992,7 +1056,7 @@ impl Interior {
 
         let new_cursor = cursor::Cursor::place(self.document.clone(), &path, part.offset(), part.cursor_placement_hint());
 
-        self.cursor.cursor = new_cursor;
+        self.cursor.set(new_cursor);
         self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
     }
     

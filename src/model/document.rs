@@ -211,59 +211,30 @@ impl Document {
             generation: self.generation(),
         }
     }
-}
 
-    /*
-    pub fn patch_byte(&self, location: u64, patch: u8) {
-        self.apply_filter(datapath::OverwriteFilter {
-            offset: location,
-            bytes: vec![patch]
-        }.to_filter())
-    }
-
-    pub fn insert_byte(&self, location: u64, patch: u8) {
-        self.apply_filter(datapath::InsertFilter {
-            offset: location,
-            bytes: vec![patch]
-        }.to_filter())
-    }
-
-    pub fn apply_filter(&self, filter: datapath::Filter) {
-        let mut interior = self.interior.write();
-
-        let last_undo = interior.undo.last_mut();
-        
-        /* Try to stack this filter with the most recent one. */
-        let stack = match last_undo {
-            /* If the last undo operation was a filter, try to stack with it. */
-            Some((UndoOp::AddFilter(ref mut undo_filter), ref undo_doc)) => datapath::Filter::stack(undo_filter, &filter).map(|se| (undo_filter, undo_doc, se)).ok_or(filter),
-            _ => Err(filter)
-        };
-
-        match stack {
-            /* If we successfully stacked, replace the undo op's filter with the
-             * new stacked version, revert the document, and apply the new
-             * stacked filter to the document in place of the old filter. */
-            Ok((undo_filter, undo_doc, stacked_filter)) => {
-                *undo_filter = stacked_filter.clone();
-                interior.current = undo_doc.clone();
-                interior.current.datapath.push_back(stacked_filter);
-            },
-            
-            /* Stacking failed. Just add a new undo op. */
-            Err(filter) => {
-                let old_doc = interior.current.clone();
-                interior.undo.push((UndoOp::AddFilter(filter.clone()), old_doc));
-                interior.current.datapath.push_back(filter);
-            }
+    #[must_use]
+    pub fn patch_byte(&self, location: u64, patch: u8) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::StackFilter(datapath::OverwriteFilter {
+                offset: location,
+                bytes: vec![patch]
+            }.to_filter()),
+            generation: self.generation(),
         }
+    }
 
-        interior.current.datapath_generation = NEXT_DATAPATH_GENERATION.fetch_add(1, sync::atomic::Ordering::SeqCst);
-        
-        self.notifier.notify();
+    #[must_use]
+    pub fn insert_byte(&self, location: u64, patch: u8) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::StackFilter(datapath::InsertFilter {
+                offset: location,
+                bytes: vec![patch]
+            }.to_filter()),
+            generation: self.generation(),
+        }
+    }
 }
-     */
-
+    
 #[derive(Debug, Clone, Copy)]
 pub enum DestructureError {
     AttemptToDestructureRoot,

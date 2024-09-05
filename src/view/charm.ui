@@ -10,10 +10,10 @@
     <child>
       <object class="GtkPaned" id="paned_main_area">
         <property name="end-child">
-          <object class="GtkTreeView" id="datapath_editor">
-            <style>
-              <class name="datapath"/>
-            </style>
+          <object class="GtkScrolledWindow">
+            <property name="child">
+              <object class="GtkTreeView" id="datapath_editor"/>
+            </property>
           </object>
         </property>
         <property name="hexpand">True</property>

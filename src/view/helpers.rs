@@ -34,6 +34,31 @@ where F: Fn(rc::Rc<T>) + 'static,
     action
 }
 
+pub fn create_stateful_action_strong<T, F, S>(obj: rc::Rc<T>, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
+where F: Fn(&gio::SimpleAction, &rc::Rc<T>, Option<S>) + 'static,
+      T: 'static,
+      S: glib::variant::ToVariant + glib::variant::FromVariant {
+    let action = gio::SimpleAction::new_stateful(id, Some(glib::VariantTy::STRING), &initial_state.to_variant());
+    action.connect_change_state(move |action, state| catch_panic! {
+        cb(action, &obj, state.and_then(|var| S::from_variant(var)))
+    });
+    action.set_enabled(true);
+    action
+}
+
+
+pub fn create_stateful_action<T, F, S>(obj: &rc::Rc<T>, id: &str, initial_state: S, cb: F) -> gio::SimpleAction
+where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
+      T: 'static,
+      S: glib::variant::ToVariant + glib::variant::FromVariant {
+    let action = gio::SimpleAction::new_stateful(id, Some(glib::VariantTy::STRING), &initial_state.to_variant());
+    action.connect_change_state(clone!(#[weak] obj, move |action, state| catch_panic! {
+        cb(action, obj, state.and_then(|var| S::from_variant(var)))
+    }));
+    action.set_enabled(true);
+    action
+}
+
 pub fn bind_simple_action<T, F>(obj: &rc::Rc<T>, map: &impl gio::prelude::ActionMapExt, id: &str, cb: F) -> gio::SimpleAction
 where F: Fn(rc::Rc<T>) + 'static,
       T: 'static {
@@ -46,13 +71,8 @@ pub fn bind_stateful_action<T, F, S>(obj: &rc::Rc<T>, map: &impl gio::prelude::A
 where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
       T: 'static,
       S: glib::variant::ToVariant + glib::variant::FromVariant {
-    let action = gio::SimpleAction::new_stateful(id, None, &initial_state.to_variant());
-    action.connect_change_state(clone!(#[weak] obj, move |action, state| catch_panic! {
-        cb(action, obj, state.and_then(|var| S::from_variant(var)))
-    }));
-    action.set_enabled(true);
+    let action = create_stateful_action(obj, id, initial_state, cb);
     map.add_action(&action);
-
     action
 }
 
