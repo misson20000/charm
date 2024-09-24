@@ -34,11 +34,18 @@ impl Triplet {
     }
 }
 
-fn adjust_tuple_for_structure_selection(tuple: &(structure::Path, Part)) -> Result<(structure::PathSlice, usize, &Part), selection::listing::StructureMode> {
+fn adjust_tuple_for_structure_selection<'a>(document: &'_ document::Document, tuple: &'a (structure::Path, Part)) -> Result<(structure::PathSlice<'a>, usize, addr::Address), selection::listing::StructureMode> {
     Ok(match tuple {
         (path, Part::Title) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
-        (path, Part::Title) => (&path[0..path.len()-1], *path.last().unwrap(), &Part::Title),
-        (path, part) => (&path[..], 0, part),
+        
+        (path, Part::Title) => {
+            let adj_path = &path[0..path.len()-1];
+            let adj_child = *path.last().unwrap();
+            let adj_offset = document.lookup_node(adj_path).0.children[adj_child].offset;
+            (adj_path, adj_child, adj_offset)
+        }
+        
+        (path, Part::Hexdump { index, offset, .. }) => (&path[..], *index, *offset),
     })
 }    
 
@@ -46,43 +53,17 @@ pub fn to_structure_selection(document: &document::Document, a: &Triplet, b: &Tr
     let begin = std::cmp::min(PickSort(&a.begin), PickSort(&b.begin)).0;
     let end = std::cmp::max(PickSort(&a.end), PickSort(&b.end)).0;
 
-    let (begin_path, begin_child, begin_part) = match adjust_tuple_for_structure_selection(&begin) {
+    let begin = match adjust_tuple_for_structure_selection(document, &begin) {
         Ok(x) => x,
         Err(sm) => return sm,
     };
     
-    let (end_path, end_child, end_part) = match adjust_tuple_for_structure_selection(&end) {
+    let end = match adjust_tuple_for_structure_selection(document, &end) {
         Ok(x) => x,
         Err(sm) => return sm,
     };
-    
-    /* This is the common prefix of the path between the two pick results. */
-    let path: Vec<usize> = std::iter::zip(begin_path.iter(), end_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
-    let (node, _node_addr) = document.lookup_node(&path);
 
-    let begin = match begin_part {
-        /* Pick result 'a' was deeper in the hierarchy than the common prefix. Round down to the start of the child of the common prefix. */
-        _ if path.len() < begin_path.len() => (node.children[begin_path[path.len()]].offset, begin_path[path.len()]),
-        _ if path[..] != begin_path[..] => panic!("beginning pick result was shallower than the common prefix, which means the common prefix wasn't actually common"),
-
-        Part::Title => (node.children[begin_child].offset, begin_child),
-        Part::Hexdump { offset, .. } => (*offset, node.child_at_offset(*offset)),
-    };
-
-    let end = match end_part {
-        /* Pick result 'b' was deeper in the hierarchy than the common prefix. Bump out to the end of the child of the common prefix. */
-        _ if path.len() < end_path.len() => (node.children[end_path[path.len()]].end(), end_path[path.len()]+1),
-        _ if path[..] != end_path[..] => panic!("ending pick result was shallower than the common prefix, which means the common prefix wasn't actually common"),
-
-        Part::Title => (node.children[end_child].end(), end_child+1),
-        Part::Hexdump { offset, .. } => (*offset, node.child_at_offset(*offset)),
-    };
-
-    selection::listing::StructureMode::Range(selection::listing::StructureRange {
-        path,
-        begin,
-        end,
-    })
+    selection::listing::StructureMode::Range(selection::listing::StructureRange::between(document, begin, end))
 }
 
 impl Part {

@@ -65,6 +65,12 @@ pub struct RenderDetail {
     addr_pane_width: f32,
 }
 
+enum RubberBandState {
+    Inactive,
+    Mouse(pick::Triplet),
+    Keyboard((structure::Path, usize, addr::Address)),
+}
+
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::listing::Host>,
@@ -79,7 +85,7 @@ struct Interior {
     scroll: facet::scroll::Scroller,
     mode: mode::Mode,
     hover: Option<(f64, f64)>,
-    rubber_band_begin: Option<pick::Triplet>,
+    rubber_band_begin: RubberBandState,
     popover_menu: gtk::PopoverMenu,
     breadcrumbs: gio::ListStore,
     
@@ -361,7 +367,7 @@ impl ListingWidget {
             scroll: facet::scroll::Scroller::new(config.clone()),
             mode: mode::Mode::default(),
             hover: None,
-            rubber_band_begin: None,
+            rubber_band_begin: RubberBandState::Inactive,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
             breadcrumbs: gio::ListStore::new::<breadcrumbs::CharmBreadcrumb>(),
 
@@ -689,7 +695,7 @@ impl Interior {
         self.update_breadcrumbs();
         self.cursor.cursor.update(new_document);
         self.document = new_document.clone();
-        self.rubber_band_begin = None;
+        self.rubber_band_begin = RubberBandState::Inactive;
 
         self.request_work();
     }
@@ -845,18 +851,49 @@ impl Interior {
         glib::Propagation::Stop
     }
     
-    fn cursor_transaction<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
+    fn cursor_transaction<F>(&mut self, shift: bool, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
     where F: FnOnce(&mut facet::cursor::CursorView) {
-        cb(&mut self.cursor);
-        self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
-        glib::Propagation::Stop
+        self.cursor_transaction_fallible(shift, |c| { cb(c); true }, dir)
     }
 
     // TODO: bring back ensure cursor in view
-    fn cursor_transaction_fallible<F>(&mut self, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
+    fn cursor_transaction_fallible<F>(&mut self, shift: bool, cb: F, dir: facet::scroll::EnsureCursorInViewDirection) -> glib::Propagation
     where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
+        if shift {
+            match self.rubber_band_begin {
+                RubberBandState::Inactive => self.rubber_band_begin = RubberBandState::Keyboard(self.cursor.position_for_rubber_band()),
+                _ => {},
+            }
+        } else {
+            self.rubber_band_begin = RubberBandState::Inactive;
+        }
+        
         if cb(&mut self.cursor) {
             self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
+
+            if let RubberBandState::Keyboard(a) = &self.rubber_band_begin {
+                let a = (&a.0[..], a.1, a.2);
+                let b = self.cursor.position_for_rubber_band();
+                let b = (&b.0[..], b.1, b.2);
+                
+                let sel = selection::listing::StructureMode::Range(selection::listing::StructureRange::between(&*self.cursor.cursor.document(), std::cmp::min(a, b), std::cmp::max(a, b)));
+                
+                match self.selection_host.change(selection::listing::Change::AssignStructure(sel)) {
+                    Ok(new_selection) => {
+                        self.selection_updated(&new_selection);
+                    },
+                    Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                        while_attempting: error::Action::RubberBandSelection,
+                        trouble: error::Trouble::ListingSelectionUpdateFailure {
+                            error,
+                            attempted_version,
+                        },
+                        level: error::Level::Warning,
+                        is_bug: true,
+                    })); }
+                }
+            }
+            
             glib::Propagation::Stop
         } else {
             glib::Propagation::Proceed
@@ -871,10 +908,10 @@ impl Interior {
         let r = match (&self.mode, keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor movement keys */
             /*  key              shift  ctrl  */
-            (_, gdk::Key::Left,  false, false) => self.cursor_transaction(|c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
-            (_, gdk::Key::Right, false, false) => self.cursor_transaction(|c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
-            (_, gdk::Key::Up,    false, false) => self.cursor_transaction(|c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
-            (_, gdk::Key::Down,  false, false) => self.cursor_transaction(|c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Left,  shift, false) => self.cursor_transaction(shift, |c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Right, shift, false) => self.cursor_transaction(shift, |c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Up,    shift, false) => self.cursor_transaction(shift, |c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Down,  shift, false) => self.cursor_transaction(shift, |c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll keys */
             /* key                   shift  ctrl  */
@@ -975,7 +1012,10 @@ impl Interior {
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
 
-        self.rubber_band_begin = self.pick(x, y);
+        self.rubber_band_begin = match self.pick(x, y) {
+            None => RubberBandState::Inactive,
+            Some(triplet) => RubberBandState::Mouse(triplet)
+        };
 
         match self.selection_host.change(selection::listing::Change::Clear) {
             Ok(new_selection) => { self.selection_updated(&new_selection); },
@@ -1000,7 +1040,7 @@ impl Interior {
     }
     
     fn update_rubber_band(&mut self, x: f64, y: f64) {
-        if let (Some(rbb), Some(rbe)) = (&self.rubber_band_begin, self.pick(x, y)) {
+        if let (RubberBandState::Mouse(rbb), Some(rbe)) = (&self.rubber_band_begin, self.pick(x, y)) {
             match self.selection_host.change(selection::listing::Change::AssignStructure(pick::to_structure_selection(&self.document, rbb, &rbe))) {
                 Ok(new_selection) => {
                     self.selection_updated(&new_selection);
@@ -1030,7 +1070,7 @@ impl Interior {
     }
 
     fn drag_end(&mut self, _widget: &ListingWidget, _gesture: &gtk::GestureDrag, _dx: f64, _dy: f64) {
-        self.rubber_band_begin = None;
+        self.rubber_band_begin = RubberBandState::Inactive;
     }
 
     fn hover(&mut self, widget: &ListingWidget, hover: Option<(f64, f64)>) {

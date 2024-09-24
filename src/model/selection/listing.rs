@@ -210,6 +210,35 @@ impl StructureRange {
         addr::Extent::between(self.begin.0, self.end.0)
     }
 
+    pub fn between(document: &document::Document, begin: (structure::PathSlice, usize, addr::Address), end: (structure::PathSlice, usize, addr::Address)) -> Self {
+        let (begin_path, begin_child, begin_offset) = begin;
+        let (end_path, end_child, end_offset) = end;
+
+        /* This is the common prefix of the path between the two pick results. */
+        let path: Vec<usize> = std::iter::zip(begin_path.iter(), end_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
+        let (node, _node_addr) = document.lookup_node(&path);
+
+        let begin = if path.len() < begin_path.len() {
+            /* Beginning was deeper in the hierarchy than the common prefix. Round down to the start of the child of the common prefix. */
+            (node.children[begin_path[path.len()]].offset, begin_path[path.len()])
+        } else {
+            (begin_offset, begin_child)
+        };
+
+        let end = if path.len() < end_path.len() {
+            /* End was deeper in the hierarchy than the common prefix. Bump out to the end of the child of the common prefix. */
+            (node.children[end_path[path.len()]].end(), end_path[path.len()]+1)
+        } else {
+            (end_offset, end_child)
+        };
+
+        StructureRange {
+            path,
+            begin,
+            end,
+        }
+    }
+    
     fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> StructureMode {
         let ret = match change.update_path(&mut self.path) {
             doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match &change.ty {
