@@ -318,7 +318,7 @@ pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(window_c
         match cursor.insert_node(&document_host, sync::Arc::new(structure::Node {
             props: structure::Properties {
                 name: name.clone(),
-                title_display: structure::TitleDisplay::Minor,
+                title_display: structure::TitleDisplay::Inline,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::default_hexdump(),
                 locked: false,
