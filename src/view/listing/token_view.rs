@@ -162,7 +162,7 @@ impl TokenView {
             token::Token::Hexstring(token) => {
                 for i in 0..token.extent.length().bytes {
                     let byte_record = self.data_cache.get(i as usize).copied().unwrap_or_default();
-                    let pending = byte_record.pending || !byte_record.loaded;
+                    let pending = !byte_record.has_any_value();
 
                     let digit_hi = if pending { gsc::Entry::Space } else { gsc::Entry::Digit((byte_record.value & 0xf0) >> 4) };
                     let digit_lo = if pending { gsc::Entry::Space } else { gsc::Entry::Digit( byte_record.value & 0x0f      ) };

@@ -37,7 +37,7 @@ pub enum PlacementFailure {
 
 #[derive(Debug)]
 pub enum EntryError {
-    DataNotLoaded,
+    DataPending,
     InvalidForPosition,
     InvalidForType,
     ChangeError {

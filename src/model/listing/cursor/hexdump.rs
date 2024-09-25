@@ -191,7 +191,11 @@ impl cursor::CursorClassExt for Cursor {
          * 
          */
 
-        let raw = self.data_cache.get(i).and_then(datapath::ByteRecord::get_loaded).ok_or(cursor::EntryError::DataNotLoaded)?;
+        let br = self.data_cache[i];
+        if br.pending {
+            return Err(cursor::EntryError::DataPending);
+        }
+        let raw = br.value;
         
         let change = if self.low_nybble && shift <= 4 {
             let mask = 0xF << shift;

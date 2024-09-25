@@ -183,7 +183,7 @@ impl bucket::Bucket for HexdumpBucket {
                     // TODO: deal with bit-sized gutter pitches
                     let byte_record = self.line_cache.get((offset - self.line_extent.begin).bytes as usize).copied().unwrap_or_default();
                     let mut text_color = ctx.render.config.text_color.rgba();
-                    let pending = byte_record.pending || !byte_record.loaded;
+                    let pending = !byte_record.has_any_value();
                     let selected = selection.includes(offset);
 
                     if byte_record.overwritten || byte_record.inserted {
@@ -234,7 +234,7 @@ impl bucket::Bucket for HexdumpBucket {
                         if token.extent.includes(byte_extent.begin) {
                             let byte_record = self.line_cache.get(i as usize).copied().unwrap_or_default();
                             let selected = selection.includes(byte_extent.begin);
-                            let pending = byte_record.pending || !byte_record.loaded;
+                            let pending = !byte_record.has_any_value();
                     
                             let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte_record.value) };
 

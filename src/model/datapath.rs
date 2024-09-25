@@ -34,7 +34,7 @@ impl ByteRecord {
     }
 
     pub fn has_any_value(&self) -> bool {
-        self.loaded || self.overwritten || self.inserted
+        (self.loaded && !self.pending) || self.overwritten || self.inserted
     }
 
     pub fn has_direct_edit(&self) -> bool {

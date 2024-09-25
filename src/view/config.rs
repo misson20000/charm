@@ -265,7 +265,7 @@ declare_config![Config {
     edit_color: Color = color!("ffff00ff", "ffff00ff"),
     
     #[bind("color-placeholder")]
-    placeholder_color: Color = color!("141414ff"),
+    placeholder_color: Color = color!("1414147f"),
 
     #[bind("color-selection")]
     selection_color: Color = color!("8888ff60"),
