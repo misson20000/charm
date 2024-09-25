@@ -78,7 +78,7 @@ pub enum ApplyError {
 #[derive(Clone, Copy, Debug, Hash)]
 pub enum NodeIntersection {
     None,
-    Partial(addr::Extent),
+    Partial(addr::Extent, usize, usize),
     Total,
 }
 
@@ -417,7 +417,7 @@ impl Mode {
             Mode::Structure(StructureMode::Range(range)) => {
                 if node_path.len() >= range.path.len() && node_path[0..range.path.len()] == range.path[..] {
                     if node_path.len() == range.path.len() {
-                        NodeIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0))
+                        NodeIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0), range.begin.1, range.end.1)
                     } else if (range.begin.1..range.end.1).contains(&node_path[range.path.len()]) {
                         NodeIntersection::Total
                     } else {
@@ -434,7 +434,11 @@ impl Mode {
                     NodeIntersection::Total
                 } else {
                     match extent.intersection(node_extent) {
-                        Some(e) => NodeIntersection::Partial(e.debase(node_addr)),
+                        Some(e) => {
+                            let e = e.debase(node_addr);
+                            // TODO: this is probably wrong lmao
+                            NodeIntersection::Partial(e, node.child_at_offset(e.begin), node.children.partition_point(|ch| ch.end() >= e.end))
+                        },
                         None => NodeIntersection::None,
                     }
                 }
@@ -447,11 +451,19 @@ impl NodeIntersection {
     pub fn includes(&self, addr: addr::Address) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e) => e.includes(addr),
+            Self::Partial(e, _, _) => e.includes(addr),
             Self::Total => true,
         }
     }
 
+    pub fn includes_child(&self, index: usize) -> bool {
+        match self {
+            Self::None => false,
+            Self::Partial(_extent, first, last) => (*first..*last).contains(&index),
+            Self::Total => true,
+        }
+    }
+    
     pub fn is_total(&self) -> bool {
         match self {
             Self::Total => true,

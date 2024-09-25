@@ -1,4 +1,5 @@
 use std::task;
+use std::sync;
 use std::vec;
 
 use crate::model::addr;
@@ -114,9 +115,14 @@ impl TokenView {
                     .render(snapshot);
             },
             token::Token::SummaryPunctuation(token) => {
+                let selected = match token.kind {
+                    token::PunctuationKind::Comma => selection.includes_child(token.index) && selection.includes_child(token.index+1),
+                    _ => selection.is_total()
+                };
+                
                 render.gsc_mono.begin(gsc::Entry::Punctuation(token.kind), render.config.text_color.rgba(), &mut pos)
                     .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                    .selected(selected, render.config.selection_color.rgba())
                     .render(snapshot);
             },
             token::Token::Title(token) => {
@@ -160,29 +166,33 @@ impl TokenView {
                 panic!("hexdump tokens should not be rendered via this codepath");
             },
             token::Token::Hexstring(token) => {
+                let hexstring_cursor = match &cursor.cursor.class {
+                    cursor::CursorClass::Hexstring(hxc) => Some(hxc),
+                _ => None,
+                };
+                
                 for i in 0..token.extent.length().bytes {
                     let byte_record = self.data_cache.get(i as usize).copied().unwrap_or_default();
-                    let pending = !byte_record.has_any_value();
-
-                    let digit_hi = if pending { gsc::Entry::Space } else { gsc::Entry::Digit((byte_record.value & 0xf0) >> 4) };
-                    let digit_lo = if pending { gsc::Entry::Space } else { gsc::Entry::Digit( byte_record.value & 0x0f      ) };
-                    
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
-
                     let mut text_color = render.config.text_color.rgba();
-
                     if byte_record.has_direct_edit() {
                         text_color = render.config.edit_color.rgba();
                     }
+                    let pending = !byte_record.has_any_value();
+
+                    for low_nybble in [false, true] {
+                        let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
+                        let has_cursor = hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
+                        
+                        let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
                     
-                    render.gsc_mono.begin_iter([
-                        digit_hi, digit_lo
-                    ].into_iter(), text_color, &mut pos)
-                        .selected(selected, render.config.selection_color.rgba())
-                        .placeholder(pending, render.config.placeholder_color.rgba())
-                    // TODO: cursor for hexstring
-                        .render(snapshot);
+                        render.gsc_mono.begin(digit, text_color, &mut pos)
+                            .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
+                            .selected(selected, render.config.selection_color.rgba())
+                            .placeholder(pending, render.config.placeholder_color.rgba())
+                            .render(snapshot);
+                    }
                 }
 
                 if token.truncated {

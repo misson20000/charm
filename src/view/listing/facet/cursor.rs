@@ -179,14 +179,22 @@ impl CursorView {
     }
     
     pub fn endpoint_for_rubber_band(&self) -> (structure::Path, usize, addr::Address) {
-        let path = self.cursor.structure_path();
-        let child = self.cursor.structure_child_index();
+        let mut path = self.cursor.structure_path();
+        let mut child = self.cursor.structure_child_index();
         let mut offset = self.cursor.structure_offset();
 
+        /* silly tweaks that make it all feel better to use */
         match &self.cursor.class {
             cursor::CursorClass::Hexdump(hxc) if hxc.low_nybble => {
-                /* silly, but it feels better */
                 offset+= addr::unit::BYTE;
+            },
+            cursor::CursorClass::Hexstring(hxc) if hxc.low_nybble => {
+                offset+= addr::unit::BYTE;
+            },
+            cursor::CursorClass::SummaryLabel(_slc) => {
+                path.push(child);
+                child = 0;
+                offset = addr::unit::NULL;
             },
             _ => {},
         };

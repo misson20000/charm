@@ -718,10 +718,12 @@ impl Position {
             }.into_token()),
             PositionState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
+                let mut path = self.structure_path();
+                path.push(i);
                 TokenGenerationResult::Ok(token::SummaryLabelToken {
                     common: token::TokenCommon {
                         node: ch.node.clone(),
-                        node_path: self.structure_path(),
+                        node_path: path,
                         node_addr: self.node_addr + ch.offset.to_size(),
                         depth: self.apparent_depth,
                     },
@@ -1244,7 +1246,7 @@ impl Position {
             PositionState::Hexdump { index: ch, .. } => ch,
             PositionState::Hexstring(_, ch) => ch,
             PositionState::SummaryLabel(ch) => ch,
-            PositionState::SummarySeparator(ch) => ch,
+            PositionState::SummarySeparator(ch) => ch+1,
             PositionState::SummaryCloser => self.node.children.len(),
             PositionState::SummaryEpilogue => self.node.children.len(),
             PositionState::PostBlank => self.node.children.len(),
@@ -1255,14 +1257,22 @@ impl Position {
 
     pub fn structure_position_offset(&self) -> addr::Address {
         match self.state {
+            PositionState::PreBlank => addr::unit::NULL,
+            PositionState::Title => addr::unit::NULL,
             PositionState::MetaContent(offset, _) => offset,
             PositionState::Hexdump { extent, .. } => extent.begin,
             PositionState::Hexstring(extent, _) => extent.begin,
+            PositionState::SummaryPreamble => addr::unit::NULL,
+            PositionState::SummaryOpener => addr::unit::NULL,
+            PositionState::SummaryLabel(i) => self.node.children[i].offset,
+            PositionState::SummarySeparator(i) => self.node.children[i].end(),
+            PositionState::SummaryCloser => self.node.size.to_addr(),
             PositionState::SummaryEpilogue => self.node.size.to_addr(),
+            PositionState::SummaryValueBegin => addr::unit::NULL,
+            PositionState::SummaryLeaf => addr::unit::NULL,
+            PositionState::SummaryValueEnd => self.node.size.to_addr(),
             PositionState::PostBlank => self.node.size.to_addr(),
             PositionState::End => self.node.size.to_addr(),
-            // TODO: probably some missing here, need to figure out what is intuitive to the user.
-            _ => addr::unit::NULL
         }
     }
 

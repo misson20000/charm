@@ -496,6 +496,10 @@ impl HexstringToken {
             }
         }
     }
+
+    pub fn absolute_extent(&self) -> addr::Extent {
+        self.extent.rebase(self.common.node_addr)
+    }
 }
 
 impl TokenCommon {

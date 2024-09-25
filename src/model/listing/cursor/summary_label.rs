@@ -8,11 +8,11 @@ use tracing::instrument;
 
 #[derive(Debug)]
 pub struct Cursor {
-    token: token::TitleToken,
+    token: token::SummaryLabelToken,
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::TitleToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::TitleToken> {
+    pub fn new_transition(token: token::SummaryLabelToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::SummaryLabelToken> {
         if match hint {
             hint if hint.is_entry() => false,
             cursor::TransitionHint::MoveVertical { horizontal_position: cursor::HorizontalPosition::Title, .. } => true,
@@ -26,9 +26,9 @@ impl Cursor {
         }
     }
     
-    pub fn new_placement(token: token::TitleToken, hint: &cursor::PlacementHint) -> Result<Cursor, token::TitleToken> {
+    pub fn new_placement(token: token::SummaryLabelToken, hint: &cursor::PlacementHint) -> Result<Cursor, token::SummaryLabelToken> {
         match hint {
-            /* we only place the cursor on a title if explicitly requested or this is a last-ditch effort;
+            /* we only place the cursor on a summary label if explicitly requested or this is a last-ditch effort;
              * otherwise, we prefer to place it on a content token. */
             cursor::PlacementHint::Title | cursor::PlacementHint::LastDitch => Ok(Cursor {
                 token
