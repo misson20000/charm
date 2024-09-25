@@ -253,6 +253,25 @@ impl Node {
     pub fn child_at_offset(&self, offset: addr::Address) -> usize {
         self.children.partition_point(|ch| ch.offset < offset)
     }
+
+    pub fn successor(&self, path: &mut Path, index: usize) -> bool {
+        if path.len() > index {
+            if self.children[path[index]].node.successor(path, index+1) {
+                return true;
+            }
+            path.resize(index+1, 0);
+            path[index]+= 1;
+        } else {
+            assert!(path.len() == index);
+            path.push(0);
+        }
+
+        if path[index] >= self.children.len() {
+            return false;
+        }
+
+        true
+    }
 }
 
 impl Properties {

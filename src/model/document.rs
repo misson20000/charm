@@ -132,6 +132,10 @@ impl Document {
         (current_node, node_addr)
     }
 
+    pub fn path_successor(&self, path: &mut structure::Path) -> bool {
+        self.root.successor(path, 0)
+    }
+    
     pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
         search::AddressSearch::new(self, addr.into(), traversal)
     }
@@ -282,5 +286,44 @@ mod tests {
         assert_eq!(d.describe_path(&vec![1, 0]), "root.child1.child1:0");
         assert_eq!(d.describe_path(&vec![1, 1]), "root.child1.child1:1");
         assert_eq!(d.describe_path(&vec![2]), "root.child2");
+    }
+
+
+    #[test]
+    fn test_successor() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1:0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1:1")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        let d = Builder::new(root).build();
+        let mut path = vec![];
+
+        assert!(d.path_successor(&mut path));
+        assert_eq!(path, [0]);
+        assert!(d.path_successor(&mut path));
+        assert_eq!(path, [1]);
+        assert!(d.path_successor(&mut path));
+        assert_eq!(path, [1, 0]);
+        assert!(d.path_successor(&mut path));
+        assert_eq!(path, [1, 1]);
+        assert!(d.path_successor(&mut path));
+        assert_eq!(path, [2]);
+        assert!(!d.path_successor(&mut path));
     }
 }

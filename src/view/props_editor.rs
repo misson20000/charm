@@ -108,6 +108,11 @@ impl PropsEditor {
             pe.apply_props(structure::MaybeProperties::new_name(buffer.text().to_string()));
         }));
 
+        pe.name_entry.connect_activate(clone!(#[weak] pe, move |entry| catch_panic! {
+            pe.select_successor();
+            entry.grab_focus();
+        }));
+
         pe.title_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
             pe.apply_props(structure::MaybeProperties::new_title_display(match dd.selected() {
                 0 => structure::TitleDisplay::Inline,
@@ -381,5 +386,45 @@ impl PropsEditor {
 
     pub fn focus_name(&self) {
         self.name_entry.grab_focus();
+    }
+
+    fn select_successor(&self) {
+        let mut interior_guard = self.interior.borrow_mut();
+        if let Some(interior) = interior_guard.as_mut() {
+            let window = match self.window.borrow().upgrade() {
+                Some(window) => window,
+                None => return,
+            };
+            
+            match &mut interior.mode {
+                PropsEditorMode::Single { path, .. } => {
+                    let mut next_path = path.clone();
+                    let document = interior.selection.document.clone();
+                    if document.path_successor(&mut next_path) {
+                        let new_selection = match interior.selection_host.change(selection::tree::Change::SetSingle(document, next_path)) {
+                            Ok(new) => new,
+                            Err((error, attempted_version)) => {
+                                window.report_error(error::Error {
+                                    while_attempting: error::Action::SelectNext,
+                                    trouble: error::Trouble::TreeSelectionUpdateFailure {
+                                        error,
+                                        attempted_version
+                                    },
+                                    level: error::Level::Warning,
+                                    is_bug: true,
+                                });
+                                return;
+                            },
+                        };
+
+                        self.in_update.set(true);
+                        new_selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.update_selection_internal(interior, selection.clone(), Some(record)));
+                        self.in_update.set(false);
+                    }
+                },
+
+                _ => return,
+            }
+        }
     }
 }

@@ -25,6 +25,7 @@ pub enum Action {
     Nest, /* in tree view */
     EditProperties,
     DataEntry,
+    SelectNext,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -98,6 +99,7 @@ impl Error {
             Action::Nest => "Failed to nest nodes.",
             Action::EditProperties => "Failed to edit node properties.",
             Action::DataEntry => "Failed to enter data.",
+            Action::SelectNext => "Failed to select next node.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
