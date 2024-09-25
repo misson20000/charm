@@ -250,11 +250,15 @@ impl StructureRange {
             (end.offset, end.child_index)
         };
 
-        StructureRange {
+        let ret = StructureRange {
             path,
             begin,
             end,
-        }
+        };
+
+        ret.assert_integrity(document);
+
+        ret
     }
     
     fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> StructureMode {

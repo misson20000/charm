@@ -67,6 +67,10 @@ impl HexdumpBucket {
             toks: tokens.collect(),
         }
     }
+
+    fn end(&self) -> addr::Address {
+        self.toks.last().unwrap().extent.end
+    }
     
     fn gutter_pitch(&self) -> addr::Size {
         addr::Size::from(8)
@@ -355,8 +359,8 @@ impl bucket::PickableBucket for HexdumpBucket {
             }).1
         } else if pick_x < self.ascii_begin {
             Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
-                index: self.node.child_at_offset(self.line_extent.end),
-                offset: self.line_extent.end,
+                index: self.node.child_at_offset(self.end()),
+                offset: self.end(),
                 low_nybble: false,
             }))
         } else if pick_x < self.ascii_end {
@@ -364,8 +368,8 @@ impl bucket::PickableBucket for HexdumpBucket {
             None
         } else {
             Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
-                index: self.node.child_at_offset(self.line_extent.end),
-                offset: self.line_extent.end,
+                index: self.node.child_at_offset(self.end()),
+                offset: self.end(),
                 low_nybble: false,
             }))
         }
