@@ -487,6 +487,16 @@ impl std::fmt::Display for Size {
     }
 }
 
+pub struct ShortSize(pub Size);
+impl std::fmt::Display for ShortSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0.bits {
+            0 => write!(f, "+{:x}", self.0.bytes),
+            _ => write!(f, "+{:x}.{}", self.0.bytes, self.0.bits)
+        }
+    }
+}
+
 impl std::fmt::Debug for Size {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.bits {

@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::future;
 use std::pin;
 use std::rc;
@@ -273,7 +274,10 @@ impl WidgetImpl for ListingWidgetImp {
                 &render.pango,
                 &render.font_mono,
                 render.config.text_color.rgba(),
-                &format!("{}", interior.cursor.cursor.addr()),
+                match &interior.mode_line_text() {
+                    Ok(t) => &t,
+                    Err(_) => "(failed to format mode line text)",
+                },
                 &mut graphene::Point::new(render.addr_pane_width + render.config.padding as f32, widget.height() as f32 - ml_pad - helpers::pango_unscale(render.metrics.descent()))
             ).render(&snapshot);
 
@@ -1117,6 +1121,28 @@ impl Interior {
         let (lineno, y) = self.pick_line(y)?;
         let line = self.window.line_views.get(lineno)?;
         line.pick(x, y)
+    }
+
+    fn mode_line_text(&self) -> Result<String, std::fmt::Error> {
+        let mut s = format!("{}", self.cursor.cursor.addr());
+
+        match &self.selection.mode {
+            selection::listing::Mode::Address(extent) if !extent.is_empty() => {
+                write!(s, " ({}:{})", extent.begin, addr::ShortSize(extent.length()))?;
+            },
+            selection::listing::Mode::Address(_) => {},
+            selection::listing::Mode::Structure(selection::listing::StructureMode::Empty) => {},
+            selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
+                let (_, addr) = self.selection.document.lookup_node(&range.path);
+                let extent = range.extent().rebase(addr);
+                write!(s, " ({}:{})", extent.begin, addr::ShortSize(extent.length()))?;
+            },
+            selection::listing::Mode::Structure(selection::listing::StructureMode::All) => {
+                write!(s, " (all)")?;
+            },
+        };
+
+        Ok(s)
     }
 }
 
