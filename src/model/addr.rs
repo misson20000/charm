@@ -242,6 +242,9 @@ impl Size {
 
 impl Extent {
     pub fn between<T: Into<Address>>(begin: T, end: T) -> Extent {
+        let begin = begin.into();
+        let end = end.into();
+        assert!(begin <= end, "begin: {}, end: {}", begin, end);
         Extent { begin: begin.into(), end: end.into() }
     }
 

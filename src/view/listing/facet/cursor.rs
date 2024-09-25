@@ -178,7 +178,7 @@ impl CursorView {
         Ok(())
     }
     
-    pub fn position_for_rubber_band(&self) -> (structure::Path, usize, addr::Address) {
+    pub fn endpoint_for_rubber_band(&self) -> (structure::Path, usize, addr::Address) {
         let path = self.cursor.structure_path();
         let child = self.cursor.structure_child_index();
         let mut offset = self.cursor.structure_offset();

@@ -34,18 +34,33 @@ impl Triplet {
     }
 }
 
-fn adjust_tuple_for_structure_selection<'a>(document: &'_ document::Document, tuple: &'a (structure::Path, Part)) -> Result<(structure::PathSlice<'a>, usize, addr::Address), selection::listing::StructureMode> {
+fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (structure::Path, Part), is_end: bool) -> Result<selection::listing::StructureEndpoint<'a>, selection::listing::StructureMode> {
     Ok(match tuple {
         (path, Part::Title) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
         
         (path, Part::Title) => {
             let adj_path = &path[0..path.len()-1];
-            let adj_child = *path.last().unwrap();
-            let adj_offset = document.lookup_node(adj_path).0.children[adj_child].offset;
-            (adj_path, adj_child, adj_offset)
+            let mut adj_child = *path.last().unwrap();
+            let child = &document.lookup_node(adj_path).0.children[adj_child];
+            let mut adj_offset = child.offset;
+
+            if is_end {
+                adj_child+= 1;
+                adj_offset = child.end();
+            }
+            
+            selection::listing::StructureEndpoint {
+                parent: adj_path,
+                child_index: adj_child,
+                offset: adj_offset
+            }
         }
         
-        (path, Part::Hexdump { index, offset, .. }) => (&path[..], *index, *offset),
+        (path, Part::Hexdump { index, offset, .. }) => selection::listing::StructureEndpoint {
+            parent: &path[..],
+            child_index: *index,
+            offset: *offset
+        },
     })
 }    
 
@@ -53,12 +68,12 @@ pub fn to_structure_selection(document: &document::Document, a: &Triplet, b: &Tr
     let begin = std::cmp::min(PickSort(&a.begin), PickSort(&b.begin)).0;
     let end = std::cmp::max(PickSort(&a.end), PickSort(&b.end)).0;
 
-    let begin = match adjust_tuple_for_structure_selection(document, &begin) {
+    let begin = match path_part_to_endpoint(document, &begin, false) {
         Ok(x) => x,
         Err(sm) => return sm,
     };
     
-    let end = match adjust_tuple_for_structure_selection(document, &end) {
+    let end = match path_part_to_endpoint(document, &end, true) {
         Ok(x) => x,
         Err(sm) => return sm,
     };

@@ -428,8 +428,8 @@ pub mod builder {
             sync::Arc::new(self.node.clone())
         }
 
-        pub fn build_child(&self, offset: addr::Address) -> Childhood {
-            Childhood::new(sync::Arc::new(self.node.clone()), offset)
+        pub fn build_child<T: Into<addr::Address>>(&self, offset: T) -> Childhood {
+            Childhood::new(sync::Arc::new(self.node.clone()), offset.into())
         }
     }
 }

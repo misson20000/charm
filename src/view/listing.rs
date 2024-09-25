@@ -865,7 +865,7 @@ impl Interior {
     where F: FnOnce(&mut facet::cursor::CursorView) -> bool {
         if shift {
             match self.rubber_band_begin {
-                RubberBandState::Inactive => self.rubber_band_begin = RubberBandState::Keyboard(self.cursor.position_for_rubber_band()),
+                RubberBandState::Inactive => self.rubber_band_begin = RubberBandState::Keyboard(self.cursor.endpoint_for_rubber_band()),
                 _ => {},
             }
         } else {
@@ -875,12 +875,14 @@ impl Interior {
         if cb(&mut self.cursor) {
             self.scroll.ensure_cursor_is_in_view(&mut self.window, &self.cursor, dir);
 
-            if let RubberBandState::Keyboard(a) = &self.rubber_band_begin {
-                let a = (&a.0[..], a.1, a.2);
-                let b = self.cursor.position_for_rubber_band();
-                let b = (&b.0[..], b.1, b.2);
-                
-                let sel = selection::listing::StructureMode::Range(selection::listing::StructureRange::between(&*self.cursor.cursor.document(), std::cmp::min(a, b), std::cmp::max(a, b)));
+            if let RubberBandState::Keyboard(rbb) = &self.rubber_band_begin {
+                let pos = self.cursor.endpoint_for_rubber_band();
+
+                let sel = selection::listing::StructureMode::Range(
+                    selection::listing::StructureRange::between(
+                        &*self.cursor.cursor.document(),
+                        selection::listing::StructureEndpoint::borrow(rbb),
+                        selection::listing::StructureEndpoint::borrow(&pos)));
                 
                 match self.selection_host.change(selection::listing::Change::AssignStructure(sel)) {
                     Ok(new_selection) => {

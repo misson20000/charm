@@ -991,7 +991,7 @@ mod tests {
                                                  .size(addr::unit::MAX)
                                                  .build()).build();
             assert_matches!(Change {
-                ty: ChangeType::InsertNode { parent: vec![], index: 0, child: builder.build_child(0xfffffffffffffff8.into()) },
+                ty: ChangeType::InsertNode { parent: vec![], index: 0, child: builder.build_child(0xfffffffffffffff8) },
                 generation: doc.generation(),
             }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at a place where its end would overflow"), .. }));
         }

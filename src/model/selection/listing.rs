@@ -28,7 +28,14 @@ pub enum StructureMode {
     All
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructureEndpoint<'a> {
+    pub parent: structure::PathSlice<'a>,
+    pub child_index: usize,
+    pub offset: addr::Address
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Mode {
     Structure(StructureMode),
     Address(addr::Extent),
@@ -125,6 +132,13 @@ impl Selection {
             _ => false
         }
     }
+
+    pub fn assert_integrity(&self) {
+        match &self.mode {
+            Mode::Structure(sm) => sm.assert_integrity(&*self.document),
+            _ => {},
+        }
+    }
 }
 
 impl versioned::Versioned for Selection {
@@ -186,6 +200,8 @@ impl versioned::Change<Selection> for Change {
             _ => todo!(),
         };
 
+        selection.assert_integrity();
+
         Ok((self, record))
     }
 }
@@ -210,26 +226,28 @@ impl StructureRange {
         addr::Extent::between(self.begin.0, self.end.0)
     }
 
-    pub fn between(document: &document::Document, begin: (structure::PathSlice, usize, addr::Address), end: (structure::PathSlice, usize, addr::Address)) -> Self {
-        let (begin_path, begin_child, begin_offset) = begin;
-        let (end_path, end_child, end_offset) = end;
+    pub fn between(document: &document::Document, a: StructureEndpoint, b: StructureEndpoint) -> Self {
+        /* choose which is the beginning and which is the end */
+        // TODO: replace with minmax when stabilized (https://github.com/rust-lang/rust/issues/115939)
+        let begin = std::cmp::min(a.clone(), b.clone());
+        let end = std::cmp::max(a, b);
 
         /* This is the common prefix of the path between the two pick results. */
-        let path: Vec<usize> = std::iter::zip(begin_path.iter(), end_path.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
+        let path: Vec<usize> = std::iter::zip(begin.parent.iter(), end.parent.iter()).map_while(|(a, b)| if a == b { Some(*a) } else { None }).collect();
         let (node, _node_addr) = document.lookup_node(&path);
 
-        let begin = if path.len() < begin_path.len() {
+        let begin = if path.len() < begin.parent.len() {
             /* Beginning was deeper in the hierarchy than the common prefix. Round down to the start of the child of the common prefix. */
-            (node.children[begin_path[path.len()]].offset, begin_path[path.len()])
+            (node.children[begin.parent[path.len()]].offset, begin.parent[path.len()])
         } else {
-            (begin_offset, begin_child)
+            (begin.offset, begin.child_index)
         };
 
-        let end = if path.len() < end_path.len() {
+        let end = if path.len() < end.parent.len() {
             /* End was deeper in the hierarchy than the common prefix. Bump out to the end of the child of the common prefix. */
-            (node.children[end_path[path.len()]].end(), end_path[path.len()]+1)
+            (node.children[end.parent[path.len()]].end(), end.parent[path.len()]+1)
         } else {
-            (end_offset, end_child)
+            (end.offset, end.child_index)
         };
 
         StructureRange {
@@ -250,7 +268,7 @@ impl StructureRange {
                         self.begin.1+= 1;
                     }
                     
-                    if self.end.1 >= *insertion_index {
+                    if self.end.1 >= *insertion_index && self.end.0 >= childhood.offset {
                         self.end.1+= 1;
                     }
                     
@@ -351,56 +369,38 @@ impl StructureRange {
             doc_change::UpdatePathResult::Deleted => StructureMode::Empty,
         };
 
-        if !ret.check_integrity(new_doc) {
-            println!("selection integrity check failed: {:?}", ret);
-            return StructureMode::Empty;
-        }
+        ret.assert_integrity(new_doc);
 
         ret
     }
 
-    fn check_integrity(&self, document: &document::Document) -> bool {
+    fn assert_integrity(&self, document: &document::Document) {
         let node = document.lookup_node(&self.path).0;
 
-        if self.begin.1 > node.children.len() {
-            println!("begin index too large");
-            return false;
-        }
-
-        if self.end.1 > node.children.len() {
-            println!("end index too large");
-            return false;
-        }
+        assert!(self.begin.1 <= self.end.1, "{:?} begin index {} was greater than end index {}", self, self.begin.1, self.end.1);
+        assert!(self.begin.0 <= self.end.0, "{:?} begin offset {} was greater than end offset {}", self, self.begin.0, self.end.0);
+        
+        assert!(self.begin.1 <= node.children.len(), "{:?} begin index {} was too large (node has {} children)", self, self.begin.1, node.children.len());
+        assert!(self.end.1 <= node.children.len(), "{:?} end index {} was too large (node has {} children)", self, self.end.1, node.children.len());
 
         if self.begin.1 != node.children.len() {
-            if self.begin.0 > node.children[self.begin.1].offset {
-                println!("begins after first indexed child");
-                return false;
-            }
+            assert!(self.begin.0 <= node.children[self.begin.1].offset, "{:?} begins after first indexed child (begins at {}, child at {})", self, self.begin.0, node.children[self.begin.1].offset);
         }
         
-        if self.end.1 != node.children.len() {
-            if self.end.0 < node.children[self.end.1].end() {
-                println!("ends before last indexed child");
-                return false;
-            }
+        if self.end.1 > 0 {
+            assert!(self.end.0 >= node.children[self.end.1-1].end(), "{:?} ends before last indexed child (ends at {}, child ends at {})", self, self.end.0, node.children[self.end.1-1].end());
         }
 
-        if self.end.0 > node.size.to_addr() {
-            println!("ends after end of node");
-            return false;
-        }
-
-        true
+        assert!(self.end.0 <= node.size.to_addr(), "{:?} ends after end of node (ends at {}, node size is {})", self, self.end.0, node.size);
     }
 }
 
 impl StructureMode {
-    fn check_integrity(&self, document: &document::Document) -> bool{
+    fn assert_integrity(&self, document: &document::Document) {
         match self {
-            StructureMode::Empty => true,
-            StructureMode::Range(sr) => sr.check_integrity(document),
-            StructureMode::All => true,
+            StructureMode::Empty => {},
+            StructureMode::Range(sr) => sr.assert_integrity(document),
+            StructureMode::All => {},
         }
     }
 }
@@ -453,5 +453,100 @@ impl NodeIntersection {
             Self::Total => true,
             _ => false,
         }
+    }
+}
+
+impl<'a> StructureEndpoint<'a> {
+    pub fn borrow(tuple: &'a (structure::Path, usize, addr::Address)) -> Self {
+        StructureEndpoint {
+            parent: &tuple.0,
+            child_index: tuple.1,
+            offset: tuple.2,
+        }
+    }
+}
+
+impl<'a> Ord for StructureEndpoint<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let mut prefix_length = 0;
+        for (a, b) in std::iter::zip(self.parent, other.parent) {
+            match a.cmp(&b) {
+                std::cmp::Ordering::Equal => prefix_length+= 1,
+                x => return x
+            }
+        }
+
+        /* We share a common prefix. */
+        
+        if self.parent.len() == prefix_length && other.parent.len() > prefix_length {
+            if self.child_index <= other.parent[prefix_length] {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        } else if self.parent.len() > prefix_length && other.parent.len() == prefix_length {
+            if self.parent[prefix_length] >= other.child_index {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        } else if self.parent.len() > prefix_length && other.parent.len() > prefix_length {
+            self.parent[prefix_length].cmp(&other.parent[prefix_length])
+        } else if self.parent.len() == prefix_length && other.parent.len() == prefix_length {
+            if self.child_index == other.child_index {
+                self.offset.cmp(&other.offset)
+            } else {
+                self.child_index.cmp(&other.child_index)
+            }
+        } else {
+            panic!("should be unreachable");
+        }
+    }
+}
+
+impl<'a> PartialOrd for StructureEndpoint<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::versioned::Change;
+    
+    #[test]
+    fn test_structure_update_insert_node_after() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .build();
+
+        let mut document = document::Builder::new(root).build();
+
+        let mut sel = Selection {
+            document: sync::Arc::new(document.clone()),
+            mode: Mode::Structure(StructureMode::Range(StructureRange {
+                path: vec![],
+                begin: (0x11.into(), 0),
+                end: (0x13.into(), 0),
+            })),
+            version: Default::default(),
+        };
+
+        let (change, _record) = document.insert_node(
+            vec![], 0, structure::Node::builder()
+                .name("child")
+                .size(0x10)
+                .build_child(0x20))
+            .apply(&mut document).unwrap();
+
+        sel.port_doc_change(&sync::Arc::new(document), &change);
+
+        assert_eq!(sel.mode, Mode::Structure(StructureMode::Range(StructureRange {
+            path: vec![],
+            begin: (0x11.into(), 0),
+            end: (0x13.into(), 0),
+        })));
     }
 }
