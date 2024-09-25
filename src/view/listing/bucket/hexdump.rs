@@ -190,7 +190,7 @@ impl bucket::Bucket for HexdumpBucket {
                     let pending = !byte_record.has_any_value();
                     let selected = selection.includes(offset);
 
-                    if byte_record.overwritten || byte_record.inserted {
+                    if byte_record.has_direct_edit() {
                         text_color = ctx.render.config.edit_color.rgba();
                     }
                     

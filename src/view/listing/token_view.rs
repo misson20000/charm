@@ -169,10 +169,16 @@ impl TokenView {
                     
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
+
+                    let mut text_color = render.config.text_color.rgba();
+
+                    if byte_record.has_direct_edit() {
+                        text_color = render.config.edit_color.rgba();
+                    }
                     
                     render.gsc_mono.begin_iter([
                         digit_hi, digit_lo
-                    ].into_iter(), render.config.text_color.rgba(), &mut pos)
+                    ].into_iter(), text_color, &mut pos)
                         .selected(selected, render.config.selection_color.rgba())
                         .placeholder(pending, render.config.placeholder_color.rgba())
                     // TODO: cursor for hexstring
