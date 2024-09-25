@@ -26,7 +26,7 @@ pub struct Cache {
     font: pango::Font,
     
     gs_space: pango::GlyphString, // " "
-    gs_comma: pango::GlyphString, // ", "
+    gs_comma: pango::GlyphString, // ","
     gs_open: pango::GlyphString, // "{"
     gs_close: pango::GlyphString, // "}"
     gs_digit: [pango::GlyphString; 16], // "0", "1", ..., "f"
@@ -70,7 +70,7 @@ impl Cache {
             font: font.clone(),
             
             gs_space,
-            gs_comma: Self::shape(pg, token::PunctuationKind::Comma.as_str()),
+            gs_comma: Self::shape(pg, ","),
             gs_open: Self::shape(pg, token::PunctuationKind::OpenBracket.as_str()),
             gs_close: Self::shape(pg, token::PunctuationKind::CloseBracket.as_str()),
             gs_digit: DIGIT_STRINGS.map(|d| Self::shape(pg, d)),
@@ -192,6 +192,7 @@ impl<'a, I: Iterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
         if enable {
             self.config.placeholder = Some(placeholder_color);
         }
+        
         self
     }
     

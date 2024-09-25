@@ -124,6 +124,15 @@ impl TokenView {
                     .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
                     .selected(selected, render.config.selection_color.rgba())
                     .render(snapshot);
+
+                /* need to render space separately so it doesn't draw cursor because that looks bad */
+                match token.kind {
+                    token::PunctuationKind::Comma => render.gsc_mono.begin(gsc::Entry::Space, render.config.text_color.rgba(), &mut pos)
+                        .selected(selected, render.config.selection_color.rgba())
+                        .render(snapshot),
+                    
+                    _ => {}
+                }
             },
             token::Token::Title(token) => {
                 gsc::begin_text(
