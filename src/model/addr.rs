@@ -114,7 +114,7 @@ impl Address {
         }
     }
     
-    /// Parses a string of the form "[0x]1234[.5]" into an address. Addresses
+    /// Parses a string of the form "\[0x\]1234\[.5\]" into an address. Addresses
     /// are always assumed to be in hexadecimal, regardless of whether the "0x"
     /// prefix is included or not. A bit offset can optionally be specified. If
     /// unspecified, it is assumed to be zero.
@@ -213,7 +213,7 @@ impl Size {
     }
 
 
-    /// Parses a string of the form "[0x]1234[.5]" into a size. Unlike
+    /// Parses a string of the form "\[0x\]1234\[.5\]" into a size. Unlike
     /// addresses, sizes are NOT always assumed to be in hexadecimal and will
     /// parse as decimal if the "0x" prefix is not included. A bit offset can
     /// optionally be specified. If unspecified, it is assumed to be zero.
@@ -311,7 +311,7 @@ impl Extent {
         Extent { begin: base - self.begin.to_size(), end: base - self.end.to_size() }
     }
 
-    /// Parses an extent of the form "<begin>:(<end>|+<size>)", such as
+    /// Parses an extent of the form "\<begin\>:(\<end\>|+\<size\>)", such as
     /// "0x100:+0x10" or "0x100:110". If the plus sign is included, the part
     /// after the colon is interpreted as a size instead of an end
     /// address. Remember that addresses always parse as hex, but sizes only
