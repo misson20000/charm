@@ -1,9 +1,9 @@
+use std::future::Future;
 use std::fmt;
+use std::fmt::Write;
 use std::sync;
 use std::task;
 use std::vec;
-
-use std::fmt::Write;
 
 use seq_macro::seq;
 
@@ -119,6 +119,22 @@ seq!(N in 1..=6 {
         });
     )*
 });
+
+pub struct PreemptableFuture<A: Future, B: Future>(pub A, pub B);
+
+impl<A: Future, B: Future> Future for PreemptableFuture<A, B> {
+    type Output = Result<(A::Output, B), (A, B::Output)>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match unsafe { self.map_unchecked_mut(|s| &mut s.0) }.poll(cx) {
+            std::task::Poll::Ready(x) => std::task::Poll::Ready(Ok((x, self.1))),
+            std::task::Poll::Pending => match unsafe { self.map_unchecked_mut(|s| &mut s.1) }.poll(cx) {
+                std::task::Poll::Ready(x) => std::task::Poll::Ready(Err((self.0, x))),
+                std::task::Poll::Pending => std::task::Poll::Pending
+            }
+        }
+    }
+}
 
 /* We use a different version of this macro for tests. */
 #[cfg(not(test))]

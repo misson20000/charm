@@ -16,4 +16,4 @@ pub mod model;
 #[cfg(feature = "gtk")]
 pub mod view;
 
-pub mod serialization;
+//pub mod serialization;

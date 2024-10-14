@@ -1,51 +1,64 @@
 use std::iter;
 use std::string;
 use std::sync;
-use std::task;
 use std::vec;
 
 use crate::model::space;
 use crate::model::space::AddressSpaceExt;
 use crate::util;
 
-extern crate imbl;
-extern crate lru;
-extern crate take_mut;
+use bitflags::bitflags;
 
-#[derive(Default, Debug, Clone, Copy)]
-pub struct ByteRecord {
-    pub value: u8,
-    
-    pub pending: bool, /* Somewhere along the line, data wasn't yet, so try again later and if you're lucky it will be in the cache next time. */
-    pub loaded: bool, /* Touched by a LoadSpaceEdit */
-    pub overwritten: bool, /* Touched by an OverwriteEdit */
-    pub inserted: bool, /* Touched by an InsertEdit */
-    pub moved: bool, /* Touched by a MoveEdit or trailing end of an InsertEdit */
-    pub error: bool, /* Some kind of error was encountered on the datapath. Probably an I/O error. */
-}
+#[derive(Default, Copy, Clone)]
+pub struct FetchFlags(u8);
 
-impl ByteRecord {
-    pub fn get_loaded(&self) -> Option<u8> {
-        if self.loaded {
-            Some(self.value)
-        } else {
-            None
-        }
-    }
+bitflags! {
+    impl FetchFlags: u8 {
+        /* Somewhere along the line, data wasn't yet, so try again later and if you're lucky it will be in the cache next time. */
+        const PENDING = 1;
 
-    pub fn has_any_value(&self) -> bool {
-        (self.loaded && !self.pending) || self.overwritten || self.inserted
-    }
+        /* Touched by a LoadSpaceEdit */
+        const LOADED = 2;
 
-    pub fn has_direct_edit(&self) -> bool {
-        self.overwritten || self.inserted
+        /* Touched by an OverwriteEdit */
+        const OVERWRITTEN = 4;
+
+        /* Touched by an InsertEdit */
+        const INSERTED = 8;
+
+        /* Touched by a MoveEdit or the trailing end of an InsertEdit */
+        const MOVED = 16;
+
+        /* Some kind of error was encountered, probably an I/O error. */
+        const ERROR = 32;
     }
 }
 
 #[derive(Default)]
-pub struct ByteRecordRange<'a> {
+pub struct FetchRequest<'a> {
     addr: u64,
-    out: &'a mut [ByteRecord]
+    data: &'a mut [u8],
+    flags: Option<&'a mut [FetchFlags]>,
+}
+
+pub struct FetchResult {
+    /// The bitwise-OR accumulation of all the flags from the request
+    flags: FetchFlags,
+    /// How many bytes were processed. Advance your request by this much and try again if you didn't get everything.
+    loaded: u64,
+}
+
+enum RequestSlice<'a> {
+    NonOverlapping(FetchRequest<'a>),
+    OverlapsStart {
+        non_overlap: FetchRequest<'a>,
+        overlap: FetchRequest<'a>,
+    },
+    Enclosed(FetchRequest<'a>),
+    OverlapsEnd {
+        non_overlap: FetchRequest<'a>,
+        overlap: FetchRequest<'a>,
+    },    
 }
 
 #[derive(Clone, Debug)]
@@ -70,34 +83,26 @@ impl Filter {
         }
     }
     
-    fn fetch_next<'a, 'b, 'c>(mut iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
+    async fn load_next<'a>(mut iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
         if let Some(filter) = iter.next() {
-            filter.fetch(iter, range, cx)
+            filter.load(iter, rq).await
+        } else {
+            FetchResult {
+                flags: FetchFlags::default(),
+                loaded: rq.len(),
+            }
         }
     }
 
-    /* Before you enter a fetch chain, you should clear the result array. */
-    fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
+    async fn load<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
         match self {
-            Filter::LoadSpace(f) => f.fetch(iter, range, cx),
-            Filter::Overwrite(f) => f.fetch(iter, range, cx),
-            Filter::Move(f) => f.fetch(iter, range, cx),
-            Filter::Insert(f) => f.fetch(iter, range, cx),
-        }
+            Filter::LoadSpace(f) => f.load(iter, rq),
+            Filter::Overwrite(_f) => todo!(),//f.load(iter, rq),
+            Filter::Move(_f) => todo!(),//f.load(iter, rq),
+            Filter::Insert(_f) => todo!(),//f.load(iter, rq),
+        }.await
     }
-
-    pub fn fetch_chain<'a>(iter: impl iter::Iterator<Item = &'a Filter> + Clone, mut range: ByteRecordRange, cx: &mut task::Context) {
-        range.out.fill(ByteRecord::default());
-        Filter::fetch_next(iter, &mut range, cx)
-    }
-
-    fn poll(&self, cx: &mut task::Context) -> bool {
-        match self {
-            Filter::LoadSpace(f) => f.poll(cx),
-            _ => false
-        }
-    }
-
+    
     pub fn human_details(&self) -> string::String {
         match self {
             Filter::LoadSpace(f) => f.human_details(),
@@ -127,103 +132,189 @@ impl Filter {
 }
 
 pub trait DataPathExt {
-    fn poll(&self, cx: &mut task::Context) -> bool;
-    fn fetch(&self, range: ByteRecordRange, cx: &mut task::Context);
+    async fn fetch(&self, rq: FetchRequest<'_>) -> FetchResult;
 }
 
 impl DataPathExt for DataPath {
-    fn poll(&self, cx: &mut task::Context) -> bool {
-        let mut work_needed = false;
-        for filter in self.iter() {
-            work_needed = filter.poll(cx) || work_needed;
+    async fn fetch(&self, mut rq: FetchRequest<'_>) -> FetchResult {
+        let sc = self.clone();
+        std::mem::drop(self);
+        
+        rq.data.fill(0);
+        if let Some(flags) = &mut rq.flags {
+            flags.fill(FetchFlags::default());
         }
-        work_needed
-    }
-    
-    fn fetch(&self, range: ByteRecordRange, cx: &mut task::Context) {
-        Filter::fetch_chain(self.iter().rev(), range, cx)
+
+        Filter::load_next(sc.iter().rev(), rq).await
     }
 }
 
-impl<'a> ByteRecordRange<'a> {
-    pub fn new(addr: u64, records: &'a mut [ByteRecord]) -> ByteRecordRange {
-        ByteRecordRange {
-            addr,
-            out: records,
+impl<'a> FetchRequest<'a> {
+    pub fn new(addr: u64, data: &'a mut [u8], flags: Option<&'a mut [FetchFlags]>) -> Self {
+        if let Some(flags) = flags {
+            assert_eq!(flags.len(), data.len());
         }
+        
+        Self {
+            addr,
+            data,
+            flags,
+        }
+    }
+
+    fn end(&self) -> u64 {
+        self.addr + self.data.len() as u64
+    }
+    
+    fn len(&self) -> u64 {
+        self.data.len() as u64
     }
     
     fn is_empty(&self) -> bool {
-        self.out.is_empty()
+        self.data.is_empty()
     }
 
-    fn split2(&mut self, addr: u64) -> (ByteRecordRange<'_>, ByteRecordRange<'_>) {
+    fn split2(&mut self, addr: u64) -> (FetchRequest<'_>, FetchRequest<'_>) {
         if self.addr >= addr {
             /* if we are entirely after the split point */
-            (ByteRecordRange::default(), ByteRecordRange {
+            (FetchRequest::default(), FetchRequest {
                 addr: self.addr,
-                out: self.out,
+                data: self.data,
+                flags: self.flags,
             })
-        } else if self.addr < addr && self.addr + self.out.len() as u64 > addr {
+        } else if self.addr < addr && self.addr + self.len() > addr {
             /* if we overlap the split point */
-            let (a, b) = self.out.split_at_mut((addr - self.addr) as usize);
+            let (ad, bd) = self.data.split_at_mut((addr - self.addr) as usize);
+            let (af, bf) = match self.flags.map(|f| f.split_at_mut((addr - self.addr) as usize)) {
+                Some((af, bf)) => (Some(af), Some(bf)),
+                None => (None, None),
+            };
             
-            (ByteRecordRange {
+            (Self {
                 addr: self.addr,
-                out: a,
-            }, ByteRecordRange {
+                data: ad,
+                flags: af,
+            }, Self {
                 addr,
-                out: b
+                data: bd,
+                flags: bf,
             })
-        } else if self.addr < addr && self.addr + self.out.len() as u64 <= addr {
+        } else if self.addr < addr && self.addr + self.len() <= addr {
             /* if we are entirely before the split point */
-            (ByteRecordRange {
+            (Self {
                 addr: self.addr,
-                out: self.out,
-            }, ByteRecordRange::default())
+                data: self.data,
+                flags: self.flags,
+            }, Self::default())
         } else {
             panic!("unreachable")
         }
     }
 
-    fn split2_owning(self, addr: u64) -> (ByteRecordRange<'a>, ByteRecordRange<'a>) {
+    fn split2_owning(self, addr: u64) -> (Self, Self) {
         if self.addr >= addr {
             /* if we are entirely after the split point */
-            (ByteRecordRange::default(), ByteRecordRange {
+            (Self::default(), Self {
                 addr: self.addr,
-                out: self.out,
+                data: self.data,
+                flags: self.flags,
             })
-        } else if self.addr < addr && self.addr + self.out.len() as u64 > addr {
+        } else if self.addr < addr && self.addr + self.len() > addr {
             /* if we overlap the split point */
-            let (a, b) = self.out.split_at_mut((addr - self.addr) as usize);
+            let (ad, bd) = self.data.split_at_mut((addr - self.addr) as usize);
+            let (af, bf) = match self.flags.map(|f| f.split_at_mut((addr - self.addr) as usize)) {
+                Some((af, bf)) => (Some(af), Some(bf)),
+                None => (None, None),
+            };
             
-            (ByteRecordRange {
+            (Self {
                 addr: self.addr,
-                out: a,
-            }, ByteRecordRange {
+                data: ad,
+                flags: af,
+            }, Self {
                 addr,
-                out: b
+                data: bd,
+                flags: bf,
             })
-        } else if self.addr < addr && self.addr + self.out.len() as u64 <= addr {
+        } else if self.addr < addr && self.addr + self.len() <= addr {
             /* if we are entirely before the split point */
-            (ByteRecordRange {
+            (Self {
                 addr: self.addr,
-                out: self.out,
-            }, ByteRecordRange::default())
+                data: self.data,
+                flags: self.flags,
+            }, Self::default())
         } else {
             panic!("unreachable")
         }
     }
     
-    fn split3(&mut self, (addr, size): (u64, Option<u64>)) -> (ByteRecordRange<'_>, ByteRecordRange<'_>, ByteRecordRange<'_>) {
-        let (before, b) = self.split2(addr);
+    fn split3(self, addr: u64, size: Option<u64>) -> (FetchRequest<'a>, FetchRequest<'a>, FetchRequest<'a>) {
+        let (before, b) = self.split2_owning(addr);
         let (overlap, after) = match size {
             Some(size) => b.split2_owning(addr + size),
-            None => (b, ByteRecordRange::default())
+            None => (b, Self::default())
         };
 
         (before, overlap, after)
     }
+
+    /*
+    fn slice(self, addr: u64, size: u64) -> RequestSlice {
+        if self.addr < addr {
+            if self.end() <= addr {
+                RequestSlice::NonOverlapping(self)
+            } else {
+                let (ad, bd) = self.data.split_at_mut((addr - self.addr) as usize);
+                let (af, bf) = match self.flags {
+                    Some(flags) => flags.split_at_mut((addr - self.addr) as usize),
+                    None => Default::default()
+                };
+                
+                RequestSlice::OverlapsStart {
+                    non_overlap: FetchRequest {
+                        addr: addr,
+                        data: ad,
+                        flags: af,
+                        flags_accumulated: self.flags_accumulated,
+                    },
+                    overlap: FetchRequest {
+                        addr: addr,
+                        data: bd,
+                        flags: bf,
+                        flags_accumulated: self.flags_accumulated,
+                    }
+                }
+            }
+        } else {
+            if self.addr >= addr + size {
+                RequestSlice::NonOverlapping(self)
+            } else if self.end() <= addr + size {
+                RequestSlice::Enclosed(self)
+            } else {
+                let (ad, bd) = self.data.split_at_mut((addr + end - self.addr) as usize);
+                let (af, bf) = match self.flags {
+                    Some(flags) => flags.split_at_mut((addr + end - self.addr) as usize),
+                    None => Default::default()
+                };
+                
+                RequestSlice::OverlapsEnd {
+                    overlap: FetchRequest {
+                        addr: addr,
+                        data: ad,
+                        flags: af,
+                        flags_accumulated: self.flags_accumulated,
+                    },
+                    non_overlap: FetchRequest {
+                        addr: addr,
+                        data: bd,
+                        flags: bf,
+                        flags_accumulated: self.flags_accumulated,
+                    }
+                }
+            }
+        }
+}
+    */
 }
 
 #[derive(Clone, Debug)]
@@ -284,8 +375,9 @@ impl LoadSpaceFilter {
     fn convert_to_addr(&self, space: u64) -> u64 {
         space - self.space_offset + self.load_offset
     }
-    
-    fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
+
+    /*
+    fn fetch<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'_ mut ByteRecordRange<'_>, cx: &mut task::Context) {
         let (mut before, overlap, mut after) = range.split3((self.load_offset, self.size));
 
         if !before.is_empty() {
@@ -325,8 +417,22 @@ impl LoadSpaceFilter {
                 current_block = Some((required_block_addr, block));
             }
         }
-    }
+}
+    */
 
+    async fn load<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
+        let (before, overlap, after) = rq.split3(self.load_offset, self.size);
+        if !before.is_empty() {
+            return Filter::load_next(iter, before).await;
+        }
+
+        if !overlap.is_empty() {
+            
+        }
+
+        return Filter::load_next(iter, after).await;
+    }
+    
     fn human_details(&self) -> string::String {
         self.cache.space.get_label().to_string()
     }
@@ -339,10 +445,6 @@ impl LoadSpaceFilter {
         self.size
     }
     
-    fn poll(&self, cx: &mut task::Context) -> bool {
-        self.cache.poll_blocks(cx)
-    }
-
     pub fn to_filter(self) -> Filter {
         Filter::LoadSpace(self)
     }
@@ -361,6 +463,7 @@ impl LoadSpaceFilter {
 }
 
 impl OverwriteFilter {
+    /*
     fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
         /* so we set load flags properly */
         Filter::fetch_next(iter, range, cx);
@@ -374,7 +477,8 @@ impl OverwriteFilter {
                 br.value = self.bytes[(addr + i as u64 - self.offset) as usize];
             }
         }
-    }
+}
+    */
     
     fn stack(a: &OverwriteFilter, b: &OverwriteFilter) -> Option<OverwriteFilter> {
         if b.offset == a.offset + a.bytes.len() as u64 {
@@ -435,9 +539,11 @@ impl OverwriteFilter {
 }
 
 impl MoveFilter {
+    /*
     fn fetch<'a, 'b, 'c>(&self, _iter: impl iter::Iterator<Item = &'a Filter>, _range: &'c mut ByteRecordRange<'b>, _cx: &mut task::Context) {
         todo!("implement MoveFilter::fetch");
-    }
+}
+    */
     
     fn stack(a: &MoveFilter, b: &MoveFilter) -> Option<MoveFilter> {
         if a.to == b.from && a.size == b.size {
@@ -467,6 +573,7 @@ impl MoveFilter {
 }
 
 impl InsertFilter {
+    /*
     fn fetch<'a, 'b, 'c>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, range: &'c mut ByteRecordRange<'b>, cx: &mut task::Context) {
         let (mut before, mut overlap, mut after) = range.split3((self.offset, Some(self.bytes.len() as u64)));
 
@@ -497,7 +604,8 @@ impl InsertFilter {
                 }
             }            
         }
-    }
+}
+    */
 
     fn stack(a: &InsertFilter, b: &InsertFilter) -> Option<InsertFilter> {
         if b.offset == a.offset + a.bytes.len() as u64 {

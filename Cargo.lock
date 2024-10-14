@@ -154,6 +154,7 @@ dependencies = [
  "arc-swap",
  "assert_matches",
  "bincode",
+ "bitflags",
  "byteorder",
  "conv",
  "enum_dispatch",
