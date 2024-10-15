@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::fmt;
 use std::fmt::Write;
+use std::pin::Pin;
 use std::sync;
 use std::task;
 use std::vec;
@@ -120,16 +121,17 @@ seq!(N in 1..=6 {
     )*
 });
 
-pub struct PreemptableFuture<A: Future, B: Future>(pub A, pub B);
+pub struct PreemptableFuture<'lt, A: Future, B: Future>(pub Pin<&'lt mut A>, pub Pin<&'lt mut B>);
 
-impl<A: Future, B: Future> Future for PreemptableFuture<A, B> {
-    type Output = Result<(A::Output, B), (A, B::Output)>;
+impl<'lt,A: Future, B: Future> Future for PreemptableFuture<'lt, A, B> {
+    //type Output = Result<(A::Output, Pin<&'lt mut B>), (Pin<&'lt mut A>, B::Output)>;
+    type Output = Result<A::Output, B::Output>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        match unsafe { self.map_unchecked_mut(|s| &mut s.0) }.poll(cx) {
-            std::task::Poll::Ready(x) => std::task::Poll::Ready(Ok((x, self.1))),
-            std::task::Poll::Pending => match unsafe { self.map_unchecked_mut(|s| &mut s.1) }.poll(cx) {
-                std::task::Poll::Ready(x) => std::task::Poll::Ready(Err((self.0, x))),
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match self.0.as_mut().poll(cx) {
+            std::task::Poll::Ready(x) => std::task::Poll::Ready(Ok(x)),
+            std::task::Poll::Pending => match self.1.as_mut().poll(cx) {
+                std::task::Poll::Ready(x) => std::task::Poll::Ready(Err(x)),
                 std::task::Poll::Pending => std::task::Poll::Pending
             }
         }

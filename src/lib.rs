@@ -6,8 +6,6 @@ extern crate futures;
 extern crate tokio;
 extern crate send_wrapper;
 extern crate enum_dispatch;
-#[macro_use]
-extern crate rental;
 
 pub mod util;
 

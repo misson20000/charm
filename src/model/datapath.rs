@@ -96,11 +96,11 @@ impl Filter {
 
     async fn load<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
         match self {
-            Filter::LoadSpace(f) => f.load(iter, rq),
+            Filter::LoadSpace(f) => todo!(),//f.load(iter, rq),
             Filter::Overwrite(_f) => todo!(),//f.load(iter, rq),
             Filter::Move(_f) => todo!(),//f.load(iter, rq),
             Filter::Insert(_f) => todo!(),//f.load(iter, rq),
-        }.await
+        }
     }
     
     pub fn human_details(&self) -> string::String {
@@ -131,6 +131,7 @@ impl Filter {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait DataPathExt {
     async fn fetch(&self, rq: FetchRequest<'_>) -> FetchResult;
 }
@@ -138,7 +139,6 @@ pub trait DataPathExt {
 impl DataPathExt for DataPath {
     async fn fetch(&self, mut rq: FetchRequest<'_>) -> FetchResult {
         let sc = self.clone();
-        std::mem::drop(self);
         
         rq.data.fill(0);
         if let Some(flags) = &mut rq.flags {
@@ -151,7 +151,7 @@ impl DataPathExt for DataPath {
 
 impl<'a> FetchRequest<'a> {
     pub fn new(addr: u64, data: &'a mut [u8], flags: Option<&'a mut [FetchFlags]>) -> Self {
-        if let Some(flags) = flags {
+        if let Some(flags) = flags.as_ref() {
             assert_eq!(flags.len(), data.len());
         }
         
@@ -174,6 +174,7 @@ impl<'a> FetchRequest<'a> {
         self.data.is_empty()
     }
 
+    /*
     fn split2(&mut self, addr: u64) -> (FetchRequest<'_>, FetchRequest<'_>) {
         if self.addr >= addr {
             /* if we are entirely after the split point */
@@ -209,7 +210,8 @@ impl<'a> FetchRequest<'a> {
         } else {
             panic!("unreachable")
         }
-    }
+}
+    */
 
     fn split2_owning(self, addr: u64) -> (Self, Self) {
         if self.addr >= addr {
@@ -427,7 +429,8 @@ impl LoadSpaceFilter {
         }
 
         if !overlap.is_empty() {
-            
+            todo!();
+            //self.cache.fetch_block();
         }
 
         return Filter::load_next(iter, after).await;

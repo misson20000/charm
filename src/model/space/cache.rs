@@ -1,58 +1,75 @@
+//! This module provides a cache to sit above each address space loaded into a
+//! datapath. This is necessary in order to solve a few big problems:
+//!
+//!    - Token views and datapath filters both tend to favor generating many,
+//!    many, small fetch requests to the datapath. Accesses to the underlying
+//!    address space may have limited parallelism and high latency (imagine a
+//!    gdbstub address space), meaning we'd prefer to coalesce many small
+//!    accesses into fewer, larger accesses.
+//!
+//!    - We need to erase the type of the underlying address space in providing
+//!    a Future for LoadSpaceFilter to use, and ideally it should be a fairly
+//!    cheap future since we're going to have a lot of htem.
+//!
+//! Additionally, there are a few other design constraints:
+//!
+//!    - It needs to have an upper memory bound. Charm doesn't run in an
+//!    embedded environment and we're not counting every byte we allocate, but
+//!    datapath is somewhere where it's easy to waste huge amounts of memory and
+//!    crashing due to OOM is bad.
+
+use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
+use std::pin::pin;
 use std::sync;
 
-use rental::rental;
+use ouroboros::self_referencing;
 
 use crate::model::space;
 use crate::model::space::AddressSpaceExt;
 use crate::util::PreemptableFuture;
 
-rental! {
-    mod rentals {
-        use super::*;
-
-        #[rental]
-        pub struct SpaceCacheFutureHolder {
-            space: sync::Arc<space::AddressSpace>,
-            /* Ugh. Some day we will have a way to name futures. Until then... */
-            future: Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync + 'space>>,
-        }
-    }
+#[self_referencing]
+pub struct CacheLineFutureHolder {
+    space: sync::Arc<space::AddressSpace>,
+    #[borrows(space)]
+    #[covariant]
+    future: RefCell<Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync + 'this>>>,
 }
 
-use rentals::SpaceCacheFutureHolder;
-
-enum SpaceCacheEntryState {
-    Pending(SpaceCacheFutureHolder),
+enum CacheLineState {
+    Pending(CacheLineFutureHolder),
     Finished(space::FetchResult),
 }
 
-struct SpaceCacheEntry {
-    future: tokio::sync::Mutex<SpaceCacheFutureHolder>,
+struct CacheLine {
+    state: tokio::sync::Mutex<CacheLineState>,
 
     /* If users is > 0, there must be a permit. */
-    permit: parking_lot::Mutex<(usize, Option<tokio::sync::OwnedSemaphorePermit>)>,
-    permit_notify: tokio::sync::Notify,
+    rememberance: parking_lot::Mutex<(usize, Option<tokio::sync::OwnedSemaphorePermit>)>,
+    rememberance_notify: tokio::sync::Notify,
 }
 
-struct SpaceCacheEntryReference(sync::Arc<SpaceCacheEntry>);
+struct CacheLineReference(sync::Arc<CacheLine>);
 
 pub struct SpaceCache {
     pub block_size: u64,
     pub block_count: std::num::NonZeroUsize,
     pub space: sync::Arc<space::AddressSpace>,
+
+    lru: parking_lot::Mutex<lru::LruCache<u64, sync::Arc<CacheLine>>>,
     
-    lru: parking_lot::Mutex<lru::LruCache<u64, sync::Arc<SpaceCacheEntry>>>,
-    /* Notifies whenever a new entry is added to lru so that other tasks can check if it's the one they wanted. */
+    /// Notifies whenever a new entry is added to lru so that other tasks can
+    /// check if it's the one they wanted.
     lru_update_notifier: sync::Arc<tokio::sync::Notify>,
 
-    /* This semaphore keeps track of how many cache slots are either empty or hold entries that don't have any users and
-     * can be kicked out. */
-    availability: sync::Arc<tokio::sync::Semaphore>,
+    /// A permit from this semaphore means that a cache line is being awaited upon by somebody and should *not* be
+    /// forgotten. This has the same number of permits as the number of blocks in the cache. 
+    rememberance: sync::Arc<tokio::sync::Semaphore>,
 }
 
-//pub struct SpaceCacheLock<'a>(parking_lot::MutexGuard<'a, lru::LruCache<u64, SpaceCacheEntry>>);
+//pub struct SpaceCacheLock<'a>(parking_lot::MutexGuard<'a, lru::LruCache<u64, CacheLine>>);
 
 impl SpaceCache {
     pub fn new(space: sync::Arc<space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
@@ -62,87 +79,118 @@ impl SpaceCache {
             space,
             lru: parking_lot::Mutex::new(lru::LruCache::new(block_count)),
             lru_update_notifier: sync::Arc::new(tokio::sync::Notify::new()),
-            availability: sync::Arc::new(tokio::sync::Semaphore::new(block_count.get())),
+            rememberance: sync::Arc::new(tokio::sync::Semaphore::new(block_count.get())),
         }
     }
 
-    async fn get_block(&self, addr: u64, permit_future: impl Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>>) -> SpaceCacheEntryReference {
+    async fn get_line(&self, addr: u64) -> CacheLineReference {
         assert!(addr % self.block_size == 0, "misaligned address");
 
-        let mut lru_lock = self.lru.lock();
-        match lru_lock.get(&addr) {
-            /* This address was in the cache. If it has been forgotten about, it will need a new permit to be remembered. */
-            Some(entry) => {
-                return SpaceCacheEntryReference::new(entry.clone(), permit_future).await;
-            },
+        /* Get in line for acquiring a semaphore permit. We may or may not wind up actually needing it. */
+        let mut permit_future_pin = pin!(self.rememberance.clone().acquire_owned());
+        
+        loop {
+            let mut lru_lock = self.lru.lock();
+            
+            match lru_lock.get(&addr) {
+                /* This address was in the cache. If it has been forgotten about, it will need a new permit to be remembered. Let the CacheLineReference constructor take care of awaiting the future to get a rememberance permit, if it needs one. */
+                Some(entry) => {
+                    return CacheLineReference::new(entry.clone(), permit_future_pin).await;
+                },
 
-            /* This address wasn't in the cache. */
-            None => {
-                std::mem::drop(lru_lock);
+                /* This address wasn't in the cache. */
+                None => {
+                    /* Need to either get a rememberance permit to create a new CacheLine object, or luck out and have
+                     * some other task do it for the same block in the meantime. */
 
-                match PreemptableFuture(permit_future, self.lru_update_notifier.notified()).await {
-                    Ok((permit, _)) => {
-                        let permit = permit.unwrap();
-                        
-                        /* Got a permit to make a new cache entry. */
-                        let mut lru_lock = self.lru.lock();
-
-                        /* Double check that the entry still isn't there. */
-                        match lru_lock.get(&addr) {
-                            Some(entry) => return SpaceCacheEntryReference::new_with_permit(entry.clone(), permit),
-                            None => {},
-                        }
-                        
-                        /* Make sure there's room. */
-                        while lru_lock.len() == lru_lock.cap().get() {
-                            /* Need to try to kick someone out. */
-                            let (key, entry) = lru_lock.peek_lru().unwrap();
-
-                            let has_users = entry.permit.lock().0 > 0;
-                            std::mem::drop(entry);
-                            let key = *key;
+                    /* Don't hold the lock while awaiting a permit. */
+                    std::mem::drop(lru_lock);
+                    
+                    match PreemptableFuture(permit_future_pin.as_mut(), pin!(self.lru_update_notifier.notified())).await {
+                        /* Got a rememberance permit! */
+                        Ok(permit) => {
+                            let permit = permit.unwrap();
                             
-                            if has_users {
-                                /* Don't kick out entries that are still being used. */
-                                lru_lock.promote(&key);
+                            let mut lru_lock = self.lru.lock();
 
-                                /* We know there has to be at least one entry that isn't being used because we
-                                 * obtained a semaphore permit, so we can keep looping on this. */
-                                continue;
+                            /* Double check that the entry still isn't there. */
+                            match lru_lock.get(&addr) {
+                                /* Entry was there, but it could've been forgotten. Give the permit to the
+                                 * CacheLineReference constructor in case it needs it to mark the line as being
+                                 * remembered. If it doesn't need it, it'll drop it. */
+                                Some(entry) => return CacheLineReference::new_with_permit(entry.clone(), permit),
+                                None => {},
+                            }
+                            
+                            /* Kick out a forgotten cache line if necessary. */
+                            while lru_lock.len() == lru_lock.cap().get() {
+                                /* Need to try to kick someone out. */
+                                let (key, entry) = lru_lock.peek_lru().unwrap();
+
+                                let being_remembered = entry.rememberance.lock().0 > 0;
+                                let key = *key;
+                                
+                                if being_remembered {
+                                    /* Don't kick out lines that are still being used. */
+                                    lru_lock.promote(&key);
+
+                                    /* We know there has to be at least one entry that isn't being remembered because we
+                                     * obtained a rememberance permit, so we can keep looping on this. */
+                                    
+                                    continue;
+                                }
+
+                                lru_lock.pop(&key);
                             }
 
-                            lru_lock.pop(&key);
-                        }
+                            /* Construct a new cache line. */
+                            let future = CacheLineFutureHolderBuilder {
+                                space: self.space.clone(),
+                                future_builder: |space| RefCell::new(Box::pin(space.fetch((addr, self.block_size))))
+                            }.build();
+                            
+                            let line = sync::Arc::new(CacheLine {
+                                state: tokio::sync::Mutex::new(CacheLineState::Pending(future)),
+                                rememberance: parking_lot::Mutex::new((1, Some(permit))),
+                                rememberance_notify: tokio::sync::Notify::new(),
+                            });
 
-                        let future = SpaceCacheFutureHolder::new(self.space.clone(), |space| Box::pin(space.fetch((addr, self.block_size))));
-                        let sce = sync::Arc::new(SpaceCacheEntry {
-                            future: tokio::sync::Mutex::new(future),
-                            permit: parking_lot::Mutex::new((1, Some(permit))),
-                            permit_notify: tokio::sync::Notify::new(),
-                        });
-                        lru_lock.put(addr, sce.clone());
-                        self.lru_update_notifier.notify_waiters();
+                            /* Put it in the LRU cache and notify other tasks that might be waiting on a permit to
+                             * create this same cache line. */
+                            lru_lock.put(addr, line.clone());
+                            self.lru_update_notifier.notify_waiters();
 
-                        return SpaceCacheEntryReference(sce);
-                    },
+                            return CacheLineReference(line);
+                        },
 
-                    Err((permit_future, _)) => {
-                        /* It's possible another task asked for the same block and put it into the cache. Check and see if that happened. */
-                        return self.get_block(addr, permit_future).await;
-                    },
-                }
-            },
+                        Err(_notification) => {
+                            /* It's possible another task asked for the same block and put it into the cache. Start over
+                             * again and check if that happened. If it didn't, we're still holding onto our place in
+                             * line to get a rememberance permit and will get it eventually. */
+                            
+                            continue;
+                        },
+                    }
+                },
+            }
         }
     }
     
     pub async fn fetch_block(&self, addr: u64) {
-        /* Get in line for acquiring a semaphore permit. We may or may not wind up actually needing it. */
-        let permit_future = self.availability.clone().acquire_owned();
-        
-        let entry_ref = self.get_block(addr, permit_future).await;
-        let mut future_holder = entry_ref.0.future.lock().await;
-        let fr = future_holder.ref_rent_mut(|f| f).await;
+        let line_ref = self.get_line(addr).await;
+        let mut state_lock = line_ref.0.state.lock().await;
+
         todo!();
+
+        /*
+        match &*state_lock {
+            CacheLineState::Pending(f) => {
+                *state_lock = CacheLineState::Finished(f.borrow_future().borrow_mut().await);
+            },
+            CacheLineState::Finished(fr) => {
+            },
+    }
+        */
     }
 }
 
@@ -152,57 +200,70 @@ impl std::fmt::Debug for SpaceCache {
     }
 }
 
-impl SpaceCacheEntryReference {
-    async fn new(entry: sync::Arc<SpaceCacheEntry>, permit_future: impl std::future::Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>>) -> Self {
-        let mut lock = entry.permit.lock();
+impl CacheLineReference {
+    async fn new(entry: sync::Arc<CacheLine>, mut permit_future_pin: Pin<&mut impl std::future::Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>>>) -> Self {
+        loop {
+            let mut lock = entry.rememberance.lock();
 
-        if lock.0 > 0 {
-            lock.0+= 1;
-            std::mem::drop(lock);
-            /* implicitly drop permit_future; this entry should already have a permit so we don't need to keep trying to acquire one. */
-            return Self(entry);
-        }
-
-        /* need to either get a permit or be notified that someone else did it for us. */
-        let notify_future = entry.permit_notify.notified();
-        std::mem::drop(lock);
-
-        match PreemptableFuture(permit_future, notify_future).await {
-            Ok((permit, notify_future)) => {
-                /* got a permit! */
-                let mut lock = entry.permit.lock();
+            if lock.0 > 0 {
+                /* The line is already being remembered. */
                 lock.0+= 1;
-                lock.1 = Some(permit.unwrap());
-                entry.permit_notify.notify_waiters();
                 std::mem::drop(lock);
-                std::mem::drop(notify_future);
-                Self(entry.clone())
-            },
-            Err((permit_future, _)) => {
-                /* just try it all over again from the top */
-                Self::new(entry.clone(), permit_future).await
+                /* implicitly drop permit_future; this entry should already have a permit so we don't need to keep trying to acquire one. */
+                return Self(entry);
+            }
+
+            /* need to either get a rememberance permit or be notified that someone else did it for us. */
+            let notify_future = entry.rememberance_notify.notified();
+            std::mem::drop(lock);
+
+            match PreemptableFuture(permit_future_pin.as_mut(), pin!(notify_future)).await {
+                Ok(permit) => {
+                    /* got a permit! */
+                    let mut lock = entry.rememberance.lock();
+
+                    /* It's possible that while we were locking the mutex, someone else gave it a permit. That's fine,
+                     * we don't even need to bother checking. We'll just clobber over it. If it existed, it'll get
+                     * returned to the semaphore just the same as if we dropped ours instead. */
+                    
+                    lock.0+= 1;
+                    lock.1 = Some(permit.unwrap());
+
+                    /* Notify other tasks that might also be waiting here on a rememberance permit for this line. */
+                    entry.rememberance_notify.notify_waiters();
+                    
+                    std::mem::drop(lock);
+                    return Self(entry.clone());
+                },
+                Err(_notification) => {
+                    /* Another task notified that it might've given this line a rememberance permit and we can give
+                     * up. */
+                    continue
+                }
             }
         }
     }
 
-    fn new_with_permit(entry: sync::Arc<SpaceCacheEntry>, permit: tokio::sync::OwnedSemaphorePermit) -> Self {
-        let mut lock = entry.permit.lock();
+    fn new_with_permit(entry: sync::Arc<CacheLine>, permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        let mut lock = entry.rememberance.lock();
 
         lock.0+= 1;
         lock.1 = Some(permit);
 
+        std::mem::drop(lock);
+        
         Self(entry)
     }    
 }
 
-impl Drop for SpaceCacheEntryReference {
+impl Drop for CacheLineReference {
     fn drop(&mut self) {
-        let mut lock = self.0.permit.lock();
+        let mut lock = self.0.rememberance.lock();
 
         match lock.0 {
-            0 => panic!("SpaceCacheEntry reached 0 users while a reference still existed"),
+            0 => panic!("CacheLine reached 0 users while a reference still existed"),
             
-            /* We were the last reference; release the permit to indicate to that something can be kicked out */
+            /* We were the last reference; put this line in forgotten state and return the rememberance permit. */
             1 => *lock = (0, None),
             
             n => lock.0 = n - 1,
