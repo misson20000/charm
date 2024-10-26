@@ -39,7 +39,6 @@ adw = { version = "0.7.0", package = "libadwaita" }
 toml = "0.8.19"
 xdg = "2.5.2"
 bitflags = "2.6.0"
-ouroboros = "0.18.4"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

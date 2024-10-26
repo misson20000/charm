@@ -16,8 +16,10 @@ pub struct Cursor {
     pub offset: addr::Size,
     pub low_nybble: bool,
 
-    data_cache: vec::Vec<datapath::ByteRecord>,
-    data_pending: bool,
+    data: vec::Vec<u8>,
+    flags: vec::Vec<datapath::FetchFlags>,
+    data_loaded: usize,
+    data_future: Option<datapath::LoadFuture>,
 }
 
 impl Cursor {
@@ -82,8 +84,10 @@ impl Cursor {
                 _ => false,
             },
 
-            data_cache: vec::Vec::new(),
-            data_pending: true,
+            data: vec::Vec::new(),
+            flags: vec::Vec::new(),
+            data_loaded: 0,
+            data_future: None,
         })
     }
 
@@ -225,6 +229,7 @@ impl cursor::CursorClassExt for Cursor {
     }
     
     fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
+        if self.data_loaded < 
         if self.data_pending {
             let (begin_byte, size) = self.token.absolute_extent().round_out();
             

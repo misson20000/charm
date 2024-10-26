@@ -18,28 +18,16 @@
 //!    datapath is somewhere where it's easy to waste huge amounts of memory and
 //!    crashing due to OOM is bad.
 
-use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::pin::pin;
 use std::sync;
 
-use ouroboros::self_referencing;
-
 use crate::model::space;
-use crate::model::space::AddressSpaceExt;
 use crate::util::PreemptableFuture;
 
-#[self_referencing]
-pub struct CacheLineFutureHolder {
-    space: sync::Arc<space::AddressSpace>,
-    #[borrows(space)]
-    #[covariant]
-    future: RefCell<Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync + 'this>>>,
-}
-
 enum CacheLineState {
-    Pending(CacheLineFutureHolder),
+    Pending(Pin<Box<dyn Future<Output = space::FetchResult> + Send + Sync>>),
     Finished(space::FetchResult),
 }
 
@@ -58,18 +46,15 @@ pub struct SpaceCache {
     pub block_count: std::num::NonZeroUsize,
     pub space: sync::Arc<space::AddressSpace>,
 
-    lru: parking_lot::Mutex<lru::LruCache<u64, sync::Arc<CacheLine>>>,
-    
     /// Notifies whenever a new entry is added to lru so that other tasks can
     /// check if it's the one they wanted.
-    lru_update_notifier: sync::Arc<tokio::sync::Notify>,
+    lru_update_notifier: tokio::sync::Notify,
+    lru: parking_lot::Mutex<lru::LruCache<u64, sync::Arc<CacheLine>>>,
 
     /// A permit from this semaphore means that a cache line is being awaited upon by somebody and should *not* be
     /// forgotten. This has the same number of permits as the number of blocks in the cache. 
     rememberance: sync::Arc<tokio::sync::Semaphore>,
 }
-
-//pub struct SpaceCacheLock<'a>(parking_lot::MutexGuard<'a, lru::LruCache<u64, CacheLine>>);
 
 impl SpaceCache {
     pub fn new(space: sync::Arc<space::AddressSpace>, block_size: u64, block_count: std::num::NonZeroUsize) -> SpaceCache {
@@ -77,8 +62,8 @@ impl SpaceCache {
             block_size,
             block_count: block_count,
             space,
+            lru_update_notifier: tokio::sync::Notify::new(),
             lru: parking_lot::Mutex::new(lru::LruCache::new(block_count)),
-            lru_update_notifier: sync::Arc::new(tokio::sync::Notify::new()),
             rememberance: sync::Arc::new(tokio::sync::Semaphore::new(block_count.get())),
         }
     }
@@ -91,106 +76,95 @@ impl SpaceCache {
         
         loop {
             let mut lru_lock = self.lru.lock();
-            
-            match lru_lock.get(&addr) {
+            if let Some(entry) = lru_lock.get(&addr).cloned() {
+                std::mem::drop(lru_lock);
                 /* This address was in the cache. If it has been forgotten about, it will need a new permit to be remembered. Let the CacheLineReference constructor take care of awaiting the future to get a rememberance permit, if it needs one. */
-                Some(entry) => {
-                    return CacheLineReference::new(entry.clone(), permit_future_pin).await;
-                },
+                return CacheLineReference::new(entry, permit_future_pin).await;
+            }
+            std::mem::drop(lru_lock);
+            
+            /* This address wasn't in the cache need to either get a rememberance permit to create a new CacheLine
+            object, or luck out and have some other task do it for the same block in the meantime. */
+            
+            match PreemptableFuture(permit_future_pin.as_mut(), pin!(self.lru_update_notifier.notified())).await {
+                /* Got a rememberance permit! */
+                Ok(permit) => {
+                    let permit = permit.unwrap();
 
-                /* This address wasn't in the cache. */
-                None => {
-                    /* Need to either get a rememberance permit to create a new CacheLine object, or luck out and have
-                     * some other task do it for the same block in the meantime. */
+                    let mut lru_lock = self.lru.lock();
 
-                    /* Don't hold the lock while awaiting a permit. */
-                    std::mem::drop(lru_lock);
+                    /* Double check that the entry still isn't there. */
+                    match lru_lock.get(&addr) {
+                        /* Entry was there, but it could've been forgotten. Give the permit to the
+                         * CacheLineReference constructor in case it needs it to mark the line as being
+                         * remembered. If it doesn't need it, it'll drop it. */
+                        Some(entry) => return CacheLineReference::new_with_permit(entry.clone(), permit),
+                        None => {},
+                    }
                     
-                    match PreemptableFuture(permit_future_pin.as_mut(), pin!(self.lru_update_notifier.notified())).await {
-                        /* Got a rememberance permit! */
-                        Ok(permit) => {
-                            let permit = permit.unwrap();
-                            
-                            let mut lru_lock = self.lru.lock();
+                    /* Kick out a forgotten cache line if necessary. */
+                    while lru_lock.len() == lru_lock.cap().get() {
+                        /* Need to try to kick someone out. */
+                        let (key, entry) = lru_lock.peek_lru().unwrap();
 
-                            /* Double check that the entry still isn't there. */
-                            match lru_lock.get(&addr) {
-                                /* Entry was there, but it could've been forgotten. Give the permit to the
-                                 * CacheLineReference constructor in case it needs it to mark the line as being
-                                 * remembered. If it doesn't need it, it'll drop it. */
-                                Some(entry) => return CacheLineReference::new_with_permit(entry.clone(), permit),
-                                None => {},
-                            }
-                            
-                            /* Kick out a forgotten cache line if necessary. */
-                            while lru_lock.len() == lru_lock.cap().get() {
-                                /* Need to try to kick someone out. */
-                                let (key, entry) = lru_lock.peek_lru().unwrap();
+                        let being_remembered = entry.rememberance.lock().0 > 0;
+                        let key = *key;
+                        
+                        if being_remembered {
+                            /* Don't kick out lines that are still being used. */
+                            lru_lock.promote(&key);
 
-                                let being_remembered = entry.rememberance.lock().0 > 0;
-                                let key = *key;
-                                
-                                if being_remembered {
-                                    /* Don't kick out lines that are still being used. */
-                                    lru_lock.promote(&key);
-
-                                    /* We know there has to be at least one entry that isn't being remembered because we
-                                     * obtained a rememberance permit, so we can keep looping on this. */
-                                    
-                                    continue;
-                                }
-
-                                lru_lock.pop(&key);
-                            }
-
-                            /* Construct a new cache line. */
-                            let future = CacheLineFutureHolderBuilder {
-                                space: self.space.clone(),
-                                future_builder: |space| RefCell::new(Box::pin(space.fetch((addr, self.block_size))))
-                            }.build();
-                            
-                            let line = sync::Arc::new(CacheLine {
-                                state: tokio::sync::Mutex::new(CacheLineState::Pending(future)),
-                                rememberance: parking_lot::Mutex::new((1, Some(permit))),
-                                rememberance_notify: tokio::sync::Notify::new(),
-                            });
-
-                            /* Put it in the LRU cache and notify other tasks that might be waiting on a permit to
-                             * create this same cache line. */
-                            lru_lock.put(addr, line.clone());
-                            self.lru_update_notifier.notify_waiters();
-
-                            return CacheLineReference(line);
-                        },
-
-                        Err(_notification) => {
-                            /* It's possible another task asked for the same block and put it into the cache. Start over
-                             * again and check if that happened. If it didn't, we're still holding onto our place in
-                             * line to get a rememberance permit and will get it eventually. */
+                            /* We know there has to be at least one entry that isn't being remembered because we
+                             * obtained a rememberance permit, so we can keep looping on this. */
                             
                             continue;
-                        },
+                        }
+
+                        lru_lock.pop(&key);
                     }
+
+                    /* Construct a new cache line. */
+                    let space = self.space.clone();
+                    let future = Box::pin(space.fetch_owned((addr, self.block_size)));
+                    
+                    let line = sync::Arc::new(CacheLine {
+                        state: tokio::sync::Mutex::new(CacheLineState::Pending(future)),
+                        rememberance: parking_lot::Mutex::new((1, Some(permit))),
+                        rememberance_notify: tokio::sync::Notify::new(),
+                    });
+
+                    /* Put it in the LRU cache and notify other tasks that might be waiting on a permit to
+                     * create this same cache line. */
+                    lru_lock.put(addr, line.clone());
+                    self.lru_update_notifier.notify_waiters();
+
+                    return CacheLineReference(line);
                 },
+
+                Err(_notification) => {
+                    /* It's possible another task asked for the same block and put it into the cache. Start over
+                     * again and check if that happened. If it didn't, we're still holding onto our place in
+                     * line to get a rememberance permit and will get it eventually. */
+                    
+                    continue;
+                }
             }
         }
     }
     
-    pub async fn fetch_block(&self, addr: u64) {
+    pub async fn fetch_block<T, F: FnOnce(&space::FetchResult) -> T>(&self, addr: u64, callback: F) -> T {
         let line_ref = self.get_line(addr).await;
         let mut state_lock = line_ref.0.state.lock().await;
-
-        todo!();
-
-        /*
-        match &*state_lock {
+        
+        match &mut *state_lock {
             CacheLineState::Pending(f) => {
-                *state_lock = CacheLineState::Finished(f.borrow_future().borrow_mut().await);
+                let fr = f.as_mut().await;
+                let r = callback(&fr);
+                *state_lock = CacheLineState::Finished(fr);
+                r
             },
-            CacheLineState::Finished(fr) => {
-            },
-    }
-        */
+            CacheLineState::Finished(fr) => callback(fr),
+        }
     }
 }
 

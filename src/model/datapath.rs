@@ -1,4 +1,3 @@
-use std::iter;
 use std::string;
 use std::sync;
 use std::vec;
@@ -14,23 +13,20 @@ pub struct FetchFlags(u8);
 
 bitflags! {
     impl FetchFlags: u8 {
-        /* Somewhere along the line, data wasn't yet, so try again later and if you're lucky it will be in the cache next time. */
-        const PENDING = 1;
-
         /* Touched by a LoadSpaceEdit */
-        const LOADED = 2;
+        const LOADED = 1;
 
         /* Touched by an OverwriteEdit */
-        const OVERWRITTEN = 4;
+        const OVERWRITTEN = 2;
 
         /* Touched by an InsertEdit */
-        const INSERTED = 8;
+        const INSERTED = 4;
 
         /* Touched by a MoveEdit or the trailing end of an InsertEdit */
-        const MOVED = 16;
+        const MOVED = 8;
 
         /* Some kind of error was encountered, probably an I/O error. */
-        const ERROR = 32;
+        const ERROR = 16;
     }
 }
 
@@ -46,6 +42,13 @@ pub struct FetchResult {
     flags: FetchFlags,
     /// How many bytes were processed. Advance your request by this much and try again if you didn't get everything.
     loaded: u64,
+}
+
+type LoadFuture = std::pin::Pin<std::box::Box<impl std::future::Future<Output = FetchResult>>>;
+
+enum FilterFetchResult<'a> {
+    Pass(FetchRequest<'a>),
+    Done(FetchResult),
 }
 
 enum RequestSlice<'a> {
@@ -83,20 +86,9 @@ impl Filter {
         }
     }
     
-    async fn load_next<'a>(mut iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
-        if let Some(filter) = iter.next() {
-            filter.load(iter, rq).await
-        } else {
-            FetchResult {
-                flags: FetchFlags::default(),
-                loaded: rq.len(),
-            }
-        }
-    }
-
-    async fn load<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
+    async fn load<'a>(&self, rq: FetchRequest<'a>) -> FilterFetchResult<'a> {
         match self {
-            Filter::LoadSpace(f) => todo!(),//f.load(iter, rq),
+            Filter::LoadSpace(f) => f.load(rq).await,
             Filter::Overwrite(_f) => todo!(),//f.load(iter, rq),
             Filter::Move(_f) => todo!(),//f.load(iter, rq),
             Filter::Insert(_f) => todo!(),//f.load(iter, rq),
@@ -145,7 +137,17 @@ impl DataPathExt for DataPath {
             flags.fill(FetchFlags::default());
         }
 
-        Filter::load_next(sc.iter().rev(), rq).await
+        for filter in sc.iter().rev() {
+            rq = match filter.load(std::mem::replace(&mut rq, FetchRequest::default())).await {
+                FilterFetchResult::Pass(rq) => rq,
+                FilterFetchResult::Done(rs) => return rs,
+            }
+        }
+        
+        FetchResult {
+            flags: FetchFlags::default(),
+            loaded: rq.len(),
+        }
     }
 }
 
@@ -422,18 +424,51 @@ impl LoadSpaceFilter {
 }
     */
 
-    async fn load<'a>(&self, iter: impl iter::Iterator<Item = &'a Filter> + Clone, rq: FetchRequest<'_>) -> FetchResult {
-        let (before, overlap, after) = rq.split3(self.load_offset, self.size);
+    async fn load<'a>(&self, rq: FetchRequest<'a>) -> FilterFetchResult<'a> {
+        let (before, mut overlap, after) = rq.split3(self.load_offset, self.size);
+        
         if !before.is_empty() {
-            return Filter::load_next(iter, before).await;
+            return FilterFetchResult::Pass(before);
         }
 
         if !overlap.is_empty() {
-            todo!();
-            //self.cache.fetch_block();
+            let block_addr = (overlap.addr / self.cache.block_size) * self.cache.block_size;
+            return FilterFetchResult::Done(self.cache.fetch_block(block_addr, |fr| {
+                match fr {
+                    space::FetchResult::Ok(v) | space::FetchResult::Partial(v) => {
+                        let begin_index = (overlap.addr - block_addr) as usize;
+                        let loaded_count = (std::cmp::min(overlap.end() - block_addr, v.len() as u64) - (overlap.addr - block_addr)) as usize;
+
+                        overlap.data[0..loaded_count].copy_from_slice(&v[begin_index..(begin_index+loaded_count)]);
+
+                        if let Some(flags) = overlap.flags.as_mut() {
+                            for f in &mut flags[0..loaded_count] {
+                                *f|= FetchFlags::LOADED;
+                            }
+                        }
+
+                        FetchResult {
+                            flags: FetchFlags::LOADED,
+                            loaded: loaded_count as u64,
+                        }
+                    },
+                    space::FetchResult::Unreadable | space::FetchResult::IoError(_) => {
+                        if let Some(flags) = overlap.flags.as_mut() {
+                            for f in flags.iter_mut() {
+                                *f|= FetchFlags::LOADED | FetchFlags::ERROR;
+                            }
+                        }
+
+                        FetchResult {
+                            flags: FetchFlags::LOADED | FetchFlags::ERROR,
+                            loaded: overlap.len(),
+                        }
+                    },
+                }
+            }).await);
         }
 
-        return Filter::load_next(iter, after).await;
+        FilterFetchResult::Pass(after)
     }
     
     fn human_details(&self) -> string::String {
