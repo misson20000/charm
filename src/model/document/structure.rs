@@ -28,7 +28,10 @@ pub enum ContentDisplay {
         line_pitch: addr::Size,
         gutter_pitch: addr::Size,
     },
-    Hexstring
+    Hexstring,
+    Utf8 {
+        max_line_length: addr::Size,
+    },
 }
 
 pub type Path = vec::Vec<usize>;
@@ -183,6 +186,7 @@ impl ContentDisplay {
             ContentDisplay::None => None,
             ContentDisplay::Hexdump { line_pitch, .. } => Some(*line_pitch),
             ContentDisplay::Hexstring => None,
+            ContentDisplay::Utf8 { max_line_length, .. } => Some(*max_line_length),
         }
     }
 

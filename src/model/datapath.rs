@@ -146,7 +146,7 @@ impl DataPathExt for DataPath {
 }
 
 impl<'a> ByteRecordRange<'a> {
-    pub fn new(addr: u64, records: &'a mut [ByteRecord]) -> ByteRecordRange {
+    pub fn new(addr: u64, records: &'a mut [ByteRecord]) -> Self {
         ByteRecordRange {
             addr,
             out: records,

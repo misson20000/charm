@@ -24,6 +24,10 @@ enum PositionState {
         index: usize
     },
     Hexstring(addr::Extent, usize),
+    Utf8 {
+        extent: addr::Extent,
+        index: usize
+    },
 
     SummaryPreamble,
     SummaryOpener,
@@ -352,6 +356,7 @@ impl Position {
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                PositionState::Utf8 { extent, index } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
 
                 PositionState::SummaryLabel(i)
@@ -379,6 +384,7 @@ impl Position {
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                PositionState::Utf8  { extent, index } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
                 PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::Title),
                 PositionState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
@@ -404,6 +410,7 @@ impl Position {
                 PositionState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
+                PositionState::Utf8 { index, .. } => IntermediatePortState::SummaryLabel(*index),
 
                 PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::SummaryPreamble),
                 PositionState::SummaryOpener => IntermediatePortState::Finished(PositionState::SummaryOpener),
@@ -707,6 +714,11 @@ impl Position {
                 line: line_extent,
             }.into_token()),
             PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken::new_maybe_truncate(common.adjust_depth(1), extent).into_token()),
+            PositionState::Utf8 { extent, .. } => TokenGenerationResult::Ok(token::Utf8Token {
+                common: common.adjust_depth(1),
+                extent,
+                truncated: false,
+            }.into_token()),
 
             PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
                 common,
@@ -761,6 +773,7 @@ impl Position {
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
                     structure::ContentDisplay::Hexdump { .. } => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
                     structure::ContentDisplay::Hexstring => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
+                    structure::ContentDisplay::Utf8 { max_line_length, .. } => token::Utf8Token::new_maybe_truncate(common, extent, max_line_length).into_token(),
                 })
             },
             PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
@@ -883,8 +896,16 @@ impl Position {
                                 line_extent,
                                 index
                             }
-                        }
+                        },
                         structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Utf8 { max_line_length, .. } => {
+                            let line_begin = (max_line_length * ((std::cmp::max(interstitial.begin, offset - addr::unit::BIT) - interstitial.begin) / max_line_length)).to_addr();
+
+                            PositionState::Utf8 {
+                                extent: addr::Extent::between(line_begin, offset),
+                                index
+                            }
+                        },
                     };
                     
                     return true;
@@ -899,6 +920,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.begin, index);
+                true
+            },
+            PositionState::Utf8 { extent, index } => {
                 self.state = PositionState::MetaContent(extent.begin, index);
                 true
             },
@@ -1035,6 +1060,14 @@ impl Position {
                             }
                         },
                         structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Utf8 { max_line_length, .. } => {
+                            let line_end = std::cmp::min(interstitial.end, offset + max_line_length);
+                            
+                            PositionState::Utf8 {
+                                extent: addr::Extent::between(offset, line_end),
+                                index
+                            }
+                        },
                     };
 
                     return true;
@@ -1049,6 +1082,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.end, index);
+                true
+            },
+            PositionState::Utf8 { extent, index } => {
                 self.state = PositionState::MetaContent(extent.end, index);
                 true
             },
@@ -1262,6 +1299,7 @@ impl Position {
             PositionState::MetaContent(offset, _) => offset,
             PositionState::Hexdump { extent, .. } => extent.begin,
             PositionState::Hexstring(extent, _) => extent.begin,
+            PositionState::Utf8 { extent, .. } => extent.begin,
             PositionState::SummaryPreamble => addr::unit::NULL,
             PositionState::SummaryOpener => addr::unit::NULL,
             PositionState::SummaryLabel(i) => self.node.children[i].offset,
@@ -1284,6 +1322,7 @@ impl Position {
             PositionState::MetaContent(_, _) => false,
             PositionState::Hexdump { .. } => false,
             PositionState::Hexstring(_, _) => false,
+            PositionState::Utf8 { .. } => false,
 
             PositionState::SummaryPreamble => true,
             PositionState::SummaryOpener => true,
@@ -1610,6 +1649,8 @@ mod cmp {
                         super::PositionState::Hexdump { index, .. } => index.cmp(child_index),
                         super::PositionState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
                         super::PositionState::Hexstring(_, i) => i.cmp(child_index),
+                        super::PositionState::Utf8 { index, .. } if index == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::Utf8 { index, .. } => index.cmp(child_index),
                         super::PositionState::SummaryPreamble => std::cmp::Ordering::Less,
                         super::PositionState::SummaryOpener => std::cmp::Ordering::Less,
                         super::PositionState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
@@ -1716,6 +1757,7 @@ mod cmp {
             super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
             super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::PositionState::Utf8 { extent, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
@@ -1897,6 +1939,14 @@ pub mod xml {
                                 |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
                                 |a| a.to_size())),
                     },
+                    Some("utf8") => structure::ContentDisplay::Utf8 {
+                        max_line_length: xml.attribute("max_line_length")
+                            .map_or(
+                                16.into(),
+                                |p| addr::Address::parse(p).map_or_else(                                
+                                    |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                                    |a| a.to_size())),
+                    },
                     Some("none") => structure::ContentDisplay::None,
                     Some(invalid) => panic!("invalid content attribute: {}", invalid)
                 },
@@ -1940,6 +1990,11 @@ pub mod xml {
                     line: inflate_line_extent(&self.node)
                 }.into_token(),
                 "hexstring" => token::HexstringToken::new_maybe_truncate(common, inflate_extent(&self.node)).into_token(),
+                "utf8" => token::Utf8Token {
+                    common,
+                    extent: inflate_extent(&self.node),
+                    truncated: false,
+                }.into_token(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
         }

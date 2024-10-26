@@ -29,6 +29,9 @@ pub enum Token {
     
     /// Just a bunch of hex octets stuck together without any extra formatting.
     Hexstring(HexstringToken),
+
+    /// Displays a UTF-8 string in quotation marks.
+    Utf8(Utf8Token),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -41,6 +44,7 @@ pub enum TokenRef<'a> {
     SummaryLabel(&'a SummaryLabelToken),
     Hexdump(&'a HexdumpToken),
     Hexstring(&'a HexstringToken),
+    Utf8(&'a Utf8Token),
 }
 
 pub trait TokenKind {
@@ -112,6 +116,13 @@ pub struct HexstringToken {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Utf8Token {
+    pub common: TokenCommon,
+    pub extent: addr::Extent,
+    pub truncated: bool,
+}
+
 /// Various forms of punctuation used ONLY in summaries.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PunctuationKind {
@@ -148,6 +159,7 @@ impl Token {
         match self {
             Token::Hexdump(token) => token.absolute_extent(),
             Token::Hexstring(token) => token.extent.rebase(token.common.node_addr),
+            Token::Utf8(token) => token.extent.rebase(token.common.node_addr),
             _ => addr::unit::EMPTY
         }
     }
@@ -162,6 +174,7 @@ impl Token {
             Token::SummaryLabel(_) => "SummaryLabel",
             Token::Hexdump(_) => "Hexdump",
             Token::Hexstring(_) => "Hexstring",
+            Token::Utf8(_) => "Utf8",
         }
     }
 }
@@ -178,6 +191,7 @@ impl<'a> TokenRef<'a> {
             TokenRef::SummaryLabel(t) => t.common(),
             TokenRef::Hexdump(t) => t.common(),
             TokenRef::Hexstring(t) => t.common(),
+            TokenRef::Utf8(t) => t.common(),
         }
     }
 
@@ -191,6 +205,7 @@ impl<'a> TokenRef<'a> {
             TokenRef::SummaryLabel(_) => "SummaryLabel",
             TokenRef::Hexdump(_) => "Hexdump",
             TokenRef::Hexstring(_) => "Hexstring",
+            TokenRef::Utf8(_) => "Utf8",
         }
     }
     
@@ -224,6 +239,8 @@ impl fmt::Debug for Token {
                 .field("index", &hdt.index)
                 .field("extent", &hdt.extent)
                 .field("line", &hdt.line),
+            Token::Utf8(u8t) => ds
+                .field("extent", &u8t.extent),
             _ => ds
         }.finish()
     }
@@ -297,6 +314,12 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
                 }
                 Ok(())
             },
+            TokenRef::Utf8(token) => {
+                for i in 0..token.extent.length().bytes {
+                    write!(f, "{}", ["x", "y", "z"][(token.extent.begin.byte + i) as usize % 3])?
+                }
+                Ok(())
+            },
         }
     }
 }
@@ -338,6 +361,7 @@ impl TokenKind for Token {
             Token::SummaryLabel(t) => t.common(),
             Token::Hexdump(t) => t.common(),
             Token::Hexstring(t) => t.common(),
+            Token::Utf8(t) => t.common(),
         }
     }
 
@@ -355,6 +379,7 @@ impl TokenKind for Token {
             Token::SummaryLabel(t) => TokenRef::SummaryLabel(&t),
             Token::Hexdump(t) => TokenRef::Hexdump(&t),
             Token::Hexstring(t) => TokenRef::Hexstring(&t),
+            Token::Utf8(t) => TokenRef::Utf8(&t),
         }
     }
 }
@@ -490,6 +515,42 @@ impl HexstringToken {
             }
         } else {
             HexstringToken {
+                common,
+                extent,
+                truncated: false,
+            }
+        }
+    }
+
+    pub fn absolute_extent(&self) -> addr::Extent {
+        self.extent.rebase(self.common.node_addr)
+    }
+}
+
+impl TokenKind for Utf8Token {
+    fn common(&self) -> &TokenCommon {
+        &self.common
+    }
+    
+    fn into_token(self) -> Token {
+        Token::Utf8(self)
+    }
+
+    fn as_ref(&self) -> TokenRef<'_> {
+        TokenRef::Utf8(self)
+    }
+}
+
+impl Utf8Token {
+    pub fn new_maybe_truncate(common: TokenCommon, extent: addr::Extent, limit: addr::Size) -> Utf8Token {
+        if extent.length() > limit {
+            Utf8Token {
+                common,
+                extent: addr::Extent::sized(extent.begin, limit),
+                truncated: true,
+            }
+        } else {
+            Utf8Token {
                 common,
                 extent,
                 truncated: false,

@@ -121,6 +121,12 @@ impl LayoutProvider<bucket::HexstringMarker> for LayoutController {
     }
 }
 
+impl LayoutProvider<bucket::Utf8Marker> for LayoutController {
+    fn allocate<F: FnOnce(f32) -> f32>(&mut self, _marker: std::marker::PhantomData<bucket::Utf8Marker>, cb: F) {
+        self.allocate_main(cb);
+    }
+}
+
 impl LayoutProvider<bucket::SummaryMarker> for LayoutController {
     fn allocate<F: FnOnce(f32) -> f32>(&mut self, _marker: std::marker::PhantomData<bucket::SummaryMarker>, cb: F) {
         self.allocate_main(cb);

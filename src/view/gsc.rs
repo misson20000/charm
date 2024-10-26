@@ -20,6 +20,7 @@ pub enum Entry {
     Dot,
     Colon,
     Space,
+    Quote,
 }
 
 pub struct Cache {
@@ -34,6 +35,7 @@ pub struct Cache {
     gs_dot: pango::GlyphString, // "."
     gs_colon: pango::GlyphString, // ": "
     gs_ellipsis: pango::GlyphString, // "..."
+    gs_quote: pango::GlyphString, // "\""
 
     space_width: i32,
 }
@@ -78,6 +80,7 @@ impl Cache {
             gs_dot: Self::shape(pg, "."),
             gs_colon: Self::shape(pg, ": "),
             gs_ellipsis: Self::shape(pg, "..."),
+            gs_quote: Self::shape(pg, "\""),
 
             space_width,
         }
@@ -114,6 +117,7 @@ impl Cache {
             Entry::Dot => Some(&self.gs_dot),
             Entry::Colon => Some(&self.gs_colon),
             Entry::Space => Some(&self.gs_space),
+            Entry::Quote => Some(&self.gs_quote),
         }
     }
 

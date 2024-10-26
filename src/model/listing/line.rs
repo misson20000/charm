@@ -30,6 +30,10 @@ pub enum LineType {
         title: Option<token::TitleToken>,
         token: token::HexstringToken,
     },
+    Utf8 {
+        title: Option<token::TitleToken>,
+        token: token::Utf8Token,
+    },
     Summary {
         title: Option<token::TitleToken>,
         tokens: collections::VecDeque<token::Token>
@@ -186,6 +190,7 @@ impl Line {
                     tokens: collections::VecDeque::from([token])
                 },
                 token::Token::Hexstring(token) => LineType::Hexstring { title: None, token },
+                token::Token::Utf8(token) => LineType::Utf8 { title: None, token },
             },
         }
     }
@@ -276,6 +281,21 @@ impl Line {
                 => (LineType::Hexstring {
                     title: Some(token),
                     token: hexstring_token,
+                }, LinePushResult::Accepted),
+
+            /* A utf8 token can end a line */
+            (LineType::Empty, token::Token::Utf8(token)) => (LineType::Utf8 {
+                title: None,
+                token
+            }, LinePushResult::Accepted),
+
+            /* A title token can occur on the same line as a utf8 if the title is inline and there isn't already a title. */
+            (LineType::Utf8 { title: None, token: utf8_token }, token::Token::Title(token))
+                if sync::Arc::ptr_eq(&token.common.node, &utf8_token.common.node)
+                && token.common.node.props.title_display.is_inline()
+                => (LineType::Utf8 {
+                    title: Some(token),
+                    token: utf8_token,
                 }, LinePushResult::Accepted),
 
             /* Summaries... */
@@ -393,6 +413,21 @@ impl Line {
                     title: Some(title_token),
                     token,
                 }, LinePushResult::Accepted),
+
+            /* A utf8 token can begin a line */
+            (LineType::Empty, token::Token::Utf8(token)) => (LineType::Utf8 {
+                title: None,
+                token
+            }, LinePushResult::Completed),
+
+            /* A utf8 token can occur on the same line as a title if the title is inline. */
+            (LineType::Title(title_token), token::Token::Utf8(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
+                => (LineType::Utf8 {
+                    title: Some(title_token),
+                    token,
+                }, LinePushResult::Accepted),
             
             /* Summaries... */
             (LineType::Empty, token::Token::SummaryPreamble(token)) => (LineType::Summary {
@@ -445,12 +480,13 @@ impl Line {
         let token_mapper: for<'b> fn(&'b token::Token) -> token::TokenRef<'b> = TokenKind::as_ref;
         
         match &self.ty {
-            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
+            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.as_ref())),
+            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.as_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
+            LineType::Utf8 { title, token, .. } => util::PhiIteratorOf6::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I6(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
         }
     }
 
@@ -459,12 +495,13 @@ impl Line {
         let hexdump_mapper: fn(token::HexdumpToken) -> token::Token = TokenKind::into_token;
         
         match self.ty {
-            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
+            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.into_token())),
+            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.into_token())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
+            LineType::Utf8 { title, token, .. } => util::PhiIteratorOf6::I5(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I6(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
         }
     }
 }
@@ -535,6 +572,7 @@ impl fmt::Debug for Line {
                 LineType::Title(_) => &"title",
                 LineType::Hexdump { .. } => &"hexdump",
                 LineType::Hexstring { .. } => &"hexstring",
+                LineType::Utf8 { .. } => &"utf8",
                 LineType::Summary { .. } => &"summary",
             })
             .field("tokens", &self.iter_tokens().map(|tok| token::TokenTestFormat(tok)).collect::<Vec<_>>())

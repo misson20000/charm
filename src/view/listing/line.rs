@@ -36,6 +36,10 @@ enum LineViewType {
         title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
         hexstring: bucket::SingleTokenBucket<bucket::HexstringMarker>,
     },
+    Utf8 {
+        title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
+        utf8: bucket::SingleTokenBucket<bucket::Utf8Marker>,
+    },
     Summary {
         title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
         content: bucket::MultiTokenBucket<bucket::SummaryMarker>,
@@ -100,6 +104,10 @@ impl LineViewType {
                 title: title.into(),
                 hexstring: token.into()
             },
+            line_model::LineType::Utf8 { title, token } => Self::Utf8 {
+                title: title.into(),
+                utf8: token.into()
+            },
             line_model::LineType::Summary { title, tokens } => Self::Summary {
                 title: title.into(),
                 content: bucket::MultiTokenBucket::from_tokens(tokens.into_iter())
@@ -114,7 +122,8 @@ impl LineViewType {
             Self::Title(bucket) => util::PhiIterator::I3(bucket.iter_tokens()),
             Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.iter_tokens().chain(hexdump.iter_tokens())),
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.iter_tokens().chain(hexstring.iter_tokens())),
-            Self::Summary { title, content } => util::PhiIterator::I6(title.iter_tokens().chain(content.iter_tokens())),
+            Self::Utf8 { title, utf8 } => util::PhiIterator::I6(title.iter_tokens().chain(utf8.iter_tokens())),
+            Self::Summary { title, content } => util::PhiIterator::I7(title.iter_tokens().chain(content.iter_tokens())),
         }
     }
 
@@ -125,7 +134,8 @@ impl LineViewType {
             Self::Title(bucket) => util::PhiIterator::I3(bucket.to_tokens()),
             Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.to_tokens().chain(hexdump.to_tokens())),
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.to_tokens().chain(hexstring.to_tokens())),
-            Self::Summary { title, content } => util::PhiIterator::I6(title.to_tokens().chain(content.to_tokens())),
+            Self::Utf8 { title, utf8 } => util::PhiIterator::I6(title.to_tokens().chain(utf8.to_tokens())),
+            Self::Summary { title, content } => util::PhiIterator::I7(title.to_tokens().chain(content.to_tokens())),
         }
     }
 
@@ -136,6 +146,7 @@ impl LineViewType {
             Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket())),
             Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket(), hexdump.as_bucket()].into_iter()),
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket(), hexstring.as_bucket()].into_iter()),
+            Self::Utf8 { title, utf8 } => util::PhiIteratorOf3::I3([title.as_bucket(), utf8.as_bucket()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket(), content.as_bucket()].into_iter()),
         }
     }
@@ -147,6 +158,7 @@ impl LineViewType {
             Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket_mut())),
             Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexdump.as_bucket_mut()].into_iter()),
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexstring.as_bucket_mut()].into_iter()),
+            Self::Utf8 { title, utf8 } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), utf8.as_bucket_mut()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), content.as_bucket_mut()].into_iter()),
         }
     }
@@ -166,6 +178,7 @@ impl LineViewType {
             Self::Title(bucket) => bucket.visible_address(),
             Self::Hexdump { title, hexdump } => title.visible_address().or(hexdump.visible_address()),
             Self::Hexstring { title, hexstring } => title.visible_address().or(hexstring.visible_address()),
+            Self::Utf8 { title, utf8 } => title.visible_address().or(utf8.visible_address()),
             Self::Summary { title, content } => title.visible_address().or(content.visible_address()),
         }
     }
@@ -177,6 +190,7 @@ impl LineViewType {
             Self::Title(_) => {},
             Self::Hexdump { title: _, hexdump } => hexdump.invalidate_data(),
             Self::Hexstring { title: _, hexstring } => hexstring.invalidate_data(),
+            Self::Utf8 { title: _, utf8 } => utf8.invalidate_data(),
             Self::Summary { title: _, content } => content.invalidate_data(),
         }
     }

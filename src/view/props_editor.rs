@@ -78,7 +78,7 @@ impl PropsEditor {
 
         let title_model = gtk::StringList::new(&["Inline", "Major", "Minor"]);
         let children_model = gtk::StringList::new(&["Full", "Summary"]);
-        let content_model = gtk::StringList::new(&["Hidden", "Hexdump", "Hexstring"]);
+        let content_model = gtk::StringList::new(&["Hidden", "Hexdump", "Hexstring", "UTF-8 String"]);
         
         let pe = PropsEditor {
             toplevel,
@@ -138,6 +138,9 @@ impl PropsEditor {
                 0 => structure::ContentDisplay::None,
                 1 => structure::ContentDisplay::default_hexdump(),
                 2 => structure::ContentDisplay::Hexstring,
+                3 => structure::ContentDisplay::Utf8 {
+                    max_line_length: 120.into(),
+                },
                 gtk::INVALID_LIST_POSITION => return,
                 x => panic!("unexpected selected index: {}", x)
             }));
@@ -336,6 +339,7 @@ impl PropsEditor {
             Some(structure::ContentDisplay::None) => 0,
             Some(structure::ContentDisplay::Hexdump { .. }) => 1,
             Some(structure::ContentDisplay::Hexstring) => 2,
+            Some(structure::ContentDisplay::Utf8 { .. }) => 3,
             None => gtk::INVALID_LIST_POSITION,
         });
 

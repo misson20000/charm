@@ -118,6 +118,7 @@ pub struct HexstringMarker;
 pub struct SummaryMarker;
 pub struct HexdumpMarker;
 pub struct AsciidumpMarker;
+pub struct Utf8Marker;
 
 pub struct SingleTokenBucket<Marker> {
     begin: f32,

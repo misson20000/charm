@@ -182,7 +182,7 @@ impl TokenView {
                 
                 for i in 0..token.extent.length().bytes {
                     let byte_record = self.data_cache.get(i as usize).copied().unwrap_or_default();
-                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
+                    let byte_extent = addr::Extent::sized(token.extent.begin + i, addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     let mut text_color = render.config.text_color.rgba();
                     if byte_record.has_direct_edit() {
@@ -211,6 +211,84 @@ impl TokenView {
                         &mut pos)
                         .render(snapshot);
                 }
+            },
+            token::Token::Utf8(token) => {
+                render.gsc_mono.begin(
+                    gsc::Entry::Quote,
+                    render.config.text_color.rgba(),
+                    &mut pos)
+                    .render(snapshot);
+
+                let mut bytes = vec![];
+                let mut last_selected = false;
+                
+                for i in 0..token.extent.length().bytes {
+                    let byte_extent = addr::Extent::sized(token.extent.begin + i, addr::unit::BYTE).intersection(token.extent);
+                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
+                    
+                    let (value, mut flush) = match self.data_cache.get(i as usize) {
+                        Some(b) if b.has_any_value() && b.value != 0 => (Some(b.value), false),
+                        _ => (None, true),
+                    };
+
+                    flush = flush || (selected != last_selected);
+                    
+                    if flush && bytes.len() > 0 {
+                        /* flush */
+                        let string = String::from_utf8_lossy(&bytes);
+                        
+                        gsc::begin_text(
+                            &render.pango,
+                            &render.font_mono,
+                            render.config.text_color.rgba(),
+                            &string,
+                            &mut pos)
+                            .selected(last_selected, render.config.selection_color.rgba())
+                            .render(snapshot);
+
+                        bytes.clear();
+                    }
+
+                    if let Some(value) = value {
+                        bytes.push(value);
+                    } else {
+                        /* render a placeholder */
+                        render.gsc_mono.begin(
+                            gsc::Entry::Space,
+                            render.config.text_color.rgba(),
+                            &mut pos)
+                            .placeholder(true, render.config.placeholder_color.rgba())
+                            .selected(last_selected, render.config.selection_color.rgba())
+                            .render(snapshot);
+                    }
+                    
+                    last_selected = selected;
+                }
+
+                let string = String::from_utf8_lossy(&bytes);
+                
+                gsc::begin_text(
+                    &render.pango,
+                    &render.font_mono,
+                    render.config.text_color.rgba(),
+                    &string,
+                    &mut pos)
+                    .selected(last_selected, render.config.selection_color.rgba())
+                    .render(snapshot);
+                
+                if token.truncated {
+                    render.gsc_mono.begin(
+                        gsc::Entry::Punctuation(token::PunctuationKind::Ellipsis),
+                        render.config.text_color.rgba(),
+                        &mut pos)
+                        .render(snapshot);
+                }
+                
+                render.gsc_mono.begin(
+                    gsc::Entry::Quote,
+                    render.config.text_color.rgba(),
+                    &mut pos)
+                    .render(snapshot);                
             },
 
             /* Internal tokens that shouldn't be drawn. */

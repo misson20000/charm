@@ -52,7 +52,10 @@ enum ContentDisplay {
         line_pitch: Addr,
         gutter_pitch: Addr,
     },
-    Hexstring
+    Hexstring,
+    Utf8 {
+        max_line_length: Addr,
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,6 +195,9 @@ impl From<structure::Childhood> for Childhood {
                     gutter_pitch: gutter_pitch.into()
                 },
                 structure::ContentDisplay::Hexstring => ContentDisplay::Hexstring,
+                structure::ContentDisplay::Utf8 { max_line_length } => ContentDisplay::Utf8 {
+                    max_line_length: max_line_length.into(),
+                },
             },
             locked: c.node.props.locked,
             size: c.node.size.into(),
@@ -224,6 +230,9 @@ impl Into<structure::Childhood> for Childhood {
                             gutter_pitch: gutter_pitch.into()
                         },
                         ContentDisplay::Hexstring => structure::ContentDisplay::Hexstring,
+                        ContentDisplay::Utf8 { max_line_length } => structure::ContentDisplay::Utf8 {
+                            max_line_length: max_line_length.into(),
+                        },
                     },
                     locked: self.locked,
                 },
