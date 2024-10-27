@@ -467,14 +467,7 @@ impl Change {
                 Ok(())
             })?),
             ChangeType::StackFilter(filter) => {
-                if let Some(top_filter) = document.datapath.last() {
-                    if let Some(stacked_filter) = datapath::Filter::stack(top_filter, filter) {
-                        document.datapath.set(document.datapath.len() - 1, stacked_filter);
-                        return Ok(());
-                    }
-                }
-
-                document.datapath.push_back(filter.clone());
+                document.datapath.stack(filter);
             }
         };
 

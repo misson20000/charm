@@ -1,3 +1,4 @@
+use std::sync;
 use std::vec;
 
 pub mod cache;
@@ -18,6 +19,16 @@ pub trait AddressSpaceExt {
 
 pub enum AddressSpace {
     File(file::FileAddressSpace)
+}
+
+impl AddressSpace {
+    fn fetch_owned(self: sync::Arc<Self>, extent: (u64, u64)) -> impl std::future::Future<Output = FetchResult> + 'static {
+        async move {
+            match &*self {
+                AddressSpace::File(fas) => fas.fetch(extent).await,
+            }
+        }
+    }
 }
 
 impl AddressSpaceExt for AddressSpace {

@@ -75,7 +75,7 @@ fn try_open_project(window: &rc::Rc<window::CharmWindow>, project_file: gio::Fil
     let document = serialization::deserialize_project(bytes.as_ref())?;
 
     /* Open any FileAddressSpaces that don't try to get opened during deserialization. */
-    for filter in &document.datapath {
+    for filter in document.datapath.iter_filters() {
         match filter {
             datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
                 space::AddressSpace::File(f) => match f.try_open() {

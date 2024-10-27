@@ -1,10 +1,8 @@
 use std::iter;
 use std::sync;
-use std::vec;
 
 use crate::model::addr;
 use crate::model::datapath;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
@@ -34,8 +32,7 @@ pub struct HexdumpBucket {
     node_addr: addr::Address,
     
     line_extent: addr::Extent,
-    line_cache: vec::Vec<datapath::ByteRecord>,
-    line_data_pending: bool,
+    line_data: Option<datapath::Fetcher>,
     
     toks: Vec<token::HexdumpToken>
 }
@@ -61,8 +58,7 @@ impl HexdumpBucket {
             node_addr,
             
             line_extent,
-            line_cache: Vec::new(),
-            line_data_pending: true,
+            line_data: None,
             
             toks: tokens.collect(),
         }
@@ -185,12 +181,13 @@ impl bucket::Bucket for HexdumpBucket {
                 
                 Part::Octet { offset, next_offset: _, token: _ } => {
                     // TODO: deal with bit-sized gutter pitches
-                    let byte_record = self.line_cache.get((offset - self.line_extent.begin).bytes as usize).copied().unwrap_or_default();
+                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes as usize)).unwrap_or_default();
+                    
                     let mut text_color = ctx.render.config.text_color.rgba();
-                    let pending = !byte_record.has_any_value();
+                    let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
                     let selected = selection.includes(offset);
 
-                    if byte_record.has_direct_edit() {
+                    if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                         text_color = ctx.render.config.edit_color.rgba();
                     }
                     
@@ -198,7 +195,7 @@ impl bucket::Bucket for HexdumpBucket {
                     
                     /* render nybbles */
                     for low_nybble in [false, true] {
-                        let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
+                        let nybble = if low_nybble { byte & 0xf } else { byte >> 4 };
                         let has_cursor = hex_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.node) && hxc.extent().begin + hxc.offset == offset && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
@@ -236,15 +233,21 @@ impl bucket::Bucket for HexdumpBucket {
                 if let Some(token) = next_token {
                     if let Some(byte_extent) = addr::Extent::sized(i.into(), addr::unit::BYTE).rebase(self.line_extent.begin).intersection(self.line_extent) {
                         if token.extent.includes(byte_extent.begin) {
-                            let byte_record = self.line_cache.get(i as usize).copied().unwrap_or_default();
+                            let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
+
+                            let mut text_color = ctx.render.config.text_color.rgba();
+                            let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
                             let selected = selection.includes(byte_extent.begin);
-                            let pending = !byte_record.has_any_value();
-                    
-                            let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte_record.value) };
+
+                            if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
+                                text_color = ctx.render.config.edit_color.rgba();
+                            }
+
+                            let digit = if pending { gsc::Entry::Space } else { gsc::Entry::PrintableAscii(byte) };
 
                             let mut char_point = graphene::Point::new(x + space_width * i as f32, lh);
                         
-                            ctx.render.gsc_mono.begin(digit, ctx.render.config.text_color.rgba(), &mut char_point)
+                            ctx.render.gsc_mono.begin(digit, text_color, &mut char_point)
                                 .selected(selected, ctx.render.config.selection_color.rgba())
                                 .placeholder(pending, ctx.render.config.placeholder_color.rgba())
                                 .render(ctx.snapshot);
@@ -276,22 +279,22 @@ impl bucket::TokenIterableBucket for HexdumpBucket {
 
 impl bucket::WorkableBucket for HexdumpBucket {
     fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut std::task::Context, did_work: &mut bool, work_needed: &mut bool) {
-        if self.line_data_pending {
-            let (begin_byte, size) = self.line_extent.rebase(self.node_addr).round_out();
-            
-            self.line_cache.resize(size as usize, datapath::ByteRecord::default());
-            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.line_cache), cx);
-            
-            self.line_data_pending = self.line_cache.iter().any(|b| b.pending);
-            *work_needed|= self.line_data_pending;
+        let mut fetcher = match self.line_data.take() {
+            Some(fetcher) => fetcher,
+            None => {
+                let (begin_byte, size) = self.line_extent.rebase(self.node_addr).round_out();
+                datapath::Fetcher::new(&document.datapath, begin_byte, size as usize)
+            }
+        };
 
-            *did_work = true;
-        }
+        *did_work|= fetcher.work(cx);
+        *work_needed|= !fetcher.finished();
+        
+        self.line_data = Some(fetcher);
     }
 
     fn invalidate_data(&mut self) {
-        self.line_cache.clear();
-        self.line_data_pending = true;        
+        self.line_data = None;
     }
 }
 

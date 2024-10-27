@@ -1,9 +1,10 @@
+use std::future::Future;
 use std::fmt;
+use std::fmt::Write;
+use std::pin::Pin;
 use std::sync;
 use std::task;
 use std::vec;
-
-use std::fmt::Write;
 
 use seq_macro::seq;
 
@@ -119,6 +120,23 @@ seq!(N in 1..=6 {
         });
     )*
 });
+
+pub struct PreemptableFuture<'lt, A: Future, B: Future>(pub Pin<&'lt mut A>, pub Pin<&'lt mut B>);
+
+impl<'lt,A: Future, B: Future> Future for PreemptableFuture<'lt, A, B> {
+    //type Output = Result<(A::Output, Pin<&'lt mut B>), (Pin<&'lt mut A>, B::Output)>;
+    type Output = Result<A::Output, B::Output>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match self.0.as_mut().poll(cx) {
+            std::task::Poll::Ready(x) => std::task::Poll::Ready(Ok(x)),
+            std::task::Poll::Pending => match self.1.as_mut().poll(cx) {
+                std::task::Poll::Ready(x) => std::task::Poll::Ready(Err(x)),
+                std::task::Poll::Pending => std::task::Poll::Pending
+            }
+        }
+    }
+}
 
 /* We use a different version of this macro for tests. */
 #[cfg(not(test))]

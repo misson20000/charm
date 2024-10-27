@@ -1,10 +1,8 @@
 use std::task;
 use std::sync;
-use std::vec;
 
 use crate::model::addr;
 use crate::model::datapath;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
@@ -23,9 +21,8 @@ use gtk::gdk;
 // TODO: after Token-type refactor, make it so this can't represent hexdump tokens.
 pub struct TokenView {
     token: token::Token,
-    
-    data_cache: vec::Vec<datapath::ByteRecord>,
-    data_pending: bool,
+
+    data: Option<datapath::Fetcher>,
     
     logical_bounds: Option<graphene::Rect>,
 }
@@ -35,8 +32,7 @@ impl TokenView {
         TokenView {
             token,
 
-            data_cache: vec::Vec::new(),
-            data_pending: true,
+            data: None,
             
             logical_bounds: None,
         }
@@ -181,17 +177,18 @@ impl TokenView {
                 };
                 
                 for i in 0..token.extent.length().bytes {
-                    let byte_record = self.data_cache.get(i as usize).copied().unwrap_or_default();
+                    let (byte, flags) = self.data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
                     let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
+                    
                     let mut text_color = render.config.text_color.rgba();
-                    if byte_record.has_direct_edit() {
+                    if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                         text_color = render.config.edit_color.rgba();
                     }
-                    let pending = !byte_record.has_any_value();
+                    let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
 
                     for low_nybble in [false, true] {
-                        let nybble = if low_nybble { byte_record.value & 0xf } else { byte_record.value >> 4 };
+                        let nybble = if low_nybble { byte & 0xf } else { byte >> 4 };
                         let has_cursor = hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
@@ -237,21 +234,21 @@ impl TokenView {
     }
     
     pub fn invalidate_data(&mut self) {
-        self.data_cache.clear();
-        self.data_pending = true;
+        self.data = None;
     }
     
     pub fn work(&mut self, document: &document::Document, cx: &mut task::Context, did_work: &mut bool, work_needed: &mut bool) {
-        if self.data_pending {
-            let (begin_byte, size) = self.token.absolute_extent().round_out();
-            
-            self.data_cache.resize(size as usize, datapath::ByteRecord::default());
-            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
-            
-            self.data_pending = self.data_cache.iter().any(|b| b.pending);
-            *work_needed|= self.data_pending;
+        let mut fetcher = match self.data.take() {
+            Some(fetcher) => fetcher,
+            None => {
+                let (begin_byte, size) = self.token.absolute_extent().round_out();
+                datapath::Fetcher::new(&document.datapath, begin_byte, size as usize)
+            }
+        };
 
-            *did_work = true;
-        }
+        *did_work|= fetcher.work(cx);
+        *work_needed|= !fetcher.finished();
+        
+        self.data = Some(fetcher);
     }
 }

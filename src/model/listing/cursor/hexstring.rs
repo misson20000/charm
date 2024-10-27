@@ -1,9 +1,7 @@
 use std::task;
-use std::vec;
 
 use crate::model::addr;
 use crate::model::datapath;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
@@ -16,8 +14,7 @@ pub struct Cursor {
     pub offset: addr::Size,
     pub low_nybble: bool,
 
-    data_cache: vec::Vec<datapath::ByteRecord>,
-    data_pending: bool,
+    data: Option<datapath::Fetcher>,
 }
 
 impl Cursor {
@@ -61,9 +58,8 @@ impl Cursor {
             token,
             offset,
             low_nybble,
-            
-            data_cache: vec::Vec::new(),
-            data_pending: true,
+
+            data: None,
         })
     }
     
@@ -84,8 +80,7 @@ impl Cursor {
                 _ => false,
             },
 
-            data_cache: vec::Vec::new(),
-            data_pending: true,
+            data: None,
         })
     }
 
@@ -190,11 +185,10 @@ impl cursor::CursorClassExt for Cursor {
          * 
          */
 
-        let br = self.data_cache[i];
-        if br.pending {
-            return Err(cursor::EntryError::DataPending);
-        }
-        let raw = br.value;
+        let raw = match self.data.as_ref().and_then(|fetcher| fetcher.byte(i)) {
+            Some(b) => b,
+            None => return Err(cursor::EntryError::DataPending)
+        };
         
         let change = if self.low_nybble && shift <= 4 {
             let mask = 0xF << shift;
@@ -218,21 +212,23 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn invalidate_data(&mut self) {
-        self.data_cache.clear();
-        self.data_pending = true;
+        self.data = None;
     }
     
-    fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> bool {
-        if self.data_pending {
-            let (begin_byte, size) = self.token.absolute_extent().round_out();
-            
-            self.data_cache.resize(size as usize, datapath::ByteRecord::default());
-            document.datapath.fetch(datapath::ByteRecordRange::new(begin_byte, &mut self.data_cache), cx);
-            
-            self.data_pending = self.data_cache.iter().any(|b| b.pending);
-        }
-        
-        self.data_pending
+    fn work(&mut self, document: &document::Document, cx: &mut task::Context) -> (bool, bool) {
+        let mut fetcher = match self.data.take() {
+            Some(fetcher) => fetcher,
+            None => {
+                let (begin_byte, size) = self.token.absolute_extent().round_out();
+                datapath::Fetcher::new(&document.datapath, begin_byte, size as usize)
+            }
+        };
+
+        let did_work = fetcher.work(cx);
+        let done = fetcher.finished();
+        self.data = Some(fetcher);
+
+        (did_work, done)
     }
 }
 

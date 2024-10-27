@@ -8,7 +8,6 @@ use std::task;
 use crate::catch_panic;
 use crate::util;
 use crate::model::addr;
-use crate::model::datapath::DataPathExt;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
@@ -775,8 +774,6 @@ impl Interior {
         
         self.work_notifier.enroll(cx);
 
-        work_needed = self.document.datapath.poll(cx) || work_needed;
-        
         for line in self.window.line_views.iter_mut() {
             work_needed = line.work(&self.document, cx) || work_needed;
 

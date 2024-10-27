@@ -213,6 +213,12 @@ impl facet::Facet for CursorView {
     }
 
     fn work(&mut self, document: &sync::Arc<document::Document>, cx: &mut task::Context) -> bool {
-        self.cursor.class.work(document, cx)
+        let (did_work, done) = self.cursor.class.work(document, cx);
+        
+        if did_work {
+            self.wants_draw();
+        }
+
+        !done
     }
 }

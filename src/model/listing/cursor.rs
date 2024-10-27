@@ -72,8 +72,9 @@ pub trait CursorClassExt {
     fn invalidate_data(&mut self) {
     }
 
-    fn work(&mut self, _document: &document::Document, _cx: &mut task::Context) -> bool {
-        false
+    /// Returns (did_work, done)
+    fn work(&mut self, _document: &document::Document, _cx: &mut task::Context) -> (bool, bool) {
+        (false, true)
     }
 }
 

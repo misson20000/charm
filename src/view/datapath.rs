@@ -30,7 +30,7 @@ fn update_store(store: &gtk::ListStore, document: &sync::Arc<document::Document>
     store.clear();
     
     // TODO: only adjust difference
-    for filter in document.datapath.iter().rev() {
+    for filter in document.datapath.iter_filters().rev() {
         let i = store.append();
         store.set(&i, &[
             (0, match filter {
