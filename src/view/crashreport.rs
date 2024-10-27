@@ -98,7 +98,9 @@ impl Drop for CircumstanceGuard {
     }
 }
 
-fn panic_hook(pi: &panic::PanicHookInfo, charm: sync::Arc<glib::thread_guard::ThreadGuard<rc::Rc<view::CharmApplication>>>) {
+// TODO: replace this with non-deprecated PanicHookInfo once ReadTheDocs upgrades their rust toolchain and we can bump MSRV
+#[allow(deprecated)]
+fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::ThreadGuard<rc::Rc<view::CharmApplication>>>) {
     if PANICKING.replace(true) {
         println!("Double faulted: {}", pi);
         std::process::abort();
