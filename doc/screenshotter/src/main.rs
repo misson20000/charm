@@ -108,7 +108,7 @@ fn load_project(path: &str) -> project::Project {
     let document = charm::serialization::deserialize_project(&project_bytes).unwrap();
 
     /* Open any FileAddressSpaces that don't try to get opened during deserialization. */
-    for filter in &document.datapath {
+    for filter in document.datapath.iter_filters() {
         match filter {
             charm::model::datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
                 space::AddressSpace::File(f) => { f.try_open().unwrap(); },
