@@ -13,67 +13,67 @@
     </node>
   </node>
   <tokens>
-    <null node="root" />
-    <title node="root" />
+    <null node="root" index="0" />
+    <title node="root" index="0" />
     <indent>
-      <title node="entity" />
-      <preamble node="entity" />
-      <open node="entity" />
+      <title node="entity" index="0" />
+      <preamble node="entity" index="0" />
+      <open node="entity" index="0" />
       
-      <summlabel node="type" />
+      <summlabel node="type" index="0" />
       <indent>
-	<hexstring node="type" extent="00:08" />
+	<hexstring node="type" extent="00:08" index="0" />
       </indent>
       
       <comma node="entity" index="1" />
 
-      <summlabel node="pos" />
+      <summlabel node="pos" index="0" />
       <indent>
-	<open node="pos" />
+	<open node="pos" index="0" />
 
-	<summlabel node="x1" />
+	<summlabel node="x1" index="0" />
 	<indent>
-	  <hexstring node="x1" extent="00:08" />
+	  <hexstring node="x1" extent="00:08" index="0" />
 	</indent>
 	
 	<comma node="pos" index="1" />
 	
-	<summlabel node="y1" />
+	<summlabel node="y1" index="0" />
 	<indent>
-	  <hexstring node="y1" extent="00:08" />
+	  <hexstring node="y1" extent="00:08" index="0" />
 	</indent>
 
-	<close node="pos" />
+	<close node="pos" index="2" />
       </indent>
       
       <comma node="entity" index="2" />
 
-      <summlabel node="target" />
+      <summlabel node="target" index="0" />
       <indent>
-	<open node="target" />
+	<open node="target" index="0" />
 
-	<summlabel node="x2" />
+	<summlabel node="x2" index="0" />
 	<indent>
-	  <hexstring node="x2" extent="00:08" />
+	  <hexstring node="x2" extent="00:08" index="0" />
 	</indent>
 	
 	<comma node="target" index="1" />
 	
-	<summlabel node="y2" />
+	<summlabel node="y2" index="0" />
 	<indent>
-	  <hexstring node="y2" extent="00:08" />
+	  <hexstring node="y2" extent="00:08" index="0" />
 	</indent>
 
-	<close node="target" />
+	<close node="target" index="2" />
       </indent>
 
-      <close node="entity" />
-      <epilogue node="entity" />
+      <close node="entity" index="3" />
+      <epilogue node="entity" index="3" />
 
       <hexdump node="root" extent="30:40" line="30:+0x10" index="1" />
       <hexdump node="root" extent="40:50" line="40:+0x10" index="1" />
 
-      <null node="root" cursor="true" />
+      <null node="root" cursor="true" index="1" />
     </indent>
   </tokens>
 </testcase>

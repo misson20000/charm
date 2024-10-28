@@ -654,9 +654,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_token_ref());
@@ -689,9 +689,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 1,
                 depth: 1,
             },
-            index: 1,
             extent: addr::Extent::sized(4.into(), 12.into()),
             line: addr::Extent::sized(0.into(), 16.into()),
         }).as_token_ref());
@@ -724,9 +724,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 2,
                 depth: 1,
             },
-            index: 2,
             extent: addr::Extent::sized(8.into(), 8.into()),
             line: addr::Extent::sized(0.into(), 16.into()),
         }).as_token_ref());
@@ -745,9 +745,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_token_ref());
@@ -764,9 +764,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_token_ref());
@@ -799,9 +799,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 1,
                 depth: 1,
             },
-            index: 1,
             extent: addr::Extent::sized(8.into(), 8.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_token_ref());
@@ -819,9 +819,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(0x20.into(), 0x10.into()),
             line: addr::Extent::sized(0x20.into(), 0x10.into()),
         }).as_token_ref());
@@ -857,9 +857,9 @@ mod tests {
                 node: node.clone(),
                 node_path: vec![0],
                 node_addr: 0x12.into(),
+                node_child_index: 0,
                 depth: 2,
             },
-            index: 0,
             extent: addr::Extent::sized(0x10.into(), 0x10.into()),
             line: addr::Extent::sized(0x10.into(), 0x10.into()),
         }).as_token_ref());
@@ -877,9 +877,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(0x0.into(), 0x10.into()),
             line: addr::Extent::sized(0x0.into(), 0x10.into()),
         }).as_token_ref());
@@ -915,9 +915,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: vec![],
                 node_addr: 0x0.into(),
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(0x0.into(), 0x10.into()),
             line: addr::Extent::sized(0x0.into(), 0x10.into()),
         }).as_token_ref());
@@ -976,9 +976,9 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 1,
             },
-            index: 0,
             extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
             line: addr::Extent::sized(addr::unit::NULL, 16.into()),
         }).as_token_ref());
@@ -997,10 +997,10 @@ mod tests {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 0,
             },
             kind: token::PunctuationKind::CloseBracket,
-            index: 0,
         }).as_token_ref());
     }
 }

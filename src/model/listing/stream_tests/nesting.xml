@@ -18,69 +18,69 @@
     </node>
   </node>
   <tokens>
-    <null node="root" />
-    <title node="root" />
+    <null node="root" index="0" />
+    <title node="root" index="0" />
     <indent>
-      <null node="zs1" />
-      <title node="zs1" />
+      <null node="zs1" index="0" />
+      <title node="zs1" index="0" />
       <indent>
-	<null node="zs1" cursor="true" />
+	<null node="zs1" cursor="true" index="0" />
       </indent>
-      <null node="zs2" />
-      <title node="zs2" />
+      <null node="zs2" index="0" />
+      <title node="zs2" index="0" />
       <indent>
-	<null node="zs3" />
-	<title node="zs3" />
+	<null node="zs3" index="0" />
+	<title node="zs3" index="0" />
 	<indent>
-	  <null node="zs3" cursor="true" />
+	  <null node="zs3" cursor="true" index="0" />
 	</indent>
-	<null node="zs2" cursor="true" />
+	<null node="zs2" cursor="true" index="1" />
       </indent>
-      <null node="zs4" />
-      <title node="zs4" />
+      <null node="zs4" index="0" />
+      <title node="zs4" index="0" />
       <indent>
-	<null node="zs4" cursor="true" />
+	<null node="zs4" cursor="true" index="0" />
       </indent>
-      <null node="bumper" />
-      <title node="bumper" />
+      <null node="bumper" index="0" />
+      <title node="bumper" index="0" />
       <indent>
 	<hexdump node="bumper" extent="00:10" line="00:+0x10" index="0" />
-	<null node="bumper" cursor="true" />
+	<null node="bumper" cursor="true" index="0" />
       </indent>
-      <null node="nest1" />
-      <title node="nest1" />
+      <null node="nest1" index="0" />
+      <title node="nest1" index="0" />
       <indent>
-	<null node="nest1.1" />
-	<title node="nest1.1" />
+	<null node="nest1.1" index="0" />
+	<title node="nest1.1" index="0" />
 	<indent>
-	  <null node="nest1.1.1" />
-	  <title node="nest1.1.1" />
+	  <null node="nest1.1.1" index="0" />
+	  <title node="nest1.1.1" index="0" />
 	  <indent>
 	    <hexdump node="nest1.1.1" extent="00:08" line="00:+0x10" index="0" />
-	    <null node="nest1.1.1" cursor="true" />
+	    <null node="nest1.1.1" cursor="true" index="0" />
 	  </indent>
-	  <null node="nest1.1" cursor="true" />
+	  <null node="nest1.1" cursor="true" index="1" />
 	</indent>
-	<null node="nest1.2" />
-	<title node="nest1.2" />
+	<null node="nest1.2" index="0" />
+	<title node="nest1.2" index="0" />
 	<indent>
-	  <null node="nest1.2" cursor="true" />
+	  <null node="nest1.2" cursor="true" index="0" />
 	</indent>
-	<null node="nest1.3" />
-	<title node="nest1.3" />
+	<null node="nest1.3" index="0" />
+	<title node="nest1.3" index="0" />
 	<indent>
-	  <null node="nest1.3.1" />
-	  <title node="nest1.3.1" />
+	  <null node="nest1.3.1" index="0" />
+	  <title node="nest1.3.1" index="0" />
 	  <indent>
 	    <hexdump node="nest1.3.1" extent="00:08" line="00:+0x10" index="0" />
-	    <null node="nest1.3.1" cursor="true" />
+	    <null node="nest1.3.1" cursor="true" index="0" />
 	  </indent>
-	  <null node="nest1.3" cursor="true" />
+	  <null node="nest1.3" cursor="true" index="1" />
 	</indent>
 	<hexdump node="nest1" extent="10:18" line="10:+0x10" index="3" />
-	<null node="nest1" cursor="true" />
+	<null node="nest1" cursor="true" index="3" />
       </indent>
-      <null node="root" cursor="true" />
+      <null node="root" cursor="true" index="5" />
     </indent>
   </tokens>
 </testcase>

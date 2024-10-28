@@ -540,6 +540,8 @@ impl fmt::Debug for Line {
 mod tests {
     use super::*;
 
+    use crate::model::listing::token::AsTokenRef;
+    
     #[test]
     fn test_hexstring_backwards_construction() {
         let node = structure::Node::builder()
@@ -556,6 +558,7 @@ mod tests {
                 node: node.clone(),
                 node_path: vec![],
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 0,
             },
             extent: addr::Extent::sized_u64(0, 8),
@@ -567,8 +570,101 @@ mod tests {
                 node: node.clone(),
                 node_path: vec![],
                 node_addr: addr::unit::NULL,
+                node_child_index: 0,
                 depth: 0,
             },
         })), LinePushResult::Accepted);
+    }
+
+    #[test]
+    fn containing_position() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x40)
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x50)
+                   .children_display(structure::ChildrenDisplay::Summary)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x18))
+                   .child(0x20, |b| b
+                          .name("child1.1")
+                          .size(0x18))
+                   .child(0x34, |b| b
+                          .name("child1.2")
+                          .size(0x18))
+                   .child(0x48, |b| b
+                          .name("child1.3")
+                          .size(0x1c)))
+            .child(0x60, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        /* Pregenerate all the lines from a simple forward walk through the whole document. */
+        let mut position = stream::Position::at_beginning(root.clone());
+        let mut lines = vec![];
+        loop {
+            let mut begin = position.clone();
+            begin.canonicalize_next();
+            
+            let line = Line::next_from_position(&mut position);
+            if line.is_empty() {
+                break;
+            }
+
+            let mut end = position.clone();
+            end.canonicalize_next();
+            
+            lines.push((begin, line, end));
+        }
+
+        let mut position = stream::Position::at_beginning(root.clone());
+        let mut i = 0;
+        loop {
+            /* For every token in the stream, */
+            let token = match position.gen_token() {
+                stream::TokenGenerationResult::Ok(token) => token,
+                stream::TokenGenerationResult::Skip => if position.move_next() { continue } else { break },
+                stream::TokenGenerationResult::Boundary => break,
+            };
+
+            /* Find it in the array of lines we pregenerated. */
+            let expected_index_in_line = loop {
+                if let Some(index) = lines[i].1.iter_tokens().position(|t| t == token.as_token_ref()) {
+                    break index;
+                } else {
+                    i+= 1;
+                }
+            };
+
+            /* Make a new line containing just this token. */
+            let mut line_end = position.clone();
+            let (line, mut line_begin, index_in_line) = Line::containing_position(&mut line_end);
+            line_begin.canonicalize_next();
+            line_end.canonicalize_next();
+
+            /* Check that the line matches the one from the pregenerated array. */
+            if line != lines[i].1 || index_in_line != expected_index_in_line || line_begin != lines[i].0 || line_end != lines[i].2 {
+                println!("seeked to {:?}", token);
+                println!("line from forward walk       : {}", lines[i].1);
+                println!("line from containing_position: {}", line);
+                println!("expected index {}, got index {}", expected_index_in_line, index_in_line);
+                
+                println!("begin position [actual]  : {:#?}", line_begin);
+                println!("begin position [expected]: {:#?}", lines[i].0);
+                    
+                println!("end position [actual]  : {:#?}", line_end);
+                println!("end position [expected]: {:#?}", lines[i].2);
+                
+                panic!("mismatched");
+            }
+
+            position.move_next();
+        }
     }
 }

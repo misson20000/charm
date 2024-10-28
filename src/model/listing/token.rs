@@ -19,6 +19,10 @@ pub trait TokenKind {
     fn node_addr(&self) -> addr::Address {
         self.common().node_addr
     }
+
+    fn node_child_index(&self) -> usize {
+        self.common().node_child_index
+    }
 }
 
 pub trait AsTokenRef<'a, Ref> {
@@ -180,7 +184,6 @@ declare_tokens! {
     #[derive(Debug)]
     SummaryPunctuation {
         pub kind: PunctuationKind,
-        pub index: usize
     },
 
     /// A title block to show the name of the structure node.
@@ -196,8 +199,6 @@ declare_tokens! {
     /// Formatted two-column hexdump+asciidump. What you expect to see out of a hex editor.
     #[derive(Debug)]
     Hexdump {
-        /// Index of the next child after this hexdump
-        pub index: usize,
         pub extent: addr::Extent,
         pub line: addr::Extent,
     },
@@ -234,6 +235,7 @@ pub struct TokenCommon {
     pub node: sync::Arc<structure::Node>,
     pub node_path: structure::Path,
     pub node_addr: addr::Address,
+    pub node_child_index: usize,
     // TODO: colorization
     // colorization will be implemented by emitting multiple hexdump tokens on one line
     // all with the same "colorzation root" node, but different colorization vectors representing
@@ -251,13 +253,15 @@ impl fmt::Debug for Token {
             .field("node", &common.node.props.name)
             .field("node_path", &common.node_path)
             .field("node_addr", &common.node_addr)
+            .field("node_child_index", &common.node_child_index)
             .field("depth", &common.depth);
 
         match self {
             Token::Hexdump(hdt) => ds
-                .field("index", &hdt.index)
                 .field("extent", &hdt.extent)
                 .field("line", &hdt.line),
+            Token::SummaryPunctuation(pt) => ds
+                .field("punctuation_kind", &pt.kind),
             _ => ds
         }.finish()
     }
@@ -273,13 +277,15 @@ impl<'a> fmt::Debug for TokenRef<'a> {
             .field("node", &common.node.props.name)
             .field("node_path", &common.node_path)
             .field("node_addr", &common.node_addr)
+            .field("node_child_index", &common.node_child_index)
             .field("depth", &common.depth);
 
         match self {
             TokenRef::Hexdump(hdt) => ds
-                .field("index", &hdt.index)
                 .field("extent", &hdt.extent)
                 .field("line", &hdt.line),
+            TokenRef::SummaryPunctuation(pt) => ds
+                .field("punctuation_kind", &pt.kind),
             _ => ds
         }.finish()
     }
@@ -298,6 +304,7 @@ impl PartialEq for TokenCommon {
     fn eq(&self, other: &Self) -> bool {
         sync::Arc::<structure::Node>::ptr_eq(&self.node, &other.node) &&
             self.node_addr == other.node_addr &&
+            self.node_child_index == other.node_child_index &&
             self.depth == other.depth
     }
 }
@@ -309,25 +316,29 @@ pub struct TokenTestFormat<'a>(pub TokenRef<'a>);
 
 impl<'a> fmt::Display for TokenTestFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let i = self.0.node_child_index();
+        
         match self.0 {
-            TokenRef::BlankLine(_) => write!(f, "<blank line>"),
-            TokenRef::SummaryPreamble(_) => write!(f, "<summary preamble>"),
-            TokenRef::SummaryEpilogue(_) => write!(f, "<summary epilogue>"),
-            TokenRef::SummaryPunctuation(token) => write!(f, "{}", token.kind.as_str()),
-            TokenRef::Title(token) => write!(f, "{}: ", &token.common.node.props.name),
-            TokenRef::SummaryLabel(token) => write!(f, "{}: ", &token.common.node.props.name),
+            TokenRef::BlankLine(_) => write!(f, "<blank line #{}>", i),
+            TokenRef::SummaryPreamble(_) => write!(f, "<summary preamble #{}>", i),
+            TokenRef::SummaryEpilogue(_) => write!(f, "<summary epilogue #{}>", i),
+            TokenRef::SummaryPunctuation(token) => write!(f, "(#{}) {}", i, token.kind.as_str()),
+            TokenRef::Title(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
+            TokenRef::SummaryLabel(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
             TokenRef::Hexdump(token) => {
-                for i in 0..token.extent.length().bytes {
-                    write!(f, "{:02x}", (token.extent.begin.byte + i) & 0xff)?;
-                    if i + 1 < token.extent.length().bytes {
+                write!(f, "(#{}) ", i)?;
+                for j in 0..token.extent.length().bytes {
+                    write!(f, "{:02x}", (token.extent.begin.byte + j) & 0xff)?;
+                    if j + 1 < token.extent.length().bytes {
                         write!(f, " ")?;
                     }
                 }
                 Ok(())
             },
             TokenRef::Hexstring(token) => {
-                for i in 0..token.extent.length().bytes {
-                    write!(f, "{:02x}", (token.extent.begin.byte + i) & 0xff)?
+                write!(f, "(#{}) ", i)?;
+                for j in 0..token.extent.length().bytes {
+                    write!(f, "{:02x}", (token.extent.begin.byte + j) & 0xff)?
                 }
                 Ok(())
             },

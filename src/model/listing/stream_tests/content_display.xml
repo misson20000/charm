@@ -7,20 +7,20 @@
     <!-- root's content doesn't get displayed -->
   </node>
   <tokens>
-    <null node="root" />
-    <title node="root" />
+    <null node="root" index="0" />
+    <title node="root" index="0" />
     <indent>
-      <title node="hexdump" />
+      <title node="hexdump" index="0" />
       <indent>
 	<hexdump node="hexdump" extent="00:08" line="00:+8" index="0" />
 	<hexdump node="hexdump" extent="08:10" line="08:+8" index="0" />
       </indent>
 
-      <title node="hexstring" />
+      <title node="hexstring" index="0" />
       <indent>
 	<hexstring node="hexstring" extent="00:10" index="0" />
       </indent>
-      <null node="root" cursor="true" />
+      <null node="root" cursor="true" index="2" />
     </indent>
   </tokens>
 </testcase>

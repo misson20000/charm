@@ -682,6 +682,7 @@ impl Position {
             node: self.node.clone(),
             node_path: self.structure_path(),
             node_addr: self.node_addr,
+            node_child_index: self.structure_position_child(),
             depth: self.apparent_depth,
         };
         
@@ -699,9 +700,8 @@ impl Position {
             }.into()),
             
             PositionState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            PositionState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::Hexdump {
+            PositionState::Hexdump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::Hexdump {
                 common: common.adjust_depth(1),
-                index,
                 extent,
                 line: line_extent,
             }.into()),
@@ -713,7 +713,6 @@ impl Position {
             PositionState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuation {
                 common,
                 kind: token::PunctuationKind::OpenBracket,
-                index: 0, /* unused */
             }.into()),
             PositionState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
@@ -724,6 +723,7 @@ impl Position {
                         node: ch.node.clone(),
                         node_path: path,
                         node_addr: self.node_addr + ch.offset.to_size(),
+                        node_child_index: 0,
                         depth: self.apparent_depth,
                     },
                 }.into())
@@ -732,7 +732,6 @@ impl Position {
                 TokenGenerationResult::Ok(token::SummaryPunctuation {
                     common,
                     kind: token::PunctuationKind::Comma,
-                    index: i,
                 }.into())
             } else {
                 TokenGenerationResult::Skip
@@ -740,7 +739,6 @@ impl Position {
             PositionState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuation {
                 common,
                 kind: token::PunctuationKind::CloseBracket,
-                index: 0, /* unused */
             }.into()),
             PositionState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogue {
                 common,
@@ -755,7 +753,6 @@ impl Position {
                     structure::ContentDisplay::None => token::SummaryPunctuation {
                         common,
                         kind: token::PunctuationKind::Space,
-                        index: 0, /* unused */
                     }.into(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
                     structure::ContentDisplay::Hexdump { .. } => token::Hexstring::new_maybe_truncate(common, extent).into(),
@@ -1920,21 +1917,21 @@ pub mod xml {
                 node: lookup_result.2.clone(),
                 node_path: lookup_result.1.clone(),
                 node_addr: lookup_result.0,
+                node_child_index: self.node.attribute("index").unwrap().parse().unwrap(),
                 depth: self.depth,
             };
 
             match self.node.tag_name().name() {
                 "null" => token::BlankLine { common, accepts_cursor: self.node.attribute("cursor").map_or(false, |b| b.eq("true")) }.into(),
-                "open" => token::SummaryPunctuation { common, kind: token::PunctuationKind::OpenBracket, index: 0 }.into(),
-                "comma" => token::SummaryPunctuation { common, kind: token::PunctuationKind::Comma, index: self.node.attribute("index").map(|i| i.parse().unwrap()).unwrap_or(0) }.into(),
-                "close" => token::SummaryPunctuation { common, kind: token::PunctuationKind::CloseBracket, index: 0 }.into(),
+                "open" => token::SummaryPunctuation { common, kind: token::PunctuationKind::OpenBracket }.into(),
+                "comma" => token::SummaryPunctuation { common, kind: token::PunctuationKind::Comma }.into(),
+                "close" => token::SummaryPunctuation { common, kind: token::PunctuationKind::CloseBracket }.into(),
                 "title" => token::Title { common }.into(),
                 "summlabel" => token::SummaryLabel { common }.into(),
                 "preamble" => token::SummaryPreamble { common }.into(),
                 "epilogue" => token::SummaryEpilogue { common }.into(),
                 "hexdump" => token::Hexdump {
                     common,
-                    index: self.node.attribute("index").expect("hexdump token should have index").parse().expect("hexdump token index should parse"),
                     extent: inflate_extent(&self.node),
                     line: inflate_line_extent(&self.node)
                 }.into(),
@@ -2312,9 +2309,9 @@ mod tests {
                         node: o_child_1_2.clone(),
                         node_path: vec![1, 2],
                         node_addr: o_child_1_2_addr,
+                        node_child_index: 0,
                         depth: 3,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0x8),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
@@ -2323,9 +2320,9 @@ mod tests {
                         node: n_child_1.clone(),
                         node_path: vec![1],
                         node_addr: n_child_1_addr,
+                        node_child_index: 1,
                         depth: 2,
                     },
-                    index: 1,
                     extent: addr::Extent::sized_u64(0x40, 0x8),
                     line: addr::Extent::sized_u64(0x40, 0x10)
                 }),
@@ -2338,9 +2335,9 @@ mod tests {
                         node: o_child_1_3.clone(),
                         node_path: vec![1, 3],
                         node_addr: o_child_1_3_addr,
+                        node_child_index: 0,
                         depth: 3,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10)
                 }),
@@ -2350,9 +2347,9 @@ mod tests {
                         node: o_child_1_3.clone(),
                         node_path: vec![1, 3],
                         node_addr: o_child_1_3_addr,
+                        node_child_index: 0,
                         depth: 3,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
@@ -2399,9 +2396,9 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2410,9 +2407,9 @@ mod tests {
                         node: new_root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2426,9 +2423,9 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0x10),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
@@ -2437,9 +2434,9 @@ mod tests {
                         node: new_root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x10, 0x2),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
@@ -2490,9 +2487,9 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2501,9 +2498,9 @@ mod tests {
                         node: new_root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2517,9 +2514,9 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x20, 0x10),
                     line: addr::Extent::sized_u64(0x20, 0x10),
                 }),
@@ -2528,9 +2525,9 @@ mod tests {
                         node: new_child.clone(),
                         node_path: vec![0],
                         node_addr: 0x24.into(),
+                        node_child_index: 0,
                         depth: 2,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2568,6 +2565,7 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 0,
                     },
                 }),
@@ -2576,6 +2574,7 @@ mod tests {
                         node: new_root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 0,
                     },
                 }),
@@ -2589,9 +2588,9 @@ mod tests {
                         node: root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 1,
                     },
-                    index: 0,
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
@@ -2600,10 +2599,10 @@ mod tests {
                         node: new_root.clone(),
                         node_path: vec![],
                         node_addr: addr::unit::NULL,
+                        node_child_index: 0,
                         depth: 0,
                     },
                     kind: token::PunctuationKind::CloseBracket,
-                    index: 0,
                 }),
                 PortOptionsBuilder::new().additional_offset(0x0).build(),
                 PortOptionsBuilder::new().additional_offset(0x0).build(),

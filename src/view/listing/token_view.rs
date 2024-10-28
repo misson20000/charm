@@ -113,7 +113,7 @@ impl TokenView {
             },
             token::Token::SummaryPunctuation(token) => {
                 let selected = match token.kind {
-                    token::PunctuationKind::Comma => selection.includes_child(token.index) && selection.includes_child(token.index+1),
+                    token::PunctuationKind::Comma => selection.includes_child(token.node_child_index()) && selection.includes_child(token.node_child_index()+1),
                     _ => selection.is_total()
                 };
                 
