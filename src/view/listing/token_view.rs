@@ -6,6 +6,7 @@ use crate::model::datapath;
 use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
+use crate::model::listing::token::AsTokenRef;
 use crate::model::listing::token::TokenKind;
 use crate::model::selection;
 use crate::view::helpers;
@@ -43,7 +44,7 @@ impl TokenView {
     }
 
     pub fn token(&self) -> token::TokenRef<'_> {
-        self.token.as_ref()
+        self.token.as_token_ref()
     }
     
     pub fn get_indentation(&self) -> usize {
@@ -60,7 +61,7 @@ impl TokenView {
     }
 
     pub fn contains_cursor(&self, cursor: &cursor::Cursor) -> bool {
-        cursor.is_over(self.token.as_ref())
+        cursor.is_over(self.token.as_token_ref())
     }
     
     pub fn contains(&self, point: &graphene::Point) -> bool {
@@ -101,7 +102,7 @@ impl TokenView {
 
         let mut pos = graphene::Point::new(0.0, lh);
         
-        let has_cursor = cursor.cursor.is_over(self.token.as_ref());
+        let has_cursor = cursor.cursor.is_over(self.token.as_token_ref());
         
         match &self.token {
             token::Token::BlankLine(token) if token.accepts_cursor && has_cursor => {
@@ -238,10 +239,16 @@ impl TokenView {
     }
     
     pub fn work(&mut self, document: &document::Document, cx: &mut task::Context, did_work: &mut bool, work_needed: &mut bool) {
+        let absolute_extent = match &self.token {
+            token::Token::Hexdump(t) => t.absolute_extent(),
+            token::Token::Hexstring(t) => t.extent.rebase(t.common().node_addr),
+            _ => return,
+        };
+        
         let mut fetcher = match self.data.take() {
             Some(fetcher) => fetcher,
             None => {
-                let (begin_byte, size) = self.token.absolute_extent().round_out();
+                let (begin_byte, size) = absolute_extent.round_out();
                 datapath::Fetcher::new(&document.datapath, begin_byte, size as usize)
             }
         };

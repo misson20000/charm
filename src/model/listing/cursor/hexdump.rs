@@ -6,11 +6,11 @@ use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
 use crate::model::listing::token;
-use crate::model::listing::token::TokenKind;
+use crate::model::listing::token::AsTokenRef;
 
 #[derive(Debug)]
 pub struct Cursor {
-    pub token: token::HexdumpToken,
+    pub token: token::Hexdump,
     pub offset: addr::Size,
     pub low_nybble: bool,
 
@@ -18,7 +18,7 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::HexdumpToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
+    pub fn new_transition(token: token::Hexdump, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
 
@@ -61,7 +61,7 @@ impl Cursor {
         })
     }
     
-    pub fn new_placement(token: token::HexdumpToken, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
+    pub fn new_placement(token: token::Hexdump, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
         let limit = (extent.length() - addr::unit::BIT).floor();
 
@@ -89,7 +89,7 @@ impl Cursor {
 
 impl cursor::CursorClassExt for Cursor {
     fn is_over(&self, token: token::TokenRef<'_>) -> bool {
-        self.token.as_ref() == token
+        self.token.as_token_ref() == token
     }
 
     fn get_addr(&self) -> addr::Address {
@@ -101,7 +101,7 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn get_token(&self) -> token::TokenRef<'_> {
-        self.token.as_ref()
+        self.token.as_token_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

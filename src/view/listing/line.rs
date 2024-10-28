@@ -7,6 +7,7 @@ use crate::model::document;
 use crate::model::listing::cursor;
 use crate::model::listing::line as line_model;
 use crate::model::listing::token;
+use crate::model::listing::token::TokenKind;
 use crate::model::listing::window;
 use crate::model::selection;
 use crate::util;

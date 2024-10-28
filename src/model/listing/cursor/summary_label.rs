@@ -2,17 +2,18 @@ use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
 use crate::model::listing::token;
+use crate::model::listing::token::AsTokenRef;
 use crate::model::listing::token::TokenKind;
 
 use tracing::instrument;
 
 #[derive(Debug)]
 pub struct Cursor {
-    token: token::SummaryLabelToken,
+    token: token::SummaryLabel,
 }
 
 impl Cursor {
-    pub fn new_transition(token: token::SummaryLabelToken, hint: &cursor::TransitionHint) -> Result<Cursor, token::SummaryLabelToken> {
+    pub fn new_transition(token: token::SummaryLabel, hint: &cursor::TransitionHint) -> Result<Cursor, token::SummaryLabel> {
         if match hint {
             hint if hint.is_entry() => false,
             cursor::TransitionHint::MoveVertical { horizontal_position: cursor::HorizontalPosition::Title, .. } => true,
@@ -26,7 +27,7 @@ impl Cursor {
         }
     }
     
-    pub fn new_placement(token: token::SummaryLabelToken, hint: &cursor::PlacementHint) -> Result<Cursor, token::SummaryLabelToken> {
+    pub fn new_placement(token: token::SummaryLabel, hint: &cursor::PlacementHint) -> Result<Cursor, token::SummaryLabel> {
         match hint {
             /* we only place the cursor on a summary label if explicitly requested or this is a last-ditch effort;
              * otherwise, we prefer to place it on a content token. */
@@ -40,7 +41,7 @@ impl Cursor {
 
 impl cursor::CursorClassExt for Cursor {
     fn is_over(&self, token: token::TokenRef<'_>) -> bool {
-        self.token.as_ref() == token
+        self.token.as_token_ref() == token
     }
     
     fn get_addr(&self) -> addr::Address {
@@ -52,7 +53,7 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn get_token(&self) -> token::TokenRef<'_> {
-        self.token.as_ref()
+        self.token.as_token_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

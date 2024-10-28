@@ -7,7 +7,6 @@ use crate::model::addr;
 use crate::model::document::change;
 use crate::model::document::structure;
 use crate::model::document;
-use crate::model::listing::token::TokenKind;
 use crate::model::listing::token;
 
 use tracing::instrument;
@@ -688,64 +687,64 @@ impl Position {
         
         match self.state {
             PositionState::PreBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::BlankLineToken {
+                TokenGenerationResult::Ok(token::BlankLine {
                     common,
                     accepts_cursor: false,
-                }.into_token())
+                }.into())
             } else {
                 TokenGenerationResult::Skip
             },
-            PositionState::Title => TokenGenerationResult::Ok(token::TitleToken {
+            PositionState::Title => TokenGenerationResult::Ok(token::Title {
                 common,
-            }.into_token()),
+            }.into()),
             
             PositionState::MetaContent(_, _) => TokenGenerationResult::Skip,
-            PositionState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::HexdumpToken {
+            PositionState::Hexdump { extent, line_extent, index, .. } => TokenGenerationResult::Ok(token::Hexdump {
                 common: common.adjust_depth(1),
                 index,
                 extent,
                 line: line_extent,
-            }.into_token()),
-            PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::HexstringToken::new_maybe_truncate(common.adjust_depth(1), extent).into_token()),
+            }.into()),
+            PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Hexstring::new_maybe_truncate(common.adjust_depth(1), extent).into()),
 
-            PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreambleToken {
+            PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreamble {
                 common,
-            }.into_token()),
-            PositionState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+            }.into()),
+            PositionState::SummaryOpener => TokenGenerationResult::Ok(token::SummaryPunctuation {
                 common,
                 kind: token::PunctuationKind::OpenBracket,
                 index: 0, /* unused */
-            }.into_token()),
+            }.into()),
             PositionState::SummaryLabel(i) => {
                 let ch = &self.node.children[i];
                 let mut path = self.structure_path();
                 path.push(i);
-                TokenGenerationResult::Ok(token::SummaryLabelToken {
+                TokenGenerationResult::Ok(token::SummaryLabel {
                     common: token::TokenCommon {
                         node: ch.node.clone(),
                         node_path: path,
                         node_addr: self.node_addr + ch.offset.to_size(),
                         depth: self.apparent_depth,
                     },
-                }.into_token())
+                }.into())
             },
             PositionState::SummarySeparator(i) => if i+1 < self.node.children.len() {
-                TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+                TokenGenerationResult::Ok(token::SummaryPunctuation {
                     common,
                     kind: token::PunctuationKind::Comma,
                     index: i,
-                }.into_token())
+                }.into())
             } else {
                 TokenGenerationResult::Skip
             },
-            PositionState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuationToken {
+            PositionState::SummaryCloser => TokenGenerationResult::Ok(token::SummaryPunctuation {
                 common,
                 kind: token::PunctuationKind::CloseBracket,
                 index: 0, /* unused */
-            }.into_token()),
-            PositionState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogueToken {
+            }.into()),
+            PositionState::SummaryEpilogue => TokenGenerationResult::Ok(token::SummaryEpilogue {
                 common,
-            }.into_token()),
+            }.into()),
             
             PositionState::SummaryValueBegin => TokenGenerationResult::Skip,
             PositionState::SummaryLeaf => {
@@ -753,23 +752,23 @@ impl Position {
                 let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
                 
                 TokenGenerationResult::Ok(match self.node.props.content_display {
-                    structure::ContentDisplay::None => token::SummaryPunctuationToken {
+                    structure::ContentDisplay::None => token::SummaryPunctuation {
                         common,
                         kind: token::PunctuationKind::Space,
                         index: 0, /* unused */
-                    }.into_token(),
+                    }.into(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
-                    structure::ContentDisplay::Hexdump { .. } => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
-                    structure::ContentDisplay::Hexstring => token::HexstringToken::new_maybe_truncate(common, extent).into_token(),
+                    structure::ContentDisplay::Hexdump { .. } => token::Hexstring::new_maybe_truncate(common, extent).into(),
+                    structure::ContentDisplay::Hexstring => token::Hexstring::new_maybe_truncate(common, extent).into(),
                 })
             },
             PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
 
             PositionState::PostBlank => if self.node.props.title_display.has_blanks() {
-                TokenGenerationResult::Ok(token::BlankLineToken {
+                TokenGenerationResult::Ok(token::BlankLine {
                     common: common.adjust_depth(1),
                     accepts_cursor: true,
-                }.into_token())
+                }.into())
             } else {
                 TokenGenerationResult::Skip
             },
@@ -1925,21 +1924,21 @@ pub mod xml {
             };
 
             match self.node.tag_name().name() {
-                "null" => token::BlankLineToken { common, accepts_cursor: self.node.attribute("cursor").map_or(false, |b| b.eq("true")) }.into_token(),
-                "open" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::OpenBracket, index: 0 }.into_token(),
-                "comma" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::Comma, index: self.node.attribute("index").map(|i| i.parse().unwrap()).unwrap_or(0) }.into_token(),
-                "close" => token::SummaryPunctuationToken { common, kind: token::PunctuationKind::CloseBracket, index: 0 }.into_token(),
-                "title" => token::TitleToken { common }.into_token(),
-                "summlabel" => token::SummaryLabelToken { common }.into_token(),
-                "preamble" => token::SummaryPreambleToken { common }.into_token(),
-                "epilogue" => token::SummaryEpilogueToken { common }.into_token(),
-                "hexdump" => token::HexdumpToken {
+                "null" => token::BlankLine { common, accepts_cursor: self.node.attribute("cursor").map_or(false, |b| b.eq("true")) }.into(),
+                "open" => token::SummaryPunctuation { common, kind: token::PunctuationKind::OpenBracket, index: 0 }.into(),
+                "comma" => token::SummaryPunctuation { common, kind: token::PunctuationKind::Comma, index: self.node.attribute("index").map(|i| i.parse().unwrap()).unwrap_or(0) }.into(),
+                "close" => token::SummaryPunctuation { common, kind: token::PunctuationKind::CloseBracket, index: 0 }.into(),
+                "title" => token::Title { common }.into(),
+                "summlabel" => token::SummaryLabel { common }.into(),
+                "preamble" => token::SummaryPreamble { common }.into(),
+                "epilogue" => token::SummaryEpilogue { common }.into(),
+                "hexdump" => token::Hexdump {
                     common,
                     index: self.node.attribute("index").expect("hexdump token should have index").parse().expect("hexdump token index should parse"),
                     extent: inflate_extent(&self.node),
                     line: inflate_line_extent(&self.node)
-                }.into_token(),
-                "hexstring" => token::HexstringToken::new_maybe_truncate(common, inflate_extent(&self.node)).into_token(),
+                }.into(),
+                "hexstring" => token::Hexstring::new_maybe_truncate(common, inflate_extent(&self.node)).into(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
         }
@@ -2308,7 +2307,7 @@ mod tests {
 
         assert_port_functionality(&old_doc, &new_doc, &[
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: o_child_1_2.clone(),
                         node_path: vec![1, 2],
@@ -2319,7 +2318,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x10, 0x8),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: n_child_1.clone(),
                         node_path: vec![1],
@@ -2334,7 +2333,7 @@ mod tests {
                 PortOptionsBuilder::new().additional_offset(0x8).build(), /* Becomes offset 0x48 in new child1 */
             ),
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: o_child_1_3.clone(),
                         node_path: vec![1, 3],
@@ -2345,7 +2344,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x10, 0xc),
                     line: addr::Extent::sized_u64(0x10, 0x10)
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         /* child1.3 shouldn't be affected, so use the old node and addr to assert that */
                         node: o_child_1_3.clone(),
@@ -2395,7 +2394,7 @@ mod tests {
         assert_port_functionality(&old_doc, &new_doc, &[
             /* offset 0x4 */
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2406,7 +2405,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
@@ -2422,7 +2421,7 @@ mod tests {
             ),
             /* offset 0x11 */
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2433,7 +2432,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x10, 0x10),
                     line: addr::Extent::sized_u64(0x10, 0x10),
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
@@ -2486,7 +2485,7 @@ mod tests {
         assert_port_functionality(&old_doc, &new_doc, &[
             /* offset 0x4 */
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2497,7 +2496,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
@@ -2513,7 +2512,7 @@ mod tests {
             ),
             /* offset 0x28 */
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2524,7 +2523,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x20, 0x10),
                     line: addr::Extent::sized_u64(0x20, 0x10),
                 }),
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_child.clone(),
                         node_path: vec![0],
@@ -2564,7 +2563,7 @@ mod tests {
         assert_port_functionality(&old_doc, &new_doc, &[
             /* title */
             (
-                token::Token::Title(token::TitleToken {
+                token::Token::Title(token::Title {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2572,7 +2571,7 @@ mod tests {
                         depth: 0,
                     },
                 }),
-                token::Token::Title(token::TitleToken {
+                token::Token::Title(token::Title {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
@@ -2585,7 +2584,7 @@ mod tests {
             ),
             /* offset 0x0 */
             (
-                token::Token::Hexdump(token::HexdumpToken {
+                token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
@@ -2596,7 +2595,7 @@ mod tests {
                     extent: addr::Extent::sized_u64(0x0, 0x10),
                     line: addr::Extent::sized_u64(0x0, 0x10),
                 }),
-                token::Token::SummaryPunctuation(token::SummaryPunctuationToken {
+                token::Token::SummaryPunctuation(token::SummaryPunctuation {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],

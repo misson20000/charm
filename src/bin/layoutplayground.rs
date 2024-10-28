@@ -5,6 +5,7 @@ use std::vec;
 use charm::model::document;
 use charm::model::listing::line;
 use charm::model::listing::token;
+use charm::model::listing::token::AsTokenRef;
 use charm::model::listing::token::TokenKind;
 use charm::model::listing::window;
 
@@ -24,7 +25,7 @@ impl window::LineView for Line {
     }
 
     fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
-        self.tokens.iter().map(TokenKind::as_ref)
+        self.tokens.iter().map(AsTokenRef::as_token_ref)
     }
     
     fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
@@ -48,7 +49,7 @@ fn main() {
             print!("  ");
         }
         for token in line.tokens {
-            print!("{}", token::TokenTestFormat(token.as_ref()));
+            print!("{}", token::TokenTestFormat(token.as_token_ref()));
         }
         println!();
     }

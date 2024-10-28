@@ -6,7 +6,6 @@ use crate::model::datapath;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
-use crate::model::listing::token::TokenKind;
 use crate::model::listing::cursor::CursorClass;
 use crate::view::gsc;
 use crate::view::helpers;
@@ -34,16 +33,16 @@ pub struct HexdumpBucket {
     line_extent: addr::Extent,
     line_data: Option<datapath::Fetcher>,
     
-    toks: Vec<token::HexdumpToken>
+    toks: Vec<token::Hexdump>
 }
 
 enum Part<'a> {
     Gap { width: usize, begin: Option<(addr::Address, usize)>, end: (addr::Address, usize) },
-    Octet { offset: addr::Address, next_offset: addr::Address, token: &'a token::HexdumpToken },
+    Octet { offset: addr::Address, next_offset: addr::Address, token: &'a token::Hexdump },
 }
 
 impl HexdumpBucket {
-    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::HexdumpToken>) -> Self {
+    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::Hexdump>) -> Self {
         HexdumpBucket {
             hd_begin: 0.0,
             hd_end: 0.0,
@@ -269,11 +268,11 @@ impl bucket::Bucket for HexdumpBucket {
     
 impl bucket::TokenIterableBucket for HexdumpBucket {
     fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
-        self.toks.iter().map(TokenKind::as_ref)
+        self.toks.iter().map(token::AsTokenRef::as_token_ref)
     }
 
     fn to_tokens(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
-        self.toks.into_iter().map(TokenKind::into_token)
+        self.toks.into_iter().map(Into::into)
     }
 }
 

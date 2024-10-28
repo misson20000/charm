@@ -2,6 +2,7 @@ use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
 use crate::model::listing::token;
+use crate::model::listing::token::AsTokenRef;
 use crate::model::listing::token::TokenKind;
 
 #[derive(Debug)]
@@ -37,7 +38,7 @@ impl Cursor {
 
 impl cursor::CursorClassExt for Cursor {
     fn is_over(&self, token: token::TokenRef<'_>) -> bool {
-        self.token.as_ref() == token
+        self.token.as_token_ref() == token
     }
     
     fn get_addr(&self) -> addr::Address {
@@ -49,7 +50,7 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn get_token(&self) -> token::TokenRef<'_> {
-        self.token.as_ref()
+        self.token.as_token_ref()
     }
     
     fn get_placement_hint(&self) -> cursor::PlacementHint {

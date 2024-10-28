@@ -222,7 +222,7 @@ impl LineView for line::Line {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::listing::token::TokenKind;
+    use crate::model::listing::token::AsTokenRef;
     
     #[test]
     fn scroll_around() {
@@ -434,7 +434,7 @@ mod tests {
             };
 
             let expected_index_in_line = loop {
-                if let Some(index) = lines[i].1.iter_tokens().position(|t| t == token.as_ref()) {
+                if let Some(index) = lines[i].1.iter_tokens().position(|t| t == token.as_token_ref()) {
                     break index;
                 } else {
                     i+= 1;

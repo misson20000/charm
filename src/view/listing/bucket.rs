@@ -145,12 +145,12 @@ pub use hexdump::HexdumpBucket;
 impl<Marker> SingleTokenBucket<Marker> {
 }
 
-impl<Marker, Token: token::TokenKind> From<Token> for SingleTokenBucket<Marker> {
+impl<Marker, Token: Into<token::Token>> From<Token> for SingleTokenBucket<Marker> {
     fn from(token: Token) -> Self {
         SingleTokenBucket {
             begin: 0.0,
             end: 0.0,
-            tv: token_view::TokenView::from(token.into_token()),
+            tv: token_view::TokenView::from(token.into()),
             marker: std::marker::PhantomData
         }
     }
@@ -203,12 +203,12 @@ impl<Marker> MaybeTokenBucket<Marker> {
     }
 }
 
-impl<Marker, Token: token::TokenKind> From<Option<Token>> for MaybeTokenBucket<Marker> {
+impl<Marker, Token: Into<token::Token>> From<Option<Token>> for MaybeTokenBucket<Marker> {
     fn from(token: Option<Token>) -> Self {
         MaybeTokenBucket {
             begin: 0.0,
             end: 0.0,
-            tv: token.map(TokenKind::into_token).map(token_view::TokenView::from),
+            tv: token.map(Into::into).map(token_view::TokenView::from),
             marker: std::marker::PhantomData
         }
     }

@@ -11,6 +11,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
+use crate::model::listing::token::TokenKind;
 use crate::model::listing::window as window_model;
 use crate::model::listing::window::LineView;
 use crate::model::selection;

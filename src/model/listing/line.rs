@@ -10,28 +10,29 @@ use crate::model::addr;
 use crate::model::document::structure;
 use crate::model::listing::stream;
 use crate::model::listing::token;
+use crate::model::listing::token::AsTokenRef;
 use crate::model::listing::token::TokenKind;
 use crate::util;
 
 #[derive(Clone)]
 pub enum LineType {
     Empty,
-    Blank(token::BlankLineToken),
-    Title(token::TitleToken),
+    Blank(token::BlankLine),
+    Title(token::Title),
     Hexdump {
-        title: Option<token::TitleToken>,
+        title: Option<token::Title>,
         node: sync::Arc<structure::Node>,
         node_path: structure::Path,
         node_addr: addr::Address,
         line_extent: addr::Extent,
-        tokens: collections::VecDeque<token::HexdumpToken>
+        tokens: collections::VecDeque<token::Hexdump>
     },
     Hexstring {
-        title: Option<token::TitleToken>,
-        token: token::HexstringToken,
+        title: Option<token::Title>,
+        token: token::Hexstring,
     },
     Summary {
-        title: Option<token::TitleToken>,
+        title: Option<token::Title>,
         tokens: collections::VecDeque<token::Token>
     },
 }
@@ -281,7 +282,7 @@ impl Line {
             /* Summaries... */
             (LineType::Empty, token::Token::SummaryEpilogue(token)) => (LineType::Summary {
                 title: None,
-                tokens: collections::VecDeque::from([token.into_token()]),
+                tokens: collections::VecDeque::from([token.into()]),
             }, LinePushResult::Accepted),
 
             (LineType::Summary { title: None, tokens }, token::Token::Title(token))
@@ -295,7 +296,7 @@ impl Line {
             (LineType::Summary { title, mut tokens }, token) => {
                 let result = match (tokens.front(), token) {
                     (Some(token::Token::SummaryPreamble(_)), _) => LinePushResult::Rejected,
-                    (Some(_), token::Token::SummaryPreamble(preamble)) => { tokens.push_front(preamble.into_token()); LinePushResult::Completed },
+                    (Some(_), token::Token::SummaryPreamble(preamble)) => { tokens.push_front(preamble.into()); LinePushResult::Completed },
                     (Some(_), token) => { tokens.push_front(token); LinePushResult::Accepted },
                     (None, _) => panic!("LineType::Summary should have at least one token")
                 };
@@ -397,7 +398,7 @@ impl Line {
             /* Summaries... */
             (LineType::Empty, token::Token::SummaryPreamble(token)) => (LineType::Summary {
                 title: None,
-                tokens: collections::VecDeque::from([token.into_token()]),
+                tokens: collections::VecDeque::from([token.into()]),
             }, LinePushResult::Accepted),
             
             (LineType::Title(title_token), token::Token::SummaryPreamble(token))
@@ -405,13 +406,13 @@ impl Line {
                 && title_token.node().props.title_display.is_inline()
                 => (LineType::Summary {
                     title: Some(title_token),
-                    tokens: collections::VecDeque::from([token.into_token()]),
+                    tokens: collections::VecDeque::from([token.into()]),
                 }, LinePushResult::Accepted),
 
             (LineType::Summary { title, mut tokens }, token) => {
                 let result = match (tokens.back(), token) {
                     (Some(token::Token::SummaryEpilogue(_)), _) => LinePushResult::Rejected,
-                    (Some(_), token::Token::SummaryEpilogue(token)) => { tokens.push_back(token.into_token()); LinePushResult::Completed },
+                    (Some(_), token::Token::SummaryEpilogue(token)) => { tokens.push_back(token.into()); LinePushResult::Completed },
                     (Some(_), token) => { tokens.push_back(token); LinePushResult::Accepted },
                     (None, _) => panic!("LineType::Summary should have at least one token")
                 };
@@ -439,32 +440,25 @@ impl Line {
         }
     }
     
-    pub fn iter_tokens(&self) -> impl iter::Iterator<Item = token::TokenRef<'_>> {
-        /* These need a little bit of help to coerce properly. This may be a compiler bug? */
-        let hexdump_mapper: for<'b> fn(&'b token::HexdumpToken) -> token::TokenRef<'b> = TokenKind::as_ref;
-        let token_mapper: for<'b> fn(&'b token::Token) -> token::TokenRef<'b> = TokenKind::as_ref;
-        
+    pub fn iter_tokens<'a>(&'a self) -> impl iter::Iterator<Item = token::TokenRef<'a>> {
         match &self.ty {
             LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.as_ref())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(TokenKind::as_ref).into_iter().chain(iter::once(token.as_ref()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(TokenKind::as_ref).into_iter().chain(tokens.iter().map(token_mapper))),
+            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.as_token_ref())),
+            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.as_token_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
         }
     }
 
     pub fn into_iter(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
-        /* These need a little bit of help to coerce properly. This may be a compiler bug? */
-        let hexdump_mapper: fn(token::HexdumpToken) -> token::Token = TokenKind::into_token;
-        
         match self.ty {
             LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.into_token())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter().map(hexdump_mapper))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(TokenKind::into_token).into_iter().chain(iter::once(token.into_token()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(TokenKind::into_token).into_iter().chain(tokens.into_iter())),
+            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.into())),
+            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.into())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
         }
     }
 }
@@ -557,7 +551,7 @@ mod tests {
 
         let mut line = Line::empty();
 
-        assert_eq!(line.push_front(token::Token::Hexstring(token::HexstringToken {
+        assert_eq!(line.push_front(token::Token::Hexstring(token::Hexstring {
             common: token::TokenCommon {
                 node: node.clone(),
                 node_path: vec![],
@@ -568,7 +562,7 @@ mod tests {
             truncated: false,
         })), LinePushResult::Accepted);
 
-        assert_eq!(line.push_front(token::Token::Title(token::TitleToken {
+        assert_eq!(line.push_front(token::Token::Title(token::Title {
             common: token::TokenCommon {
                 node: node.clone(),
                 node_path: vec![],
