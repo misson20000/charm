@@ -25,7 +25,7 @@
 	<hexstring node="type" extent="00:08" />
       </indent>
       
-      <comma node="entity" index="0" />
+      <comma node="entity" index="1" />
 
       <summlabel node="pos" />
       <indent>
@@ -36,7 +36,7 @@
 	  <hexstring node="x1" extent="00:08" />
 	</indent>
 	
-	<comma node="pos" index="0" />
+	<comma node="pos" index="1" />
 	
 	<summlabel node="y1" />
 	<indent>
@@ -46,7 +46,7 @@
 	<close node="pos" />
       </indent>
       
-      <comma node="entity" index="1" />
+      <comma node="entity" index="2" />
 
       <summlabel node="target" />
       <indent>
@@ -57,7 +57,7 @@
 	  <hexstring node="x2" extent="00:08" />
 	</indent>
 	
-	<comma node="target" index="0" />
+	<comma node="target" index="1" />
 	
 	<summlabel node="y2" />
 	<indent>

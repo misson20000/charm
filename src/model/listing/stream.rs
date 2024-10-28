@@ -28,7 +28,7 @@ enum PositionState {
     SummaryOpener,
     /// The argument here is an index for which child is being labelled. Does not tolerate one-past-the-end.
     SummaryLabel(usize),
-    /// The argument here is an index for which child comes before the separator. Does not tolerate one-past-the-end.
+    /// The argument here is an index for which child comes after the separator. Tolerates one-past-the-end, does not tolerate 0.
     /// We still go through this state for the last child, even though it doesn't have a separator after it,
     /// we just suppress that token when it comes time to generate it.
     SummarySeparator(usize),
@@ -728,7 +728,7 @@ impl Position {
                     },
                 }.into())
             },
-            PositionState::SummarySeparator(i) => if i+1 < self.node.children.len() {
+            PositionState::SummarySeparator(i) => if i < self.node.children.len() {
                 TokenGenerationResult::Ok(token::SummaryPunctuation {
                     common,
                     kind: token::PunctuationKind::Comma,
@@ -909,13 +909,13 @@ impl Position {
                 if i == 0 {
                     self.state = PositionState::SummaryOpener;
                 } else {
-                    self.state = PositionState::SummarySeparator(i-1);
+                    self.state = PositionState::SummarySeparator(i);
                 }
                 true
             },
             PositionState::SummarySeparator(i) => {
                 self.descend(
-                    Descent::ChildSummary(i),
+                    Descent::ChildSummary(i-1),
                     PositionState::SummaryValueEnd);
                 true
             },
@@ -923,7 +923,7 @@ impl Position {
                 if self.node.children.is_empty() {
                     self.state = PositionState::SummaryOpener;
                 } else {
-                    self.state = PositionState::SummarySeparator(self.node.children.len()-1);
+                    self.state = PositionState::SummarySeparator(self.node.children.len());
                 }
                 true
             },
@@ -1067,10 +1067,10 @@ impl Position {
                 true
             },
             PositionState::SummarySeparator(i) => {
-                if self.node.children.len() == i + 1 {
+                if self.node.children.len() == i {
                     self.state = PositionState::SummaryCloser;
                 } else {
-                    self.state = PositionState::SummaryLabel(i+1);
+                    self.state = PositionState::SummaryLabel(i);
                 }
                 true
             },
@@ -1245,7 +1245,7 @@ impl Position {
             PositionState::Hexdump { index: ch, .. } => ch,
             PositionState::Hexstring(_, ch) => ch,
             PositionState::SummaryLabel(ch) => ch,
-            PositionState::SummarySeparator(ch) => ch+1,
+            PositionState::SummarySeparator(ch) => ch,
             PositionState::SummaryCloser => self.node.children.len(),
             PositionState::SummaryEpilogue => self.node.children.len(),
             PositionState::PostBlank => self.node.children.len(),
@@ -1264,7 +1264,7 @@ impl Position {
             PositionState::SummaryPreamble => addr::unit::NULL,
             PositionState::SummaryOpener => addr::unit::NULL,
             PositionState::SummaryLabel(i) => self.node.children[i].offset,
-            PositionState::SummarySeparator(i) => self.node.children[i].end(),
+            PositionState::SummarySeparator(i) => self.node.children[i-1].end(),
             PositionState::SummaryCloser => self.node.size.to_addr(),
             PositionState::SummaryEpilogue => self.node.size.to_addr(),
             PositionState::SummaryValueBegin => addr::unit::NULL,
@@ -1346,7 +1346,7 @@ impl Descent {
     fn after_state(&self, stack_entry: &StackEntry) -> PositionState {
         match self {
             Descent::Child(i) => PositionState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
-            Descent::ChildSummary(i) => PositionState::SummarySeparator(*i),
+            Descent::ChildSummary(i) => PositionState::SummarySeparator(*i+1),
             Descent::MySummary => PositionState::SummaryEpilogue,
         }
     }
@@ -1613,7 +1613,7 @@ mod cmp {
                         super::PositionState::SummaryOpener => std::cmp::Ordering::Less,
                         super::PositionState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
                         super::PositionState::SummaryLabel(i) => i.cmp(child_index),
-                        super::PositionState::SummarySeparator(i) if i == child_index => std::cmp::Ordering::Greater,
+                        super::PositionState::SummarySeparator(i) if i == child_index => std::cmp::Ordering::Less,
                         super::PositionState::SummarySeparator(i) => i.cmp(child_index),
                         super::PositionState::SummaryCloser => std::cmp::Ordering::Greater,
                         super::PositionState::SummaryEpilogue => std::cmp::Ordering::Greater,
@@ -1717,8 +1717,8 @@ mod cmp {
             super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
-            super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
-            super::PositionState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
+            super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
+            super::PositionState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
             super::PositionState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::unit::NULL, 0),
             
