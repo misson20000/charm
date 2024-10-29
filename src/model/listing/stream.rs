@@ -1265,6 +1265,7 @@ impl Position {
             PositionState::MetaContent(_, ch) => ch,
             PositionState::Hexdump { index: ch, .. } => ch,
             PositionState::Hexstring(_, ch) => ch,
+            PositionState::Ellipsis(_, ch) => ch,
             PositionState::SummaryLabel(ch) => ch,
             PositionState::SummarySeparator(ch) => ch,
             PositionState::SummaryCloser => self.node.children.len(),
@@ -1967,6 +1968,9 @@ pub mod xml {
                 "hexstring" => token::Hexstring {
                     common,
                     extent: inflate_extent(&self.node)
+                }.into(),
+                "ellipsis" => token::Ellipsis {
+                    common,
                 }.into(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
