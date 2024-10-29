@@ -182,7 +182,7 @@ impl ContentDisplay {
         match self {
             ContentDisplay::None => None,
             ContentDisplay::Hexdump { line_pitch, .. } => Some(*line_pitch),
-            ContentDisplay::Hexstring => None,
+            ContentDisplay::Hexstring => Some(32.into()),
         }
     }
 

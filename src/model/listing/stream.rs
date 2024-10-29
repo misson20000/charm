@@ -23,6 +23,7 @@ enum PositionState {
         index: usize
     },
     Hexstring(addr::Extent, usize),
+    Ellipsis(addr::Extent, usize),
 
     SummaryPreamble,
     SummaryOpener,
@@ -351,6 +352,7 @@ impl Position {
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
                 PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
 
                 PositionState::SummaryLabel(i)
@@ -378,6 +380,7 @@ impl Position {
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
                 PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::Title),
                 PositionState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
@@ -403,6 +406,7 @@ impl Position {
                 PositionState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
+                PositionState::Ellipsis(_, index) => IntermediatePortState::SummaryLabel(*index),
 
                 PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::SummaryPreamble),
                 PositionState::SummaryOpener => IntermediatePortState::Finished(PositionState::SummaryOpener),
@@ -705,7 +709,13 @@ impl Position {
                 extent,
                 line: line_extent,
             }.into()),
-            PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Hexstring::new_maybe_truncate(common.adjust_depth(1), extent).into()),
+            PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Hexstring {
+                common: common.adjust_depth(1),
+                extent,
+            }.into()),
+            PositionState::Ellipsis(_, _) => TokenGenerationResult::Ok(token::Ellipsis {
+                common: common.adjust_depth(1),
+            }.into()),
 
             PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreamble {
                 common,
@@ -755,8 +765,14 @@ impl Position {
                         kind: token::PunctuationKind::Space,
                     }.into(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
-                    structure::ContentDisplay::Hexdump { .. } => token::Hexstring::new_maybe_truncate(common, extent).into(),
-                    structure::ContentDisplay::Hexstring => token::Hexstring::new_maybe_truncate(common, extent).into(),
+                    structure::ContentDisplay::Hexdump { .. } => token::Hexstring {
+                        common,
+                        extent,
+                    }.into(),
+                    structure::ContentDisplay::Hexstring => token::Hexstring {
+                        common,
+                        extent,
+                    }.into(),
                 })
             },
             PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
@@ -870,7 +886,7 @@ impl Position {
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
                     
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => PositionState::MetaContent(interstitial.begin, index),
+                        structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
                             let line_extent = self.get_line_extent(offset - addr::unit::BIT, line_pitch);
 
@@ -895,6 +911,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.begin, index);
+                true
+            },
+            PositionState::Ellipsis(extent, index) => {
                 self.state = PositionState::MetaContent(extent.begin, index);
                 true
             },
@@ -1020,7 +1040,7 @@ impl Position {
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
 
                     self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => PositionState::MetaContent(interstitial.end, index),
+                        structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
                             let line_extent = self.get_line_extent(offset, line_pitch);
                             
@@ -1045,6 +1065,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.end, index);
+                true
+            },
+            PositionState::Ellipsis(extent, index) => {
                 self.state = PositionState::MetaContent(extent.end, index);
                 true
             },
@@ -1258,6 +1282,7 @@ impl Position {
             PositionState::MetaContent(offset, _) => offset,
             PositionState::Hexdump { extent, .. } => extent.begin,
             PositionState::Hexstring(extent, _) => extent.begin,
+            PositionState::Ellipsis(extent, _) => extent.begin,
             PositionState::SummaryPreamble => addr::unit::NULL,
             PositionState::SummaryOpener => addr::unit::NULL,
             PositionState::SummaryLabel(i) => self.node.children[i].offset,
@@ -1280,6 +1305,7 @@ impl Position {
             PositionState::MetaContent(_, _) => false,
             PositionState::Hexdump { .. } => false,
             PositionState::Hexstring(_, _) => false,
+            PositionState::Ellipsis(_, _) => false,
 
             PositionState::SummaryPreamble => true,
             PositionState::SummaryOpener => true,
@@ -1606,6 +1632,8 @@ mod cmp {
                         super::PositionState::Hexdump { index, .. } => index.cmp(child_index),
                         super::PositionState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
                         super::PositionState::Hexstring(_, i) => i.cmp(child_index),
+                        super::PositionState::Ellipsis(_, i) if i == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::Ellipsis(_, i) => i.cmp(child_index),
                         super::PositionState::SummaryPreamble => std::cmp::Ordering::Less,
                         super::PositionState::SummaryOpener => std::cmp::Ordering::Less,
                         super::PositionState::SummaryLabel(i) if i == child_index => std::cmp::Ordering::Less,
@@ -1712,6 +1740,7 @@ mod cmp {
             super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
             super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::PositionState::Ellipsis(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
             super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
@@ -1935,7 +1964,10 @@ pub mod xml {
                     extent: inflate_extent(&self.node),
                     line: inflate_line_extent(&self.node)
                 }.into(),
-                "hexstring" => token::Hexstring::new_maybe_truncate(common, inflate_extent(&self.node)).into(),
+                "hexstring" => token::Hexstring {
+                    common,
+                    extent: inflate_extent(&self.node)
+                }.into(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
         }

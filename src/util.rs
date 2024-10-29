@@ -90,7 +90,7 @@ impl<T> DoubleEndedIterator for NeverIterator<T> {
 
 // TODO: fix me up when we get variadic generics
 // TODO: remove me when we get anonymous sum types
-seq!(N in 1..=6 {
+seq!(N in 1..=7 {
     pub enum PhiIterator<Item, #(I~N: Iterator<Item = Item> = NeverIterator<Item>,)*> {
         #(I~N(I~N),)*
     }

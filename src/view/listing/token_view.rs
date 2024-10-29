@@ -167,6 +167,15 @@ impl TokenView {
                     .selected(selection.is_total(), render.config.selection_color.rgba())
                     .render(snapshot);
             },
+            token::Token::Ellipsis(token) => {
+                let index = token.node_child_index();
+                let selected = (index == 0 || selection.includes_child(index-1)) && selection.includes_child(index);
+                
+                render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &mut pos)
+                    .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
+                    .selected(selected, render.config.selection_color.rgba())
+                    .render(snapshot);
+            },
             token::Token::Hexdump(_) => {
                 // TODO: enforce this with type system?
                 panic!("hexdump tokens should not be rendered via this codepath");
@@ -200,14 +209,6 @@ impl TokenView {
                             .placeholder(pending, render.config.placeholder_color.rgba())
                             .render(snapshot);
                     }
-                }
-
-                if token.truncated {
-                    render.gsc_mono.begin(
-                        gsc::Entry::Punctuation(token::PunctuationKind::Ellipsis),
-                        render.config.text_color.rgba(),
-                        &mut pos)
-                        .render(snapshot);
                 }
             },
 

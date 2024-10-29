@@ -196,6 +196,11 @@ declare_tokens! {
     SummaryLabel {
     },
 
+    /// Indicates that data is being skipped. Probably either because of ContentDisplay::Hidden or because it's being truncated by summary mode.
+    #[derive(Debug)]
+    Ellipsis {
+    },
+
     /// Formatted two-column hexdump+asciidump. What you expect to see out of a hex editor.
     #[derive(Debug)]
     Hexdump {
@@ -207,7 +212,6 @@ declare_tokens! {
     #[derive(Debug)]
     Hexstring {
         pub extent: addr::Extent,
-        pub truncated: bool,
     },
 }
 
@@ -225,9 +229,6 @@ pub enum PunctuationKind {
     
     /* should accept cursor */
     CloseBracket,
-
-    /* should not accept cursor */
-    Ellipsis,
 }
 
 #[derive(Clone)]
@@ -325,6 +326,7 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
             TokenRef::SummaryPunctuation(token) => write!(f, "(#{}) {}", i, token.kind.as_str()),
             TokenRef::Title(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
             TokenRef::SummaryLabel(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
+            TokenRef::Ellipsis(_) => write!(f, "(#{}) ...", i),
             TokenRef::Hexdump(token) => {
                 write!(f, "(#{}) ", i)?;
                 for j in 0..token.extent.length().bytes {
@@ -359,7 +361,6 @@ impl PunctuationKind {
             PunctuationKind::Comma => ", ",
             PunctuationKind::OpenBracket => "{",
             PunctuationKind::CloseBracket => "}",
-            PunctuationKind::Ellipsis => "...",
         }
     }
 
@@ -378,25 +379,6 @@ impl Hexdump {
 }
 
 impl Hexstring {
-    pub fn new_maybe_truncate(common: TokenCommon, extent: addr::Extent) -> Hexstring {
-        // TODO: make this configurable
-        const LIMIT: addr::Size = addr::Size::new(16);
-
-        if extent.length() > LIMIT {
-            Hexstring {
-                common,
-                extent: addr::Extent::sized(extent.begin, LIMIT),
-                truncated: true,
-            }
-        } else {
-            Hexstring {
-                common,
-                extent,
-                truncated: false,
-            }
-        }
-    }
-
     pub fn absolute_extent(&self) -> addr::Extent {
         self.extent.rebase(self.common.node_addr)
     }

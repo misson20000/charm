@@ -138,3 +138,9 @@ impl LayoutProvider<bucket::AsciidumpMarker> for LayoutController {
         self.allocate_asciidump(cb);
     }
 }
+
+impl LayoutProvider<bucket::EllipsisMarker> for LayoutController {
+    fn allocate<F: FnOnce(f32) -> f32>(&mut self, _marker: std::marker::PhantomData<bucket::EllipsisMarker>, cb: F) {
+        self.allocate_main(cb);
+    }
+}

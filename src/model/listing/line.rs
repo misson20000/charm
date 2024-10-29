@@ -35,6 +35,10 @@ pub enum LineType {
         title: Option<token::Title>,
         tokens: collections::VecDeque<token::Token>
     },
+    Ellipsis {
+        title: Option<token::Title>,
+        token: token::Ellipsis,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -178,6 +182,8 @@ impl Line {
                 token::Token::SummaryPunctuation(_) |
                 token::Token::SummaryLabel(_) => panic!("Got Summary-type token but wasn't told we were in a summary"),
                 
+                token::Token::Ellipsis(t) => LineType::Ellipsis { title: None, token: t },
+                
                 token::Token::Hexdump(token) => LineType::Hexdump {
                     title: None,
                     node: token.common.node.clone(),
@@ -279,6 +285,21 @@ impl Line {
                     token: hexstring_token,
                 }, LinePushResult::Accepted),
 
+            /* An ellipsis token can end a line */
+            (LineType::Empty, token::Token::Ellipsis(token)) => (LineType::Ellipsis {
+                title: None,
+                token
+            }, LinePushResult::Accepted),
+
+            /* A title token can occur on the same line as an ellipsis if the title is inline and there isn't already a title. */
+            (LineType::Ellipsis { title: None, token: ellipsis_token }, token::Token::Title(token))
+                if sync::Arc::ptr_eq(&token.common.node, &ellipsis_token.common.node)
+                && token.common.node.props.title_display.is_inline()
+                => (LineType::Ellipsis {
+                    title: Some(token),
+                    token: ellipsis_token,
+                }, LinePushResult::Accepted),
+
             /* Summaries... */
             (LineType::Empty, token::Token::SummaryEpilogue(token)) => (LineType::Summary {
                 title: None,
@@ -304,11 +325,13 @@ impl Line {
                 (LineType::Summary { title, tokens }, result)
             },
 
+            /*
             (LineType::Empty, _) => {
                 (LineType::Empty, LinePushResult::BadPosition)
-            },
+        },
+            */
             
-            (ty, _) => (ty, LinePushResult::Rejected)            
+            (ty, _) => (ty, LinePushResult::Rejected)
         };
 
         self.ty = new_ty;
@@ -394,7 +417,22 @@ impl Line {
                     title: Some(title_token),
                     token,
                 }, LinePushResult::Accepted),
-            
+
+            /* An ellipsis token can begin a line */
+            (LineType::Empty, token::Token::Ellipsis(token)) => (LineType::Ellipsis {
+                title: None,
+                token
+            }, LinePushResult::Completed),
+
+            /* An ellipsis token can occur on the same line as a title if the title is inline. */
+            (LineType::Title(title_token), token::Token::Ellipsis(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
+                => (LineType::Ellipsis {
+                    title: Some(title_token),
+                    token,
+                }, LinePushResult::Accepted),
+
             /* Summaries... */
             (LineType::Empty, token::Token::SummaryPreamble(token)) => (LineType::Summary {
                 title: None,
@@ -448,6 +486,7 @@ impl Line {
             LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
             LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
             LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf5::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
         }
     }
 
@@ -459,6 +498,7 @@ impl Line {
             LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
             LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
             LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf5::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
         }
     }
 }
@@ -530,6 +570,7 @@ impl fmt::Debug for Line {
                 LineType::Hexdump { .. } => &"hexdump",
                 LineType::Hexstring { .. } => &"hexstring",
                 LineType::Summary { .. } => &"summary",
+                LineType::Ellipsis { .. } => &"ellipsis",
             })
             .field("tokens", &self.iter_tokens().map(|tok| token::TokenTestFormat(tok)).collect::<Vec<_>>())
             .finish()
@@ -562,7 +603,6 @@ mod tests {
                 depth: 0,
             },
             extent: addr::Extent::sized_u64(0, 8),
-            truncated: false,
         })), LinePushResult::Accepted);
 
         assert_eq!(line.push_front(token::Token::Title(token::Title {
