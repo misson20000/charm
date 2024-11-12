@@ -222,7 +222,7 @@ impl cursor::CursorClassExt for Cursor {
             Some(fetcher) => fetcher,
             None => {
                 let (begin_byte, size) = self.token.absolute_extent().round_out();
-                datapath::Fetcher::new(&document.datapath, begin_byte, size as usize)
+                datapath::Fetcher::new(document.datapath.clone(), begin_byte, size as usize)
             }
         };
 

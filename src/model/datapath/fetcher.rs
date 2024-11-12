@@ -1,11 +1,9 @@
 use std::vec;
 
 use crate::model::datapath::DataPath;
-use crate::model::datapath::fetch_filters;
 use crate::model::datapath::FetchFlags;
 use crate::model::datapath::FetchRequest;
 use crate::model::datapath::FetchResult;
-use crate::model::datapath::Filter;
 
 use atomig::Atomic;
 use atomig::Ordering;
@@ -18,7 +16,7 @@ struct FetcherInterior {
 
     #[borrows(data, flags)]
     #[not_covariant]
-    future: Option<std::pin::Pin<Box<dyn std::future::Future<Output = (FetchResult, &'this [Atomic<u8>], &'this [Atomic<FetchFlags>], imbl::Vector<Filter>)> + 'this>>>,
+    future: Option<std::pin::Pin<Box<dyn std::future::Future<Output = (FetchResult, &'this [Atomic<u8>], &'this [Atomic<FetchFlags>], DataPath)> + 'this>>>,
 }
 
 pub struct Fetcher {
@@ -38,9 +36,7 @@ impl Fetcher {
         }.build()
     }
     
-    pub fn new(datapath: &DataPath, addr: u64, size: usize) -> Fetcher {
-        let filters = datapath.filters.clone();
-
+    pub fn new(datapath: DataPath, addr: u64, size: usize) -> Fetcher {
         let mut data = vec![];
         data.resize_with(size, || Atomic::new(0));
         let mut flags = vec![];
@@ -54,12 +50,12 @@ impl Fetcher {
             interior: FetcherInteriorBuilder {
                 data,
                 flags,
-                future_builder: move |data_ref, flags_ref| Self::make_future(addr, &data_ref[..], &flags_ref[..], filters),
+                future_builder: move |data_ref, flags_ref| Self::make_future(addr, &data_ref[..], &flags_ref[..], datapath),
             }.build()
         }
     }
 
-    pub fn reset(&mut self, datapath: &DataPath, addr: u64, size: usize) {
+    pub fn reset(&mut self, datapath: DataPath, addr: u64, size: usize) {
         self.addr = addr;
         self.progress = 0;
         self.size = size;
@@ -71,12 +67,10 @@ impl Fetcher {
         interior.flags.clear();
         interior.flags.resize_with(size, || Atomic::new(FetchFlags::empty()));
 
-        let filters = datapath.filters.clone();
-        
         self.interior = FetcherInteriorBuilder {
             data: interior.data,
             flags: interior.flags,
-            future_builder: move |data_ref, flags_ref| Self::make_future(addr, &data_ref[..], &flags_ref[..], filters),
+            future_builder: move |data_ref, flags_ref| Self::make_future(addr, &data_ref[..], &flags_ref[..], datapath),
         }.build();
     }
 
@@ -108,10 +102,10 @@ impl Fetcher {
         (data, flags)
     }
 
-    fn make_future<'data>(addr: u64, data: &'data [Atomic<u8>], flags: &'data [Atomic<FetchFlags>], filters: imbl::Vector<Filter>) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = (FetchResult, &'data [Atomic<u8>], &'data [Atomic<FetchFlags>], imbl::Vector<Filter>)> + 'data>>> {
+    fn make_future<'data>(addr: u64, data: &'data [Atomic<u8>], flags: &'data [Atomic<FetchFlags>], datapath: DataPath) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = (FetchResult, &'data [Atomic<u8>], &'data [Atomic<FetchFlags>], DataPath)> + 'data>>> {
         if data.len() > 0 {
             Some(Box::pin(async move {
-                (fetch_filters(filters.clone(), FetchRequest::new(addr, &*data, Some(&*flags))).await, data, flags, filters)
+                (datapath.fetch(FetchRequest::new(addr, &*data, Some(&*flags), false)).await, data, flags, datapath)
             }))
         } else {
             None

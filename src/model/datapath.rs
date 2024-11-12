@@ -50,13 +50,14 @@ pub struct FetchRequest<'a> {
     addr: u64,
     data: &'a [Atomic<u8>],
     flags: Option<&'a [Atomic<FetchFlags>]>,
+    ignore_edits: bool,
 }
 
 pub struct FetchResult {
     /// The bitwise-OR accumulation of all the flags from the request
-    flags: FetchFlags,
+    pub flags: FetchFlags,
     /// How many bytes were processed. Advance your request by this much and try again if you didn't get everything.
-    loaded: usize,
+    pub loaded: usize,
 }
 
 type LoadFuture = std::pin::Pin<Box<dyn std::future::Future<Output = FetchResult>>>;
@@ -173,24 +174,27 @@ impl DataPath {
     pub fn iter_filters(&self) -> impl std::iter::DoubleEndedIterator<Item = &Filter> {
         self.filters.iter()
     }
-}
 
-async fn fetch_filters(filters: imbl::Vector<Filter>, mut rq: FetchRequest<'_>) -> FetchResult {
-    for filter in filters.iter().rev() {
-        rq = match filter.load(std::mem::replace(&mut rq, FetchRequest::default())).await {
-            FilterFetchResult::Pass(rq) => rq,
-            FilterFetchResult::Done(rs) => return rs,
+    pub async fn fetch(&self, mut rq: FetchRequest<'_>) -> FetchResult {
+        let filters = self.filters.clone();
+        
+        for filter in filters.iter().rev() {
+            rq = match filter.load(std::mem::replace(&mut rq, FetchRequest::default())).await {
+                FilterFetchResult::Pass(rq) => rq,
+                FilterFetchResult::Done(rs) => return rs,
+            }
+        }
+        
+        FetchResult {
+            flags: FetchFlags::default(),
+            loaded: rq.len() as usize,
         }
     }
-    
-    FetchResult {
-        flags: FetchFlags::default(),
-        loaded: rq.len() as usize,
-    }
+
 }
     
 impl<'a> FetchRequest<'a> {
-    pub fn new(addr: u64, data: &'a [Atomic<u8>], flags: Option<&'a [Atomic<FetchFlags>]>) -> Self {
+    pub fn new(addr: u64, data: &'a [Atomic<u8>], flags: Option<&'a [Atomic<FetchFlags>]>, ignore_edits: bool) -> Self {
         if let Some(flags) = flags.as_ref() {
             assert_eq!(flags.len(), data.len());
         }
@@ -199,6 +203,7 @@ impl<'a> FetchRequest<'a> {
             addr,
             data,
             flags,
+            ignore_edits,
         }
     }
 
@@ -221,6 +226,7 @@ impl<'a> FetchRequest<'a> {
                 addr: self.addr,
                 data: self.data,
                 flags: self.flags,
+                ignore_edits: self.ignore_edits,
             })
         } else if self.addr < addr && self.addr + self.len() as u64 > addr {
             /* if we overlap the split point */
@@ -234,10 +240,12 @@ impl<'a> FetchRequest<'a> {
                 addr: self.addr,
                 data: ad,
                 flags: af,
+                ignore_edits: self.ignore_edits,
             }, Self {
                 addr,
                 data: bd,
                 flags: bf,
+                ignore_edits: self.ignore_edits,
             })
         } else if self.addr < addr && self.addr + self.len() as u64 <= addr {
             /* if we are entirely before the split point */
@@ -245,6 +253,7 @@ impl<'a> FetchRequest<'a> {
                 addr: self.addr,
                 data: self.data,
                 flags: self.flags,
+                ignore_edits: self.ignore_edits,
             }, Self::default())
         } else {
             panic!("unreachable")
@@ -413,6 +422,10 @@ impl LoadSpaceFilter {
 
 impl OverwriteFilter {
     fn load<'a>(&self, rq: FetchRequest<'a>) -> FilterFetchResult<'a> {
+        if rq.ignore_edits {
+            return FilterFetchResult::Pass(rq);
+        }
+        
         let (before, overlap, after) = rq.split3(self.offset, Some(self.bytes.len() as u64));
 
         /* Process this immediately since callers can observe that this data loads instantly even if data before it takes a while to load asynchronously. */

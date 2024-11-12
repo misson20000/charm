@@ -211,6 +211,7 @@ impl CharmWindow {
             menu.append(Some("Nest"), Some("ctx.nest"));
             menu.append(Some("Destructure"), Some("ctx.destructure"));
             menu.append(Some("Delete"), Some("ctx.delete_node"));
+            menu.append(Some("Export..."), Some("ctx.export_binary_node"));
             let popover = gtk::PopoverMenu::from_model(Some(&menu));
             popover.set_parent(&hierarchy_editor);
             
@@ -541,6 +542,7 @@ impl WindowContext {
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);
+        action::tree::export_binary_node::add_action(&wc);
         action::debug::revert_document::add_action(&wc);
         
         wc
