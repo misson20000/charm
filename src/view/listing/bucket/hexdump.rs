@@ -29,7 +29,7 @@ pub struct HexdumpBucket {
     
     node: sync::Arc<structure::Node>,
     node_path: structure::Path,
-    node_addr: addr::Address,
+    node_addr: addr::AbsoluteAddress,
     
     line_extent: addr::Extent,
     line_data: Option<datapath::Fetcher>,
@@ -38,12 +38,12 @@ pub struct HexdumpBucket {
 }
 
 enum Part<'a> {
-    Gap { width: usize, begin: Option<(addr::Address, usize)>, end: (addr::Address, usize) },
-    Octet { offset: addr::Address, next_offset: addr::Address, token: &'a token::Hexdump },
+    Gap { width: usize, begin: Option<(addr::Offset, usize)>, end: (addr::Offset, usize) },
+    Octet { offset: addr::Offset, next_offset: addr::Offset, token: &'a token::Hexdump },
 }
 
 impl HexdumpBucket {
-    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::Address, line_extent: addr::Extent, tokens: impl Iterator<Item = token::Hexdump>) -> Self {
+    pub fn new(node: sync::Arc<structure::Node>, node_path: structure::Path, node_addr: addr::AbsoluteAddress, line_extent: addr::Extent, tokens: impl Iterator<Item = token::Hexdump>) -> Self {
         HexdumpBucket {
             hd_begin: 0.0,
             hd_end: 0.0,
@@ -64,12 +64,12 @@ impl HexdumpBucket {
         }
     }
 
-    fn end(&self) -> addr::Address {
+    fn end(&self) -> addr::Offset {
         self.toks.last().unwrap().extent.end
     }
     
-    fn gutter_pitch(&self) -> addr::Size {
-        addr::Size::from(8)
+    fn gutter_pitch(&self) -> addr::Offset {
+        addr::Offset::from(8)
     }
 
     fn each_part<T, F: FnMut(usize, Part<'_>) -> Option<T>>(&self, mut cb: F) -> (usize, Option<T>) {
@@ -100,7 +100,7 @@ impl HexdumpBucket {
                 next_gutter+= gutter_pitch;
             }
 
-            let next_offset = std::cmp::min(offset + addr::unit::BYTE, next_gutter);
+            let next_offset = std::cmp::min(offset + addr::Offset::BYTE, next_gutter);
             
             while next_token.map_or(false, |t| t.extent.end <= offset) {
                 next_token = token_iterator.next();
@@ -143,8 +143,8 @@ impl HexdumpBucket {
 }
 
 impl bucket::Bucket for HexdumpBucket {
-    fn visible_address(&self) -> Option<addr::Address> {
-        Some(self.node_addr + self.line_extent.begin.to_size())
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
+        Some(self.node_addr + self.line_extent.begin)
     }
 
     fn render(&mut self, ctx: bucket::RenderArgs<'_>, layout: &mut LayoutController) {
@@ -181,7 +181,7 @@ impl bucket::Bucket for HexdumpBucket {
                 
                 Part::Octet { offset, next_offset: _, token: _ } => {
                     // TODO: deal with bit-sized gutter pitches
-                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes as usize)).unwrap_or_default();
+                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes() as usize)).unwrap_or_default();
                     
                     let mut text_color = ctx.render.config.text_color.rgba();
                     let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
@@ -226,12 +226,12 @@ impl bucket::Bucket for HexdumpBucket {
             let num_bytes = self.line_extent.round_out().1;
             
             for i in 0..num_bytes {
-                while next_token.map_or(false, |t| t.extent.end <= self.line_extent.begin + addr::Size::from(i)) {
+                while next_token.map_or(false, |t| t.extent.end <= self.line_extent.begin + addr::Offset::from(i)) {
                     next_token = token_iterator.next();
                 }
 
                 if let Some(token) = next_token {
-                    if let Some(byte_extent) = addr::Extent::sized(i.into(), addr::unit::BYTE).rebase(self.line_extent.begin).intersection(self.line_extent) {
+                    if let Some(byte_extent) = addr::Extent::sized(i, addr::Offset::BYTE).offset(self.line_extent.begin).intersection(self.line_extent) {
                         if token.extent.includes(byte_extent.begin) {
                             let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
 
@@ -282,7 +282,7 @@ impl bucket::WorkableBucket for HexdumpBucket {
         let mut fetcher = match self.line_data.take() {
             Some(fetcher) => fetcher,
             None => {
-                let (begin_byte, size) = self.line_extent.rebase(self.node_addr).round_out();
+                let (begin_byte, size) = self.line_extent.absolute_from(self.node_addr).round_out();
                 datapath::Fetcher::new(document.datapath.clone(), begin_byte, size as usize)
             }
         };

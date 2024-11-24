@@ -172,7 +172,7 @@ impl LineViewType {
         self.iter_tokens().next().map_or(0, |t| t.common().depth)
     }
 
-    fn visible_address(&self) -> Option<addr::Address> {
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
         match self {
             Self::Empty => None,
             Self::Blank(_) => None,

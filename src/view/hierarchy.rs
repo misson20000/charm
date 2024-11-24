@@ -37,8 +37,8 @@ pub struct NodeInfo {
     pub props: structure::Properties,
     
     pub path: structure::Path,
-    pub offset: addr::Address,
-    pub address: addr::Address,
+    pub offset: addr::Offset,
+    pub address: addr::AbsoluteAddress,
     pub document_host: sync::Arc<document::DocumentHost>,
     pub document: sync::Arc<document::Document>,
 }
@@ -64,7 +64,7 @@ mod imp {
     pub struct StructureListModelInterior {
         pub path: structure::Path,
         pub children: vec::Vec<super::NodeItem>,
-        pub address: addr::Address,
+        pub address: addr::AbsoluteAddress,
         pub document_host: sync::Arc<document::DocumentHost>,
         pub document: sync::Arc<document::Document>,
         pub deleted: bool,
@@ -273,7 +273,7 @@ impl StructureListModel {
                     node: ch.node.clone(),
                     props: ch.node.props.clone(),
                     offset: ch.offset,
-                    address: info.address + ch.offset.to_size(),
+                    address: info.address + ch.offset,
                     document_host: info.document_host.clone(),
                     document: info.document.clone()
                 })                
@@ -299,7 +299,7 @@ impl StructureListModel {
                 i.deleted = true;
                 i.path.clear();
                 i.children.clear();
-                i.address = addr::unit::NULL;
+                i.address = addr::AbsoluteAddress::NULL;
                 return None;
             },
         };
@@ -321,7 +321,7 @@ impl StructureListModel {
                     node: childhood.node.clone(),
                     props: new_props.clone(),
                     offset: childhood.offset,
-                    address: addr + childhood.offset.to_size(),
+                    address: addr + childhood.offset,
                     document: new_doc.clone(),
                     document_host,
                 });
@@ -349,7 +349,7 @@ impl StructureListModel {
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
                     offset: childhood.offset,
-                    address: addr + childhood.offset.to_size(),
+                    address: addr + childhood.offset,
                     document: new_doc.clone(),
                     document_host,
                 }));
@@ -368,7 +368,7 @@ impl StructureListModel {
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
                     offset: childhood.offset,
-                    address: addr + childhood.offset.to_size(),
+                    address: addr + childhood.offset,
                     document: new_doc.clone(),
                     document_host,
                 })]).count();
@@ -386,7 +386,7 @@ impl StructureListModel {
                     node: childhood.node.clone(),
                     props: childhood.node.props.clone(),
                     offset: childhood.offset,
-                    address: addr + childhood.offset.to_size(),
+                    address: addr + childhood.offset,
                     document: new_doc.clone(),
                     document_host: document_host.clone(),
                 }))).count();
@@ -504,8 +504,8 @@ impl RootListModel {
             path: vec![],
             node: document.root.clone(),
             props: document.root.props.clone(),
-            offset: addr::unit::NULL,
-            address: addr::unit::NULL,
+            offset: addr::Offset::NULL,
+            address: addr::AbsoluteAddress::NULL,
             document: document.clone(),
             document_host: document_host.clone(),
         })).unwrap();
@@ -520,8 +520,8 @@ impl RootListModel {
             path: vec![],
             node: new_document.root.clone(),
             props: new_document.root.props.clone(),
-            offset: addr::unit::NULL,
-            address: addr::unit::NULL,
+            offset: addr::Offset::NULL,
+            address: addr::AbsoluteAddress::NULL,
             document: new_document.clone(),
             document_host: root_item.info().document_host.clone(),
         });

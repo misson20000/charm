@@ -53,11 +53,11 @@ impl TokenView {
         self.token.common().depth
     }
 
-    pub fn visible_address(&self) -> Option<addr::Address> {
+    pub fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
         match &self.token {
             token::Token::Title(token) => Some(token.common.node_addr),
-            token::Token::Hexdump(token) => Some(token.common.node_addr + token.line.begin.to_size()),
-            token::Token::Hexstring(token) => Some(token.common.node_addr + token.extent.begin.to_size()),
+            token::Token::Hexdump(token) => Some(token.common.node_addr + token.line.begin),
+            token::Token::Hexstring(token) => Some(token.common.node_addr + token.extent.begin),
             _ => None,
         }
     }
@@ -191,9 +191,9 @@ impl TokenView {
                 _ => None,
                 };
                 
-                for i in 0..token.extent.length().bytes {
+                for i in 0..token.extent.len().bytes() {
                     let (byte, flags) = self.data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
-                    let byte_extent = addr::Extent::sized(i.into(), addr::unit::BYTE).intersection(token.extent);
+                    let byte_extent = addr::Extent::sized(i, addr::Offset::BYTE).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     
                     let mut text_color = render.config.text_color.rgba();
@@ -204,7 +204,7 @@ impl TokenView {
 
                     for low_nybble in [false, true] {
                         let nybble = if low_nybble { byte & 0xf } else { byte >> 4 };
-                        let has_cursor = hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes == i && hxc.low_nybble == low_nybble);
+                        let has_cursor = hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes() == i && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
                     
@@ -236,7 +236,7 @@ impl TokenView {
         
         match &self.token {
             token::Token::Title(_) => Some(listing::pick::Triplet::all3(self.token.node_path().clone(), listing::pick::Part::Title)),
-            token::Token::Hexstring(t) if pick_column < t.extent.length().bytes * 2 => Some(listing::pick::Triplet {
+            token::Token::Hexstring(t) if pick_column < t.extent.len().bytes() * 2 => Some(listing::pick::Triplet {
                 begin: (t.node_path().clone(), listing::pick::Part::Hexstring {
                     index: t.node_child_index(),
                     offset: t.extent.begin + (pick_column / 2),
@@ -286,7 +286,7 @@ impl TokenView {
     pub fn work(&mut self, document: &document::Document, cx: &mut task::Context, did_work: &mut bool, work_needed: &mut bool) {
         let absolute_extent = match &self.token {
             token::Token::Hexdump(t) => t.absolute_extent(),
-            token::Token::Hexstring(t) => t.extent.rebase(t.common().node_addr),
+            token::Token::Hexstring(t) => t.extent.absolute_from(t.common().node_addr),
             _ => return,
         };
         

@@ -14,7 +14,7 @@ pub enum Traversal {
 #[derive(Debug, Clone)]
 struct TraversalStackEntry<'a> {
     node: &'a sync::Arc<structure::Node>,
-    node_addr: addr::Address,
+    node_addr: addr::AbsoluteAddress,
     is_leaf: bool,
     child: Option<usize>,
 }
@@ -22,7 +22,7 @@ struct TraversalStackEntry<'a> {
 #[derive(Debug, Clone)]
 pub struct AddressSearch<'a> {
     document: &'a document::Document,
-    needle: addr::Address,
+    needle: addr::AbsoluteAddress,
     traversal: Traversal,
 
     stack: Vec<TraversalStackEntry<'a>>,
@@ -31,7 +31,7 @@ pub struct AddressSearch<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hit {
     pub path: structure::Path,
-    pub offset: addr::Size,
+    pub offset: addr::Offset,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,8 +40,8 @@ pub enum SetupError {
 }
 
 impl<'a> AddressSearch<'a> {
-    pub fn new(document: &'a document::Document, needle: addr::Address, traversal: Traversal) -> Result<AddressSearch<'a>, SetupError> {
-        if needle >= addr::unit::NULL + document.root.size {
+    pub fn new(document: &'a document::Document, needle: addr::AbsoluteAddress, traversal: Traversal) -> Result<AddressSearch<'a>, SetupError> {
+        if needle >= addr::AbsoluteAddress::NULL + document.root.size {
             return Err(SetupError::NeedleNotInHaystack);
         }
         
@@ -52,7 +52,7 @@ impl<'a> AddressSearch<'a> {
 
             stack: vec![TraversalStackEntry {
                 node: &document.root,
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 is_leaf: true,
                 child: None,
             }],
@@ -81,8 +81,8 @@ impl<'a> AddressSearch<'a> {
     }
      */
 
-    fn child_contains(child: &structure::Childhood, parent_node_addr: addr::Address, needle: addr::Address) -> bool {
-        addr::Extent::sized(parent_node_addr + child.offset.to_size(), child.node.size).includes(needle)
+    fn child_contains(child: &structure::Childhood, parent_node_addr: addr::AbsoluteAddress, needle: addr::AbsoluteAddress) -> bool {
+        addr::Extent::sized(parent_node_addr + child.offset, child.node.size).includes(needle)
     }
     
 }
@@ -118,7 +118,7 @@ impl<'a> Iterator for AddressSearch<'a> {
 
                         let entry = TraversalStackEntry {
                             node: &state.node.children[old_index].node,
-                            node_addr: state.node_addr + state.node.children[old_index].offset.to_size(),
+                            node_addr: state.node_addr + state.node.children[old_index].offset,
                             is_leaf: true,
                             child: None,
                         };

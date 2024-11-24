@@ -6,6 +6,7 @@ use std::cell;
 use std::rc;
 use std::sync;
 
+use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
@@ -73,7 +74,7 @@ impl ExportBinaryNodeAction {
             .property("application", window.application.application.clone())
             .property("transient-for", window.window.clone())
             .build();
-        dialog.set(self.document_host.clone(), addr, node.size);
+        dialog.set(self.document_host.clone(), addr::AbsoluteExtent::sized(addr, node.size));
         dialog.show();
     }
 }

@@ -29,7 +29,7 @@ struct GotoAction {
 
     model: gtk::SingleSelection,
     store: gio::ListStore,
-    current_addr: cell::Cell<addr::Address>,
+    current_addr: cell::Cell<addr::AbsoluteAddress>,
     
     subscriber: once_cell::unsync::OnceCell<helpers::AsyncSubscriber>,
 }
@@ -63,7 +63,7 @@ pub fn add_action(window_context: &window::WindowContext) {
 
         model: gtk::SingleSelection::new(Some(store.clone())),
         store,
-        current_addr: cell::Cell::new(addr::unit::NULL),
+        current_addr: cell::Cell::new(addr::AbsoluteAddress::NULL),
         
         subscriber: once_cell::unsync::OnceCell::new(),
     });
@@ -105,7 +105,7 @@ impl GotoAction {
     }
 
     fn refresh_results(&self, new_document: Option<sync::Arc<document::Document>>, force: bool) {
-        let new_addr = addr::Address::parse(self.entry.text().as_str()).ok().and_then(|na| if na == self.current_addr.get() { None } else { Some(na) });
+        let new_addr = addr::AbsoluteAddress::parse(self.entry.text().as_str(), false).ok().and_then(|na| if na == self.current_addr.get() { None } else { Some(na) });
 
         if new_addr.is_some() || new_document.is_some() || force {
             if let Some(new_document) = new_document {
@@ -139,7 +139,7 @@ impl GotoAction {
 
         let item_interior = item.imp().interior.get().unwrap();
         
-        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset.to_addr(), cursor::PlacementHint::Unused);
+        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset, cursor::PlacementHint::Unused);
 
         self.dialog.hide();
 
@@ -201,7 +201,7 @@ mod imp {
     impl HitItem {
         pub fn init(&self, document: sync::Arc<document::Document>, hit: search::Hit) {
             let mut path_description = document.describe_path(&hit.path);
-            write!(path_description, " + {}", addr::fmt::CompactSize(hit.offset)).unwrap();
+            write!(path_description, " + {}", hit.offset).unwrap();
             
             self.interior.set(HitItemInterior {
                 document, hit, path_description

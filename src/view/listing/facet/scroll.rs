@@ -304,7 +304,7 @@ impl Scroller {
         }
     }
 
-    pub fn seek(&mut self, window: &mut Window, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) {
+    pub fn seek(&mut self, window: &mut Window, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset) {
         window.seek(document, path, offset);
 
         if window.get_bottom_hit_end() {

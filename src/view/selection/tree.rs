@@ -395,7 +395,7 @@ mod tests {
             
             document = dh.change(document.nest(
                 structure::SiblingRange::new(vec![], 0, 1),
-                addr::Extent::sized_u64(0x0, 0x40),
+                addr::Extent::sized(0x0, 0x40),
                 structure::Properties::default(),
             )).unwrap();
             

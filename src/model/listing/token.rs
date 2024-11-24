@@ -16,7 +16,7 @@ pub trait TokenKind {
         &self.common().node_path
     }
 
-    fn node_addr(&self) -> addr::Address {
+    fn node_addr(&self) -> addr::AbsoluteAddress {
         self.common().node_addr
     }
 
@@ -236,7 +236,7 @@ pub enum PunctuationKind {
 pub struct TokenCommon {
     pub node: sync::Arc<structure::Node>,
     pub node_path: structure::Path,
-    pub node_addr: addr::Address,
+    pub node_addr: addr::AbsoluteAddress,
     pub node_child_index: usize,
     // TODO: colorization
     // colorization will be implemented by emitting multiple hexdump tokens on one line
@@ -330,9 +330,9 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
             TokenRef::Ellipsis(_) => write!(f, "(#{}) ...", i),
             TokenRef::Hexdump(token) => {
                 write!(f, "(#{}) ", i)?;
-                for j in 0..token.extent.length().bytes {
-                    write!(f, "{:02x}", (token.extent.begin.byte + j) & 0xff)?;
-                    if j + 1 < token.extent.length().bytes {
+                for j in 0..token.extent.len().bytes() {
+                    write!(f, "{:02x}", (token.extent.begin.bytes() + j) & 0xff)?;
+                    if j + 1 < token.extent.len().bytes() {
                         write!(f, " ")?;
                     }
                 }
@@ -340,8 +340,8 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
             },
             TokenRef::Hexstring(token) => {
                 write!(f, "(#{}) ", i)?;
-                for j in 0..token.extent.length().bytes {
-                    write!(f, "{:02x}", (token.extent.begin.byte + j) & 0xff)?
+                for j in 0..token.extent.len().bytes() {
+                    write!(f, "{:02x}", (token.extent.begin.bytes() + j) & 0xff)?
                 }
                 Ok(())
             },
@@ -374,14 +374,14 @@ impl PunctuationKind {
 }
 
 impl Hexdump {
-    pub fn absolute_extent(&self) -> addr::Extent {
-        self.extent.rebase(self.common.node_addr)
+    pub fn absolute_extent(&self) -> addr::AbsoluteExtent {
+        self.extent.absolute_from(self.common.node_addr)
     }
 }
 
 impl Hexstring {
-    pub fn absolute_extent(&self) -> addr::Extent {
-        self.extent.rebase(self.common.node_addr)
+    pub fn absolute_extent(&self) -> addr::AbsoluteExtent {
+        self.extent.absolute_from(self.common.node_addr)
     }
 }
 

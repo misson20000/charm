@@ -60,8 +60,8 @@ pub trait CursorClassExt {
     }
 
     /// The offset from the beginning of the token that the cursor is positioned at.
-    fn get_offset(&self) -> addr::Size {
-        addr::unit::ZERO
+    fn get_offset(&self) -> addr::Offset {
+        addr::Offset::ZERO
     }
 
     /// The token that the cursor is positioned on.
@@ -119,7 +119,7 @@ pub enum CursorClass {
 pub enum HorizontalPosition {
     Unspecified,
     Title,
-    Hexdump(addr::Size, bool),
+    Hexdump(addr::Offset, bool),
 }
 
 #[derive(Debug)]
@@ -143,7 +143,7 @@ enum UpdateMode {
 }
 
 impl CursorClass {
-    fn place_forward(position: &mut stream::Position, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_forward(position: &mut stream::Position, offset: addr::Offset, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
             match position.gen_token() {
                 stream::TokenGenerationResult::Ok(token) => match CursorClass::new_placement(token, offset, hint) {
@@ -161,7 +161,7 @@ impl CursorClass {
         }
     }
 
-    fn place_backward(position: &mut stream::Position, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
+    fn place_backward(position: &mut stream::Position, offset: addr::Offset, hint: &PlacementHint) -> Result<CursorClass, PlacementFailure> {
         loop {
             match position.prev() {
                 Some(token) => match CursorClass::new_placement(token, offset, hint) {
@@ -178,15 +178,15 @@ impl CursorClass {
 impl Cursor {
     pub fn new(document: sync::Arc<document::Document>) -> Cursor {
         let root = document.root.clone();
-        Self::place_position(document, stream::Position::at_beginning(root), addr::unit::NULL, &PlacementHint::default())
+        Self::place_position(document, stream::Position::at_beginning(root), addr::Offset::NULL, &PlacementHint::default())
     }
 
-    pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) -> Cursor {
+    pub fn place(document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset, hint: PlacementHint) -> Cursor {
         let root = document.root.clone();
         Self::place_position(document, stream::Position::at_path(root, path, offset), offset, &hint)
     }
 
-    fn place_position(document: sync::Arc<document::Document>, origin: stream::Position, offset: addr::Address, hint: &PlacementHint) -> Self {
+    fn place_position(document: sync::Arc<document::Document>, origin: stream::Position, offset: addr::Offset, hint: &PlacementHint) -> Self {
         let mut position = origin.clone();
         
         let class = match CursorClass::place_forward(&mut position, offset, hint) {
@@ -248,7 +248,7 @@ impl Cursor {
                     &mut options);
             });
 
-            let offset = position.structure_position_offset() + options.additional_offset.unwrap_or(addr::unit::ZERO);
+            let offset = position.structure_position_offset() + options.additional_offset.unwrap_or(addr::Offset::ZERO);
             *self = Self::place_position(document.clone(), position, offset, &self.class.get_placement_hint());
         }
 
@@ -259,7 +259,7 @@ impl Cursor {
         self.update_internal(document, UpdateMode::Default);
     }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: PlacementHint) {
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset, hint: PlacementHint) {
         *self = Self::place(document, path, offset, hint);
     }
     
@@ -476,8 +476,8 @@ impl Cursor {
         self.class.enter_hex(document_host, &*self.document, nybble).map(|mr| self.movement(|_| mr, TransitionHint::Entry))
     }
 
-    pub fn addr(&self) -> addr::Address {
-        self.position.node_addr() + self.structure_offset().to_size()
+    pub fn addr(&self) -> addr::AbsoluteAddress {
+        self.position.node_addr() + self.structure_offset()
     }
     
     pub fn structure_path(&self) -> structure::Path {
@@ -488,7 +488,7 @@ impl Cursor {
         self.position.structure_position_child()
     }
     
-    pub fn structure_offset(&self) -> addr::Address {
+    pub fn structure_offset(&self) -> addr::Offset {
         self.position.structure_position_offset() + self.class.get_offset()
     }
     
@@ -516,7 +516,7 @@ impl CursorClass {
     /// prefer to place the cursor on a content line. This way, goto will put
     /// the cursor on data, but the cursor will stay on a title if it was on
     /// one.
-    fn new_placement(token: token::Token, offset: addr::Address, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
+    fn new_placement(token: token::Token, offset: addr::Offset, hint: &PlacementHint) -> Result<CursorClass, token::Token> {
         match token {
             token::Token::Title(token) => title::Cursor::new_placement(token, hint).map(CursorClass::Title).map_err(Into::into),
             token::Token::Hexdump(token) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump).map_err(Into::into),
@@ -682,14 +682,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
-            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            extent: addr::Extent::sized(addr::Offset::NULL, 16),
+            line: addr::Extent::sized(addr::Offset::NULL, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         /* insert a node */
         let child_1 = sync::Arc::new(structure::Node {
@@ -698,13 +698,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(4),
+            size: addr::Offset::from(4),
         });
         cursor.insert_node(&document_host, child_1.clone()).unwrap();
         document = document_host.get();
@@ -717,14 +717,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 1,
                 depth: 1,
             },
-            extent: addr::Extent::sized(4.into(), 12.into()),
-            line: addr::Extent::sized(0.into(), 16.into()),
+            extent: addr::Extent::sized(4, 12),
+            line: addr::Extent::sized(0, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         /* insert another node */
         let child_2 = sync::Arc::new(structure::Node {
@@ -733,13 +733,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(4),
+            size: addr::Offset::from(4),
         });
         cursor.insert_node(&document_host, child_2.clone()).unwrap();
         document = document_host.get();
@@ -752,14 +752,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 2,
                 depth: 1,
             },
-            extent: addr::Extent::sized(8.into(), 8.into()),
-            line: addr::Extent::sized(0.into(), 16.into()),
+            extent: addr::Extent::sized(8, 8),
+            line: addr::Extent::sized(0, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
     }
 
     #[test]
@@ -773,14 +773,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
-            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            extent: addr::Extent::sized(addr::Offset::NULL, 16),
+            line: addr::Extent::sized(addr::Offset::NULL, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         /* move the cursor to offset 4 (8 nybbles) */
         for _ in 0..8 {
@@ -792,14 +792,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
-            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            extent: addr::Extent::sized(addr::Offset::NULL, 16),
+            line: addr::Extent::sized(addr::Offset::NULL, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Size::from(4) && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::from(4) && hxc.low_nybble == false);
 
         /* insert a node */
         let child = sync::Arc::new(structure::Node {
@@ -808,13 +808,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(4),
+            size: addr::Offset::from(4),
         });
         cursor.insert_node(&document_host, child.clone()).unwrap();
         document = document_host.get();
@@ -827,14 +827,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 1,
                 depth: 1,
             },
-            extent: addr::Extent::sized(8.into(), 8.into()),
-            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            extent: addr::Extent::sized(8, 8),
+            line: addr::Extent::sized(0, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
     }
 
     #[test]
@@ -847,12 +847,12 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(0x20.into(), 0x10.into()),
-            line: addr::Extent::sized(0x20.into(), 0x10.into()),
+            extent: addr::Extent::sized(0x20, 0x10),
+            line: addr::Extent::sized(0x20, 0x10),
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x4.into() && hxc.low_nybble == false);
 
@@ -862,13 +862,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(0x30),
+            size: addr::Offset::from(0x30),
         });
         
         let document = document_host.change(document.insert_node(
@@ -889,8 +889,8 @@ mod tests {
                 node_child_index: 0,
                 depth: 2,
             },
-            extent: addr::Extent::sized(0x10.into(), 0x10.into()),
-            line: addr::Extent::sized(0x10.into(), 0x10.into()),
+            extent: addr::Extent::sized(0x10, 0x10),
+            line: addr::Extent::sized(0x10, 0x10),
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x2.into() && hxc.low_nybble == false);
     }
@@ -905,12 +905,12 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(0x0.into(), 0x10.into()),
-            line: addr::Extent::sized(0x0.into(), 0x10.into()),
+            extent: addr::Extent::sized(0x0, 0x10),
+            line: addr::Extent::sized(0x0, 0x10),
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x0.into() && hxc.low_nybble == false);
 
@@ -920,13 +920,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(0x30),
+            size: addr::Offset::from(0x30),
         });
         
         let document = document_host.change(document.insert_node(
@@ -947,8 +947,8 @@ mod tests {
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(0x0.into(), 0x10.into()),
-            line: addr::Extent::sized(0x0.into(), 0x10.into()),
+            extent: addr::Extent::sized(0x0, 0x10),
+            line: addr::Extent::sized(0x0, 0x10),
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x0.into() && hxc.low_nybble == false);
     }
@@ -1004,14 +1004,14 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 1,
             },
-            extent: addr::Extent::sized(addr::unit::NULL, 16.into()),
-            line: addr::Extent::sized(addr::unit::NULL, 16.into()),
+            extent: addr::Extent::sized(0, 16),
+            line: addr::Extent::sized(0, 16),
         }).as_token_ref());
-        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::unit::ZERO && hxc.low_nybble == false);
+        assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         let document = document_host.change(document.alter_node(vec![], structure::Properties {
             name: "root".to_string(),
@@ -1025,7 +1025,7 @@ mod tests {
             common: token::TokenCommon {
                 node: document.root.clone(),
                 node_path: structure::Path::default(),
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 0,
             },

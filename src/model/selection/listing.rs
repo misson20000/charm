@@ -17,8 +17,8 @@ pub enum ModeType {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StructureRange {
     pub path: structure::Path,
-    pub begin: (addr::Address, usize),
-    pub end: (addr::Address, usize), //< exclusive
+    pub begin: (addr::Offset, usize),
+    pub end: (addr::Offset, usize), //< exclusive
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -32,13 +32,13 @@ pub enum StructureMode {
 pub struct StructureEndpoint<'a> {
     pub parent: structure::PathSlice<'a>,
     pub child_index: usize,
-    pub offset: addr::Address
+    pub offset: addr::Offset
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Mode {
     Structure(StructureMode),
-    Address(addr::Extent),
+    Address(addr::AbsoluteExtent),
 }
 
 #[derive(Debug, Clone)]
@@ -169,7 +169,7 @@ impl versioned::Change<Selection> for Change {
             Change::Clear => {
                 selection.mode = match selection.mode {
                     Mode::Structure(_) => Mode::Structure(StructureMode::Empty),
-                    Mode::Address(_) => Mode::Address(addr::unit::EMPTY),
+                    Mode::Address(_) => Mode::Address(addr::Extent::default()),
                 };
                 ChangeRecord {}
             },
@@ -294,7 +294,7 @@ impl StructureRange {
                     if range.contains_index(self.begin.1) && range.contains_index(self.end.1) && nested_extent.contains(self.extent()) {
                         /* The entire range was nested, so just select the same range in the child. */
                         self.path.push(range.first);
-                        self.begin.0-= new_child.offset.to_size();
+                        self.begin.0-= new_child.offset;
                         self.begin.1-= range.first;
                         self.end.1-= range.first;
                     } else {
@@ -362,9 +362,9 @@ impl StructureRange {
                  * destructued, so we need to select that same range in its new
                  * position in the new parent. */
                 doc_change::ChangeType::Destructure { parent: _, child_index, num_grandchildren: _, offset } => {
-                    self.begin.0+= offset.to_size();
+                    self.begin.0+= *offset;
                     self.begin.1+= *child_index;
-                    self.end.0+= offset.to_size();
+                    self.end.0+= *offset;
                     self.end.1+= *child_index;
                     StructureMode::Range(self)
                 },
@@ -395,7 +395,7 @@ impl StructureRange {
             assert!(self.end.0 >= node.children[self.end.1-1].end(), "{:?} ends before last indexed child (ends at {}, child ends at {})", self, self.end.0, node.children[self.end.1-1].end());
         }
 
-        assert!(self.end.0 <= node.size.to_addr(), "{:?} ends after end of node (ends at {}, node size is {})", self, self.end.0, node.size);
+        assert!(self.end.0 <= node.size, "{:?} ends after end of node (ends at {}, node size is {})", self, self.end.0, node.size);
     }
 }
 
@@ -410,7 +410,7 @@ impl StructureMode {
 }
 
 impl Mode {
-    pub fn node_intersection(&self, node: &structure::Node, node_path: &structure::Path, node_addr: addr::Address) -> NodeIntersection {
+    pub fn node_intersection(&self, node: &structure::Node, node_path: &structure::Path, node_addr: addr::AbsoluteAddress) -> NodeIntersection {
         match self {
             Mode::Structure(StructureMode::Empty) => NodeIntersection::None,
             Mode::Structure(StructureMode::All) => NodeIntersection::Total,
@@ -435,7 +435,7 @@ impl Mode {
                 } else {
                     match extent.intersection(node_extent) {
                         Some(e) => {
-                            let e = e.debase(node_addr);
+                            let e = e.relative_to(node_addr);
                             // TODO: this is probably wrong lmao
                             NodeIntersection::Partial(e, node.child_at_offset(e.begin), node.children.partition_point(|ch| ch.end() >= e.end))
                         },
@@ -448,7 +448,7 @@ impl Mode {
 }
 
 impl NodeIntersection {
-    pub fn includes(&self, addr: addr::Address) -> bool {
+    pub fn includes(&self, addr: addr::Offset) -> bool {
         match self {
             Self::None => false,
             Self::Partial(e, _, _) => e.includes(addr),
@@ -481,7 +481,7 @@ impl NodeIntersection {
 }
 
 impl<'a> StructureEndpoint<'a> {
-    pub fn borrow(tuple: &'a (structure::Path, usize, addr::Address)) -> Self {
+    pub fn borrow(tuple: &'a (structure::Path, usize, addr::Offset)) -> Self {
         StructureEndpoint {
             parent: &tuple.0,
             child_index: tuple.1,

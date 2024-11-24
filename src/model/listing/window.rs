@@ -47,7 +47,7 @@ impl<LV: LineView, Position: stream::AbstractPosition> Window<LV, Position> {
 
     /// Moves the top of the window to the specified address. Returns amount
     /// window was adjusted upwards by due to hitting the bottom of the address space.
-    pub fn seek(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address) -> usize {
+    pub fn seek(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset) -> usize {
         self.current_document = document;
         let root = self.current_document.root.clone();
         self.repopulate_window(move |tok, _| *tok = Position::at_path(root, path, offset))

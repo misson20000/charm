@@ -69,7 +69,7 @@ pub struct RenderDetail {
 enum RubberBandState {
     Inactive,
     Mouse(pick::Triplet),
-    Keyboard((structure::Path, usize, addr::Address)),
+    Keyboard((structure::Path, usize, addr::Offset)),
 }
 
 struct Interior {
@@ -574,7 +574,7 @@ impl ListingWidget {
         self.imp().interior.get().unwrap().write().cursor.bonk();
     }
 
-    pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
+    pub fn goto(&self, document: &sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset, hint: cursor::PlacementHint) {
         let mut interior_guard = self.imp().interior.get().unwrap().write();
         let interior = &mut *interior_guard;
 
@@ -1146,14 +1146,14 @@ impl Interior {
 
         match &self.selection.mode {
             selection::listing::Mode::Address(extent) if !extent.is_empty() => {
-                write!(s, " ({}:{})", extent.begin, addr::ShortSize(extent.length()))?;
+                write!(s, " ({}:{})", extent.begin, extent.len())?;
             },
             selection::listing::Mode::Address(_) => {},
             selection::listing::Mode::Structure(selection::listing::StructureMode::Empty) => {},
             selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
                 let (_, addr) = self.selection.document.lookup_node(&range.path);
-                let extent = range.extent().rebase(addr);
-                write!(s, " ({}:{})", extent.begin, addr::ShortSize(extent.length()))?;
+                let extent = range.extent().absolute_from(addr);
+                write!(s, " ({}:{})", extent.begin, extent.len())?;
             },
             selection::listing::Mode::Structure(selection::listing::StructureMode::All) => {
                 write!(s, " (all)")?;

@@ -1,55 +1,185 @@
 use std::str::FromStr;
 
-// TODO: create a real distinction between offsets and addresses, and make OffsetExtent a thing.
+#[derive(Copy, Clone)]
+pub struct AbsoluteAddressKind;
+#[derive(Copy, Clone)]
+pub struct OffsetKind;
 
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
-pub struct Address {
-    pub byte: u64,
-    pub bit: u8
+pub trait Arithmetic {
 }
 
-pub type Offset = Size;
-
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
-pub struct Size {
-    pub bytes: u64,
-    pub bits: u8
+impl Arithmetic for OffsetKind {
 }
 
-#[derive(Default, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct Extent {
-    pub begin: Address,
-    pub end: Address,
+pub type AbsoluteAddress = Address<AbsoluteAddressKind>;
+pub type Offset = Address<OffsetKind>;
+
+pub struct Address<Kind> {
+    bytes: u64,
+    bits: u8,
+    marker: std::marker::PhantomData<Kind>
 }
 
-pub enum ExtentTripletEnding {
+impl<Kind> Address<Kind> {
+    pub const fn new(bytes: u64, bits: u8) -> Self {
+        Self {
+            bytes,
+            bits,
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    fn force_from<OtherKind>(other: Address<OtherKind>) -> Self {
+        Self::new(other.bytes, other.bits)
+    }
+    
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+    
+    pub fn bits(&self) -> u8 {
+        self.bits
+    }
+
+    pub const fn zero() -> Self {
+        Self::new(0, 0)
+    }
+
+    pub const fn infinity() -> Self {
+        Self::new(u64::MAX, 8)
+    }
+    
+    fn normalize_signed(bytes: u64, bits: i64) -> Self {
+        let mut nbytes = bytes;
+        let mut nbits = bits;
+        while nbits < 0 {
+            nbytes-= 1;
+            nbits+= 8;
+        }
+        Self::normalize_unsigned(nbytes, nbits as u64)
+    }
+    
+    fn normalize_unsigned(bytes: u64, bits: u64) -> Self {
+        let mut nbytes = bytes;
+        let mut nbits = bits;
+        while nbits >= 8 && nbytes < u64::MAX { // TODO: replace this with division
+            nbytes+= 1;
+            nbits-= 8;
+        }
+        if nbits > 8 {
+            panic!("address arithmetic overflow");
+        } else {
+            Self::new(nbytes, nbits as u8)
+        }
+    }
+
+    fn normalize_unsigned_checked(bytes: u64, bits: u64) -> Option<Self> {
+        let mut nbytes = bytes;
+        let mut nbits = bits;
+        while nbits >= 8 && nbytes < u64::MAX { // TODO: replace this with division
+            nbytes = nbytes.checked_add(1)?;
+            nbits-= 8;
+        }
+        if nbits > 8 {
+            panic!("address arithmetic overflow");
+        } else {
+            Some(Self::new(nbytes, nbits as u8))
+        }
+    }
+
+    /// Parses a string of the form "\[0x\]1234\[.5\]" into an
+    /// address. A bit offset can optionally be specified. If
+    /// unspecified, it is assumed to be zero.
+    pub fn parse(string: &str, assume_hex: bool) -> Result<Self, AddressParseError> {
+        let mut i = string.splitn(2, '.');
+
+        let mut radix = 10;
+
+        if assume_hex {
+            radix = 16;
+        }
+        
+        let mut byte_portion = i.next().ok_or(AddressParseError::MissingBytes)?;
+
+        if let Some(bp) = byte_portion.strip_prefix("0x") {
+            radix = 16;
+            byte_portion = bp;
+        }
+        
+        let bytes = u64::from_str_radix(byte_portion, radix).map_err(AddressParseError::MalformedBytes)?;
+
+        let bits = match i.next() {
+            Some(bit_fragment) => u8::from_str(bit_fragment).map_err(AddressParseError::MalformedBits)?,
+            None => 0
+        };
+
+        let bits = match bits {
+            0..=7 => bits,
+            /* Allow 8 to be specified iff we're parsing the special END address */
+            8 if bytes == u64::MAX => 8,
+            _ => return Err(AddressParseError::TooManyBits),
+        };
+                
+        Ok(Self::new(bytes, bits))
+    }
+
+    pub fn round_down(&self) -> Self {
+        Self::new(self.bytes(), 0)
+    }
+
+    pub fn round_up(&self) -> Self {
+        if self.bits() == 0 || self.bits() == 8 {
+            *self
+        } else {
+            Self::new(self.bytes() + 1, 0)
+        }
+    }
+
+    fn add(self, rhs: Address<impl Arithmetic>) -> Self {
+        Self::normalize_unsigned(self.bytes() + rhs.bytes(), self.bits() as u64 + rhs.bits() as u64)
+    }
+    
+    pub fn checked_add(self, rhs: Address<impl Arithmetic>) -> Option<Self> {
+        Self::normalize_unsigned_checked(self.bytes().checked_add(rhs.bytes())?, self.bits() as u64 + rhs.bits() as u64)
+    }
+    
+    fn add_assign(&mut self, rhs: Address<impl Arithmetic>) {
+        *self = Self::normalize_unsigned(self.bytes() + rhs.bytes(), self.bits() as u64 + rhs.bits() as u64);
+    }
+
+    fn sub<Other>(self, rhs: Address<Other>) -> Self {
+        Self::normalize_signed(self.bytes() - rhs.bytes(), self.bits() as i64 - rhs.bits() as i64)
+    }
+
+    fn sub_assign(&mut self, rhs: Address<impl Arithmetic>) {
+        *self = Self::normalize_signed(self.bytes() - rhs.bytes(), self.bits() as i64 - rhs.bits() as i64);
+    }
+
+    pub const NULL: Self = Self { bytes: 0, bits: 0, marker: std::marker::PhantomData };
+    pub const ZERO: Self = Self { bytes: 0, bits: 0, marker: std::marker::PhantomData };
+    pub const BIT: Self = Self { bytes: 0, bits: 1, marker: std::marker::PhantomData };
+    pub const NYBBLE: Self = Self { bytes: 0, bits: 4, marker: std::marker::PhantomData };
+    pub const BYTE: Self = Self { bytes: 1, bits: 0, marker: std::marker::PhantomData };
+    pub const BYTE_NYBBLE: Self = Self { bytes: 1, bits: 4, marker: std::marker::PhantomData };
+    pub const QWORD: Self = Self { bytes: 8, bits: 0, marker: std::marker::PhantomData };
+    pub const MAX: Self = Self { bytes: u64::MAX, bits: 8, marker: std::marker::PhantomData };
+}
+
+pub struct Extent<Kind = OffsetKind> {
+    pub begin: Address<Kind>,
+    pub end: Address<Kind>,
+}
+
+pub enum ExtentTripletEnding<Kind> {
     AtUnbounded,
-    AfterUnbounded(Address),
-    AfterBounded(Address, Address)
+    AfterUnbounded(Address<Kind>),
+    AfterBounded(Address<Kind>, Address<Kind>)
 }
 
-pub struct ExtentTriplet {
-    pub before: Option<Address>,
-    pub at: Address,
-    pub after: ExtentTripletEnding,
-}
-
-pub mod unit {
-    use super::{Address, Size, Extent};
-
-    pub const NULL: Address = Address { byte: 0, bit: 0 };
-    pub const END: Address = Address { byte: u64::MAX, bit: 8 };
-
-    pub const ZERO: Size = Size { bytes: 0, bits: 0 };
-    pub const BIT: Size = Size { bytes: 0, bits: 1 };
-    pub const NYBBLE: Size = Size { bytes: 0, bits: 4 };
-    pub const BYTE: Size = Size { bytes: 1, bits: 0 };
-    pub const BYTE_NYBBLE: Size = Size { bytes: 1, bits: 4 };
-    pub const QWORD: Size = Size { bytes: 8, bits: 0 };
-    pub const MAX: Size = Size { bytes: u64::MAX, bits: 8 };
-
-    pub const EMPTY: Extent = Extent { begin: NULL, end: NULL };
-    pub const UNBOUNDED: Extent = Extent { begin: NULL, end: END };
+pub struct ExtentTriplet<Kind> {
+    pub before: Option<Address<Kind>>,
+    pub at: Address<Kind>,
+    pub after: ExtentTripletEnding<Kind>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,207 +198,33 @@ pub enum ExtentParseError {
     MalformedEnd(AddressParseError),
 }
 
-impl Address {
-    pub const fn new(bytes: u64) -> Self {
-        Address {
-            byte: bytes,
-            bit: 0,
-        }
-    }
-    
-    fn normalize_signed(bytes: u64, bits: i64) -> Address {
-        let mut nbytes = bytes;
-        let mut nbits = bits;
-        while nbits < 0 {
-            nbytes-= 1;
-            nbits+= 8;
-        }
-        Address::normalize_unsigned(nbytes, nbits as u64)
-    }
-    
-    fn normalize_unsigned(bytes: u64, bits: u64) -> Address {
-        let mut nbytes = bytes;
-        let mut nbits = bits;
-        while nbits >= 8 && nbytes < u64::MAX { // TODO: replace this with division
-            nbytes+= 1;
-            nbits-= 8;
-        }
-        if nbits > 8 {
-            panic!("address arithmetic overflow");
-        } else {
-            Address {byte: nbytes, bit: nbits as u8}
-        }
-    }
-
-    fn normalize_unsigned_checked(bytes: u64, bits: u64) -> Option<Address> {
-        let mut nbytes = bytes;
-        let mut nbits = bits;
-        while nbits >= 8 && nbytes < u64::MAX { // TODO: replace this with division
-            nbytes = nbytes.checked_add(1)?;
-            nbits-= 8;
-        }
-        if nbits > 8 {
-            panic!("address arithmetic overflow");
-        } else {
-            Some(Address {byte: nbytes, bit: nbits as u8})
-        }
-    }
-    
-    /// Parses a string of the form "\[0x\]1234\[.5\]" into an address. Addresses
-    /// are always assumed to be in hexadecimal, regardless of whether the "0x"
-    /// prefix is included or not. A bit offset can optionally be specified. If
-    /// unspecified, it is assumed to be zero.
-    pub fn parse(string: &str) -> Result<Address, AddressParseError> {
-        let mut i = string.splitn(2, '.');
-
-        let byte = i.next().ok_or(AddressParseError::MissingBytes)
-            .map(|s| s.trim_start_matches("0x"))
-            .and_then(|s| u64::from_str_radix(s, 16).map_err(AddressParseError::MalformedBytes))?;
-
-        let bit = match i.next() {
-            Some(bit_fragment) => u8::from_str(bit_fragment).map_err(AddressParseError::MalformedBits)?,
-            None => 0
-        };
-
-        let bit = match bit {
-            0..=7 => bit,
-            /* Allow 8 to be specified iff we're parsing the special END address */
-            8 if byte == unit::END.byte => 8,
-            _ => return Err(AddressParseError::TooManyBits),
-        };
-                
-        Ok(Address {
-            byte,
-            bit
-        })
-    }
-    
-    pub fn round_down(&self) -> Address {
-        Address { byte: self.byte, bit: 0 }
-    }
-
-    pub fn round_up(&self) -> Address {
-        if self.bit == 0 || self.bit == 8 {
-            *self
-        } else {
-            Address { byte: self.byte + 1, bit: 0 }
-        }
-    }
-
-    pub fn checked_add(self, rhs: Size) -> Option<Address> {
-        Self::normalize_unsigned_checked(self.byte.checked_add(rhs.bytes)?, self.bit as u64 + rhs.bits as u64)
-    }
-
-    pub fn to_size(&self) -> Size {
-        Size { bytes: self.byte, bits: self.bit }
-    }
-}
-
-impl Size {
-    pub const fn new(bytes: u64) -> Self {
-        Size {
-            bytes,
-            bits: 0,
-        }
-    }
-
-    fn normalize_signed(bytes: u64, bits: i64) -> Size {
-        let mut nbytes = bytes;
-        let mut nbits = bits;
-        while nbits < 0 {
-            nbytes-= 1;
-            nbits+= 8;
-        }
-        Size::normalize_unsigned(nbytes, nbits as u64)
-    }
-    
-    fn normalize_unsigned(bytes: u64, bits: u64) -> Size {
-        let mut nbytes = bytes;
-        let mut nbits = bits;
-        while nbits >= 8 && nbytes < u64::MAX {
-            nbytes+= 1;
-            nbits-= 8;
-        }
-        if nbits > 8 {
-            panic!("size arithmetic overflow");
-        } else {
-            Size {bytes: nbytes, bits: nbits as u8}
-        }
-    }
-
-    pub fn round_up(&self) -> Size {
-        if self.bits == 0 {
-            *self
-        } else {
-            Size { bytes: self.bytes + 1, bits: 0 }
-        }
-    }
-
-    pub fn floor(&self) -> Size {
-        Size { bytes: self.bytes, bits: 0 }
-    }
-
-    pub fn to_addr(&self) -> Address {
-        Address { byte: self.bytes, bit: self.bits }
-    }
-
-
-    /// Parses a string of the form "\[0x\]1234\[.5\]" into a size. Unlike
-    /// addresses, sizes are NOT always assumed to be in hexadecimal and will
-    /// parse as decimal if the "0x" prefix is not included. A bit offset can
-    /// optionally be specified. If unspecified, it is assumed to be zero.
-    pub fn parse(string: &str) -> Result<Size, AddressParseError> {
-        let mut i = string.splitn(2, '.');
-
-        let bytes = i.next().ok_or(AddressParseError::MissingBytes)?;
-
-        let bytes = match bytes.strip_prefix("0x") {
-            Some(hex_byte) => u64::from_str_radix(hex_byte, 16).map_err(AddressParseError::MalformedBytes)?,
-            None => u64::from_str_radix(bytes, 10).map_err(AddressParseError::MalformedBytes)?,
-        };
-
-        let bits = i.next()
-            .map(|s| u8::from_str(s)
-                 .map_err(AddressParseError::MalformedBits)
-                 .and_then(|v| if v < 8 { Ok(v) } else { Err(AddressParseError::TooManyBits) }))
-            .unwrap_or(Ok(0))?;
-        
-        Ok(Size {
-            bytes,
-            bits,
-        })
-    }
-}
-
-impl Extent {
-    pub fn between<T: Into<Address>>(begin: T, end: T) -> Extent {
+impl<Kind> Extent<Kind> where Address<Kind>: std::ops::Sub<Address<Kind>> {
+    pub fn between<In: Into<Address<Kind>>>(begin: In, end: In) -> Self {
         let begin = begin.into();
         let end = end.into();
-        assert!(begin <= end, "begin: {}, end: {}", begin, end);
-        Extent { begin: begin.into(), end: end.into() }
+        assert!(begin <= end);
+        Self { begin: begin.into(), end: end.into() }
     }
 
-    pub fn between_bidirectional(a: Address, b: Address) -> Extent {
-        Extent {
+    pub fn between_bidirectional(a: Address<Kind>, b: Address<Kind>) -> Self {
+        Self {
             begin: std::cmp::min(a, b),
             end: std::cmp::max(a, b)
         }
     }
 
-    pub fn sized(begin: Address, size: Size) -> Extent {
-        Extent { begin, end: begin + size }
+    pub fn sized<T, U>(begin: T, size: U) -> Self where Address<Kind>: std::ops::AddAssign<U> + From<T> {
+        let begin = begin.into();
+        let mut end = begin;
+        end+= size;
+        Self { begin, end }
     }
     
-    pub fn sized_u64(begin: u64, size: u64) -> Extent {
-        let begin = Address::from(begin);
-        Extent { begin, end: begin + size }
-    }
-    
-    pub fn unbounded(begin: Address) -> Extent {
-        Extent { begin, end: unit::END }
+    pub fn unbounded(begin: Address<Kind>) -> Self {
+        Self { begin, end: Address::<Kind>::infinity() }
     }
 
-    pub fn length(&self) -> Size {
+    pub fn len(&self) -> <Address<Kind> as std::ops::Sub<Address<Kind>>>::Output {
         self.end - self.begin
     }
 
@@ -279,20 +235,24 @@ impl Extent {
     pub fn round_out(&self) -> (u64, u64) { /* (addr, size) */
         let rd = self.begin.round_down();
 
-        (rd.byte, (self.end.round_up() - rd).bytes)
+        (rd.bytes(), self.end.round_up().sub(rd).bytes())
     }
 
-    pub fn includes(&self, addr: Address) -> bool {
+    pub fn includes(&self, addr: Address<Kind>) -> bool {
         addr >= self.begin && addr < self.end
     }
 
+    pub fn offset(&self, offset: Offset) -> Self {
+        Self { begin: self.begin + offset, end: self.end + offset }
+    }
+    
     /// Returns whether or not this extent contains the entirety of the other extent.
-    pub fn contains(&self, other: Extent) -> bool {
+    pub fn contains(&self, other: Self) -> bool {
         other.begin >= self.begin && other.end <= self.end
     }
 
     /// Returns the intersection of this extent and the other, if they overlap. If they abut or don't overlap, None is returned.
-    pub fn intersection(&self, other: Extent) -> Option<Extent> {
+    pub fn intersection(&self, other: Self) -> Option<Self> {
         let begin = std::cmp::max(self.begin, other.begin);
         let end = std::cmp::min(self.end, other.end);
 
@@ -303,254 +263,270 @@ impl Extent {
         }
     }
 
-    pub fn rebase(&self, base: Address) -> Extent {
-        Extent { begin: base + self.begin.to_size(), end: base + self.end.to_size() }
-    }
-
-    pub fn debase(&self, base: Address) -> Extent {
-        Extent { begin: base - self.begin.to_size(), end: base - self.end.to_size() }
-    }
-
-    /// Parses an extent of the form "\<begin\>:(\<end\>|+\<size\>)", such as
-    /// "0x100:+0x10" or "0x100:110". If the plus sign is included, the part
-    /// after the colon is interpreted as a size instead of an end
-    /// address. Remember that addresses always parse as hex, but sizes only
-    /// parse as hex if "0x" is included.
-    pub fn parse(string: &str) -> Result<Extent, ExtentParseError> {
+    /// Parses an extent of the form "\<begin\>:(\<end\>|+\<size\>)",
+    /// such as "0x100:+0x10" or "0x100:110". In the "begin:end" form,
+    /// a 0x prefix applies to both the beginning and the end, but in
+    /// the "begin:+size" form, the 0x prefix does not apply to the
+    /// size.
+    pub fn parse(mut string: &str, mut assume_hex: bool) -> Result<Self, ExtentParseError> {
+        if let Some(s) = string.strip_prefix("0x") {
+            assume_hex = true;
+            string = s;
+        }
+        
         let mut i = string.splitn(2, ':');
 
-        let begin = i.next().ok_or(ExtentParseError::MissingBegin).and_then(|b| Address::parse(b).map_err(ExtentParseError::MalformedBegin))?;
+        let begin = i.next().ok_or(ExtentParseError::MissingBegin).and_then(|b| Address::<Kind>::parse(b, assume_hex).map_err(ExtentParseError::MalformedBegin))?;
         let end = i.next().ok_or(ExtentParseError::MissingEnd)?;
 
         Ok(match end.strip_prefix("+") {
-            Some(stripped) => Self::sized(begin, Size::parse(stripped).map_err(ExtentParseError::MalformedEnd)?),
-            None => Self::between(begin, Address::parse(end).map_err(ExtentParseError::MalformedEnd)?),
+            Some(stripped) => Self::sized(begin, Offset::parse(stripped, false).map_err(ExtentParseError::MalformedEnd)?),
+            None => Self::between(begin, Address::<Kind>::parse(end, assume_hex).map_err(ExtentParseError::MalformedEnd)?),
         })
+    }
+}
+
+pub type AbsoluteExtent = Extent<AbsoluteAddressKind>;
+
+impl<Kind> PartialEq for Extent<Kind> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.begin == rhs.begin && self.end == rhs.end
+    }
+}
+
+impl Extent<AbsoluteAddressKind> {
+    pub fn relative_to(&self, base: AbsoluteAddress) -> Extent<OffsetKind> {
+        Extent { begin: base - self.begin, end: base - self.end }
+    }
+}
+
+impl Extent<OffsetKind> {
+    pub fn absolute_from(&self, base: AbsoluteAddress) -> Extent<AbsoluteAddressKind> {
+        Extent { begin: base + self.begin, end: base + self.end }
+    }
+}
+
+impl<Kind> Eq for Extent<Kind> {
+}
+
+impl<Kind> Copy for Extent<Kind> {
+}
+
+impl<Kind> Clone for Extent<Kind> {
+    fn clone(&self) -> Self {
+        Self {
+            begin: self.begin,
+            end: self.end,
+        }
+    }
+}
+
+impl<Kind> Default for Extent<Kind> {
+    fn default() -> Self {
+        Self {
+            begin: Default::default(),
+            end: Default::default(),
+        }
+    }
+}
+
+impl<Kind> std::hash::Hash for Extent<Kind> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.begin.hash(state);
+        self.end.hash(state);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::model::addr;
+    use super::*;
 
     use assert_matches::assert_matches;
     
     #[test]
     fn address_arithmetic() {
-        let a = addr::Address { byte: 0x40008000, bit: 1 };
-        let b = addr::Address { byte: 0x40008002, bit: 0 };
-        let s = addr::Size { bytes: 1, bits: 7 };
-        let t = addr::Size { bytes: 1, bits: 2 };
+        let a = AbsoluteAddress::new(0x40008000, 1);
+        let b = AbsoluteAddress::new(0x40008002, 0);
+        let s = Offset::new(1, 7);
+        let t = Offset::new(1, 2);
         
-        assert_eq!(b - a, addr::Size { bytes: 1, bits: 7 });
+        assert_eq!(b - a, Offset::new(1, 7));
         assert_eq!(a + s, b);
-        assert_eq!(s + t, addr::Size { bytes: 3, bits: 1 });
-        assert_eq!((a + s) - b, addr::Size::default());
+        assert_eq!(s + t, Offset::new(3, 1));
+        assert_eq!((a + s) - b, Offset::ZERO);
     }
 
     #[test]
     fn size_arithmetic() {
-        let a = addr::Size {bytes: 256, bits: 0};
+        let a = Offset::new(256, 0);
 
-        assert_eq!(a * 2, addr::Size {bytes: 512, bits: 0});
-        assert_eq!(addr::Size { bytes: 256, bits: 1 } * 2, addr::Size {bytes: 512, bits: 2});
-        assert_eq!(addr::Size { bytes: 256, bits: 4 } * 2, addr::Size {bytes: 513, bits: 0});
+        assert_eq!(a * 2, Offset::new(512, 0));
+        assert_eq!(Offset::new(256, 1) * 2, Offset::new(512, 2));
+        assert_eq!(Offset::new(256, 4) * 2, Offset::new(513, 0));
         
-        assert_eq!(a / addr::unit::BYTE, 256);
-        assert_eq!(a / addr::unit::BIT, 256 * 8);
-        assert_eq!(a / addr::Size { bytes: 1, bits: 1 }, 227);
-        assert_eq!(addr::Size { bytes: 256, bits: 1 } / addr::Size { bytes: 0, bits: 3 }, 683);
-        assert_eq!(addr::Size { bytes: 939, bits: 1 } / addr::Size { bytes: 1, bits: 3 }, 683);
+        assert_eq!(a / Offset::BYTE, 256);
+        assert_eq!(a / Offset::BIT, 256 * 8);
+        assert_eq!(a / Offset::new(1, 1), 227);
+        assert_eq!(Offset::new(256, 1) / Offset::new(0, 3), 683);
+        assert_eq!(Offset::new(939, 1) / Offset::new(1, 3), 683);
     }
 
     #[test]
     fn address_parse() {
-        assert_eq!(addr::Address::parse("123.4"), Ok(addr::Address { byte: 0x123, bit: 4 }));
-        assert_eq!(addr::Address::parse("0x123.4"), Ok(addr::Address { byte: 0x123, bit: 4 }));
-        assert_matches!(addr::Address::parse("blabla"), Err(addr::AddressParseError::MalformedBytes(_)));
-        assert_matches!(addr::Address::parse("123.c"), Err(addr::AddressParseError::MalformedBits(_)));
-        assert_eq!(addr::Address::parse("123.8"), Err(addr::AddressParseError::TooManyBits));
-        assert_eq!(addr::Address::parse("ffffffffffffffff.8"), Ok(addr::unit::END));
-        assert_eq!(addr::Address::parse("ffffffffffffffff.9"), Err(addr::AddressParseError::TooManyBits));
+        assert_eq!(AbsoluteAddress::parse("123.4", true), Ok(AbsoluteAddress::new(0x123, 4)));
+        assert_eq!(AbsoluteAddress::parse("0x123.4", false), Ok(AbsoluteAddress::new(0x123, 4)));
+        assert_matches!(AbsoluteAddress::parse("blabla", true), Err(AddressParseError::MalformedBytes(_)));
+        assert_matches!(AbsoluteAddress::parse("123.c", true), Err(AddressParseError::MalformedBits(_)));
+        assert_eq!(AbsoluteAddress::parse("123.8", true), Err(AddressParseError::TooManyBits));
+        assert_eq!(AbsoluteAddress::parse("ffffffffffffffff.8", true), Ok(AbsoluteAddress::infinity()));
+        assert_eq!(AbsoluteAddress::parse("ffffffffffffffff.9", true), Err(AddressParseError::TooManyBits));
+    }
+
+    #[test]
+    fn extent_comparisons() {
+        assert_eq!(Extent::<OffsetKind>::sized(4, 5), Extent::<OffsetKind>::between(4, 9));
     }
 }
 
 /* address traits */
 
-impl std::fmt::Display for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.bit {
-            0 => write!(f, "{:#018x}", self.byte),
-            _ => write!(f, "{:#018x}.{}", self.byte, self.bit)
-        }
+impl<Kind> std::convert::From<u64> for Address<Kind> {
+    fn from(bytes: u64) -> Self {
+        Self::new(bytes, 0)
     }
 }
 
-impl std::fmt::Debug for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.bit {
-            0 => write!(f, "addr({:#x})", self.byte),
-            _ => write!(f, "addr({:#x}.{})", self.byte, self.bit)
-        }
+impl<Kind> PartialOrd for Address<Kind> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(rhs))
     }
 }
 
-impl std::convert::From<u64> for Address {
-    fn from(byte: u64) -> Address {
-        Address {byte, bit: 0}
+impl<Kind> Ord for Address<Kind> {
+    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        self.bytes.cmp(&rhs.bytes).then(self.bits.cmp(&rhs.bits))
     }
 }
 
-impl std::ops::Sub<Address> for Address {
-    type Output = Size;
-
-    fn sub(self, rhs: Address) -> Size {
-        Size::normalize_signed(self.byte - rhs.byte, self.bit as i64 - rhs.bit as i64)
+impl<Kind> PartialEq for Address<Kind> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.bytes == rhs.bytes && self.bits == rhs.bits
     }
 }
 
-impl std::ops::Add<u64> for Address {
-    type Output = Address;
+impl<Kind> Eq for Address<Kind> {
+}
 
-    fn add(self, rhs: u64) -> Address {
-        if self == unit::END - rhs {
-            unit::END
-        } else {
-            Address {byte: self.byte + rhs, bit: self.bit}
-        }
+impl<Kind> Copy for Address<Kind> {
+}
+
+impl<Kind> Clone for Address<Kind> {
+    fn clone(&self) -> Self {
+        Self::new(self.bytes, self.bits)
     }
 }
 
-impl std::ops::Add<Size> for Address {
-    type Output = Address;
-
-    fn add(self, rhs: Size) -> Address {
-        if self == unit::END - rhs {
-            unit::END
-        } else {
-            Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64)
-        }
+impl<Kind> Default for Address<Kind> {
+    fn default() -> Self {
+        Self::zero()
     }
 }
 
-impl std::ops::AddAssign<u64> for Address {
+impl<Kind> std::hash::Hash for Address<Kind> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.bytes.hash(state);
+        self.bits.hash(state);
+    }
+}
+
+impl<Kind1, Kind2: Arithmetic> std::ops::Add<Address<Kind2>> for Address<Kind1> {
+    type Output = Self;
+    fn add(self, rhs: Address<Kind2>) -> Self { Address::add(self, rhs) }
+}
+
+impl<Kind1, Kind2: Arithmetic> std::ops::AddAssign<Address<Kind2>> for Address<Kind1> {
+    fn add_assign(&mut self, rhs: Address<Kind2>) { Address::add_assign(self, rhs) }
+}
+
+impl<Kind> std::ops::Add<u64> for Address<Kind> {
+    type Output = Self;
+    fn add(self, rhs: u64) -> Self { Address::new(self.bytes + rhs, self.bits) }
+}
+
+impl<Kind> std::ops::AddAssign<u64> for Address<Kind> {
     fn add_assign(&mut self, rhs: u64) {
-        if *self == unit::END - rhs {
-            *self = unit::END
-        } else {
-            self.byte+= rhs;
-        }
+        self.bytes+= rhs;
     }
 }
 
-impl std::ops::AddAssign<Size> for Address {
-    fn add_assign(&mut self, rhs: Size) {
-        if *self == unit::END - rhs {
-            *self = unit::END
-        } else {
-            *self = Address::normalize_unsigned(self.byte + rhs.bytes, self.bit as u64 + rhs.bits as u64);
-        }
-    }
+impl std::ops::Sub<AbsoluteAddress> for AbsoluteAddress {
+    type Output = Offset;
+    fn sub(self, rhs: AbsoluteAddress) -> Offset { Offset::sub(Offset::force_from(self), Offset::force_from(rhs)) }
 }
 
-impl std::ops::Sub<u64> for Address {
-    type Output = Address;
-
-    fn sub(self, rhs: u64) -> Address {
-        if self == unit::END {
-            Address::normalize_unsigned(self.byte - rhs, self.bit as u64)
-        } else {
-            Address {byte: self.byte - rhs, bit: self.bit}
-        }
-    }
+impl<Kind1, Kind2: Arithmetic> std::ops::Sub<Address<Kind2>> for Address<Kind1> {
+    type Output = Self;
+    fn sub(self, rhs: Address<Kind2>) -> Self { Address::sub(self, rhs) }
 }
 
-impl std::ops::Sub<Size> for Address {
-    type Output = Address;
-
-    fn sub(self, rhs: Size) -> Address {
-        Address::normalize_signed(self.byte - rhs.bytes, self.bit as i64 - rhs.bits as i64)
-    }
+impl<Kind1, Kind2: Arithmetic> std::ops::SubAssign<Address<Kind2>> for Address<Kind1> {
+    fn sub_assign(&mut self, rhs: Address<Kind2>) { Address::sub_assign(self, rhs) }
 }
 
-impl std::ops::SubAssign<Size> for Address {
-    fn sub_assign(&mut self, rhs: Size) {
-        *self = Address::normalize_signed(self.byte - rhs.bytes, self.bit as i64 - rhs.bits as i64);
-    }
-}
+/* absolute address traits */
 
-/* size traits */
-
-impl std::fmt::Display for Size {
+impl std::fmt::Display for AbsoluteAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.bits {
-            0 => write!(f, "+{:#016x}", self.bytes),
-            _ => write!(f, "+{:#016x}.{}", self.bytes, self.bits)
+            0 => write!(f, "{:#018x}", self.bytes),
+            _ => write!(f, "{:#018x}.{}", self.bytes, self.bits)
         }
     }
 }
 
-pub struct ShortSize(pub Size);
-impl std::fmt::Display for ShortSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0.bits {
-            0 => write!(f, "+{:x}", self.0.bytes),
-            _ => write!(f, "+{:x}.{}", self.0.bytes, self.0.bits)
-        }
-    }
-}
-
-impl std::fmt::Debug for Size {
+impl std::fmt::Debug for AbsoluteAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.bits {
-            0 => write!(f, "size({:#x})", self.bytes),
-            _ => write!(f, "size({:#x}.{})", self.bytes, self.bits)
+            0 => write!(f, "addr({:#x})", self.bytes),
+            _ => write!(f, "addr({:#x}.{})", self.bytes, self.bits)
         }
     }
 }
 
-impl std::convert::From<u64> for Size {
-    fn from(bytes: u64) -> Size {
-        Size {bytes, bits: 0}
+/* offset traits */
+
+impl std::fmt::Display for Offset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.bits {
+            0 => write!(f, "{:#x}", self.bytes),
+            _ => write!(f, "{:#x}.{}", self.bytes, self.bits)
+        }
     }
 }
 
-impl std::ops::Add<Size> for Size {
-    type Output = Size;
-
-    fn add(self, rhs: Size) -> Size {
-        Size::normalize_unsigned(self.bytes + rhs.bytes, self.bits as u64 + rhs.bits as u64)
+impl std::fmt::Debug for Offset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.bits {
+            0 => write!(f, "offset({:#x})", self.bytes),
+            _ => write!(f, "offset({:#x}.{})", self.bytes, self.bits)
+        }
     }
 }
 
-impl std::ops::Sub<Size> for Size {
-    type Output = Size;
+impl std::ops::Mul<u64> for Offset {
+    type Output = Offset;
 
-    fn sub(self, rhs: Size) -> Size {
-        Size::normalize_signed(self.bytes - rhs.bytes, self.bits as i64 - rhs.bits as i64)
-    }
-}
-
-impl std::ops::SubAssign<Size> for Size {
-    fn sub_assign(&mut self, rhs: Size) {
-        *self = Size::normalize_signed(self.bytes - rhs.bytes, self.bits as i64 - rhs.bits as i64);
-    }
-}
-
-impl std::ops::Mul<u64> for Size {
-    type Output = Size;
-
-    fn mul(self, rhs: u64) -> Size {
-        Size::normalize_unsigned(self.bytes * rhs, self.bits as u64 * rhs)
+    fn mul(self, rhs: u64) -> Offset {
+        Offset::normalize_unsigned(self.bytes * rhs, self.bits as u64 * rhs)
     }
 }
 
 /// NOTE: Unsafe for very large fractional divisors!
 // TODO: uhh, what do we do about dividing max size by one bit?
-impl std::ops::Div<Size> for Size {
+impl std::ops::Div<Offset> for Offset {
     type Output = u64;
 
-    fn div(self, divisor: Size) -> u64 {
+    fn div(self, divisor: Offset) -> u64 {
         let mut dividend = self;
         let mut acc_quotient = 0;
 
@@ -572,10 +548,10 @@ impl std::ops::Div<Size> for Size {
     }
 }
 
-impl std::ops::Rem<Size> for Size {
-    type Output = Size;
+impl std::ops::Rem<Offset> for Offset {
+    type Output = Offset;
 
-    fn rem(self, divisor: Size) -> Size {
+    fn rem(self, divisor: Offset) -> Offset {
         let mut dividend = self;
 
         if divisor.bytes > 0 {
@@ -596,22 +572,8 @@ impl std::ops::Rem<Size> for Size {
 
 /* extent traits */
 
-impl std::fmt::Debug for Extent {
+impl<Kind> std::fmt::Debug for Extent<Kind> where Address<Kind>: std::fmt::Debug {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "extent({:?} to {:?})", self.begin, self.end)
-    }
-}
-
-pub mod fmt {
-    #[derive(Debug, Clone, Copy)]
-    pub struct CompactSize(pub super::Size);
-    
-    impl std::fmt::Display for CompactSize {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self.0.bits {
-                0 => write!(f, "{:#x}", self.0.bytes),
-                _ => write!(f, "{:#x}.{}", self.0.bytes, self.0.bits)
-            }
-        }
     }
 }

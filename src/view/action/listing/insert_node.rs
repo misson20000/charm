@@ -118,7 +118,7 @@ impl InsertNodeAction {
         let name = self.name_entry.text().as_str().to_string();
 
         let size_text = self.size_entry.text();
-        let size = match addr::Address::parse(size_text.as_str()) {
+        let size = match addr::Offset::parse(size_text.as_str(), false) {
             Ok(a) => a,
             Err(e) => return Err(error::Error {
                 while_attempting: error::Action::InsertNodeParseSize,
@@ -129,10 +129,10 @@ impl InsertNodeAction {
                 level: error::Level::Error,
                 is_bug: false,
             })
-        }.to_size();
+        };
 
         let offset_text = self.offset_entry.text();
-        let offset = match addr::Address::parse(offset_text.as_str()) {
+        let offset = match addr::Offset::parse(offset_text.as_str(), false) {
             Ok(a) => a,
             Err(e) => return Err(error::Error {
                 while_attempting: error::Action::InsertNodeParseOffset,
@@ -211,7 +211,7 @@ impl InsertNodeAction {
                     range.path.clone(),
                     range.begin.0,
                     range.begin.1,
-                    Some(range.extent().length()),
+                    Some(range.extent().len()),
 
                     /* convert StructureRange's [begin, end) interval to inclusive Option<[begin, end]> interval */
                     if range.begin.1 == range.end.1 {
@@ -239,9 +239,9 @@ impl InsertNodeAction {
         &self,
         document: sync::Arc<document::Document>,
         path: structure::Path,
-        offset: addr::Address,
+        offset: addr::Offset,
         index: usize,
-        size: Option<addr::Size>,
+        size: Option<addr::Offset>,
         nest_through: Option<usize>) {
         
         let activation = InsertActivation {
@@ -250,7 +250,7 @@ impl InsertNodeAction {
         };
 
         self.offset_entry.set_text(&format!("{}", offset));
-        self.size_entry.set_text(&size.map(|s| format!("{}", s.to_addr())).unwrap_or(String::new()));
+        self.size_entry.set_text(&size.map(|s| format!("{}", s)).unwrap_or(String::new()));
         self.path_display.set_text(&activation.document.describe_path(&activation.path));
 
         let (node, _) = activation.document.lookup_node(&activation.path);
@@ -304,7 +304,7 @@ struct InsertFixedSizeNodeAtCursorAction {
     lw: listing::ListingWidget
 }
 
-pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Size>>(window_context: &window::WindowContext, name: &str, size: S) {
+pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Offset>>(window_context: &window::WindowContext, name: &str, size: S) {
     let document_host = window_context.project.document_host.clone();
     let lw = window_context.lw.clone();
     let action = gio::SimpleAction::new(&format!("insert_{}", name), None);

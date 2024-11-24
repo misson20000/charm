@@ -9,17 +9,17 @@ pub enum Part {
     Title,
     Hexdump {
         index: usize,
-        offset: addr::Address,
+        offset: addr::Offset,
         low_nybble: bool,
     },
     Hexstring {
         index: usize,
-        offset: addr::Address,
+        offset: addr::Offset,
         low_nybble: bool,
     },
     Ellipsis {
         index: usize,
-        offset: addr::Address,
+        offset: addr::Offset,
     },
 }
 
@@ -116,9 +116,9 @@ impl Part {
         }
     }
 
-    pub fn offset(&self) -> addr::Address {
+    pub fn offset(&self) -> addr::Offset {
         match self {
-            Part::Title => addr::unit::NULL,
+            Part::Title => addr::Offset::NULL,
             Part::Hexdump { offset, .. } => *offset,
             Part::Hexstring { offset, .. } => *offset,
             Part::Ellipsis { offset, .. } => *offset,
@@ -218,8 +218,8 @@ mod tests {
 
         let sel = to_structure_selection(&document, &pr1, &pr2);
 
-        const BEGIN_OFFSET: addr::Address = addr::Address::new(0x18);
-        const END_OFFSET: addr::Address = addr::Address::new(0x60);
+        const BEGIN_OFFSET: addr::Offset = addr::Offset::new(0x18, 0);
+        const END_OFFSET: addr::Offset = addr::Offset::new(0x60, 0);
         
         assert_eq!(sel, selection::listing::StructureMode::Range(selection::listing::StructureRange {
             path: vec![],

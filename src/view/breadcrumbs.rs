@@ -97,7 +97,7 @@ mod imp {
 
             match bc.imp().docpath.borrow().as_ref() {
                 Some((doc, path)) => {
-                    lw.goto(doc, path, addr::unit::NULL, cursor::PlacementHint::Title);
+                    lw.goto(doc, path, addr::Offset::NULL, cursor::PlacementHint::Title);
                     lw.grab_focus();
                 },
                 None => return,

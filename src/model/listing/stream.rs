@@ -16,7 +16,7 @@ enum PositionState {
     PreBlank,
     Title,
     
-    MetaContent(addr::Address, usize),
+    MetaContent(addr::Offset, usize),
     Hexdump {
         extent: addr::Extent,
         line_extent: addr::Extent,
@@ -60,7 +60,7 @@ pub struct StackEntry {
     /// How long the [stack] chain actually is. Used when comparing Positions.
     logical_depth: usize,
     node: sync::Arc<structure::Node>,
-    node_addr: addr::Address,    
+    node_addr: addr::AbsoluteAddress,    
 }
 
 /* This lets us provide an alternate, simpler implementation to
@@ -68,7 +68,7 @@ pub struct StackEntry {
  * or Window/Line logic. */
 pub trait AbstractPosition: Clone {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
-    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self;
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Offset) -> Self;
     fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change);
     fn hit_top(&self) -> bool;
     fn hit_bottom(&self) -> bool;
@@ -92,7 +92,7 @@ pub struct Position {
     /// How long the [stack] chain actually is. Used when comparing Positions.
     logical_depth: usize,
     pub node: sync::Arc<structure::Node>,
-    node_addr: addr::Address,
+    node_addr: addr::AbsoluteAddress,
 }
 
 #[derive(Debug)]
@@ -146,7 +146,7 @@ impl std::fmt::Debug for StackEntry {
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PortOptions {
-    pub additional_offset: Option<addr::Size>,
+    pub additional_offset: Option<addr::Offset>,
     pub prefer_after_new_node: bool,
 }
 
@@ -165,7 +165,7 @@ enum PortStackMode {
         /* PortStackState::node represents the parent node that had its child deleted. This represents a child on the old hierarchy, used for building offset_within_parent. */
         node: sync::Arc<structure::Node>,
         first_deleted_child_index: usize,
-        offset_within_parent: addr::Size,
+        offset_within_parent: addr::Offset,
         summary: bool,
     },
 
@@ -183,7 +183,7 @@ struct PortStackState {
     new_stack: Option<sync::Arc<StackEntry>>,
     apparent_depth: usize,
     logical_depth: usize,
-    node_addr: addr::Address,
+    node_addr: addr::AbsoluteAddress,
     node: sync::Arc<structure::Node>,
 }
 
@@ -205,7 +205,7 @@ impl std::fmt::Debug for PortStackState {
 enum IntermediatePortState {
     Finished(PositionState),
 
-    NormalContent(Option<addr::Address>, usize),
+    NormalContent(Option<addr::Offset>, usize),
     SummaryLabel(usize),
     SummarySeparator(usize),
 }
@@ -217,7 +217,7 @@ impl PortOptionsBuilder {
         }
     }
 
-    pub fn additional_offset<T: Into<addr::Size>>(mut self, offset: T) -> PortOptionsBuilder {
+    pub fn additional_offset<T: Into<addr::Offset>>(mut self, offset: T) -> PortOptionsBuilder {
         self.options.additional_offset = Some(offset.into());
         self
     }
@@ -247,14 +247,14 @@ impl Position {
             apparent_depth: 0,
             logical_depth: 0,
             node: root,
-            node_addr: addr::unit::NULL,
+            node_addr: addr::AbsoluteAddress::NULL,
         }
     }
 
     /// Creates a new position positioned at a specific offset within the node at the given path.
-    pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Position {
+    pub fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Offset) -> Position {
         let mut node = &root;
-        let mut node_addr = addr::unit::NULL;
+        let mut node_addr = addr::AbsoluteAddress::NULL;
         let mut apparent_depth = 0;
         let mut logical_depth = 0;
         let mut stack = None;
@@ -291,7 +291,7 @@ impl Position {
 
             let childhood = &node.children[*child_index];
             node = &childhood.node;
-            node_addr+= childhood.offset.to_size();
+            node_addr+= childhood.offset;
             apparent_depth+= 1;
             logical_depth+= 1;
 
@@ -310,7 +310,7 @@ impl Position {
             node_addr
         };
 
-        if offset > addr::unit::NULL {
+        if offset > addr::Offset::NULL {
             position.seek_in_node_to_offset(offset, summary_next);
         }
         
@@ -335,7 +335,7 @@ impl Position {
                     PositionState::MetaContent(offset, _) => *offset,
                     PositionState::Hexdump { extent, .. } => extent.begin,
                     PositionState::Hexstring(extent, _) => extent.begin,
-                    _ => addr::unit::NULL
+                    _ => addr::Offset::NULL
                 };
                 
                 IntermediatePortState::NormalContent(Some(offset_within_child + *offset_within_parent), *first_deleted_child_index)
@@ -349,10 +349,10 @@ impl Position {
                     | PositionState::SummaryOpener
                     | PositionState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
                 
-                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + offset.to_size()), destructured_child_index + *index),
-                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
-                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin.to_size()), destructured_child_index + *index),
+                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + *offset), destructured_child_index + *index),
+                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
+                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
+                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
                 PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
 
                 PositionState::SummaryLabel(i)
@@ -383,13 +383,13 @@ impl Position {
                 PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
                 PositionState::SummaryPreamble => IntermediatePortState::Finished(PositionState::Title),
-                PositionState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
+                PositionState::SummaryOpener => IntermediatePortState::NormalContent(Some(addr::Offset::NULL), 0),
                 PositionState::SummaryLabel(i) => IntermediatePortState::NormalContent(None, *i),
                 PositionState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, *i),
                 PositionState::SummaryCloser => IntermediatePortState::Finished(PositionState::End),
                 PositionState::SummaryEpilogue => IntermediatePortState::Finished(PositionState::PostBlank),
                 PositionState::SummaryValueBegin => IntermediatePortState::Finished(PositionState::Title),
-                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::unit::NULL), 0),
+                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::Offset::NULL), 0),
                 PositionState::SummaryValueEnd => IntermediatePortState::Finished(PositionState::End),
 
                 PositionState::PostBlank => IntermediatePortState::Finished(PositionState::PostBlank),
@@ -481,7 +481,7 @@ impl Position {
                         self.descend(if is_summary { Descent::ChildSummary(*affected_index) } else { Descent::Child(*affected_index) }, PositionState::End);
 
                         *index = 0;
-                        *offset-= new_childhood.offset.to_size();
+                        *offset-= new_childhood.offset;
                     } else if *index == *affected_index && *offset > new_childhood.offset {
                         *index+= 1;
                     } else if *index > *affected_index {
@@ -512,7 +512,7 @@ impl Position {
                         *index = 0;
                         
                         if let Some(offset) = offset.as_mut() {
-                            *offset-= new_nest_offset.to_size();
+                            *offset-= new_nest_offset;
                         }
                     }
                 } else if *index > range.last {
@@ -647,7 +647,7 @@ impl Position {
         }
     }
 
-    fn seek_in_node_to_offset(&mut self, offset: addr::Address, summary: bool) {
+    fn seek_in_node_to_offset(&mut self, offset: addr::Offset, summary: bool) {
         let index = self.node.children.partition_point(|ch| ch.offset < offset);
         
         if summary {
@@ -676,7 +676,7 @@ impl Position {
             apparent_depth: 0,
             logical_depth: 0,
             node: root.clone(),
-            node_addr: addr::unit::NULL,
+            node_addr: addr::AbsoluteAddress::NULL,
         }
     }
 
@@ -733,7 +733,7 @@ impl Position {
                     common: token::TokenCommon {
                         node: ch.node.clone(),
                         node_path: path,
-                        node_addr: self.node_addr + ch.offset.to_size(),
+                        node_addr: self.node_addr + ch.offset,
                         node_child_index: 0,
                         depth: self.apparent_depth,
                     },
@@ -758,7 +758,7 @@ impl Position {
             PositionState::SummaryValueBegin => TokenGenerationResult::Skip,
             PositionState::SummaryLeaf => {
                 let limit = std::cmp::min(16.into(), self.node.size);
-                let extent = addr::Extent::between(addr::unit::NULL, limit.to_addr());
+                let extent = addr::Extent::between(addr::Offset::NULL, limit);
                 
                 TokenGenerationResult::Ok(match self.node.props.content_display {
                     structure::ContentDisplay::None => token::SummaryPunctuation {
@@ -791,17 +791,17 @@ impl Position {
     }
 
     /// Return the extent of the line containing the given address, biased downwards.
-    fn get_line_extent(&self, offset: addr::Address, pitch: addr::Size) -> addr::Extent {
-        addr::Extent::sized((pitch * (offset.to_size() / pitch)).to_addr(), pitch)
+    fn get_line_extent(&self, offset: addr::Offset, pitch: addr::Offset) -> addr::Extent {
+        addr::Extent::sized(pitch * (offset / pitch), pitch)
     }
 
-    fn try_get_natural_line_extent(&self, offset: addr::Address) -> Option<addr::Extent> {
+    fn try_get_natural_line_extent(&self, offset: addr::Offset) -> Option<addr::Extent> {
         self.node.props.content_display.preferred_pitch().map(|pitch| self.get_line_extent(offset, pitch))
     }
 
     /// Returns the boundaries of the children at index-1 and index. This is not an [addr::Extent] because the latter
     /// child may begin at a lower address than the former child ends at.
-    fn get_interstitial(&self, index: usize) -> (addr::Address, addr::Address) {
+    fn get_interstitial(&self, index: usize) -> (addr::Offset, addr::Offset) {
         /* Find the children. */
         let prev_child_option = match index {
             0 => None,
@@ -815,7 +815,7 @@ impl Position {
             /* Can't include data from the child, so need to stop after its end. */
             Some((_, prev_child)) => prev_child.end(),
             /* Can't include data that belongs to the parent, so need to stop before our begin. */
-            None => addr::unit::NULL,
+            None => addr::Offset::NULL,
         };
 
         /* Where can we not end beyond? */
@@ -823,7 +823,7 @@ impl Position {
             /* Can't include data from the child, so need to stop before it begins. */
             Some((_, next_child)) => next_child.offset,
             /* Can't include data that belongs to the parent, so need to stop before we end. */
-            None => self.node.size.to_addr(),
+            None => self.node.size,
         };
 
         (lower_limit, upper_limit)
@@ -831,7 +831,7 @@ impl Position {
 
     /// Despite the name, this must return exactly the same boundary that move_next and move_prev would so that we don't
     /// seek to different tokens than what scrolling would've produced.
-    fn estimate_line_begin(&self, offset: Option<addr::Address>, index: usize) -> addr::Address {
+    fn estimate_line_begin(&self, offset: Option<addr::Offset>, index: usize) -> addr::Offset {
         let interstitial = self.get_interstitial(index);
 
         if let Some(offset) = offset {
@@ -881,7 +881,7 @@ impl Position {
                 }
 
                 /* Emit content, if we can. */
-                if offset > addr::unit::NULL {
+                if offset > addr::Offset::NULL {
                     let interstitial = self.get_interstitial(index);
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
@@ -889,7 +889,7 @@ impl Position {
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
-                            let line_extent = self.get_line_extent(offset - addr::unit::BIT, line_pitch);
+                            let line_extent = self.get_line_extent(offset - addr::Offset::BIT, line_pitch);
 
                             PositionState::Hexdump {
                                 extent: addr::Extent::between(std::cmp::max(interstitial.begin, line_extent.begin), offset),
@@ -972,13 +972,13 @@ impl Position {
             PositionState::PostBlank => {
                 match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
-                        self.state = PositionState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                        self.state = PositionState::MetaContent(self.node.size, self.node.children.len());
                     },
                     structure::ChildrenDisplay::Summary => {
                         self.state = PositionState::SummaryEpilogue;
                     },
                     structure::ChildrenDisplay::Full => {
-                        self.state = PositionState::MetaContent(self.node.size.to_addr(), self.node.children.len());
+                        self.state = PositionState::MetaContent(self.node.size, self.node.children.len());
                     },
                 }
                 true
@@ -1001,13 +1001,13 @@ impl Position {
             PositionState::Title => {
                 match self.node.props.children_display {
                     structure::ChildrenDisplay::None => {
-                        self.state = PositionState::MetaContent(addr::unit::NULL, 0);
+                        self.state = PositionState::MetaContent(addr::Offset::NULL, 0);
                     },
                     structure::ChildrenDisplay::Summary => {
                         self.state = PositionState::SummaryPreamble;
                     },
                     structure::ChildrenDisplay::Full => {
-                        self.state = PositionState::MetaContent(addr::unit::NULL, 0);
+                        self.state = PositionState::MetaContent(addr::Offset::NULL, 0);
                     },
                 }
                 true
@@ -1035,7 +1035,7 @@ impl Position {
                 }
 
                 /* Emit content, if we can. */
-                if offset < self.node.size.to_addr() {
+                if offset < self.node.size {
                     let interstitial = self.get_interstitial(index);
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
@@ -1213,7 +1213,7 @@ impl Position {
         self.logical_depth+= 1;
         self.stack = Some(sync::Arc::new(parent_entry));
         self.state = state_within;
-        self.node_addr+= childhood.offset.to_size();
+        self.node_addr+= childhood.offset;
     }
     
     /// Replaces our context with the parent's context, returning false if there
@@ -1253,7 +1253,7 @@ impl Position {
         }
     }
 
-    pub fn node_addr(&self) -> addr::Address {
+    pub fn node_addr(&self) -> addr::AbsoluteAddress {
         self.node_addr
     }
     
@@ -1281,25 +1281,25 @@ impl Position {
         }
     }
 
-    pub fn structure_position_offset(&self) -> addr::Address {
+    pub fn structure_position_offset(&self) -> addr::Offset {
         match self.state {
-            PositionState::PreBlank => addr::unit::NULL,
-            PositionState::Title => addr::unit::NULL,
+            PositionState::PreBlank => addr::Offset::NULL,
+            PositionState::Title => addr::Offset::NULL,
             PositionState::MetaContent(offset, _) => offset,
             PositionState::Hexdump { extent, .. } => extent.begin,
             PositionState::Hexstring(extent, _) => extent.begin,
             PositionState::Ellipsis(extent, _) => extent.begin,
-            PositionState::SummaryPreamble => addr::unit::NULL,
-            PositionState::SummaryOpener => addr::unit::NULL,
+            PositionState::SummaryPreamble => addr::Offset::NULL,
+            PositionState::SummaryOpener => addr::Offset::NULL,
             PositionState::SummaryLabel(i) => self.node.children[i].offset,
             PositionState::SummarySeparator(i) => self.node.children[i-1].end(),
-            PositionState::SummaryCloser => self.node.size.to_addr(),
-            PositionState::SummaryEpilogue => self.node.size.to_addr(),
-            PositionState::SummaryValueBegin => addr::unit::NULL,
-            PositionState::SummaryLeaf => addr::unit::NULL,
-            PositionState::SummaryValueEnd => self.node.size.to_addr(),
-            PositionState::PostBlank => self.node.size.to_addr(),
-            PositionState::End => self.node.size.to_addr(),
+            PositionState::SummaryCloser => self.node.size,
+            PositionState::SummaryEpilogue => self.node.size,
+            PositionState::SummaryValueBegin => addr::Offset::NULL,
+            PositionState::SummaryLeaf => addr::Offset::NULL,
+            PositionState::SummaryValueEnd => self.node.size,
+            PositionState::PostBlank => self.node.size,
+            PositionState::End => self.node.size,
         }
     }
 
@@ -1352,7 +1352,7 @@ impl Descent {
             Descent::ChildSummary(i) => node.children[*i].clone(),
             Descent::MySummary => structure::Childhood {
                 node: node.clone(),
-                offset: addr::unit::NULL,
+                offset: addr::Offset::NULL,
             },
         }
     }
@@ -1441,7 +1441,7 @@ impl PortStackState {
             new_stack: None,
             apparent_depth: 0,
             logical_depth: 0,
-            node_addr: addr::unit::NULL,
+            node_addr: addr::AbsoluteAddress::NULL,
             node: root,
         }
     }
@@ -1461,7 +1461,7 @@ impl PortStackState {
                 self.mode = PortStackMode::Deleted {
                     node: childhood.node.clone(),
                     first_deleted_child_index,
-                    offset_within_parent: childhood.offset.to_size(),
+                    offset_within_parent: childhood.offset,
                     summary: match self.mode {
                         PortStackMode::Normal => false,
                         PortStackMode::Summary => true,
@@ -1478,7 +1478,7 @@ impl PortStackState {
         }
     }
 
-    fn destructure(&mut self, destructured_child: usize, current_child: usize, num_grandchildren: usize, offset: addr::Address, childhood: &structure::Childhood) {
+    fn destructure(&mut self, destructured_child: usize, current_child: usize, num_grandchildren: usize, offset: addr::Offset, childhood: &structure::Childhood) {
         match self.mode {
             /* Only enter destructuring mode if we're trying to descend into a child that got destructured. */
             PortStackMode::Normal | PortStackMode::Summary if current_child == destructured_child => {
@@ -1556,14 +1556,14 @@ impl PortStackState {
 
                 self.apparent_depth+= tse.descent.depth_change();
                 self.logical_depth+= 1;
-                self.node_addr+= childhood.offset.to_size();
+                self.node_addr+= childhood.offset;
                 self.new_stack = Some(sync::Arc::new(tse));
             },
             PortStackMode::Deleted { ref mut node, ref mut offset_within_parent, .. } => {
                 let childhood = descent.childhood(&node);
 
                 *node = childhood.node;
-                *offset_within_parent = *offset_within_parent + childhood.offset.to_size();
+                *offset_within_parent = *offset_within_parent + childhood.offset;
             },
             PortStackMode::Destructuring { .. } => panic!("should be unreachable"),
         }
@@ -1737,28 +1737,28 @@ mod cmp {
         Postamble,
     }
     
-    pub fn state_tuple(state: &super::PositionState) -> (StateGroup, usize, usize, addr::Address, usize) {
+    pub fn state_tuple(state: &super::PositionState) -> (StateGroup, usize, usize, addr::Offset, usize) {
         match state {
-            super::PositionState::PreBlank => (StateGroup::Preamble, 0, 0, addr::unit::NULL, 0),
-            super::PositionState::Title => (StateGroup::Preamble, 1, 0, addr::unit::NULL, 0),
-            super::PositionState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::unit::NULL, 0),
+            super::PositionState::PreBlank => (StateGroup::Preamble, 0, 0, addr::Offset::NULL, 0),
+            super::PositionState::Title => (StateGroup::Preamble, 1, 0, addr::Offset::NULL, 0),
+            super::PositionState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::Offset::NULL, 0),
             
             super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
             super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Ellipsis(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
-            super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::unit::NULL, 0),
-            super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::unit::NULL, 0),
-            super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::unit::NULL, 0),
-            super::PositionState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x, addr::unit::NULL, 0),
-            super::PositionState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::unit::NULL, 0),
-            super::PositionState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::Offset::NULL, 0),
+            super::PositionState::SummaryOpener => (StateGroup::SummaryContent, 1, 0, addr::Offset::NULL, 0),
+            super::PositionState::SummaryLabel(x) => (StateGroup::SummaryContent, 2, 2*x+1, addr::Offset::NULL, 0),
+            super::PositionState::SummarySeparator(x) => (StateGroup::SummaryContent, 2, 2*x, addr::Offset::NULL, 0),
+            super::PositionState::SummaryCloser => (StateGroup::SummaryContent, 3, 0, addr::Offset::NULL, 0),
+            super::PositionState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::Offset::NULL, 0),
             
-            super::PositionState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::Offset::NULL, 0),
             
-            super::PositionState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::unit::NULL, 0),
-            super::PositionState::PostBlank => (StateGroup::Postamble, 1, 0, addr::unit::NULL, 0),
-            super::PositionState::End => (StateGroup::Postamble, 2, 0, addr::unit::NULL, 0),
+            super::PositionState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::Offset::NULL, 0),
+            super::PositionState::PostBlank => (StateGroup::Postamble, 1, 0, addr::Offset::NULL, 0),
+            super::PositionState::End => (StateGroup::Postamble, 2, 0, addr::Offset::NULL, 0),
         }
     }
 }
@@ -1835,7 +1835,7 @@ pub mod xml {
                     "node" => {
                         structure = match structure {
                             Some(_) => panic!("multiple structure definitions"),
-                            None => Some(inflate_structure(child, addr::unit::NULL, structure::Path::default(), &mut lookup))
+                            None => Some(inflate_structure(child, addr::AbsoluteAddress::NULL, structure::Path::default(), &mut lookup))
                         }
                     }
                     "tokens" => {
@@ -1874,27 +1874,27 @@ pub mod xml {
     }
 
     fn inflate_extent(xml: &roxmltree::Node) -> addr::Extent {
-        addr::Extent::parse(xml.attribute("extent").unwrap()).unwrap()
+        addr::Extent::parse(xml.attribute("extent").unwrap(), true).unwrap()
     }
 
     fn inflate_line_extent(xml: &roxmltree::Node) -> addr::Extent {
-        addr::Extent::parse(xml.attribute("line").unwrap()).unwrap()
+        addr::Extent::parse(xml.attribute("line").unwrap(), true).unwrap()
     }
     
-    fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::Address, child_path: structure::Path, map: &mut collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> structure::Childhood {
+    fn inflate_childhood(xml: roxmltree::Node, parent_addr: addr::AbsoluteAddress, child_path: structure::Path, map: &mut collections::HashMap<String, (addr::AbsoluteAddress, structure::Path, sync::Arc<structure::Node>)>) -> structure::Childhood {
         let offset = match xml.attribute("offset") {
-            Some(addr) => addr::Address::parse(addr).unwrap(),
-            None => addr::unit::NULL
+            Some(addr) => addr::Offset::parse(addr, true).unwrap(),
+            None => addr::Offset::NULL
         };
         structure::Childhood {
-            node: inflate_structure(xml, parent_addr + offset.to_size(), child_path, map),
+            node: inflate_structure(xml, parent_addr + offset, child_path, map),
             offset,
         }
     }
         
-    pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::Address, node_path: structure::Path, map: &mut collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
+    pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::AbsoluteAddress, node_path: structure::Path, map: &mut collections::HashMap<String, (addr::AbsoluteAddress, structure::Path, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
         let node = structure::Node {
-            size: addr::Address::parse(xml.attribute("size").unwrap()).unwrap().to_size(),
+            size: addr::Offset::parse(xml.attribute("size").unwrap(), false).unwrap(),
             props: structure::Properties {
                 name: xml.attribute("name").unwrap().to_string(),
                 title_display: match xml.attribute("title") {
@@ -1919,14 +1919,14 @@ pub mod xml {
                             .or_else(|| xml.attribute("pitch"))
                             .map_or(
                                 16.into(),
-                                |p| addr::Address::parse(p).map_or_else(                                
+                                |p| addr::Offset::parse(p, false).map_or_else(                                
                                     |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                                    |a| a.to_size())),
+                                    |a| a)),
                         gutter_pitch: xml.attribute("gutter_pitch").map_or(
                             8.into(),
-                            |p| addr::Address::parse(p).map_or_else(                                
+                            |p| addr::Offset::parse(p, false).map_or_else(                                
                                 |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                                |a| a.to_size())),
+                                |a| a)),
                     },
                     Some("none") => structure::ContentDisplay::None,
                     Some(invalid) => panic!("invalid content attribute: {}", invalid)
@@ -1945,7 +1945,7 @@ pub mod xml {
     }
 
     impl<'a, 'input> TokenDef<'a, 'input> {
-        fn into_token(self, lookup: &collections::HashMap<String, (addr::Address, structure::Path, sync::Arc<structure::Node>)>) -> token::Token {
+        fn into_token(self, lookup: &collections::HashMap<String, (addr::AbsoluteAddress, structure::Path, sync::Arc<structure::Node>)>) -> token::Token {
             let lookup_result = lookup.get(&self.node_name).unwrap_or_else(|| panic!("expected a node named '{}'", self.node_name));
 
             let common = token::TokenCommon {
@@ -1989,7 +1989,7 @@ impl AbstractPosition for Position {
         Position::at_beginning(root)
     }
 
-    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Address) -> Self {
+    fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Offset) -> Self {
         Position::at_path(root, path, offset)
     }
 
@@ -2354,8 +2354,8 @@ mod tests {
                         node_child_index: 0,
                         depth: 3,
                     },
-                    extent: addr::Extent::sized_u64(0x10, 0x8),
-                    line: addr::Extent::sized_u64(0x10, 0x10),
+                    extent: addr::Extent::sized(0x10, 0x8),
+                    line: addr::Extent::sized(0x10, 0x10),
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
@@ -2365,8 +2365,8 @@ mod tests {
                         node_child_index: 1,
                         depth: 2,
                     },
-                    extent: addr::Extent::sized_u64(0x40, 0x8),
-                    line: addr::Extent::sized_u64(0x40, 0x10)
+                    extent: addr::Extent::sized(0x40, 0x8),
+                    line: addr::Extent::sized(0x40, 0x10)
                 }),
                 PortOptionsBuilder::new().additional_offset(0x4).build(), /* Asking about offset 0x14 into old child1.2 */
                 PortOptionsBuilder::new().additional_offset(0x8).build(), /* Becomes offset 0x48 in new child1 */
@@ -2380,8 +2380,8 @@ mod tests {
                         node_child_index: 0,
                         depth: 3,
                     },
-                    extent: addr::Extent::sized_u64(0x10, 0xc),
-                    line: addr::Extent::sized_u64(0x10, 0x10)
+                    extent: addr::Extent::sized(0x10, 0xc),
+                    line: addr::Extent::sized(0x10, 0x10)
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
@@ -2392,8 +2392,8 @@ mod tests {
                         node_child_index: 0,
                         depth: 3,
                     },
-                    extent: addr::Extent::sized_u64(0x10, 0xc),
-                    line: addr::Extent::sized_u64(0x10, 0x10),
+                    extent: addr::Extent::sized(0x10, 0xc),
+                    line: addr::Extent::sized(0x10, 0x10),
                 }),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
@@ -2417,13 +2417,13 @@ mod tests {
                 title_display: structure::TitleDisplay::Minor,
                 children_display: structure::ChildrenDisplay::Full,
                 content_display: structure::ContentDisplay::Hexdump {
-                    line_pitch: addr::Size::from(16),
-                    gutter_pitch: addr::Size::from(8),
+                    line_pitch: addr::Offset::from(16),
+                    gutter_pitch: addr::Offset::from(8),
                 },
                 locked: false,
             },
             children: vec::Vec::new(),
-            size: addr::Size::from(0x30),
+            size: addr::Offset::from(0x30),
         });
         
         new_doc.change_for_debug(old_doc.insert_node(vec![], 0, structure::Childhood::new(node.clone(), 0x12.into()))).unwrap();
@@ -2437,23 +2437,23 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
@@ -2464,23 +2464,23 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x10, 0x10),
-                    line: addr::Extent::sized_u64(0x10, 0x10),
+                    extent: addr::Extent::sized(0x10, 0x10),
+                    line: addr::Extent::sized(0x10, 0x10),
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x10, 0x2),
-                    line: addr::Extent::sized_u64(0x10, 0x10),
+                    extent: addr::Extent::sized(0x10, 0x2),
+                    line: addr::Extent::sized(0x10, 0x10),
                 }),
                 PortOptionsBuilder::new().additional_offset(0x1).build(),
                 PortOptionsBuilder::new().additional_offset(0x1).build(),
@@ -2506,8 +2506,8 @@ mod tests {
             title_display: structure::TitleDisplay::Minor,
             children_display: structure::ChildrenDisplay::Full,
             content_display: structure::ContentDisplay::Hexdump {
-                line_pitch: addr::Size::from(16),
-                gutter_pitch: addr::Size::from(8),
+                line_pitch: addr::Offset::from(16),
+                gutter_pitch: addr::Offset::from(8),
             },
             locked: false,
         };
@@ -2516,7 +2516,7 @@ mod tests {
             parent: vec![],
             first: 0,
             last: 0,
-        }, addr::Extent::sized_u64(0x24, 0x58), props)).unwrap();
+        }, addr::Extent::sized(0x24, 0x58), props)).unwrap();
 
         let new_root = new_doc.root.clone();
         let new_child = new_doc.root.children[0].node.clone();
@@ -2528,23 +2528,23 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
@@ -2555,12 +2555,12 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x20, 0x10),
-                    line: addr::Extent::sized_u64(0x20, 0x10),
+                    extent: addr::Extent::sized(0x20, 0x10),
+                    line: addr::Extent::sized(0x20, 0x10),
                 }),
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
@@ -2570,8 +2570,8 @@ mod tests {
                         node_child_index: 0,
                         depth: 2,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 PortOptionsBuilder::new().additional_offset(0x8).build(),
                 PortOptionsBuilder::new().additional_offset(0x4).build(),
@@ -2606,7 +2606,7 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 0,
                     },
@@ -2615,7 +2615,7 @@ mod tests {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 0,
                     },
@@ -2629,18 +2629,18 @@ mod tests {
                     common: token::TokenCommon {
                         node: root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 1,
                     },
-                    extent: addr::Extent::sized_u64(0x0, 0x10),
-                    line: addr::Extent::sized_u64(0x0, 0x10),
+                    extent: addr::Extent::sized(0x0, 0x10),
+                    line: addr::Extent::sized(0x0, 0x10),
                 }),
                 token::Token::SummaryPunctuation(token::SummaryPunctuation {
                     common: token::TokenCommon {
                         node: new_root.clone(),
                         node_path: vec![],
-                        node_addr: addr::unit::NULL,
+                        node_addr: addr::AbsoluteAddress::NULL,
                         node_child_index: 0,
                         depth: 0,
                     },

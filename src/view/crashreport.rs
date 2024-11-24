@@ -45,7 +45,7 @@ pub enum Circumstance {
     Goto {
         document: sync::Arc<document::Document>,
         path: document::structure::Path,
-        offset: model::addr::Address,
+        offset: model::addr::Offset,
         hint: String,
     },
     LWDocumentUpdate(sync::Arc<document::Document>, sync::Arc<document::Document>),

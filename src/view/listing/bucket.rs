@@ -26,7 +26,7 @@ pub struct RenderArgs<'a> {
 
 pub trait Bucket: WorkableBucket + PickableBucket {
     fn render(&mut self, ctx: RenderArgs<'_>, layout: &mut LayoutController);
-    fn visible_address(&self) -> Option<addr::Address>;
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress>;
     
     fn as_bucket(&self) -> &dyn Bucket where Self: Sized {
         self
@@ -168,7 +168,7 @@ impl<Marker> Bucket for SingleTokenBucket<Marker> where LayoutController: Layout
         self.end = end;
     }
 
-    fn visible_address(&self) -> Option<addr::Address> {
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
         self.tv.visible_address()
     }
 }
@@ -216,7 +216,7 @@ impl<Marker, Token: Into<token::Token>> From<Option<Token>> for MaybeTokenBucket
 }
 
 impl<Marker> Bucket for MaybeTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    fn visible_address(&self) -> Option<addr::Address> {
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
         self.tv.as_ref().and_then(|tv| tv.visible_address())
     }
 
@@ -263,7 +263,7 @@ impl<Marker> MultiTokenBucket<Marker> {
 }
 
 impl<Marker> Bucket for MultiTokenBucket<Marker> where LayoutController: LayoutProvider<Marker> {
-    fn visible_address(&self) -> Option<addr::Address> {
+    fn visible_address(&self) -> Option<addr::AbsoluteAddress> {
         self.tvs.get(0).and_then(|tv| tv.visible_address())
     }
 

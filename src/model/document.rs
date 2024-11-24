@@ -60,7 +60,7 @@ impl From<roxmltree::Error> for LoadForTestingError {
 impl Builder {
     pub fn default() -> Self {
         Self::new(sync::Arc::new(structure::Node {
-            size: addr::unit::MAX,
+            size: addr::Offset::MAX,
             props: structure::Properties {
                 name: "root".to_string(),
                 title_display: structure::TitleDisplay::Major,
@@ -119,13 +119,13 @@ impl Document {
         })
     }
 
-    pub fn lookup_node(&self, path: structure::PathSlice) -> (&sync::Arc<structure::Node>, addr::Address) {
+    pub fn lookup_node(&self, path: structure::PathSlice) -> (&sync::Arc<structure::Node>, addr::AbsoluteAddress) {
         let mut current_node = &self.root;
-        let mut node_addr = addr::unit::NULL;
+        let mut node_addr = addr::AbsoluteAddress::NULL;
 
         for i in path {
             let childhood = &current_node.children[*i];
-            node_addr+= childhood.offset.to_size();
+            node_addr+= childhood.offset;
             current_node = &childhood.node;
         }
 
@@ -136,7 +136,7 @@ impl Document {
         self.root.successor(path, 0)
     }
     
-    pub fn search_addr<A: Into<addr::Address>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
+    pub fn search_addr<A: Into<addr::AbsoluteAddress>>(&self, addr: A, traversal: search::Traversal) -> Result<search::AddressSearch<'_>, search::SetupError> {
         search::AddressSearch::new(self, addr.into(), traversal)
     }
 

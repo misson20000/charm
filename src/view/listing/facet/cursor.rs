@@ -150,7 +150,7 @@ impl CursorView {
     //pub fn move_up_to_break(&mut self) { self.movement(|c| c.move_up_to_break()); }
     //pub fn move_down_to_break(&mut self) { self.movement(|c| c.move_down_to_break()); }
 
-    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Address, hint: cursor::PlacementHint) {
+    pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset, hint: cursor::PlacementHint) {
         self.blink();
         self.ev_draw.want();
         self.ev_work.want();
@@ -178,7 +178,7 @@ impl CursorView {
         Ok(())
     }
     
-    pub fn endpoint_for_rubber_band(&self) -> (structure::Path, usize, addr::Address) {
+    pub fn endpoint_for_rubber_band(&self) -> (structure::Path, usize, addr::Offset) {
         let mut path = self.cursor.structure_path();
         let mut child = self.cursor.structure_child_index();
         let mut offset = self.cursor.structure_offset();
@@ -186,15 +186,15 @@ impl CursorView {
         /* silly tweaks that make it all feel better to use */
         match &self.cursor.class {
             cursor::CursorClass::Hexdump(hxc) if hxc.low_nybble => {
-                offset+= addr::unit::BYTE;
+                offset+= addr::Offset::BYTE;
             },
             cursor::CursorClass::Hexstring(hxc) if hxc.low_nybble => {
-                offset+= addr::unit::BYTE;
+                offset+= addr::Offset::BYTE;
             },
             cursor::CursorClass::SummaryLabel(_slc) => {
                 path.push(child);
                 child = 0;
-                offset = addr::unit::NULL;
+                offset = addr::Offset::NULL;
             },
             _ => {},
         };

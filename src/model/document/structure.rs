@@ -25,8 +25,8 @@ pub enum ChildrenDisplay {
 pub enum ContentDisplay {
     None,
     Hexdump {
-        line_pitch: addr::Size,
-        gutter_pitch: addr::Size,
+        line_pitch: addr::Offset,
+        gutter_pitch: addr::Offset,
     },
     Hexstring
 }
@@ -99,15 +99,15 @@ impl SiblingRange {
 #[derive(Debug, Clone)]
 pub struct Childhood {
     pub node: sync::Arc<Node>,
-    pub offset: addr::Address,
+    pub offset: addr::Offset,
 }
 
 impl Childhood {
-    pub fn new(node: sync::Arc<Node>, offset: addr::Address) -> Childhood {
+    pub fn new(node: sync::Arc<Node>, offset: addr::Offset) -> Childhood {
         Childhood { node, offset }
     }
     
-    pub fn end(&self) -> addr::Address {
+    pub fn end(&self) -> addr::Offset {
         self.offset + self.node.size
     }
 
@@ -143,7 +143,7 @@ pub struct Node {
     /* reference to parent causes a lot of problems, so we don't have one and
        opt to refer to nodes by path when necessary. */
     pub props: Properties,
-    pub size: addr::Size,
+    pub size: addr::Offset,
     pub children: vec::Vec<Childhood>
 }
 
@@ -178,7 +178,7 @@ impl Default for ChildrenDisplay {
 }
 
 impl ContentDisplay {
-    pub fn preferred_pitch(&self) -> Option<addr::Size> {
+    pub fn preferred_pitch(&self) -> Option<addr::Offset> {
         match self {
             ContentDisplay::None => None,
             ContentDisplay::Hexdump { line_pitch, .. } => Some(*line_pitch),
@@ -189,8 +189,8 @@ impl ContentDisplay {
     /// An alternative to default() that explicitly returns a hexdump style.
     pub fn default_hexdump() -> ContentDisplay {
         ContentDisplay::Hexdump {
-            line_pitch: addr::Size::from(16),
-            gutter_pitch: addr::Size::from(8),
+            line_pitch: addr::Offset::from(16),
+            gutter_pitch: addr::Offset::from(8),
         }
     }
 }
@@ -217,7 +217,7 @@ impl Default for Node {
     fn default() -> Node {
         Node {
             props: Properties::default(),
-            size: addr::unit::MAX,
+            size: addr::Offset::MAX,
             children: vec::Vec::new(),
         }
     }
@@ -232,13 +232,13 @@ impl Default for Childhood {
         
         Childhood {
             node: DEFAULT_NODE.clone(),
-            offset: addr::unit::NULL,
+            offset: addr::Offset::ZERO,
         }
     }
 }
 
 impl Node {
-    pub fn default_sized(size: addr::Size) -> Node {
+    pub fn default_sized(size: addr::Offset) -> Node {
         Node {
             props: Properties::default(),
             size,
@@ -250,7 +250,7 @@ impl Node {
         builder::StructureBuilder::default()
     }
 
-    pub fn child_at_offset(&self, offset: addr::Address) -> usize {
+    pub fn child_at_offset(&self, offset: addr::Offset) -> usize {
         self.children.partition_point(|ch| ch.offset < offset)
     }
 
@@ -430,12 +430,12 @@ pub mod builder {
             self
         }
 
-        pub fn size<S: Into<addr::Size>>(mut self, size: S) -> Self {
+        pub fn size<S: Into<addr::Offset>>(mut self, size: S) -> Self {
             self.node.size = size.into();
             self
         }
 
-        pub fn child<A: Into<addr::Address>, F: FnOnce(StructureBuilder) -> StructureBuilder>(mut self, offset: A, builder: F) -> Self {
+        pub fn child<A: Into<addr::Offset>, F: FnOnce(StructureBuilder) -> StructureBuilder>(mut self, offset: A, builder: F) -> Self {
             self.node.children.push(Childhood {
                 offset: offset.into(),
                 node: builder(Self::default()).build()
@@ -447,7 +447,7 @@ pub mod builder {
             sync::Arc::new(self.node.clone())
         }
 
-        pub fn build_child<T: Into<addr::Address>>(&self, offset: T) -> Childhood {
+        pub fn build_child<T: Into<addr::Offset>>(&self, offset: T) -> Childhood {
             Childhood::new(sync::Arc::new(self.node.clone()), offset.into())
         }
     }

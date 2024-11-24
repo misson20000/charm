@@ -11,7 +11,7 @@ use crate::model::listing::token::AsTokenRef;
 #[derive(Debug)]
 pub struct Cursor {
     pub token: token::Hexstring,
-    pub offset: addr::Size,
+    pub offset: addr::Offset,
     pub low_nybble: bool,
 
     data: Option<datapath::Fetcher>,
@@ -20,10 +20,10 @@ pub struct Cursor {
 impl Cursor {
     pub fn new_transition(token: token::Hexstring, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
-        let limit = (extent.length() - addr::unit::BIT).floor();
+        let limit = (extent.len() - addr::Offset::BIT).round_down();
 
         let (offset, low_nybble) = match hint {
-            cursor::TransitionHint::MoveLeftLarge => (addr::Size::from(limit.bytes & !7), false),
+            cursor::TransitionHint::MoveLeftLarge => (addr::Offset::from(limit.bytes() & !7), false),
 
             /*
             cursor::TransitionHint::MoveVertical {
@@ -50,8 +50,8 @@ impl Cursor {
             */
             
             op if op.is_left() => (limit, true),
-            op if op.is_right() => (addr::unit::ZERO, false),
-            _ => (addr::unit::ZERO, false)
+            op if op.is_right() => (addr::Offset::ZERO, false),
+            _ => (addr::Offset::ZERO, false)
         };
         
         Ok(Cursor {
@@ -63,14 +63,14 @@ impl Cursor {
         })
     }
     
-    pub fn new_placement(token: token::Hexstring, offset: addr::Address, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
+    pub fn new_placement(token: token::Hexstring, offset: addr::Offset, hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
-        let limit = (extent.length() - addr::unit::BIT).floor();
+        let limit = (extent.len() - addr::Offset::BIT).round_down();
 
         Ok(Cursor {
             token,
             offset: match offset {
-                offset if offset < extent.begin => addr::unit::ZERO,
+                offset if offset < extent.begin => addr::Offset::ZERO,
                 offset if offset >= extent.begin + limit => limit,
                 offset => offset - extent.begin,
             },
@@ -90,7 +90,7 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn get_offset(&self) -> addr::Size {
+    fn get_offset(&self) -> addr::Offset {
         self.offset
     }
 
@@ -112,8 +112,8 @@ impl cursor::CursorClassExt for Cursor {
         if self.low_nybble {
             self.low_nybble = false;
             cursor::MovementResult::Ok
-        } else if self.offset >= addr::unit::BYTE {
-            self.offset-= addr::unit::BYTE;
+        } else if self.offset >= addr::Offset::BYTE {
+            self.offset-= addr::Offset::BYTE;
             self.low_nybble = true;
             cursor::MovementResult::Ok
         } else {
@@ -123,8 +123,8 @@ impl cursor::CursorClassExt for Cursor {
 
     fn move_right(&mut self) -> cursor::MovementResult {
         if self.low_nybble {
-            let offset = self.offset + addr::unit::BYTE;
-            if offset >= self.extent().length() {
+            let offset = self.offset + addr::Offset::BYTE;
+            if offset >= self.extent().len() {
                 cursor::MovementResult::HitEnd
             } else {
                 self.offset = offset;
@@ -138,36 +138,36 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn move_left_large(&mut self) -> cursor::MovementResult {
-        if self.offset == addr::unit::ZERO && !self.low_nybble {
+        if self.offset == addr::Offset::ZERO && !self.low_nybble {
             cursor::MovementResult::HitStart
         } else if self.low_nybble {
-            self.offset = addr::Size::from(self.offset.bytes & !7);
+            self.offset = addr::Offset::from(self.offset.bytes() & !7);
             self.low_nybble = false;
             cursor::MovementResult::Ok
         } else {
-            self.offset-= addr::unit::BIT;
-            self.offset = addr::Size::from(self.offset.bytes & !7);
+            self.offset-= addr::Offset::BIT;
+            self.offset = addr::Offset::from(self.offset.bytes() & !7);
             cursor::MovementResult::Ok
         }
     }
 
     fn move_right_large(&mut self) -> cursor::MovementResult {
-        let offset = addr::Size::from(self.offset.bytes & !7);
-        let length = self.extent().length();
+        let offset = addr::Offset::from(self.offset.bytes() & !7);
+        let length = self.extent().len();
 
-        if offset + addr::unit::QWORD >= length {
+        if offset + addr::Offset::QWORD >= length {
             cursor::MovementResult::HitEnd
         } else {
             self.low_nybble = false;
-            self.offset = offset + addr::unit::QWORD;
+            self.offset = offset + addr::Offset::QWORD;
             cursor::MovementResult::Ok
         }
     }
 
     fn enter_hex(&mut self, document_host: &document::DocumentHost, document: &document::Document, nybble: u8) -> Result<cursor::MovementResult, cursor::EntryError> {
-        let i = self.offset.bytes as usize;
-        let loc = self.token.absolute_extent().begin.byte + self.offset.bytes;
-        let shift = self.token.absolute_extent().begin.bit;
+        let i = self.offset.bytes() as usize;
+        let loc = self.token.absolute_extent().begin.bytes() + self.offset.bytes();
+        let shift = self.token.absolute_extent().begin.bits();
         let insert = false; // TODO
         
         /*
@@ -231,6 +231,6 @@ pub struct HexstringPlacementHint {
 
 #[derive(Debug, Clone)]
 pub struct HexstringTransitionHint {
-    offset: addr::Size,
+    offset: addr::Offset,
     low_nybble: bool,
 }

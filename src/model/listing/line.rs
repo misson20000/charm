@@ -23,7 +23,7 @@ pub enum LineType {
         title: Option<token::Title>,
         node: sync::Arc<structure::Node>,
         node_path: structure::Path,
-        node_addr: addr::Address,
+        node_addr: addr::AbsoluteAddress,
         line_extent: addr::Extent,
         tokens: collections::VecDeque<token::Hexdump>
     },
@@ -611,18 +611,18 @@ mod tests {
             common: token::TokenCommon {
                 node: node.clone(),
                 node_path: vec![],
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 0,
             },
-            extent: addr::Extent::sized_u64(0, 8),
+            extent: addr::Extent::sized(0, 8),
         })), LinePushResult::Accepted);
 
         assert_eq!(line.push_front(token::Token::Title(token::Title {
             common: token::TokenCommon {
                 node: node.clone(),
                 node_path: vec![],
-                node_addr: addr::unit::NULL,
+                node_addr: addr::AbsoluteAddress::NULL,
                 node_child_index: 0,
                 depth: 0,
             },

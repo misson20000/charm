@@ -368,9 +368,10 @@ mod imp {
 }
 
 impl CharmExportDialog {
-    pub fn set(&self, document_host: sync::Arc<document::DocumentHost>, addr: addr::Address, size: addr::Size) {
+    pub fn set(&self, document_host: sync::Arc<document::DocumentHost>, extent: addr::AbsoluteExtent) {
         self.imp().set_document(document_host);
-        self.imp().set_addr(addr.byte);
-        self.imp().set_size(size.bytes);
+        let (addr, size) = extent.round_out();
+        self.imp().set_addr(addr);
+        self.imp().set_size(size);
     }
 }

@@ -131,7 +131,7 @@ struct FileAddressSpace {
 impl From<&document::Document> for Document {
     fn from(model: &document::Document) -> Document {
         Document {
-            root: Childhood::from(structure::Childhood::new(model.root.clone(), addr::unit::NULL)),
+            root: Childhood::from(structure::Childhood::new(model.root.clone(), addr::Offset::NULL)),
             datapath: DataPath::from(&model.datapath),
         }
     }
@@ -146,27 +146,15 @@ impl Into<document::Document> for Document {
     }
 }
 
-impl From<addr::Address> for Addr {
-    fn from(addr: addr::Address) -> Addr {
-        Addr { bits: addr.bit, bytes: addr.byte }
+impl<Kind> From<addr::Address<Kind>> for Addr {
+    fn from(addr: addr::Address<Kind>) -> Addr {
+        Addr { bits: addr.bits(), bytes: addr.bytes() }
     }
 }
 
-impl From<addr::Size> for Addr {
-    fn from(size: addr::Size) -> Addr {
-        Self::from(size.to_addr())
-    }
-}
-
-impl Into<addr::Address> for Addr {
-    fn into(self) -> addr::Address {
-        addr::Address { bit: self.bits, byte: self.bytes }
-    }
-}
-
-impl Into<addr::Size> for Addr {
-    fn into(self) -> addr::Size {
-        addr::Size { bits: self.bits, bytes: self.bytes }
+impl<Kind> Into<addr::Address<Kind>> for Addr {
+    fn into(self) -> addr::Address<Kind> {
+        addr::Address::<Kind>::new(self.bytes, self.bits)
     }
 }
 

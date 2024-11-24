@@ -310,7 +310,7 @@ impl CharmWindow {
 
             let info = node_item.info();
             
-            ctx.lw.goto(&info.document, &info.path, addr::unit::NULL, cursor::PlacementHint::Title);
+            ctx.lw.goto(&info.document, &info.path, addr::Offset::NULL, cursor::PlacementHint::Title);
         }));
         
         /* window actions */
