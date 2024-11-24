@@ -507,8 +507,13 @@ impl PartialEq for Line {
     fn eq(&self, other: &Line) -> bool {
         match (&self.ty, &other.ty) {
             (LineType::Empty, LineType::Empty) => true,
+            (LineType::Empty, _) => false,
+            
             (LineType::Blank(tok1), LineType::Blank(tok2)) => tok1.eq(tok2),
+            (LineType::Blank(_), _) => false,
+            
             (LineType::Title(tok1), LineType::Title(tok2)) => tok1.eq(tok2),
+            (LineType::Title(_), _) => false,
             
             (LineType::Hexdump {
                 title: title1, node: node1, node_path: node_path1, node_addr: node_addr1, line_extent: line_extent1, tokens: tokens1
@@ -520,20 +525,28 @@ impl PartialEq for Line {
                 && node_addr1 == node_addr2
                 && line_extent1.eq(line_extent2)
                 && tokens1.iter().eq(tokens2.iter()),
+            (LineType::Hexdump { .. }, _) => false,
 
             (LineType::Hexstring {
                 title: title1, token: token1
             }, LineType::Hexstring {
                 title: title2, token: token2
             }) => title1.eq(title2) && token1.eq(token2),
+            (LineType::Hexstring { .. }, _) => false,
 
             (LineType::Summary {
                 title: title1, tokens: tokens1
             }, LineType::Summary {
                 title: title2, tokens: tokens2
             }) => title1.eq(title2) && tokens1.iter().eq(tokens2.iter()),
-            
-            _ => false
+            (LineType::Summary { .. }, _) => false,
+
+            (LineType::Ellipsis {
+                title: title1, token: token1
+            }, LineType::Ellipsis {
+                title: title2, token: token2
+            }) => title1.eq(title2) && token1.eq(token2),
+            (LineType::Ellipsis { .. }, _) => false,
         }
     }
 }
