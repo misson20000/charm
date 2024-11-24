@@ -3,6 +3,7 @@ use gtk::glib::clone;
 use gtk::prelude::*;
 
 pub mod action;
+pub mod addr_entry;
 pub mod config;
 pub mod error;
 pub mod ext;
