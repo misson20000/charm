@@ -1252,6 +1252,10 @@ impl Position {
             _ => false
         }
     }
+
+    pub fn node_addr(&self) -> addr::Address {
+        self.node_addr
+    }
     
     pub fn structure_path(&self) -> structure::Path {
         let mut path = Vec::new();

@@ -8,7 +8,6 @@ use crate::model::listing::line;
 use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::listing::token::AsTokenRef;
-use crate::model::listing::token::TokenKind;
 use crate::model::versioned::Versioned;
 
 use enum_dispatch::enum_dispatch;
@@ -58,11 +57,6 @@ pub trait CursorClassExt {
     /// Checks whether the provided token is the same one that this cursor is on top of.
     fn is_over(&self, token: token::TokenRef<'_>) -> bool {
         self.get_token() == token
-    }
-
-    /// The absolute address of the current cursor position, including any offset within the token.
-    fn get_addr(&self) -> addr::Address {
-        self.get_token().node_addr() + self.get_offset()
     }
 
     /// The offset from the beginning of the token that the cursor is positioned at.
@@ -483,7 +477,7 @@ impl Cursor {
     }
 
     pub fn addr(&self) -> addr::Address {
-        self.class.get_addr()
+        self.position.node_addr() + self.structure_offset().to_size()
     }
     
     pub fn structure_path(&self) -> structure::Path {
