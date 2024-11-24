@@ -361,18 +361,22 @@ impl bucket::PickableBucket for HexdumpBucket {
                 _ => None,
             }).1
         } else if pick_x < self.ascii_begin {
+            let last_tok = self.toks.last().unwrap();
+            
             Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
-                index: self.node.child_at_offset(self.end()),
-                offset: self.end(),
+                index: last_tok.node_child_index(),
+                offset: last_tok.extent.end,
                 low_nybble: false,
             }))
         } else if pick_x < self.ascii_end {
             // TODO: asciidump picking
             None
         } else {
+            let last_tok = self.toks.last().unwrap();
+            
             Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Hexdump {
-                index: self.node.child_at_offset(self.end()),
-                offset: self.end(),
+                index: last_tok.node_child_index(),
+                offset: last_tok.extent.end,
                 low_nybble: false,
             }))
         }
