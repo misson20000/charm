@@ -21,6 +21,7 @@ pub mod hexdump;
 pub mod hexstring;
 pub mod punctuation;
 pub mod summary_label;
+pub mod ellipsis;
 
 #[derive(Debug)]
 pub enum MovementResult {
@@ -117,6 +118,7 @@ pub enum CursorClass {
     Hexstring(hexstring::Cursor),
     Punctuation(punctuation::Cursor),
     SummaryLabel(summary_label::Cursor),
+    Ellipsis(ellipsis::Cursor),
 }
 
 #[derive(Clone, Debug)]
@@ -528,6 +530,7 @@ impl CursorClass {
             token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_placement(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_placement(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::SummaryLabel(token) => summary_label::Cursor::new_placement(token, hint).map(CursorClass::SummaryLabel).map_err(Into::into),
+            token::Token::Ellipsis(token) => ellipsis::Cursor::new_placement(token, hint).map(CursorClass::Ellipsis).map_err(Into::into),
             _ => Err(token)
         }
     }
@@ -542,6 +545,7 @@ impl CursorClass {
             token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_transition(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_transition(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::SummaryLabel(token) => summary_label::Cursor::new_transition(token, hint).map(CursorClass::SummaryLabel).map_err(Into::into),
+            token::Token::Ellipsis(token) => ellipsis::Cursor::new_transition(token, hint).map(CursorClass::Ellipsis).map_err(Into::into),
             _ => Err(token)
         }
     }

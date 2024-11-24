@@ -713,8 +713,9 @@ impl Position {
                 common: common.adjust_depth(1),
                 extent,
             }.into()),
-            PositionState::Ellipsis(_, _) => TokenGenerationResult::Ok(token::Ellipsis {
+            PositionState::Ellipsis(extent, _) => TokenGenerationResult::Ok(token::Ellipsis {
                 common: common.adjust_depth(1),
+                extent,
             }.into()),
 
             PositionState::SummaryPreamble => TokenGenerationResult::Ok(token::SummaryPreamble {
@@ -1971,6 +1972,7 @@ pub mod xml {
                 }.into(),
                 "ellipsis" => token::Ellipsis {
                     common,
+                    extent: inflate_extent(&self.node)
                 }.into(),
                 tn => panic!("invalid token def: '{}'", tn)
             }

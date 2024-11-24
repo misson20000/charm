@@ -199,6 +199,7 @@ declare_tokens! {
     /// Indicates that data is being skipped. Probably either because of ContentDisplay::Hidden or because it's being truncated by summary mode.
     #[derive(Debug)]
     Ellipsis {
+        pub extent: addr::Extent,
     },
 
     /// Formatted two-column hexdump+asciidump. What you expect to see out of a hex editor.
