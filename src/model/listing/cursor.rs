@@ -8,6 +8,7 @@ use crate::model::listing::line;
 use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::listing::token::AsTokenRef;
+use crate::model::listing::token::TokenKind;
 use crate::model::versioned::Versioned;
 
 use enum_dispatch::enum_dispatch;
@@ -53,17 +54,47 @@ pub trait CursorClassExt {
     fn update(&mut self, _document: &document::Document) {
     }
 
-    fn is_over(&self, token: token::TokenRef<'_>) -> bool;
-    fn get_addr(&self) -> addr::Address;
-    fn get_offset(&self) -> addr::Size;
-    fn get_token(&self) -> token::TokenRef<'_>;
-    fn get_placement_hint(&self) -> PlacementHint;
-    fn get_horizontal_position_in_line(&self, line: &line::Line) -> HorizontalPosition;
+    /// Checks whether the provided token is the same one that this cursor is on top of.
+    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
+        self.get_token() == token
+    }
 
-    fn move_left(&mut self) -> MovementResult;
-    fn move_right(&mut self) -> MovementResult;
-    fn move_left_large(&mut self) -> MovementResult;
-    fn move_right_large(&mut self) -> MovementResult;
+    /// The absolute address of the current cursor position, including any offset within the token.
+    fn get_addr(&self) -> addr::Address {
+        self.get_token().node_addr() + self.get_offset()
+    }
+
+    /// The offset from the beginning of the token that the cursor is positioned at.
+    fn get_offset(&self) -> addr::Size {
+        addr::unit::ZERO
+    }
+
+    /// The token that the cursor is positioned on.
+    fn get_token(&self) -> token::TokenRef<'_>;
+    
+    fn get_placement_hint(&self) -> PlacementHint {
+        PlacementHint::Unused
+    }
+    
+    fn get_horizontal_position_in_line(&self, _line: &line::Line) -> HorizontalPosition {
+        HorizontalPosition::Unspecified
+    }
+
+    fn move_left(&mut self) -> MovementResult {
+        MovementResult::HitStart
+    }
+    
+    fn move_right(&mut self) -> MovementResult {
+        MovementResult::HitEnd
+    }
+    
+    fn move_left_large(&mut self) -> MovementResult {
+        MovementResult::HitStart
+    }
+    
+    fn move_right_large(&mut self) -> MovementResult {
+        MovementResult::HitEnd
+    }
 
     fn enter_hex(&mut self, _document_host: &document::DocumentHost, _document: &document::Document, _nybble: u8) -> Result<MovementResult, EntryError> {
         Err(EntryError::InvalidForType)

@@ -1,11 +1,7 @@
-use crate::model::addr;
 use crate::model::listing::cursor;
 use crate::model::listing::line;
 use crate::model::listing::token;
 use crate::model::listing::token::AsTokenRef;
-use crate::model::listing::token::TokenKind;
-
-use tracing::instrument;
 
 #[derive(Debug)]
 pub struct Cursor {
@@ -40,18 +36,6 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
-        self.token.as_token_ref() == token
-    }
-    
-    fn get_addr(&self) -> addr::Address {
-        self.token.node_addr()
-    }
-
-    fn get_offset(&self) -> addr::Size {
-        addr::unit::ZERO
-    }
-
     fn get_token(&self) -> token::TokenRef<'_> {
         self.token.as_token_ref()
     }
@@ -62,23 +46,5 @@ impl cursor::CursorClassExt for Cursor {
     
     fn get_horizontal_position_in_line(&self, _line: &line::Line) -> cursor::HorizontalPosition {
         cursor::HorizontalPosition::Title
-    }
-
-    #[instrument]
-    fn move_left(&mut self) -> cursor::MovementResult {
-        cursor::MovementResult::HitStart
-    }
-
-    #[instrument]
-    fn move_right(&mut self) -> cursor::MovementResult {
-        cursor::MovementResult::HitEnd
-    }
-
-    fn move_left_large(&mut self) -> cursor::MovementResult {
-        cursor::MovementResult::HitStart
-    }
-
-    fn move_right_large(&mut self) -> cursor::MovementResult {
-        cursor::MovementResult::HitEnd
     }
 }

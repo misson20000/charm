@@ -90,14 +90,6 @@ impl Cursor {
 }
 
 impl cursor::CursorClassExt for Cursor {
-    fn is_over(&self, token: token::TokenRef<'_>) -> bool {
-        self.token.as_token_ref() == token
-    }
-
-    fn get_addr(&self) -> addr::Address {
-        self.token.absolute_extent().begin + self.offset
-    }
-
     fn get_offset(&self) -> addr::Size {
         self.offset
     }
