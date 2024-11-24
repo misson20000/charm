@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='UTF-8' standalone='no'?>
+<!DOCTYPE cambalache-catalog SYSTEM "cambalache-catalog.dtd">
+<cambalache-catalog name="charm" namespace="Charm" prefix="Charm" version="0.1" targets="0.1" depends="gtk-4.0">
+  <type>
+    ("CharmAddrEntry","GtkEntry","charm","0.1",None,None,1,"container","control",None)
+  </type>
+  <type_iface>
+    ("CharmAddrEntry","GtkAccessible"),
+    ("CharmAddrEntry","GtkBuildable"),
+    ("CharmAddrEntry","GtkCellEditable"),
+    ("CharmAddrEntry","GtkConstraintTarget"),
+    ("CharmAddrEntry","GtkEditable"),
+  </type_iface>
+  <type_enum>
+  </type_enum>
+  <type_flags>
+  </type_flags>
+  <type_child_type>
+  </type_child_type>
+  <type_child_constraint>
+  </type_child_constraint>
+  <property>
+  </property>
+  <signal>
+    ("CharmAddrEntry","addr-changed",None,None,None)
+  </signal>
+</cambalache-catalog>

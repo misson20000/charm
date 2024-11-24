@@ -47,6 +47,10 @@ pretty_assertions = "1.4.1"
 assert_matches = "1.5"
 rusty-fork = "0.3.0"
 
+[lib]
+name = "charm"
+crate-type   = ["rlib", "cdylib"]
+
 [[bin]]
 name = "charm"
 required-features = ["gtk"]
