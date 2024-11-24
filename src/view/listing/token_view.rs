@@ -259,6 +259,20 @@ impl TokenView {
                 offset: t.extent.end,
                 low_nybble: false,
             })),
+            token::Token::Ellipsis(t) => Some(listing::pick::Triplet {
+                begin: (t.node_path().clone(), listing::pick::Part::Ellipsis {
+                    index: t.node_child_index(),
+                    offset: t.extent.begin,
+                }),
+                middle: (t.node_path().clone(), listing::pick::Part::Ellipsis {
+                    index: t.node_child_index(),
+                    offset: t.extent.begin,
+                }),
+                end: (t.node_path().clone(), listing::pick::Part::Ellipsis {
+                    index: t.node_child_index(),
+                    offset: t.extent.end,
+                }),
+            }),
 
             /* Hexdump tokens can be picked, but that's done as part of HexdumpBucket picking logic and not done here. */
             
