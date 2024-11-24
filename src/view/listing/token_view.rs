@@ -174,8 +174,7 @@ impl TokenView {
                     .render(snapshot);
             },
             token::Token::Ellipsis(token) => {
-                let index = token.node_child_index();
-                let selected = (index == 0 || selection.includes_child(index-1)) && selection.includes_child(index);
+                let selected = selection.overlaps(token.extent);
                 
                 render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &mut pos)
                     .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())

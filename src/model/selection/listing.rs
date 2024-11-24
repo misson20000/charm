@@ -456,6 +456,14 @@ impl NodeIntersection {
         }
     }
 
+    pub fn overlaps(&self, extent: addr::Extent) -> bool {
+        match self {
+            Self::None => false,
+            Self::Partial(e, _, _) => e.intersection(extent).is_some(),
+            Self::Total => true,
+        }
+    }
+    
     pub fn includes_child(&self, index: usize) -> bool {
         match self {
             Self::None => false,
