@@ -26,6 +26,7 @@ pub struct TokenView {
     data: Option<datapath::Fetcher>,
     
     logical_bounds: Option<graphene::Rect>,
+    space_width: f32,
 }
 
 impl TokenView {
@@ -36,6 +37,7 @@ impl TokenView {
             data: None,
             
             logical_bounds: None,
+            space_width: 1.0,
         }
     }
 
@@ -100,6 +102,10 @@ impl TokenView {
         snapshot.save();
         snapshot.translate(origin);
 
+        let (_, logical_space) = render.gsc_mono.get(gsc::Entry::Space).unwrap().clone().extents(&render.font_mono);
+        let space_width = helpers::pango_unscale(logical_space.width());
+        self.space_width = space_width;
+        
         let mut pos = graphene::Point::new(0.0, lh);
         
         let has_cursor = cursor.cursor.is_over(self.token.as_token_ref());
@@ -225,9 +231,34 @@ impl TokenView {
         graphene::Point::new(origin.x() + pos.x(), 0.0)
     }
 
-    pub fn pick(&self) -> Option<listing::pick::Triplet> {
+    pub fn pick(&self, point: &graphene::Point) -> Option<listing::pick::Triplet> {
+        let Some(bounds) = self.logical_bounds else { return None };
+        let pick_column = ((point.x() - bounds.x()) / self.space_width).trunc() as u64;
+        
         match &self.token {
             token::Token::Title(_) => Some(listing::pick::Triplet::all3(self.token.node_path().clone(), listing::pick::Part::Title)),
+            token::Token::Hexstring(t) if pick_column < t.extent.length().bytes * 2 => Some(listing::pick::Triplet {
+                begin: (t.node_path().clone(), listing::pick::Part::Hexstring {
+                    index: t.node_child_index(),
+                    offset: t.extent.begin + (pick_column / 2),
+                    low_nybble: (pick_column % 2) == 1
+                }),
+                middle: (t.node_path().clone(), listing::pick::Part::Hexstring {
+                    index: t.node_child_index(),
+                    offset: t.extent.begin + (pick_column / 2),
+                    low_nybble: (pick_column % 2) == 1
+                }),
+                end: (t.node_path().clone(), listing::pick::Part::Hexstring {
+                    index: t.node_child_index(),
+                    offset: t.extent.begin + (pick_column / 2 + 1),
+                    low_nybble: false,
+                }),
+            }),
+            token::Token::Hexstring(t) => Some(listing::pick::Triplet::all3(t.node_path().clone(), listing::pick::Part::Hexstring {
+                index: t.node_child_index(),
+                offset: t.extent.end,
+                low_nybble: false,
+            })),
 
             /* Hexdump tokens can be picked, but that's done as part of HexdumpBucket picking logic and not done here. */
             

@@ -11,6 +11,11 @@ pub enum Part {
         index: usize,
         offset: addr::Address,
         low_nybble: bool,
+    },
+    Hexstring {
+        index: usize,
+        offset: addr::Address,
+        low_nybble: bool,
     }
 }
 
@@ -61,6 +66,12 @@ fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (struc
             child_index: *index,
             offset: *offset
         },
+
+        (path, Part::Hexstring { index, offset, .. }) => selection::listing::StructureEndpoint {
+            parent: &path[..],
+            child_index: *index,
+            offset: *offset
+        },
     })
 }    
 
@@ -88,6 +99,9 @@ impl Part {
             Part::Hexdump { low_nybble, .. } => cursor::PlacementHint::Hexdump(cursor::hexdump::HexdumpPlacementHint {
                 low_nybble: *low_nybble
             }),
+            Part::Hexstring { low_nybble, .. } => cursor::PlacementHint::Hexstring(cursor::hexstring::HexstringPlacementHint {
+                low_nybble: *low_nybble
+            }),
         }
     }
 
@@ -95,6 +109,7 @@ impl Part {
         match self {
             Part::Title => addr::unit::NULL,
             Part::Hexdump { offset, .. } => *offset,
+            Part::Hexstring { offset, .. } => *offset,
         }
     }
 }
@@ -116,12 +131,16 @@ impl<'a> Ord for PickSort<'a> {
                 (Part::Title, _) => std::cmp::Ordering::Less,
                 (Part::Hexdump { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
                 (Part::Hexdump { index: _, .. }, _) => std::cmp::Ordering::Greater,
+                (Part::Hexstring { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
+                (Part::Hexstring { index: _, .. }, _) => std::cmp::Ordering::Greater,
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() == prefix_length {
             return match (self.0.0[prefix_length], &other.0.1) {
                 (_, Part::Title) => std::cmp::Ordering::Greater,
                 (self_index, Part::Hexdump { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
                 (_, Part::Hexdump { index: _, .. }) => std::cmp::Ordering::Less,
+                (self_index, Part::Hexstring { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
+                (_, Part::Hexstring { index: _, .. }) => std::cmp::Ordering::Less,
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() > prefix_length {
             return self.0.0[prefix_length].cmp(&other.0.0[prefix_length]);

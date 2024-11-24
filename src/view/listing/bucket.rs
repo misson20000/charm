@@ -103,12 +103,12 @@ impl<T: TokenViewIterableBucket> PickableBucket for T {
         
         for tok in self.iter_token_views() {
             if tok.contains(point) {
-                return tok.pick();
+                return tok.pick(point);
             }
             last_tok = Some(tok);
         }
 
-        last_tok.and_then(token_view::TokenView::pick)
+        last_tok.and_then(|lt| lt.pick(point))
     }
 }
 
