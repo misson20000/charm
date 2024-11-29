@@ -8,6 +8,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::search;
 use crate::model::listing::cursor;
+use crate::view::addr_entry;
 use crate::view::helpers;
 use crate::view::listing;
 use crate::view::window;
@@ -25,7 +26,7 @@ struct GotoAction {
     lw: listing::ListingWidget,
     
     dialog: gtk::ApplicationWindow,
-    entry: gtk::Entry,
+    entry: addr_entry::AddrEntry,
 
     model: gtk::SingleSelection,
     store: gio::ListStore,
@@ -37,7 +38,7 @@ struct GotoAction {
 pub fn add_action(window_context: &window::WindowContext) {
     let builder = gtk::Builder::from_string(include_str!("goto.ui"));
 
-    let entry: gtk::Entry = builder.object("entry").unwrap();
+    let entry: addr_entry::AddrEntry = builder.object("entry").unwrap();
     let list: gtk::ListView = builder.object("list").unwrap();
     //let cancel_button: gtk::Button = builder.object("cancel_button").unwrap();
 
@@ -74,7 +75,7 @@ pub fn add_action(window_context: &window::WindowContext) {
         action.do_goto(action.model.item(position));
     }));
     
-    action.entry.connect_changed(clone!(#[weak] action, move |_| catch_panic! {
+    action.entry.connect_addr_changed(clone!(#[weak] action, move |_, _| catch_panic! {
         action.refresh_results(None, false);
     }));
 
@@ -105,7 +106,10 @@ impl GotoAction {
     }
 
     fn refresh_results(&self, new_document: Option<sync::Arc<document::Document>>, force: bool) {
-        let new_addr = addr::AbsoluteAddress::parse(self.entry.text().as_str(), false).ok().and_then(|na| if na == self.current_addr.get() { None } else { Some(na) });
+        let new_addr = self.entry.addr()
+            .ok()
+            .map(|a| addr::AbsoluteAddress::ZERO + a)
+            .and_then(|na| if na == self.current_addr.get() { None } else { Some(na) });
 
         if new_addr.is_some() || new_document.is_some() || force {
             if let Some(new_document) = new_document {

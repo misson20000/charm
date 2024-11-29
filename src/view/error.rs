@@ -172,7 +172,7 @@ impl Error {
             Trouble::AddressParseFailed { error, address } => {
                 write!(msg, "Failed to parse '{}' as an address because ", address)?;
                 match error {
-                    model::addr::AddressParseError::MissingBytes => write!(msg, "it was missing the bytes value.\n")?,
+                    model::addr::AddressParseError::EmptyString => write!(msg, "it was empty.\n")?,
                     model::addr::AddressParseError::MalformedBytes(e) => write!(msg, "the bytes section was malformed ({}).\n", e)?,
                     model::addr::AddressParseError::MalformedBits(e) => write!(msg, "the bytes section was malformed ({}).\n", e)?,
                     model::addr::AddressParseError::TooManyBits => write!(msg, "a bit was specified outside of 0-7.\n")?,

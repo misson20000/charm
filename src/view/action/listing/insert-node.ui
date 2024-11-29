@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.92.2 -->
+<!-- Created with Cambalache 0.93.0 -->
 <interface>
   <requires lib="gtk" version="4.0"/>
+  <requires lib="charm" version="0.1"/>
   <object class="GtkBox" id="toplevel">
     <property name="margin-bottom">15</property>
     <property name="margin-end">15</property>
@@ -129,18 +130,6 @@
           </object>
         </child>
         <child>
-          <object class="GtkEntry" id="size_entry">
-            <property name="activates-default">True</property>
-            <property name="hexpand">True</property>
-            <layout>
-              <property name="column">1</property>
-              <property name="column-span">2</property>
-              <property name="row">2</property>
-              <property name="row-span">1</property>
-            </layout>
-          </object>
-        </child>
-        <child>
           <object class="GtkCheckButton" id="nest_enable">
             <property name="halign">start</property>
             <layout>
@@ -165,8 +154,17 @@
           </object>
         </child>
         <child>
-          <object class="GtkEntry" id="offset_entry">
-            <property name="activates-default">True</property>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Size</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">2</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="CharmAddrEntry" id="offset_entry">
             <property name="hexpand">True</property>
             <layout>
               <property name="column">1</property>
@@ -177,12 +175,13 @@
           </object>
         </child>
         <child>
-          <object class="GtkLabel">
-            <property name="halign">start</property>
-            <property name="label">Size</property>
+          <object class="CharmAddrEntry" id="size_entry">
+            <property name="hexpand">True</property>
             <layout>
-              <property name="column">0</property>
+              <property name="column">1</property>
+              <property name="column-span">2</property>
               <property name="row">2</property>
+              <property name="row-span">1</property>
             </layout>
           </object>
         </child>

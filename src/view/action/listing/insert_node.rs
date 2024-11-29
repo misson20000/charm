@@ -7,6 +7,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
+use crate::view::addr_entry;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::listing;
@@ -28,12 +29,13 @@ struct InsertNodeAction {
     dialog: gtk::ApplicationWindow,
     
     name_entry: gtk::Entry,
-    size_entry: gtk::Entry,
-    offset_entry: gtk::Entry,
+    size_entry: addr_entry::AddrEntry,
+    offset_entry: addr_entry::AddrEntry,
     order_entry: gtk::DropDown,
     path_display: gtk::Entry,
     nest_enable: gtk::CheckButton,
     nest_entry: gtk::DropDown,
+    insert_button: gtk::Button,
 }
 
 struct InsertActivation {
@@ -58,8 +60,8 @@ impl InsertNodeAction {
         let builder = gtk::Builder::from_string(include_str!("insert-node.ui"));
 
         let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
-        let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
-        let offset_entry: gtk::Entry = builder.object("offset_entry").unwrap();
+        let size_entry: addr_entry::AddrEntry = builder.object("size_entry").unwrap();
+        let offset_entry: addr_entry::AddrEntry = builder.object("offset_entry").unwrap();
         let order_entry: gtk::DropDown = builder.object("order_entry").unwrap();
         let path_display: gtk::Entry = builder.object("path_display").unwrap();
         let nest_enable: gtk::CheckButton = builder.object("nest_enable").unwrap();
@@ -93,6 +95,7 @@ impl InsertNodeAction {
             path_display,
             nest_enable,
             nest_entry,
+            insert_button,
         });
 
         helpers::bind_simple_action(&action, &action.dialog, "cancel", |action| {
@@ -104,6 +107,14 @@ impl InsertNodeAction {
             action.deactivate();
         });
 
+        action.size_entry.connect_addr_changed(clone!(#[weak] action, move |_, _| {
+            action.update_dialog_preconditions();
+        }));
+
+        action.offset_entry.connect_addr_changed(clone!(#[weak] action, move |_, _| {
+            action.update_dialog_preconditions();
+        }));
+
         dialog.connect_close_request(clone!(#[weak] action, #[upgrade_or] glib::Propagation::Proceed, move |_| {
             catch_panic! {
                 action.deactivate();
@@ -114,31 +125,37 @@ impl InsertNodeAction {
         action
     }
 
+    fn update_dialog_preconditions(&self) {
+        let ok = self.size_entry.addr().is_ok()
+            && self.offset_entry.addr().is_ok()
+            && self.activation.borrow().is_some();
+
+        self.insert_button.set_sensitive(ok);
+    }
+    
     fn change(&self) -> Result<document::change::Change, error::Error> {
         let name = self.name_entry.text().as_str().to_string();
 
-        let size_text = self.size_entry.text();
-        let size = match addr::Offset::parse(size_text.as_str(), false) {
+        let size = match self.size_entry.addr() {
             Ok(a) => a,
             Err(e) => return Err(error::Error {
                 while_attempting: error::Action::InsertNodeParseSize,
                 trouble: error::Trouble::AddressParseFailed {
                     error: e,
-                    address: size_text.to_string(),
+                    address: self.size_entry.text().to_string(),
                 },
                 level: error::Level::Error,
                 is_bug: false,
             })
         };
 
-        let offset_text = self.offset_entry.text();
-        let offset = match addr::Offset::parse(offset_text.as_str(), false) {
+        let offset = match self.offset_entry.addr() {
             Ok(a) => a,
             Err(e) => return Err(error::Error {
                 while_attempting: error::Action::InsertNodeParseOffset,
                 trouble: error::Trouble::AddressParseFailed {
                     error: e,
-                    address: offset_text.to_string(),
+                    address: self.offset_entry.text().to_string(),
                 },
                 level: error::Level::Error,
                 is_bug: false,
@@ -152,6 +169,8 @@ impl InsertNodeAction {
                 panic!("Insert node action running without activation");
             }
         };
+
+        self.update_dialog_preconditions();
         
         let parent_node = activation.document.lookup_node(&activation.path).0;
         let props = parent_node.props.clone_rename(name);
@@ -281,6 +300,8 @@ impl InsertNodeAction {
         }
         
         self.activation.replace(Some(activation));
+
+        self.update_dialog_preconditions();
         
         self.name_entry.grab_focus();
         self.dialog.present();
@@ -289,6 +310,7 @@ impl InsertNodeAction {
     fn deactivate(&self) {
         self.order_entry.set_model(gio::ListModel::NONE);
         self.activation.take();
+        self.update_dialog_preconditions();
         self.dialog.hide();
     }
 }

@@ -19,8 +19,18 @@ impl AddrEntry {
         glib::Object::builder().build()
     }
 
-    pub fn addr(&self) -> Option<addr::Offset> {
-        self.imp().addr.get()
+    pub fn addr(&self) -> Result<addr::Offset, addr::AddressParseError> {
+        (*self.imp().addr.borrow()).clone()
+    }
+
+    pub fn connect_addr_changed<F: Fn(&Self, Result<addr::Offset, addr::AddressParseError>) + 'static>(&self, f: F) -> glib::SignalHandlerId {
+        self.connect_closure(
+            "addr-changed",
+            false,
+            glib::closure_local!(move |entry: &AddrEntry| {
+                let a = entry.addr();
+                f(entry, a)
+            }))
     }
 }
 
@@ -33,9 +43,16 @@ pub unsafe extern "C" fn charm_addr_entry_get_type() -> <glib::Type as IntoGlib>
 mod imp {
     use super::*;
 
-    #[derive(Default)]
     pub struct AddrEntry {
-        pub addr: cell::Cell<Option<addr::Offset>>,
+        pub addr: cell::RefCell<Result<addr::Offset, addr::AddressParseError>>,
+    }
+
+    impl Default for AddrEntry {
+        fn default() -> Self {
+            Self {
+                addr: cell::RefCell::new(Err(addr::AddressParseError::EmptyString)),
+            }
+        }
     }
 
     #[glib::object_subclass]
@@ -75,21 +92,21 @@ mod imp {
                     self.obj().set_css_classes(&[]);
                     self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, None);
                     self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, None);
-                    self.addr.set(Some(addr));
+                    *self.addr.borrow_mut() = Ok(addr);
                 }
                 Err(e) => {
                     self.obj().set_css_classes(&["error"]);
                     self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, Some("dialog-error"));
 
-                    let error_string = match e {
-                        addr::AddressParseError::MissingBytes => "cannot be empty".to_string(),
+                    let error_string = match &e {
+                        addr::AddressParseError::EmptyString => "cannot be empty".to_string(),
                         addr::AddressParseError::MalformedBytes(pie) => format!("failed to parse bytes: {}", pie),
                         addr::AddressParseError::MalformedBits(pie) => format!("failed to parse bits: {}", pie),
                         addr::AddressParseError::TooManyBits => "bit offset too large".to_string(),
                     };
                     
                     self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, Some(&error_string));
-                    self.addr.set(None);
+                    *self.addr.borrow_mut() = Err(e);
                 }
             }
 

@@ -99,7 +99,7 @@ impl<Kind> Address<Kind> {
             radix = 16;
         }
         
-        let mut byte_portion = i.next().ok_or(AddressParseError::MissingBytes)?;
+        let mut byte_portion = i.next().ok_or(AddressParseError::EmptyString)?;
 
         if let Some(bp) = byte_portion.strip_prefix("0x") {
             radix = 16;
@@ -182,9 +182,9 @@ pub struct ExtentTriplet<Kind> {
     pub after: ExtentTripletEnding<Kind>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum AddressParseError {
-    MissingBytes,
+    EmptyString,
     MalformedBytes(std::num::ParseIntError),
     MalformedBits(std::num::ParseIntError),
     TooManyBits,

@@ -13,6 +13,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
+use crate::view::addr_entry;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::window;
@@ -44,7 +45,7 @@ pub struct PropsEditor {
     pub toplevel: gtk::Widget,
 
     name_entry: gtk::Entry,
-    size_entry: gtk::Entry,
+    size_entry: addr_entry::AddrEntry,
     
     title_display: gtk::DropDown,
     children_display: gtk::DropDown,
@@ -69,7 +70,7 @@ impl PropsEditor {
         let toplevel: gtk::Widget = builder.object("toplevel").unwrap();
         
         let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
-        let size_entry: gtk::Entry = builder.object("size_entry").unwrap();
+        let size_entry: addr_entry::AddrEntry = builder.object("size_entry").unwrap();
         let title_display: gtk::DropDown = builder.object("title_display").unwrap();
         let children_display: gtk::DropDown = builder.object("children_display").unwrap();
         let content_display: gtk::DropDown = builder.object("content_display").unwrap();

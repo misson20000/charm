@@ -39,6 +39,8 @@ pub struct CharmApplication {
 
 impl CharmApplication {
     fn new(application: adw::Application) -> rc::Rc<CharmApplication> {
+        addr_entry::AddrEntry::ensure_type();
+        
         let app = rc::Rc::new(CharmApplication {
             rt: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

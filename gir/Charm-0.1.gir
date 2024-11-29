@@ -5,7 +5,7 @@
     <class name="AddrEntry" parent="Gtk.Entry" glib:type-name="CharmAddrEntry" glib:get-type="charm_addr_entry_get_type">
       <glib:signal name="addr-changed">
 	<return-value transfer-ownership="none">
-	  <type name="none" c:type="void"/>
+	  <type name="none"/>
 	</return-value>
       </glib:signal>
     </class>
