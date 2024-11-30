@@ -193,7 +193,7 @@ impl TokenView {
                 
                 for i in 0..token.extent.len().bytes() {
                     let (byte, flags) = self.data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
-                    let byte_extent = addr::Extent::sized(i, addr::Offset::BYTE).intersection(token.extent);
+                    let byte_extent = addr::Extent::sized(i, addr::Offset::BYTE).offset(token.extent.begin).intersection(token.extent);
                     let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
                     
                     let mut text_color = render.config.text_color.rgba();
@@ -204,12 +204,12 @@ impl TokenView {
 
                     for low_nybble in [false, true] {
                         let nybble = if low_nybble { byte & 0xf } else { byte >> 4 };
-                        let has_cursor = hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes() == i && hxc.low_nybble == low_nybble);
+                        let nybble_has_cursor = has_cursor && hexstring_cursor.map_or(false, |hxc| sync::Arc::ptr_eq(&hxc.token.common.node, &self.token.node()) && hxc.offset.bytes() == i && hxc.low_nybble == low_nybble);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
                     
                         render.gsc_mono.begin(digit, text_color, &mut pos)
-                            .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
+                            .cursor(nybble_has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
                             .selected(selected, render.config.selection_color.rgba())
                             .placeholder(pending, render.config.placeholder_color.rgba())
                             .render(snapshot);
