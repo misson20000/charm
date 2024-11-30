@@ -897,7 +897,12 @@ impl Position {
                                 index
                             }
                         }
-                        structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Hexstring => {
+                            let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
+                            let extent = self.get_line_extent(offset - interstitial.begin - addr::Offset::BIT, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
+                            
+                            PositionState::Hexstring(extent, index)
+                        }
                     };
                     
                     return true;
@@ -1051,7 +1056,12 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Hexstring => PositionState::Hexstring(interstitial, index),
+                        structure::ContentDisplay::Hexstring => {
+                            let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
+                            let extent = self.get_line_extent(offset - interstitial.begin, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
+                            
+                            PositionState::Hexstring(extent, index)
+                        }
                     };
 
                     return true;
