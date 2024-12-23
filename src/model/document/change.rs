@@ -502,6 +502,7 @@ fn rebuild_node_tree_visiting_path<F, Iter: std::iter::Iterator<Item = usize>>(t
             /* Reached the end of the path. Just modify this node directly. */
             let mut new_target = (*target).clone();
             target_modifier(&mut new_target)?;
+            new_target.assert_validity();
             Ok(new_target)
         }
     }
@@ -524,6 +525,7 @@ impl<'a, F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType>> selection::t
     fn visit_child<'b>(&mut self, parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult {
         let mut new_child = (**child).clone();
         self.0(&mut new_child)?;
+        new_child.assert_validity();
         parent_context.children[child_index].node = sync::Arc::new(new_child);
         Ok(())
     }
@@ -888,7 +890,7 @@ mod tests {
                           .size(0x10)))
             .child(0x20, |b| b
                    .name("child2")
-                   .size(0x4)
+                   .size(0x1c)
                    .child(0x0, |b| b
                           .name("child2.0")
                           .size(0x4))

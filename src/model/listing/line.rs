@@ -633,13 +633,13 @@ mod tests {
     fn containing_position() {
         let root = structure::Node::builder()
             .name("root")
-            .size(0x40)
+            .size(0x78)
             .child(0x10, |b| b
                    .name("child0")
                    .size(0x20))
             .child(0x14, |b| b
                    .name("child1")
-                   .size(0x50)
+                   .size(0x64)
                    .children_display(structure::ChildrenDisplay::Summary)
                    .child(0x0, |b| b
                           .name("child1.0")

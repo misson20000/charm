@@ -272,6 +272,16 @@ impl Node {
 
         true
     }
+
+    pub fn assert_validity(&self) {
+        let mut last_offset = addr::Offset::ZERO;
+
+        for child in &self.children {
+            assert!(child.offset >= last_offset);
+            assert!(child.end() <= self.size, "child {:?} ends at {:?}, which is greater than the parent's size ({:?})", child.node.props.name, child.end(), self.size);
+            last_offset = child.offset;
+        }
+    }
 }
 
 impl Properties {
@@ -444,10 +454,12 @@ pub mod builder {
         }
 
         pub fn build(&self) -> sync::Arc<Node> {
+            self.node.assert_validity();
             sync::Arc::new(self.node.clone())
         }
 
         pub fn build_child<T: Into<addr::Offset>>(&self, offset: T) -> Childhood {
+            self.node.assert_validity();
             Childhood::new(sync::Arc::new(self.node.clone()), offset.into())
         }
     }

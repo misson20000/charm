@@ -321,7 +321,7 @@ mod tests {
                    .size(0x20))
             .child(0x14, |b| b
                    .name("child1")
-                   .size(0x50)
+                   .size(0x64)
                    .children_display(structure::ChildrenDisplay::Summary)
                    .child(0x0, |b| b
                           .name("child1.0")
