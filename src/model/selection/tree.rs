@@ -173,7 +173,7 @@ impl Selection {
         if self.document.is_outdated(new_doc) {
             let from_generation = self.document.generation();
             let mut selection_changed = false;
-            new_doc.changes_since(&self.document.clone(), &mut |new_doc, change| selection_changed|= self.port_doc_change(new_doc, change));
+            new_doc.changes_since(&self.document.clone(), &mut |new_doc, change_record| selection_changed|= self.port_doc_change(new_doc, change_record));
 
             ChangeRecord {
                 document_updated: Some((from_generation, new_doc.clone())),
@@ -209,12 +209,12 @@ impl Selection {
         }
     }
     
-    fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> bool {
+    fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change_record: &doc_change::ApplyRecord) -> bool {
         self.document = new_doc.clone();
 
-        match change.ty {
-            doc_change::ChangeType::AlterNode { .. } => false,
-            doc_change::ChangeType::AlterNodesBulk { .. } => false,
+        match change_record {
+            doc_change::ApplyRecord::AlterNode { .. } => false,
+            doc_change::ApplyRecord::AlterNodesBulk { .. } => false,
             
             _ => {
                 // TODO: actually handle structural changes

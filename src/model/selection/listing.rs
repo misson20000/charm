@@ -94,7 +94,7 @@ impl Selection {
 
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
         if self.document.is_outdated(new_doc) {
-            new_doc.changes_since(&self.document.clone(), &mut |new_doc, change| self.port_doc_change(new_doc, change));
+            new_doc.changes_since(&self.document.clone(), &mut |new_doc, change_record| self.port_doc_change(new_doc, change_record));
             
             ChangeRecord {
             }
@@ -104,13 +104,13 @@ impl Selection {
         }
     }
 
-    fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) {
+    fn port_doc_change(&mut self, new_doc: &sync::Arc<document::Document>, change_record: &doc_change::ApplyRecord) {
         self.document = new_doc.clone();
 
         self.mode = match std::mem::replace(&mut self.mode, Mode::Structure(StructureMode::Empty)) {
             Mode::Structure(sm) => Mode::Structure(match sm {
                 StructureMode::Empty => StructureMode::Empty,
-                StructureMode::Range(sr) => sr.port_doc_change(new_doc, change),
+                StructureMode::Range(sr) => sr.port_doc_change(new_doc, change_record),
                 StructureMode::All => StructureMode::All,
             }),
             Mode::Address(extent) => Mode::Address(extent),
@@ -261,13 +261,13 @@ impl StructureRange {
         ret
     }
     
-    fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change: &doc_change::Change) -> StructureMode {
-        let ret = match change.update_path(&mut self.path) {
-            doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match &change.ty {
-                doc_change::ChangeType::AlterNode { .. } => self,
-                doc_change::ChangeType::AlterNodesBulk { .. } => self,
-                doc_change::ChangeType::StackFilter(_) => self,
-                doc_change::ChangeType::InsertNode { parent: affected_path, index: insertion_index, child: childhood } if affected_path == &self.path => {
+    fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change_record: &doc_change::ApplyRecord) -> StructureMode {
+        let ret = match change_record.update_path(&mut self.path) {
+            doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match change_record {
+                doc_change::ApplyRecord::AlterNode { .. } => self,
+                doc_change::ApplyRecord::AlterNodesBulk { .. } => self,
+                doc_change::ApplyRecord::StackFilter { .. } => self,
+                doc_change::ApplyRecord::InsertNode { parent: affected_path, index: insertion_index, child: childhood } if affected_path == &self.path => {
                     if self.begin.1 > *insertion_index || (self.begin.1 == *insertion_index && self.begin.0 > childhood.offset) {
                         self.begin.1+= 1;
                     }
@@ -287,8 +287,8 @@ impl StructureRange {
                     
                     self
                 }
-                doc_change::ChangeType::InsertNode { .. } => self,
-                doc_change::ChangeType::Nest { range, extent: nested_extent, props: _ } if range.parent == self.path => {
+                doc_change::ApplyRecord::InsertNode { .. } => self,
+                doc_change::ApplyRecord::Nest { range, extent: nested_extent, .. } if range.parent == self.path => {
                     let new_child = &new_doc.lookup_node(&range.parent).0.children[range.first];
                         
                     if range.contains_index(self.begin.1) && range.contains_index(self.end.1) && nested_extent.contains(self.extent()) {
@@ -323,20 +323,15 @@ impl StructureRange {
 
                     self
                 },
-                doc_change::ChangeType::Nest { .. } => self,
-                doc_change::ChangeType::Destructure { parent: affected_parent, child_index, num_grandchildren, offset: _ } if affected_parent == &self.path => {
-                    if self.begin.1 > *child_index {
-                        self.begin.1+= *num_grandchildren;
-                    }
-
-                    if self.end.1 > *child_index {
-                        self.end.1+= *num_grandchildren;
-                    }
+                doc_change::ApplyRecord::Nest { .. } => self,
+                doc_change::ApplyRecord::Destructure(dsr) if &dsr.parent == &self.path => {
+                    dsr.adjust_sibling_index(&mut self.begin.1);
+                    dsr.adjust_sibling_index(&mut self.end.1);
 
                     self
                 },
-                doc_change::ChangeType::Destructure { .. } => self,
-                doc_change::ChangeType::DeleteRange { range } if range.parent == self.path => {
+                doc_change::ApplyRecord::Destructure { .. } => self,
+                doc_change::ApplyRecord::DeleteRange { range } if range.parent == self.path => {
                     if range.contains_index(self.begin.1) && range.contains_index(self.end.1) {
                         return StructureMode::Empty;
                     } else {
@@ -355,17 +350,21 @@ impl StructureRange {
                         self
                     }
                 },
-                doc_change::ChangeType::DeleteRange { .. } => self,
+                doc_change::ApplyRecord::DeleteRange { .. } => self,
             }),
-            doc_change::UpdatePathResult::Destructured => match &change.ty {
-                /* We had selected a range within to a node that got
-                 * destructued, so we need to select that same range in its new
-                 * position in the new parent. */
-                doc_change::ChangeType::Destructure { parent: _, child_index, num_grandchildren: _, offset } => {
-                    self.begin.0+= *offset;
-                    self.begin.1+= *child_index;
-                    self.end.0+= *offset;
-                    self.end.1+= *child_index;
+            doc_change::UpdatePathResult::Destructured => match change_record {
+                /* We had selected a range within a node that got destructured,
+                 * so we need to select that same range in its new position in
+                 * the new parent. This may also include some interspersed nodes
+                 * from the parent. */
+                
+                doc_change::ApplyRecord::Destructure(dsr) => {
+                    self.begin.0+= dsr.offset();
+                    self.end.0+= dsr.offset();
+                    
+                    self.begin.1 = dsr.mapping[self.begin.1];
+                    self.end.1 = dsr.mapping[self.end.1];
+                    
                     StructureMode::Range(self)
                 },
                 _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
@@ -558,14 +557,14 @@ mod tests {
             version: Default::default(),
         };
 
-        let (change, _record) = document.insert_node(
+        let (_change, record) = document.insert_node(
             vec![], 0, structure::Node::builder()
                 .name("child")
                 .size(0x10)
                 .build_child(0x20))
             .apply(&mut document).unwrap();
 
-        sel.port_doc_change(&sync::Arc::new(document), &change);
+        sel.port_doc_change(&sync::Arc::new(document), &record);
 
         assert_eq!(sel.mode, Mode::Structure(StructureMode::Range(StructureRange {
             path: vec![],

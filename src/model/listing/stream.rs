@@ -69,7 +69,7 @@ pub struct StackEntry {
 pub trait AbstractPosition: Clone {
     fn at_beginning(root: sync::Arc<structure::Node>) -> Self;
     fn at_path(root: sync::Arc<structure::Node>, path: &structure::Path, offset: addr::Offset) -> Self;
-    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change);
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change_record: &document::change::ApplyRecord);
     fn hit_top(&self) -> bool;
     fn hit_bottom(&self) -> bool;
     fn gen_token(&self) -> TokenGenerationResult;
@@ -171,8 +171,7 @@ enum PortStackMode {
 
     /* We processed a node that got destructured, but didn't push it onto the stack. */
     Destructuring {
-        destructured_childhood: structure::Childhood,
-        destructured_child_index: usize,
+        dsr: change::DestructureApplyRecord,
         summary: bool,
     },
 }
@@ -319,10 +318,10 @@ impl Position {
     
     /// Applies a single change to the position state.
     #[instrument]
-    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change: &change::Change, options: &mut PortOptions) {
+    pub fn port_change(&mut self, new_root: &sync::Arc<structure::Node>, change_record: &change::ApplyRecord, options: &mut PortOptions) {
         /* Recreate our stack, processing descents and such, leaving off with some information about the node we're actually on now. */
         let mut stack_state = match &self.stack {
-            Some(parent) => Self::port_recurse(parent, new_root, change),
+            Some(parent) => Self::port_recurse(parent, new_root, change_record),
             None => PortStackState::new(new_root.clone())
         };
 
@@ -342,30 +341,30 @@ impl Position {
             },
 
             /* We were in a child that got destructured. Our old state tells us about where we were in that child. */
-            (PortStackMode::Destructuring { destructured_childhood, destructured_child_index, summary: false }, state) => match state {
+            (PortStackMode::Destructuring { dsr, summary: false }, state) => match state {
                 PositionState::PreBlank
                     | PositionState::Title
                     | PositionState::SummaryPreamble
                     | PositionState::SummaryOpener
-                    | PositionState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                    | PositionState::SummaryValueBegin => IntermediatePortState::NormalContent(Some(dsr.offset()), dsr.child_index),
                 
-                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + *offset), destructured_child_index + *index),
-                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
-                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
-                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(destructured_childhood.offset + extent.begin), destructured_child_index + *index),
-                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(destructured_childhood.offset), *destructured_child_index),
+                PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + *offset), dsr.mapping[*index]),
+                PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
+                PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
+                PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
+                PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(dsr.offset()), dsr.child_index),
 
                 PositionState::SummaryLabel(i)
-                    | PositionState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, destructured_child_index + *i),
+                    | PositionState::SummarySeparator(i) => IntermediatePortState::NormalContent(None, dsr.child_index + *i),
 
                 PositionState::SummaryValueEnd
                     | PositionState::SummaryEpilogue
                     | PositionState::SummaryCloser
                     | PositionState::PostBlank
-                    | PositionState::End => IntermediatePortState::NormalContent(Some(destructured_childhood.end()), destructured_child_index + 1),
+                    | PositionState::End => IntermediatePortState::NormalContent(Some(dsr.end()), dsr.end_index()),
             },
             // TODO: try harder here
-            (PortStackMode::Destructuring { destructured_child_index, summary: true, .. }, _) => IntermediatePortState::SummaryLabel(*destructured_child_index),
+            (PortStackMode::Destructuring { dsr, summary: true, .. }, _) => IntermediatePortState::SummaryLabel(dsr.child_index),
 
             /* If a node was switched from ChildrenDisplay::Full to ChildrenDisplay::Summary, we want to stay on the
              * title or preblank if we were on them, but otherwise we pretend as if we're in PortStackMode::Summary and
@@ -464,12 +463,12 @@ impl Position {
         }
         
         /* Adjust the offset and index. */
-        match &change.ty {
-            change::ChangeType::AlterNode { .. } => {},
-            change::ChangeType::AlterNodesBulk { .. } => {},
-            change::ChangeType::StackFilter(_) => {},
+        match &change_record {
+            change::ApplyRecord::AlterNode { .. } => {},
+            change::ApplyRecord::AlterNodesBulk { .. } => {},
+            change::ApplyRecord::StackFilter { .. } => {},
             
-            change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
+            change::ApplyRecord::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
                 /* A new child was added to the node we're on. */
                 if *index == *affected_index && options.prefer_after_new_node {
                     /* options said we should place after the new node, so do so. */
@@ -493,7 +492,7 @@ impl Position {
                 }
             },
             
-            change::ChangeType::Nest { range, extent, props: _ } if range.parent == stack_state.current_path => {
+            change::ApplyRecord::Nest { range, extent, .. } if range.parent == stack_state.current_path => {
                 /* Children were nested on this node */
                 let new_nest = &self.node.children[range.first];
                 
@@ -521,12 +520,12 @@ impl Position {
                 }
             },
 
-            change::ChangeType::Destructure { parent, .. } if parent == &stack_state.current_path => {
+            change::ApplyRecord::Destructure(dsr) if &dsr.parent == &stack_state.current_path => {
                 /* Handled by PortStackMode::Destructuring, so we don't have to deal with it here. */
             },
 
             /* If the node we were on (or an ancestor of it) were deleted, that was already handled by port_recurse. Here we're only worried about our direct children (that we're not positioned on) being deleted. */
-            change::ChangeType::DeleteRange { range } if range.parent == stack_state.current_path => {
+            change::ApplyRecord::DeleteRange { range } if range.parent == stack_state.current_path => {
                 if range.contains_index(*index) {
                     *index = range.first;
                 } else if *index > range.last {
@@ -535,10 +534,10 @@ impl Position {
             },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
-            change::ChangeType::Nest { .. } => {},
-            change::ChangeType::Destructure { .. } => {},
-            change::ChangeType::InsertNode { .. } => {},
-            change::ChangeType::DeleteRange { .. } => {},
+            change::ApplyRecord::Nest { .. } => {},
+            change::ApplyRecord::Destructure { .. } => {},
+            change::ApplyRecord::InsertNode { .. } => {},
+            change::ApplyRecord::DeleteRange { .. } => {},
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
@@ -576,17 +575,17 @@ impl Position {
 
     /// Used to recurse to the base of the stack so we can start porting from the top down. Returns whether or not to keep going.
     #[instrument]
-    fn port_recurse(tok: &StackEntry, new_root: &sync::Arc<structure::Node>, change: &change::Change) -> PortStackState {
+    fn port_recurse(tok: &StackEntry, new_root: &sync::Arc<structure::Node>, change_record: &change::ApplyRecord) -> PortStackState {
         match &tok.stack {
             Some(parent) => {
-                let mut state = Self::port_recurse(parent, new_root, change);
-                Self::port_stack_entry(&mut state, tok, change);
+                let mut state = Self::port_recurse(parent, new_root, change_record);
+                Self::port_stack_entry(&mut state, tok, change_record);
                 state
             },
             None => {
                 /* reached root */
                 let mut state = PortStackState::new(new_root.clone());
-                Self::port_stack_entry(&mut state, tok, change);
+                Self::port_stack_entry(&mut state, tok, change_record);
                 state
             }
         }
@@ -594,7 +593,7 @@ impl Position {
 
     /// Applies a change to a single item in the stack. If we need to stop descending in the middle of the stack, return the 
     #[instrument]
-    fn port_stack_entry(state: &mut PortStackState, old_tok: &StackEntry, change: &change::Change) {
+    fn port_stack_entry(state: &mut PortStackState, old_tok: &StackEntry, change_record: &change::ApplyRecord) {
         /* This logic more-or-less mirrors change::update_path */
         let child_index = match old_tok.descent {
             Descent::Child(child_index) | Descent::ChildSummary(child_index) => child_index,
@@ -603,18 +602,18 @@ impl Position {
             Descent::MySummary => return,
         };
         
-        match &change.ty {
-            change::ChangeType::AlterNode { .. } => state.push(child_index),
-            change::ChangeType::AlterNodesBulk { .. } => state.push(child_index),
-            change::ChangeType::StackFilter(_) => state.push(child_index),
-            change::ChangeType::InsertNode { parent: path, index: after_child, child: _ } => {
+        match &change_record {
+            change::ApplyRecord::AlterNode { .. } => state.push(child_index),
+            change::ApplyRecord::AlterNodesBulk { .. } => state.push(child_index),
+            change::ApplyRecord::StackFilter { .. } => state.push(child_index),
+            change::ApplyRecord::InsertNode { parent: path, index: after_child, child: _ } => {
                 if path == &state.current_path && child_index >= *after_child {
                     state.push(child_index + 1);
                 } else {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Nest { range, extent: _, props: _ } => {
+            change::ApplyRecord::Nest { range, .. } => {
                 if range.parent == state.current_path {
                     if range.contains_index(child_index) {
                         state.push(range.first);
@@ -626,14 +625,14 @@ impl Position {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::Destructure { parent, child_index: destructured_child, num_grandchildren, offset } => {
-                if parent == &state.current_path {
-                    state.destructure(*destructured_child, child_index, *num_grandchildren, *offset, &old_tok.node.children[*destructured_child]);
+            change::ApplyRecord::Destructure(dsr) => {
+                if &dsr.parent == &state.current_path {
+                    state.destructure(dsr, child_index, &old_tok.node.children[dsr.child_index]);
                 } else {
                     state.push(child_index);
                 }
             },
-            change::ChangeType::DeleteRange { range } => {
+            change::ApplyRecord::DeleteRange { range } => {
                 if range.parent == state.current_path {
                     if range.contains_index(child_index) {
                         state.deleted(range.first, child_index, &old_tok.node);
@@ -1488,11 +1487,11 @@ impl PortStackState {
         }
     }
 
-    fn destructure(&mut self, destructured_child: usize, current_child: usize, num_grandchildren: usize, offset: addr::Offset, childhood: &structure::Childhood) {
+    fn destructure(&mut self, dsr: &change::DestructureApplyRecord, mut current_child: usize, childhood: &structure::Childhood) {
         match self.mode {
             /* Only enter destructuring mode if we're trying to descend into a child that got destructured. */
-            PortStackMode::Normal | PortStackMode::Summary if current_child == destructured_child => {
-                assert_eq!(offset, childhood.offset);
+            PortStackMode::Normal | PortStackMode::Summary if current_child == dsr.child_index => {
+                assert_eq!(dsr.offset(), childhood.offset);
                 
                 self.mode = PortStackMode::Destructuring {
                     summary: match self.mode {
@@ -1500,18 +1499,14 @@ impl PortStackState {
                         PortStackMode::Summary => true,
                         _ => false
                     },
-                    destructured_child_index: destructured_child,
-                    destructured_childhood: childhood.clone(),
+                    dsr: dsr.clone(),
                 };
             },
 
             /* If we're not in destructuring mode and we're descending into a different child node, just fix the index and continue normally. */
             PortStackMode::Normal | PortStackMode::Summary => {
-                if current_child > destructured_child {
-                    self.push(current_child + num_grandchildren - 1);
-                } else {
-                    self.push(current_child);
-                }
+                dsr.adjust_sibling_index(&mut current_child);
+                self.push(current_child);
             },
 
             /* If this is the second time around we're entering the function,
@@ -1519,11 +1514,11 @@ impl PortStackState {
              * children and we can push the new index and continue normally. */
             PortStackMode::Destructuring { summary: true, .. } => {
                 self.mode = PortStackMode::Summary;
-                self.push(destructured_child + current_child);
+                self.push(dsr.mapping[current_child]);
             },
             PortStackMode::Destructuring { summary: false, .. } => {
                 self.mode = PortStackMode::Normal;
-                self.push(destructured_child + current_child);
+                self.push(dsr.mapping[current_child]);
             },
             
             PortStackMode::Deleted { .. } => panic!("it shouldn't be possible to both delete and destructure a node in the same change"),
@@ -2003,8 +1998,8 @@ impl AbstractPosition for Position {
         Position::at_path(root, path, offset)
     }
 
-    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change: &document::change::Change) {
-        Position::port_change(self, &new_doc.root, change, &mut PortOptions::default());
+    fn port_change(&mut self, new_doc: &sync::Arc<document::Document>, change_record: &document::change::ApplyRecord) {
+        Position::port_change(self, &new_doc.root, change_record, &mut PortOptions::default());
     }
     
     fn hit_top(&self) -> bool {

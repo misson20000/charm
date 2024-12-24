@@ -139,7 +139,7 @@ impl Error {
                         write!(msg, "\n")?;
                         if let Some(incompatible_change) = &incompatible_change {
                             write!(msg, "Incompatible change: ")?;
-                            write_document_change_detail(msg, &document, incompatible_change)?;
+                            write_document_change_record_detail(msg, &document, incompatible_change)?;
                         } else {
                             write!(msg, "No information recorded about the incompatible newer change.\n")?;
                         }
@@ -309,17 +309,56 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Extent: {:?}\n", extent)?;
             write!(msg, "Properties: {:?}\n", props)?;
         },
-        document::change::ChangeType::Destructure { parent, child_index, num_grandchildren, offset } => {
+        document::change::ChangeType::Destructure { parent, child_index } => {
             write!(msg, "Destructuring child under {}\n", SafePathDescription::new(document, &parent))?;
             write!(msg, "Child index: {}\n", child_index)?;
-            write!(msg, "Num grandchildren: {}\n", num_grandchildren)?;
-            write!(msg, "Offset: {}\n", offset)?;
         },
         document::change::ChangeType::DeleteRange { range } => {
             write!(msg, "Delete children under {}\n", SafePathDescription::new(document, &range.parent))?;
             write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
         },
-        document::change::ChangeType::StackFilter(filter) => {
+        document::change::ChangeType::StackFilter { filter } => {
+            write!(msg, "Stack filter\n")?;
+            write!(msg, "New filter: {:?}\n", filter)?;
+        },
+    };
+
+    Ok(())
+}
+
+fn write_document_change_record_detail(msg: &mut String, document: &document::Document, change_record: &document::change::ApplyRecord) -> Result<(), fmt::Error> {
+    match change_record {
+        document::change::ApplyRecord::AlterNode { path, node } => {
+            write!(msg, "Alter node at {}\n", SafePathDescription::new(document, &path))?;
+            write!(msg, "New properties: {:?}\n", node.props)?;
+        },
+        document::change::ApplyRecord::AlterNodesBulk { selection: _, prop_changes } => {
+            write!(msg, "Alter nodes in bulk\n")?;
+            write!(msg, "Property changes: {:?}\n", prop_changes)?;
+        },
+        document::change::ApplyRecord::InsertNode { parent, index, child } => {
+            write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;
+            write!(msg, "Index: {}\n", index)?;
+            write!(msg, "Offset: {}\n", child.offset)?;
+            write!(msg, "Properties: {:?}\n", child.node.props)?;
+        },
+        document::change::ApplyRecord::Nest { range, extent, child } => {
+            write!(msg, "Nest children under {}\n", SafePathDescription::new(document, &range.parent))?;
+            write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
+            write!(msg, "Extent: {:?}\n", extent)?;
+            write!(msg, "Properties: {:?}\n", child.node.props)?;
+        },
+        document::change::ApplyRecord::Destructure(dsr) => {
+            write!(msg, "Destructuring child under {}\n", SafePathDescription::new(document, &dsr.parent))?;
+            write!(msg, "Child index: {}\n", dsr.child_index)?;
+            write!(msg, "Offset: {}\n", dsr.offset())?;
+            write!(msg, "Mapping: {:?}\n", dsr.mapping)?;
+        },
+        document::change::ApplyRecord::DeleteRange { range } => {
+            write!(msg, "Delete children under {}\n", SafePathDescription::new(document, &range.parent))?;
+            write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
+        },
+        document::change::ApplyRecord::StackFilter { filter } => {
             write!(msg, "Stack filter\n")?;
             write!(msg, "New filter: {:?}\n", filter)?;
         },

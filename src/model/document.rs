@@ -194,15 +194,10 @@ impl Document {
             return Err(DestructureError::AttemptToDestructureRoot);
         }
 
-        let (parent_node, _) = self.lookup_node(&path[0..path.len()-1]);
-        let childhood = &parent_node.children[path[path.len()-1]];
-        
         Ok(change::Change {
             ty: change::ChangeType::Destructure {
                 parent: path[0..path.len()-1].to_vec(),
                 child_index: path[path.len()-1],
-                num_grandchildren: childhood.node.children.len(),
-                offset: childhood.offset
             },
             generation: self.generation(),
         })
@@ -219,10 +214,12 @@ impl Document {
     #[must_use]
     pub fn patch_byte(&self, location: u64, patch: u8) -> change::Change {
         change::Change {
-            ty: change::ChangeType::StackFilter(datapath::OverwriteFilter {
-                offset: location,
-                bytes: vec![patch]
-            }.to_filter()),
+            ty: change::ChangeType::StackFilter {
+                filter: datapath::OverwriteFilter {
+                    offset: location,
+                    bytes: vec![patch]
+                }.to_filter()
+            },
             generation: self.generation(),
         }
     }
@@ -230,10 +227,12 @@ impl Document {
     #[must_use]
     pub fn insert_byte(&self, location: u64, patch: u8) -> change::Change {
         change::Change {
-            ty: change::ChangeType::StackFilter(datapath::InsertFilter {
-                offset: location,
-                bytes: vec![patch]
-            }.to_filter()),
+            ty: change::ChangeType::StackFilter {
+                filter: datapath::InsertFilter {
+                    offset: location,
+                    bytes: vec![patch]
+                }.to_filter()
+            },
             generation: self.generation(),
         }
     }

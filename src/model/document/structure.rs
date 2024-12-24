@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::iter;
 use std::sync;
 use std::vec;
@@ -276,10 +277,28 @@ impl Node {
     pub fn assert_validity(&self) {
         let mut last_offset = addr::Offset::ZERO;
 
-        for child in &self.children {
-            assert!(child.offset >= last_offset);
-            assert!(child.end() <= self.size, "child {:?} ends at {:?}, which is greater than the parent's size ({:?})", child.node.props.name, child.end(), self.size);
+        let mut bad_child = None;
+        
+        for (i, child) in self.children.iter().enumerate() {
+            if child.offset < last_offset || child.end() > self.size {
+                if bad_child.is_none() {
+                    bad_child = Some(i);
+                }
+            }
             last_offset = child.offset;
+        }
+
+        if let Some(bad_index) = bad_child {
+            let mut msg = String::new();
+            write!(msg, "{:?} (size {:?})\n", self.props.name, self.size).unwrap();
+            for (i, child) in self.children.iter().enumerate() {
+                if i == bad_index {
+                    write!(msg, "  - +{:?} {:?} (ends at {:?}) (BAD)\n", child.offset, child.node.props.name, child.end()).unwrap();
+                } else {
+                    write!(msg, "  - +{:?} {:?} (ends at {:?})\n", child.offset, child.node.props.name, child.end()).unwrap();
+                }
+            }
+            panic!("structure invariants broken: {}", msg);
         }
     }
 }

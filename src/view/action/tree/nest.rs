@@ -87,7 +87,7 @@ impl NestAction {
                  * possible we had an outdated copy of the document when we submitted the change. */
                 let record = &new_doc.previous().expect("just-changed document should have a previous document and change").1;
                 let nested_node_path = match record {
-                    document::change::Change { ty: document::change::ChangeType::Nest { range, .. }, .. } => {
+                    document::change::ApplyRecord::Nest { range, .. } => {
                         let mut path = range.parent.clone();
                         path.push(range.first);
                         path

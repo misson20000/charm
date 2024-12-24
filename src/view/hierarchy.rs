@@ -287,12 +287,12 @@ impl StructureListModel {
         model
     }
 
-    fn port_change(&self, new_doc: &sync::Arc<document::Document>, change: &change::Change) -> Option<(u32, u32, u32)> {
+    fn port_change(&self, new_doc: &sync::Arc<document::Document>, change_record: &change::ApplyRecord) -> Option<(u32, u32, u32)> {
         let mut i = self.imp().interior.get().unwrap().borrow_mut();
 
         i.document = new_doc.clone();
         
-        match change.update_path(&mut i.path) {
+        match change_record.update_path(&mut i.path) {
             change::UpdatePathResult::Unmoved | change::UpdatePathResult::Moved => {
             },
             change::UpdatePathResult::Deleted | change::UpdatePathResult::Destructured => {
@@ -308,9 +308,11 @@ impl StructureListModel {
 
         i.address = addr;
         
-        let items_changed = match &change.ty {
+        let items_changed = match &change_record {
             /* Was one of our children altered? */
-            change::ChangeType::AlterNode { path, props: new_props } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
+            change::ApplyRecord::AlterNode { path, node: new_node_from_record } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
+                assert!(sync::Arc::ptr_eq(new_node_from_record, &new_node));
+
                 let index = path[i.path.len()];
                 let child_item = i.children[index].clone();
                 let childhood = &new_node.children[index];
@@ -319,7 +321,7 @@ impl StructureListModel {
                 child_item.stage(NodeInfo {
                     path: path.clone(),
                     node: childhood.node.clone(),
-                    props: new_props.clone(),
+                    props: new_node.props.clone(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -328,8 +330,8 @@ impl StructureListModel {
 
                 None
             },
-            change::ChangeType::AlterNode { .. } => None,
-            change::ChangeType::AlterNodesBulk { selection, prop_changes: _ } => {
+            change::ApplyRecord::AlterNode { .. } => None,
+            change::ApplyRecord::AlterNodesBulk { selection, prop_changes: _ } => {
                 let i = &mut *i;
                 if let Ok(mut walker) = selection.subtree_walker(&i.path, AlterNodesBulkNodeInfoUpdater(&mut i.children, &new_node)) {
                     while walker.visit_next().is_some() {
@@ -340,7 +342,7 @@ impl StructureListModel {
             },
             
             /* Did we get a new child? */
-            change::ChangeType::InsertNode { parent: affected_path, index: affected_index, child: _ } if affected_path[..] == i.path[..] => {
+            change::ApplyRecord::InsertNode { parent: affected_path, index: affected_index, child: _ } if affected_path[..] == i.path[..] => {
                 let childhood = &new_node.children[*affected_index];
                 let document_host = i.document_host.clone();
 
@@ -356,10 +358,10 @@ impl StructureListModel {
 
                 Some((*affected_index as u32, 0, 1))
             },
-            change::ChangeType::InsertNode { .. } => None,
+            change::ApplyRecord::InsertNode { .. } => None,
 
             /* Were some of our children nested? */
-            change::ChangeType::Nest { range, extent: _, props: _ } if range.parent == i.path => {
+            change::ApplyRecord::Nest { range, .. } if range.parent == i.path => {
                 let childhood = &new_node.children[range.first];
                 let document_host = i.document_host.clone();
                 
@@ -375,35 +377,41 @@ impl StructureListModel {
 
                 Some((range.first as u32, count_removed as u32, 1))
             },
-            change::ChangeType::Nest { .. } => None,
+            change::ApplyRecord::Nest { .. } => None,
 
             /* Was one of our children destructured? */
-            change::ChangeType::Destructure { parent, child_index: child, num_grandchildren, offset: _ } if parent[..] == i.path[..] => {
+            change::ApplyRecord::Destructure(dsr) if &dsr.parent == &i.path => {
                 let document_host = i.document_host.clone();
-                
-                i.children.splice(child..=child, new_node.children[*child..(*child+*num_grandchildren)].iter().map(|childhood| NodeItem::new(NodeInfo {
-                    path: vec![], /* will be fixed up later */
-                    node: childhood.node.clone(),
-                    props: childhood.node.props.clone(),
-                    offset: childhood.offset,
-                    address: addr + childhood.offset,
-                    document: new_doc.clone(),
-                    document_host: document_host.clone(),
-                }))).count();
 
-                Some((*child as u32, 1, *num_grandchildren as u32))
+                i.children.remove(dsr.child_index);
+                
+                for inserted_index in &dsr.mapping {
+                    let childhood = &new_node.children[*inserted_index];
+                    
+                    i.children.insert(*inserted_index, NodeItem::new(NodeInfo {
+                        path: vec![], /* will be fixed up later */
+                        node: childhood.node.clone(),
+                        props: childhood.node.props.clone(),
+                        offset: childhood.offset,
+                        address: addr + childhood.offset,
+                        document: new_doc.clone(),
+                        document_host: document_host.clone(),
+                    }));
+                }
+
+                Some((dsr.child_index as u32, 1, (dsr.end_index() + 1 - dsr.child_index) as u32))
             },
-            change::ChangeType::Destructure { .. } => None,
+            change::ApplyRecord::Destructure { .. } => None,
 
             /* Were some of our children deleted? */
-            change::ChangeType::DeleteRange { range } if range.parent == i.path => {
+            change::ApplyRecord::DeleteRange { range } if range.parent == i.path => {
                 let count_removed = i.children.splice(range.indices(), []).count();
 
                 Some((range.first as u32, count_removed as u32, 0))
             },
-            change::ChangeType::DeleteRange { .. } => None,
+            change::ApplyRecord::DeleteRange { .. } => None,
 
-            change::ChangeType::StackFilter(_) => None,
+            change::ApplyRecord::StackFilter { .. } => None,
         };
 
         /* Fixup children's paths and node pointers */
