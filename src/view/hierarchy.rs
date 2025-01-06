@@ -384,6 +384,8 @@ impl StructureListModel {
                 let document_host = i.document_host.clone();
 
                 i.children.remove(dsr.child_index);
+
+                let mut highest_affected_index = dsr.child_index;
                 
                 for inserted_index in &dsr.mapping {
                     let childhood = &new_node.children[*inserted_index];
@@ -397,9 +399,13 @@ impl StructureListModel {
                         document: new_doc.clone(),
                         document_host: document_host.clone(),
                     }));
+
+                    highest_affected_index = inserted_index + 1;
                 }
 
-                Some((dsr.child_index as u32, 1, (dsr.end_index() + 1 - dsr.child_index) as u32))
+                let num_affected = highest_affected_index - dsr.child_index;
+
+                Some((dsr.child_index as u32, (num_affected - dsr.mapping.len() + 1) as u32, num_affected as u32))
             },
             change::ApplyRecord::Destructure { .. } => None,
 
