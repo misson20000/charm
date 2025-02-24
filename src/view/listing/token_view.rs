@@ -174,7 +174,7 @@ impl TokenView {
                     .render(snapshot);
             },
             token::Token::Ellipsis(token) => {
-                let selected = selection.overlaps(token.extent);
+                let selected = selection.overlaps(token.extent, token.common().node_child_index);
                 
                 render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &mut pos)
                     .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
@@ -194,7 +194,7 @@ impl TokenView {
                 for i in 0..token.extent.len().bytes() {
                     let (byte, flags) = self.data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
                     let byte_extent = addr::Extent::sized(i, addr::Offset::BYTE).offset(token.extent.begin).intersection(token.extent);
-                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin));
+                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin, token.common().node_child_index));
                     
                     let mut text_color = render.config.text_color.rgba();
                     if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {

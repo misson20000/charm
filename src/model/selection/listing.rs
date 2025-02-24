@@ -488,18 +488,18 @@ impl Mode {
 }
 
 impl NodeIntersection {
-    pub fn includes(&self, addr: addr::Offset) -> bool {
+    pub fn includes(&self, addr: addr::Offset, index: usize) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e, _, _) => e.includes(addr),
+            Self::Partial(e, first, last) => e.includes(addr) && (*first..=*last).contains(&index),
             Self::Total => true,
         }
     }
 
-    pub fn overlaps(&self, extent: addr::Extent) -> bool {
+    pub fn overlaps(&self, extent: addr::Extent, index: usize) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e, _, _) => e.intersection(extent).is_some(),
+            Self::Partial(e, first, last) => e.intersection(extent).is_some() && (*first..=*last).contains(&index),
             Self::Total => true,
         }
     }

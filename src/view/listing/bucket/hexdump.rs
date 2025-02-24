@@ -170,7 +170,7 @@ impl bucket::Bucket for HexdumpBucket {
             };
 
             let column = self.each_part(|column, part| { match part {
-                Part::Gap { width, begin, end } => if begin.map_or(false, |(o, _)| selection.includes(o)) && selection.includes(end.0) {
+                Part::Gap { width, begin, end } => if begin.map_or(false, |(o, i)| selection.includes(o, i)) && selection.includes(end.0, end.1) {
                     /* Draw gaps that are selected. */
                     ctx.snapshot.append_color(ctx.render.config.selection_color.rgba(), &graphene::Rect::new(
                         x + space_x + space_width * column as f32,
@@ -179,13 +179,13 @@ impl bucket::Bucket for HexdumpBucket {
                         space_height - 1.0));
                 },
                 
-                Part::Octet { offset, next_offset: _, token: _ } => {
+                Part::Octet { offset, next_offset: _, token } => {
                     // TODO: deal with bit-sized gutter pitches
                     let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes() as usize)).unwrap_or_default();
                     
                     let mut text_color = ctx.render.config.text_color.rgba();
                     let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
-                    let selected = selection.includes(offset);
+                    let selected = selection.includes(offset, token.common().node_child_index);
 
                     if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                         text_color = ctx.render.config.edit_color.rgba();
@@ -237,7 +237,7 @@ impl bucket::Bucket for HexdumpBucket {
 
                             let mut text_color = ctx.render.config.text_color.rgba();
                             let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
-                            let selected = selection.includes(byte_extent.begin);
+                            let selected = selection.includes(byte_extent.begin, token.common().node_child_index);
 
                             if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                                 text_color = ctx.render.config.edit_color.rgba();
