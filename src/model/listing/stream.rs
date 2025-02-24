@@ -1607,8 +1607,14 @@ impl PortStackState {
             self.node = se.node.clone();
             self.node_addr = se.node_addr;
 
-            if se.descent.depth_change() > 0 {
-                return Some(self.current_path.pop().expect("should not have been able to pop when path was empty"));
+            match se.descent {
+                Descent::Child(_) | Descent::ChildSummary(_) => return Some(self.current_path.pop().expect("should not have been able to pop when path was empty")),
+                Descent::MySummary => match self.mode {
+                    PortStackMode::Normal => panic!("should not have seen MySummary descent when already in Normal mode"),
+                    PortStackMode::Summary => self.mode = PortStackMode::Normal,
+                    PortStackMode::Deleted { ref mut summary, .. } => assert!(std::mem::replace(summary, false), "should be in summary if we saw MySummary descent"),
+                    PortStackMode::Destructuring { ref mut summary, .. } => assert!(std::mem::replace(summary, false), "should be in summary if we saw MySummary descent"),
+                }
             }
         }
 
