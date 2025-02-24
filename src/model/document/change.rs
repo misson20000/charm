@@ -3,6 +3,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
+use crate::model::document::rebuild;
 use crate::model::document::structure;
 use crate::model::selection;
 use crate::model::versioned;
@@ -229,7 +230,7 @@ impl Change {
     fn apply_impl(&self, document: &mut document::Document) -> Result<ApplyRecord, ApplyErrorType> {
         match &self.ty {
             ChangeType::AlterNode { path, props } => {
-                let new_tree = rebuild_node_tree_visiting_path(&document.root, path.iter().cloned(), |target| {
+                let new_tree = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, path, |target| {
                     target.props = props.clone();
                     Ok(())
                 })?;
@@ -243,15 +244,15 @@ impl Change {
                     return Err(ApplyErrorType::InvalidParameters("selection was for a different document (or different version of the same document)"));
                 }
                 
-                document.root = rebuild_node_tree_visiting_tree(selection, |target| {
+                document.root = rebuild::rebuild_node_tree_visiting_tree(selection, |target| {
                     target.props.apply_changes(prop_changes.clone());
-                    Ok(())
+                    Ok::<(), ApplyErrorType>(())
                 })?;
 
                 Ok(ApplyRecord::AlterNodesBulk { selection: selection.clone(), prop_changes: prop_changes.clone() })
             },
             ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => {
-                document.root = rebuild_node_tree_visiting_path(&document.root, path.iter().cloned(), |target| {
+                document.root = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path, |target| {
                     /* Check at_child to make sure it's not farther than one-past the end. */
                     if *at_child > target.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"));
@@ -289,7 +290,7 @@ impl Change {
                 Ok(ApplyRecord::InsertNode { parent: path.clone(), index: *at_child, child: childhood.clone() })
             },
             ChangeType::Nest { range, extent, props } => {
-                let result = rebuild_node_tree_visiting_path(&document.root, range.parent.iter().cloned(), |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node| {
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -322,7 +323,7 @@ impl Change {
                 Ok(ApplyRecord::Nest { range: range.clone(), extent: *extent, child: result.target.children[range.first].clone()})
             }
             ChangeType::Destructure { parent, child_index } => {
-                let result = rebuild_node_tree_visiting_path(&document.root, parent.iter().cloned(), |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &parent, |parent_node| {
                     /* Check that we're trying to destructure a child that actually exists. */
                     if *child_index >= parent_node.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"));
@@ -370,10 +371,10 @@ impl Change {
 
                 document.root = result.root;
 
-                Ok(result.value) 
+                Ok(result.output) 
             },
             ChangeType::DeleteRange { range } => {
-                let result = rebuild_node_tree_visiting_path(&document.root, range.parent.iter().cloned(), |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node| {
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -607,84 +608,6 @@ impl DestructureApplyRecord {
     pub fn end_index(&self) -> usize {
         self.mapping.last().copied().unwrap_or(self.child_index)
     }
-}
-
-struct RebuildNodeTreeResult<T> {
-    root: sync::Arc<structure::Node>,
-    target: sync::Arc<structure::Node>,
-    value: T,
-}
-
-fn rebuild_node_tree_visiting_path<F, T, Iter: std::iter::Iterator<Item = usize>>(target: &structure::Node, mut path_segment: Iter, target_modifier: F) -> Result<RebuildNodeTreeResult<T>, ApplyErrorType> where
-    F: FnOnce(&mut structure::Node) -> Result<T, ApplyErrorType> {
-    match path_segment.next() {
-        Some(index) => {
-            /* Recurse to rebuild the child, then rebuild the target with the new child. */
-            let child = &*target.children[index].node;
-            let new_result = rebuild_node_tree_visiting_path(child, path_segment, target_modifier)?;
-            let mut new_target = (*target).clone();
-            new_target.children[index].node = new_result.root.clone();
-            Ok(RebuildNodeTreeResult {
-                root: sync::Arc::new(new_target),
-                target: new_result.target,
-                value: new_result.value,
-            })
-        },
-        None => {
-            /* Reached the end of the path. Just modify this node directly. */
-            let mut new_target = (*target).clone();
-            let value = target_modifier(&mut new_target)?;
-            new_target.assert_validity();
-            let new_target = sync::Arc::new(new_target);
-            Ok(RebuildNodeTreeResult {
-                root: new_target.clone(),
-                target: new_target,
-                value,
-            })
-        }
-    }
-}
-
-struct TreeRewritingVisitor<F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType>>(F);
-
-impl<'a, F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType>> selection::tree::TreeVisitor<'a> for TreeRewritingVisitor<F> {
-    type NodeContext = structure::Node;
-    type VisitResult = Result<(), ApplyErrorType>;
-
-    fn root_context(&mut self, root: &'a sync::Arc<structure::Node>) -> Self::NodeContext {
-        (**root).clone()
-    }
-
-    fn descend<'b>(&mut self, _parent: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, _child_index: usize, _child_selected: bool) -> Option<Self::NodeContext> {
-        Some((**child).clone())
-    }
-
-    fn visit_child<'b>(&mut self, parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult {
-        let mut new_child = (**child).clone();
-        self.0(&mut new_child)?;
-        new_child.assert_validity();
-        parent_context.children[child_index].node = sync::Arc::new(new_child);
-        Ok(())
-    }
-
-    fn visit<'b>(&mut self, context: &'b mut Self::NodeContext, _node: &'a sync::Arc<structure::Node>) -> Self::VisitResult {
-        self.0(context)
-    }
-
-    fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize) {
-        parent.children[child_index].node = sync::Arc::new(child);
-    }
-}
-
-fn rebuild_node_tree_visiting_tree<F>(tree: &selection::TreeSelection, target_visitor: F) -> Result<sync::Arc<structure::Node>, ApplyErrorType> where
-    F: Fn(&mut structure::Node) -> Result<(), ApplyErrorType> {
-    let mut walker = tree.walker(TreeRewritingVisitor(target_visitor));
-
-    while let Some(r) = walker.visit_next() {
-        r?;
-    }
-
-    Ok(sync::Arc::new(walker.take()))
 }
 
 impl versioned::Change<document::Document> for Change {

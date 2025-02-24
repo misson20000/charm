@@ -1,4 +1,5 @@
 pub mod change;
+pub mod rebuild;
 pub mod search;
 pub mod structure;
 
