@@ -521,12 +521,35 @@ impl Position {
                     *index-= range.count();
                 }
             },
+
+            /* If the node we're on (or a descendant thereof and its ancestors) was resized. */
+            change::ApplyRecord::Resize { path, new_size: _, parents_resized: _ } if path.len() >= stack_state.current_path.len() && path[0..stack_state.current_path.len()] == stack_state.current_path => {
+                if let Some(offset) = offset.as_mut() {
+                    /* If we the node we're on shrank and our specified offset is now past the end, destructure. Potentially multiple times if multiple ancestors were shrunken. */
+                    while *offset > stack_state.node.size {
+                        if let Some(index) = stack_state.pop_actual() {
+                            *offset+= stack_state.node.children[index].offset;
+                        } else {
+                            /* Root node shrank. Just put us at the end of it. */
+                            *offset = self.node.size;
+                        }
+                    }
+
+                    /* If the child immediately before our selected offset was grown, descend into it. Potentially multiple times. */
+                    while *index > 0 && stack_state.node.children[*index-1].end() > *offset {
+                        *offset-= stack_state.node.children[*index-1].offset;
+                        stack_state.push(*index-1);
+                        *index = stack_state.node.children.len();
+                    }
+                }
+            },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
             change::ApplyRecord::Nest { .. } => {},
             change::ApplyRecord::Destructure { .. } => {},
             change::ApplyRecord::InsertNode { .. } => {},
             change::ApplyRecord::DeleteRange { .. } => {},
+            change::ApplyRecord::Resize { .. } => {},
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
@@ -595,6 +618,7 @@ impl Position {
             change::ApplyRecord::AlterNode { .. } => state.push(child_index),
             change::ApplyRecord::AlterNodesBulk { .. } => state.push(child_index),
             change::ApplyRecord::StackFilter { .. } => state.push(child_index),
+            change::ApplyRecord::Resize { .. } => state.push(child_index),
             change::ApplyRecord::InsertNode { parent: path, index: after_child, child: _ } => {
                 if path == &state.current_path && child_index >= *after_child {
                     state.push(child_index + 1);

@@ -418,17 +418,21 @@ impl StructureListModel {
             change::ApplyRecord::DeleteRange { .. } => None,
 
             change::ApplyRecord::StackFilter { .. } => None,
+
+            /* Taken care of in the next step as property notifications via stage. */
+            change::ApplyRecord::Resize { .. } => None,
         };
 
         /* Fixup children's paths and node pointers */
         {
             let i = &mut *i;
             for (index, child) in i.children.iter_mut().enumerate() {
-                let mut child_info = child.imp().info.get().unwrap().borrow_mut();
+                let mut child_info = child.imp().info.get().unwrap().borrow().clone();
                 child_info.path.splice(.., i.path.iter().cloned());
                 child_info.path.push(index);
                 child_info.document = new_doc.clone();
                 child_info.node = new_node.children[index].node.clone();
+                child.stage(child_info);
             }
         }
 
@@ -495,6 +499,7 @@ impl NodeItem {
             let changed_name = info.props.name != new_info.props.name;
             let changed_offset = info.offset != new_info.offset;
             let changed_address = info.address != new_info.address;
+            let changed_size = info.node.size != new_info.node.size;
 
             *info = new_info;
 
@@ -505,7 +510,8 @@ impl NodeItem {
 
             if changed_name { self.notify("name"); }
             if changed_offset { self.notify("offset"); }
-            if changed_address { self.notify("address"); }
+            if changed_address { self.notify("addr"); }
+            if changed_size { self.notify("size"); }
         }
     }
 }

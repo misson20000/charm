@@ -351,6 +351,47 @@ impl StructureRange {
                     }
                 },
                 doc_change::ApplyRecord::DeleteRange { .. } => self,
+                doc_change::ApplyRecord::Resize { path, new_size, parents_resized } => {
+                    /* If the node was shrunken, we can't let the selection be bigger than the new size. */
+                    self.begin.0 = std::cmp::min(self.begin.0, *new_size);
+                    self.end.0 = std::cmp::min(self.end.0, *new_size);
+                    
+                    if path.len() <= self.path.len() {
+                        /* Ancestor or node containing selection was resized. We don't care. */
+                        self
+                    } else if path.len() - parents_resized > path.len() + 1 {
+                        /* Resizing stopped deep enough in the tree that it can't affect either of our endpoints. */
+                        self
+                    } else if path[0..self.path.len()] != self.path {
+                        /* Ancestor or unrelated node was resized. */
+                        self
+                    } else if self.begin.1 > path[self.path.len()] || self.end.1 <= path[self.path.len()] {
+                        /* Resized node was a descendant of the node containing the selection, but wasn't part of the selection. */
+                        self
+                    } else {
+                        /* A descendant of this selection was resized. Unfortunate. */
+                        let sel_parent = new_doc.lookup_node(&self.path).0;
+
+                        /* Was there a node before the beginning of our
+                         * selection and was it grown? If so, it may have
+                         * subsumed the beginning of the selection when it
+                         * resized. */
+                        if self.begin.1 > 0 && path[self.path.len()] == self.begin.1-1 {
+                            if sel_parent.children[self.begin.1-1].end() > self.begin.0 {
+                                self.begin = (sel_parent.children[self.begin.1-1].offset, self.begin.1-1);
+                            }
+                        }
+
+                        /* Similarly, check if a node grew and subsumed the end of the selection. */
+                        if self.end.1 > 0 && path[self.path.len()] == self.end.1-1 {
+                            if sel_parent.children[self.end.1-1].end() > self.end.0 {
+                                self.end = (sel_parent.children[self.begin.1-1].end(), self.end.1);
+                            }
+                        }
+
+                        self
+                    }
+                },
             }),
             doc_change::UpdatePathResult::Destructured => match change_record {
                 /* We had selected a range within a node that got destructured,

@@ -48,9 +48,22 @@ pub enum ChangeType {
         range: structure::SiblingRange,
     },
 
+    /// Adds a filter to the datapath (or combines it with the topmost one, if compatible).
     StackFilter {
         filter: datapath::Filter,
-    }
+    },
+
+    /// Resizes a node (and its parents, if necessary)
+    Resize {
+        path: structure::Path,
+        new_size: addr::Offset,
+
+        /// If set, will also resize any parents necessary to avoid children extending beyond their parents' sizes, unless they are locked in which case an error will be generated.
+        expand_parents: bool,
+
+        /// If set, will truncate any parents that ended at the end of this child, unless they are locked in which case they will not be truncated.
+        truncate_parents: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +98,14 @@ pub enum ApplyRecord {
 
     StackFilter {
         filter: datapath::Filter,
+    },
+
+    Resize {
+        path: structure::Path,
+        new_size: addr::Offset,
+
+        /// How many parents of the targeted node were also resized as part of this operation.
+        parents_resized: usize,
     },
 }
 
@@ -160,6 +181,8 @@ pub enum ApplyErrorType {
     },
     InvalidRange(structure::RangeInvalidity),
     InvalidParameters(&'static str),
+    ResizedSmallerThanChildren,
+    ResizedLargerThanParent,
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +243,10 @@ impl Change {
                             => Err(UpdateError::RangeSplit),
                         },
                         ChangeType::StackFilter { .. } => Err(UpdateError::NotYetImplemented),
+                        ChangeType::Resize { ref mut path, .. } => match doc_change.update_path(path) {
+                            UpdatePathResult::Unmoved | UpdatePathResult::Moved => Ok(self.ty),
+                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
+                        },
                     }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
@@ -392,7 +419,89 @@ impl Change {
                 document.datapath.stack(filter);
 
                 Ok(ApplyRecord::StackFilter { filter: filter.clone() })
+            },
+            ChangeType::Resize { path, new_size, expand_parents, truncate_parents } => {
+                let visitor = RebuildNodeTreeVisitorForResize {
+                    path,
+                    new_size: *new_size,
+                    expand_parents: *expand_parents,
+                    truncate_parents: *truncate_parents,
+                    highest_ancestor_modified: 0,
+                };
+
+                let result = rebuild::rebuild_node_tree_visiting_path(&document.root, path, visitor)?;
+
+                document.root = result.root;
+
+                Ok(result.output)
+            },
+        }
+    }
+}
+
+struct RebuildNodeTreeVisitorForResize<'a> {
+    path: &'a structure::Path,
+    new_size: addr::Offset,
+    expand_parents: bool,
+    truncate_parents: bool,
+    highest_ancestor_modified: usize,
+}
+
+impl<'a> rebuild::TargetVisitor for RebuildNodeTreeVisitorForResize<'a> {
+    type Output = ApplyRecord;
+    type Error = ApplyErrorType;
+    type AncestorVisitor = Self;
+
+    fn visit_target(self, target: &mut structure::Node) -> Result<Self::AncestorVisitor, Self::Error> {
+        if target.children.iter().any(|c| c.end() > self.new_size) {
+            return Err(ApplyErrorType::ResizedSmallerThanChildren);
+        }
+        
+        target.size = self.new_size;
+        
+        Ok(self)
+    }
+}
+
+impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
+    type Output = ApplyRecord;
+    type Error = ApplyErrorType;
+
+    fn visit_ancestor(&mut self, ancestor: &mut structure::Node, ancestry: usize, old_childhood: structure::Childhood, child_index: usize) -> Result<(), Self::Error> {
+        if ancestor.children[child_index].node.size == old_childhood.node.size {
+            return Ok(());
+        }
+
+        if ancestor.children[child_index].node.size > old_childhood.node.size {
+            /* Child was resized to be larger */
+            if ancestor.children[child_index].end() > ancestor.size {
+                if self.expand_parents && !ancestor.props.locked {
+                    self.highest_ancestor_modified = ancestry;
+                    ancestor.size = ancestor.children[child_index].end();
+                } else {
+                    return Err(ApplyErrorType::ResizedLargerThanParent);
+                }
             }
+        } else {
+            /* Child was shrunken. */
+            if old_childhood.end() == ancestor.size && self.truncate_parents && !ancestor.props.locked {
+                /* It's possible that if two children overlap and we shrink one of
+                 * them, the other one will now extend past the end of the shrunken
+                 * one. We wouldn't want to truncate the parent too far in that
+                 * case. */
+                self.highest_ancestor_modified = ancestry;
+                ancestor.size = ancestor.children.iter().map(structure::Childhood::end).max().expect("there should definitely be at least one child if this node is an ANCESTOR of a node we're modifying during a tree rebuild");
+            }
+        }
+        
+        Ok(())
+    }
+
+    fn finalize(self) -> Self::Output {
+        ApplyRecord::Resize {
+            path: self.path.clone(),
+            new_size: self.new_size,
+            parents_resized: self.highest_ancestor_modified,
         }
     }
 }
@@ -487,6 +596,7 @@ impl ApplyRecord {
                 }
             },
             ApplyRecord::StackFilter { .. } => UpdatePathResult::Unmoved,
+            ApplyRecord::Resize { .. } => UpdatePathResult::Unmoved,
         }
     }
 
@@ -563,6 +673,7 @@ impl ApplyRecord {
             },
 
             ApplyRecord::StackFilter { .. } => UpdateRangeResult::Unmoved(subject),
+            ApplyRecord::Resize { .. } => UpdateRangeResult::Unmoved(subject),
         }
     }
 
@@ -575,6 +686,7 @@ impl ApplyRecord {
             ApplyRecord::Destructure(dsr) => format!("Destructure child under {}", document.describe_path(&dsr.parent)),
             ApplyRecord::DeleteRange { range, .. } => format!("Delete children under {}", document.describe_path(&range.parent)),
             ApplyRecord::StackFilter { filter } => format!("Add '{}' to datapath", filter.human_details()),
+            ApplyRecord::Resize { path, new_size, .. } => format!("Resize {} to size {}", document.describe_path(path), new_size),
         }
     }
 }
@@ -873,6 +985,7 @@ mod tests {
             ApplyRecord::Destructure { .. } => test_update_path_through_destructure(),
             ApplyRecord::DeleteRange { .. } => test_update_path_through_delete_range(),
             ApplyRecord::StackFilter { .. } => { /* not structural; n/a */ },
+            ApplyRecord::Resize { .. } => { /* doesn't affect paths; n/a */ },
             /* Make tests for your new ApplyRecord! */
         }
     }
@@ -1293,6 +1406,49 @@ mod tests {
         assert!(sync::Arc::ptr_eq(&orig_child1.children[3].node, &new_child1.children[1].node));
     }
 
+    #[test]
+    fn test_structural_change_resize() {
+        let doc = create_test_document_2();
+
+        /* Try growing a child and its ancestors */
+        let mut new_doc = doc.clone();
+        let record = Change {
+            ty: ChangeType::Resize { path: vec![1, 2], new_size: 0x100.into(), expand_parents: true, truncate_parents: true },
+            generation: doc.generation(),
+        }.apply(&mut new_doc).unwrap().1;
+
+        assert_matches!(record, ApplyRecord::Resize { parents_resized: 2, .. });
+        assert_eq!(new_doc.root.children[1].node.children[2].node.size, 0x100.into());
+        assert_eq!(new_doc.root.children[1].node.size, 0x108.into());
+        assert_eq!(new_doc.root.size, 0x11c.into());
+
+        /* Try growing a child beyond its ancestors, to make sure that gets rejected. */
+        let mut new_doc = doc.clone();
+        assert_matches!(Change {
+            ty: ChangeType::Resize { path: vec![1, 2], new_size: 0x100.into(), expand_parents: false, truncate_parents: true },
+            generation: doc.generation(),
+        }.apply(&mut new_doc), Err(ApplyError { ty: ApplyErrorType::ResizedLargerThanParent, .. }));
+        
+        /* Try shrinking a child and its ancestors */
+        let mut new_doc = doc.clone();
+        let record = Change {
+            ty: ChangeType::Resize { path: vec![1, 3], new_size: 0x8.into(), expand_parents: true, truncate_parents: true },
+            generation: doc.generation(),
+        }.apply(&mut new_doc).unwrap().1;
+
+        assert_matches!(record, ApplyRecord::Resize { parents_resized: 1, .. });
+        assert_eq!(new_doc.root.children[1].node.children[3].node.size, 0x8.into());
+        assert_eq!(new_doc.root.children[1].node.size, 0x18.into()); /* child 1.2 overlaps 1.3, and after shrinking 1.3, ends after 1.3 */
+        assert_eq!(new_doc.root.size, 0x40.into());
+
+        /* Try shrinking a parent smaller than its children, to make sure that gets rejected. */
+        let mut new_doc = doc.clone();
+        assert_matches!(Change {
+            ty: ChangeType::Resize { path: vec![1], new_size: 0x1b.into(), expand_parents: true, truncate_parents: true },
+            generation: doc.generation(),
+        }.apply(&mut new_doc), Err(ApplyError { ty: ApplyErrorType::ResizedSmallerThanChildren, .. }));
+    }
+
     /* This exists to produce errors if another ChangeType gets added without corresponding tests. */
     fn structural_change_exhaustiveness(ty: ChangeType) {
         match ty {
@@ -1303,6 +1459,7 @@ mod tests {
             ChangeType::Destructure { .. } => test_structural_change_destructure(),
             ChangeType::DeleteRange { .. } => test_structural_change_delete_range(),
             ChangeType::StackFilter { .. } => { /* n/a; not structural */ },
+            ChangeType::Resize { .. } => test_structural_change_resize(),
             /* Make tests for your new ChangeType! */
         }
     }

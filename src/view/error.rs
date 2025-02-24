@@ -149,6 +149,8 @@ impl Error {
                         document::structure::RangeInvalidity::Inverted => "the end index was before the start index",
                     })?,
                     document::change::ApplyErrorType::InvalidParameters(message) => write!(msg, "Parameters were invalid: {}\n", message)?,
+                    document::change::ApplyErrorType::ResizedSmallerThanChildren => write!(msg, "Attempted to resize node to be too small to contain its children.\n")?,
+                    document::change::ApplyErrorType::ResizedLargerThanParent => write!(msg, "Attempted to resize a node to be larger than one of its ancestors, which was either locked, or expanding parents was disabled.\n")?,
                 };
                 
                 write!(msg, "\n")?;
@@ -321,6 +323,12 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Stack filter\n")?;
             write!(msg, "New filter: {:?}\n", filter)?;
         },
+        document::change::ChangeType::Resize { path, new_size, expand_parents, truncate_parents } => {
+            write!(msg, "Resize {}\n", SafePathDescription::new(document, path))?;
+            write!(msg, "New size: {}\n", new_size)?;
+            write!(msg, "Expand parents: {}\n", expand_parents)?;
+            write!(msg, "Truncate parents: {}\n", truncate_parents)?;
+        },
     };
 
     Ok(())
@@ -361,6 +369,11 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
         document::change::ApplyRecord::StackFilter { filter } => {
             write!(msg, "Stack filter\n")?;
             write!(msg, "New filter: {:?}\n", filter)?;
+        },
+        document::change::ApplyRecord::Resize { path, new_size, parents_resized } => {
+            write!(msg, "Resize {}\n", SafePathDescription::new(document, path))?;
+            write!(msg, "New size: {}\n", new_size)?;
+            write!(msg, "Number of parents resized: {}\n", parents_resized)?;
         },
     };
 
