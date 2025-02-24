@@ -527,8 +527,9 @@ impl Position {
                 if let Some(offset) = offset.as_mut() {
                     /* If we the node we're on shrank and our specified offset is now past the end, destructure. Potentially multiple times if multiple ancestors were shrunken. */
                     while *offset > stack_state.node.size {
-                        if let Some(index) = stack_state.pop_actual() {
-                            *offset+= stack_state.node.children[index].offset;
+                        if let Some(des_index) = stack_state.pop_actual() {
+                            *offset+= stack_state.node.children[des_index].offset;
+                            *index = des_index + 1;
                         } else {
                             /* Root node shrank. Just put us at the end of it. */
                             *offset = self.node.size;
@@ -2213,10 +2214,10 @@ mod tests {
         while match position.gen_token() {
             TokenGenerationResult::Ok(token) => &token != target,
             TokenGenerationResult::Skip => true,
-            TokenGenerationResult::Boundary => panic!("couldn't find token"),
+            TokenGenerationResult::Boundary => panic!("couldn't find token {:?}", target),
         } {
             if !position.move_next() {
-                panic!("hit end of token stream");
+                panic!("hit end of token stream while seeking for {:?}", target);
             }
         }        
     }
@@ -2693,6 +2694,55 @@ mod tests {
                 }),
                 PortOptionsBuilder::new().additional_offset(0x0).build(),
                 PortOptionsBuilder::new().additional_offset(0x0).build(),
+            ),
+        ]);
+    }
+
+
+    #[test]
+    fn port_resize_node_shrink() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .child(0x42, |b| b
+                   .name("child0")
+                   .size(0x100))
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+        
+        new_doc.change_for_debug(old_doc.resize_node(vec![0], 0x40.into(), true, true)).unwrap();
+
+        let new_root = new_doc.root.clone();
+        
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* offset 0x123 */
+            (
+                token::Token::Hexdump(token::Hexdump {
+                    common: token::TokenCommon {
+                        node: root.children[0].node.clone(),
+                        node_path: vec![0],
+                        node_addr: 0x42.into(),
+                        node_child_index: 0,
+                        depth: 2,
+                    },
+                    extent: addr::Extent::sized(0xe0, 0x10),
+                    line: addr::Extent::sized(0xe0, 0x10),
+                }),
+                token::Token::Hexdump(token::Hexdump {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::AbsoluteAddress::NULL,
+                        node_child_index: 1,
+                        depth: 1,
+                    },
+                    extent: addr::Extent::sized(0x120, 0x10),
+                    line: addr::Extent::sized(0x120, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0x1).build(),
+                PortOptionsBuilder::new().additional_offset(0x3).build(),
             ),
         ]);
     }
