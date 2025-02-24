@@ -433,22 +433,11 @@ impl Position {
             stack_state.summarize();
         }
         
-        let is_summary = stack_state.summarized();
-
-        *self = Position {
-            stack: stack_state.new_stack,
-            state: PositionState::End, /* this is a placeholder. we finalize the details later... */
-            apparent_depth: stack_state.apparent_depth,
-            logical_depth: stack_state.logical_depth,
-            node: stack_state.node,
-            node_addr: stack_state.node_addr,
-        };
-        
         /* If intermediate state is Finished, go ahead and finish up. Otherwise, get references to the (offset, index) that we need to adjust. */
         let mut dont_care_offset = None;
         let (offset, index) = match intermediate_state {
             IntermediatePortState::Finished(finalized_state) => {
-                self.state = finalized_state;
+                *self = stack_state.into_position(finalized_state);
                 return;
             },
             
@@ -477,7 +466,7 @@ impl Position {
                 } else if let Some(offset) = offset.as_mut() {
                     if new_childhood.extent().includes(*offset) {
                         /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
-                        self.descend(if is_summary { Descent::ChildSummary(*affected_index) } else { Descent::Child(*affected_index) }, PositionState::End);
+                        stack_state.push(*affected_index);
 
                         *index = 0;
                         *offset-= new_childhood.offset;
@@ -494,7 +483,7 @@ impl Position {
             
             change::ApplyRecord::Nest { range, extent, .. } if range.parent == stack_state.current_path => {
                 /* Children were nested on this node */
-                let new_nest = &self.node.children[range.first];
+                let new_nest = &stack_state.node.children[range.first];
                 
                 if range.contains_index(*index) && offset.map_or(false, |o| extent.includes(o)) {
                     if options.prefer_after_new_node {
@@ -505,7 +494,7 @@ impl Position {
                         /* descend into the new node. */
                         let new_nest_offset = new_nest.offset;
                         
-                        self.descend(if is_summary { Descent::ChildSummary(range.first) } else { Descent::Child(range.first) }, PositionState::End);
+                        stack_state.push(range.first);
 
                         // TODO: is there something more helpful we could do here?
                         *index = 0;
@@ -541,13 +530,12 @@ impl Position {
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
-        let children = &self.node.children;
-        self.state = match intermediate_state {
+        let final_state = match intermediate_state {
             /* This should've been handled earlier, but whatever. */
             IntermediatePortState::Finished(finalized_state) => finalized_state,
 
             IntermediatePortState::NormalContent(offset, index) => {
-                let line_begin = self.estimate_line_begin(offset, index);
+                let line_begin = estimate_line_begin(&stack_state.node, offset, index);
                 /* Output the difference between the requested "additional offset" and where the token actually will begin. */
                 options.additional_offset = offset.and_then(|offset| if offset >= line_begin {
                     Some(offset - line_begin)
@@ -558,11 +546,12 @@ impl Position {
             },
 
             /* Real PositionState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
-            IntermediatePortState::SummaryLabel(index) if index < children.len() => PositionState::SummaryLabel(index),
-            IntermediatePortState::SummarySeparator(index) if index < children.len() => PositionState::SummarySeparator(index),
+            IntermediatePortState::SummaryLabel(index) if index < stack_state.node.children.len() => PositionState::SummaryLabel(index),
+            IntermediatePortState::SummarySeparator(index) if index < stack_state.node.children.len() => PositionState::SummarySeparator(index),
             IntermediatePortState::SummaryLabel(_) => PositionState::SummaryCloser,
             IntermediatePortState::SummarySeparator(_) => PositionState::SummaryCloser,
         };
+        *self = stack_state.into_position(final_state);
 
         /* Adjust our stream position to actually be on a token. */
         while match self.gen_token() {
@@ -656,7 +645,7 @@ impl Position {
                 self.state = PositionState::SummaryLeaf;
             }
         } else {
-            self.state = PositionState::MetaContent(self.estimate_line_begin(Some(offset), index), index);
+            self.state = PositionState::MetaContent(estimate_line_begin(&self.node, Some(offset), index), index);
         }
 
         while match self.gen_token() {
@@ -788,61 +777,6 @@ impl Position {
             PositionState::End => TokenGenerationResult::Skip,
         }
     }
-
-    /// Return the extent of the line containing the given address, biased downwards.
-    fn get_line_extent(&self, offset: addr::Offset, pitch: addr::Offset) -> addr::Extent {
-        addr::Extent::sized(pitch * (offset / pitch), pitch)
-    }
-
-    fn try_get_natural_line_extent(&self, offset: addr::Offset) -> Option<addr::Extent> {
-        self.node.props.content_display.preferred_pitch().map(|pitch| self.get_line_extent(offset, pitch))
-    }
-
-    /// Returns the boundaries of the children at index-1 and index. This is not an [addr::Extent] because the latter
-    /// child may begin at a lower address than the former child ends at.
-    fn get_interstitial(&self, index: usize) -> (addr::Offset, addr::Offset) {
-        /* Find the children. */
-        let prev_child_option = match index {
-            0 => None,
-            /* Something is seriously wrong if index was farther than one-past-the-end. */
-            i => Some((i-1, &self.node.children[i-1]))
-        };
-        let next_child_option = self.node.children.get(index).map(|child| (index, child));
-
-        /* Find the limits */
-        let lower_limit = match prev_child_option {
-            /* Can't include data from the child, so need to stop after its end. */
-            Some((_, prev_child)) => prev_child.end(),
-            /* Can't include data that belongs to the parent, so need to stop before our begin. */
-            None => addr::Offset::NULL,
-        };
-
-        /* Where can we not end beyond? */
-        let upper_limit = match next_child_option {
-            /* Can't include data from the child, so need to stop before it begins. */
-            Some((_, next_child)) => next_child.offset,
-            /* Can't include data that belongs to the parent, so need to stop before we end. */
-            None => self.node.size,
-        };
-
-        (lower_limit, upper_limit)
-    }
-
-    /// Despite the name, this must return exactly the same boundary that move_next and move_prev would so that we don't
-    /// seek to different tokens than what scrolling would've produced.
-    fn estimate_line_begin(&self, offset: Option<addr::Offset>, index: usize) -> addr::Offset {
-        let interstitial = self.get_interstitial(index);
-
-        if let Some(offset) = offset {
-            match self.try_get_natural_line_extent(offset) {
-                Some(le) => std::cmp::max(le.begin, interstitial.0),
-                None => interstitial.0
-            }
-                
-        } else {
-            interstitial.0
-        }
-    }
     
     /// Moves one position backwards in the stream.
     /// Returns true when successful, or false if hit the beginning of the token stream.
@@ -881,14 +815,14 @@ impl Position {
 
                 /* Emit content, if we can. */
                 if offset > addr::Offset::NULL {
-                    let interstitial = self.get_interstitial(index);
+                    let interstitial = get_interstitial(&self.node, index);
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
                     
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
-                            let line_extent = self.get_line_extent(offset - addr::Offset::BIT, line_pitch);
+                            let line_extent = get_line_extent(offset - addr::Offset::BIT, line_pitch);
 
                             PositionState::Hexdump {
                                 extent: addr::Extent::between(std::cmp::max(interstitial.begin, line_extent.begin), offset),
@@ -898,7 +832,7 @@ impl Position {
                         }
                         structure::ContentDisplay::Hexstring => {
                             let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
-                            let extent = self.get_line_extent(offset - interstitial.begin - addr::Offset::BIT, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
+                            let extent = get_line_extent(offset - interstitial.begin - addr::Offset::BIT, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
                             
                             PositionState::Hexstring(extent, index)
                         }
@@ -1040,14 +974,14 @@ impl Position {
 
                 /* Emit content, if we can. */
                 if offset < self.node.size {
-                    let interstitial = self.get_interstitial(index);
+                    let interstitial = get_interstitial(&self.node, index);
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
 
                     self.state = match self.node.props.content_display {
                         structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
                         structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
-                            let line_extent = self.get_line_extent(offset, line_pitch);
+                            let line_extent = get_line_extent(offset, line_pitch);
                             
                             PositionState::Hexdump {
                                 extent: addr::Extent::between(offset, std::cmp::min(line_extent.end, interstitial.end)),
@@ -1057,7 +991,7 @@ impl Position {
                         },
                         structure::ContentDisplay::Hexstring => {
                             let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
-                            let extent = self.get_line_extent(offset - interstitial.begin, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
+                            let extent = get_line_extent(offset - interstitial.begin, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
                             
                             PositionState::Hexstring(extent, index)
                         }
@@ -1354,6 +1288,61 @@ impl PartialEq for Position {
 impl Eq for Position {
 }
 
+/// Returns the boundaries of the children at index-1 and index. This is not an [addr::Extent] because the latter
+/// child may begin at a lower address than the former child ends at.
+fn get_interstitial(node: &structure::Node, index: usize) -> (addr::Offset, addr::Offset) {
+    /* Find the children. */
+    let prev_child_option = match index {
+        0 => None,
+        /* Something is seriously wrong if index was farther than one-past-the-end. */
+        i => Some((i-1, &node.children[i-1]))
+    };
+    let next_child_option = node.children.get(index).map(|child| (index, child));
+
+    /* Find the limits */
+    let lower_limit = match prev_child_option {
+        /* Can't include data from the child, so need to stop after its end. */
+        Some((_, prev_child)) => prev_child.end(),
+        /* Can't include data that belongs to the parent, so need to stop before our begin. */
+        None => addr::Offset::NULL,
+    };
+
+    /* Where can we not end beyond? */
+    let upper_limit = match next_child_option {
+        /* Can't include data from the child, so need to stop before it begins. */
+        Some((_, next_child)) => next_child.offset,
+        /* Can't include data that belongs to the parent, so need to stop before we end. */
+        None => node.size,
+    };
+
+    (lower_limit, upper_limit)
+}
+
+/// Return the extent of the line containing the given address, biased downwards.
+fn get_line_extent(offset: addr::Offset, pitch: addr::Offset) -> addr::Extent {
+    addr::Extent::sized(pitch * (offset / pitch), pitch)
+}
+
+fn try_get_natural_line_extent(node: &structure::Node, offset: addr::Offset) -> Option<addr::Extent> {
+    node.props.content_display.preferred_pitch().map(|pitch| get_line_extent(offset, pitch))
+}
+
+/// Despite the name, this must return exactly the same boundary that move_next and move_prev would so that we don't
+/// seek to different tokens than what scrolling would've produced.
+fn estimate_line_begin(node: &structure::Node, offset: Option<addr::Offset>, index: usize) -> addr::Offset {
+    let interstitial = get_interstitial(node, index);
+
+    if let Some(offset) = offset {
+        match try_get_natural_line_extent(node, offset) {
+            Some(le) => std::cmp::max(le.begin, interstitial.0),
+            None => interstitial.0
+        }
+        
+    } else {
+        interstitial.0
+    }
+}
+
 impl Descent {
     fn childhood(&self, node: &sync::Arc<structure::Node>) -> structure::Childhood {
         match self {
@@ -1452,6 +1441,17 @@ impl PortStackState {
             logical_depth: 0,
             node_addr: addr::AbsoluteAddress::NULL,
             node: root,
+        }
+    }
+
+    fn into_position(self, state: PositionState) -> Position {
+        Position {
+            stack: self.new_stack,
+            state,
+            apparent_depth: self.apparent_depth,
+            logical_depth: self.logical_depth,
+            node: self.node,
+            node_addr: self.node_addr,
         }
     }
 
@@ -1572,6 +1572,22 @@ impl PortStackState {
             },
             PortStackMode::Destructuring { .. } => panic!("should be unreachable"),
         }
+    }
+
+    fn pop_actual(&mut self) -> Option<usize> {
+        while let Some(se) = self.new_stack.take() {
+            self.new_stack = se.stack.clone();
+            self.apparent_depth = se.apparent_depth;
+            self.logical_depth = se.logical_depth;
+            self.node = se.node.clone();
+            self.node_addr = se.node_addr;
+
+            if se.descent.depth_change() > 0 {
+                return Some(self.current_path.pop().expect("should not have been able to pop when path was empty"));
+            }
+        }
+
+        None
     }
 
     fn summarized(&self) -> bool {
