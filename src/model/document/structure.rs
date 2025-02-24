@@ -209,7 +209,7 @@ impl Default for Properties {
             title_display: TitleDisplay::default(),
             children_display: ChildrenDisplay::default(),
             content_display: ContentDisplay::default(),
-            locked: true,
+            locked: false,
         }
     }
 }
