@@ -9,6 +9,7 @@ use gtk::glib;
 use gtk::glib::clone;
 
 use crate::catch_panic;
+use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::selection;
@@ -24,6 +25,7 @@ enum PropsEditorMode {
     Single {
         path: structure::Path,
         props: structure::Properties,
+        size: addr::Offset,
     },
     Many {
         selection: sync::Arc<selection::TreeSelection>,
@@ -114,6 +116,18 @@ impl PropsEditor {
             entry.grab_focus();
         }));
 
+        pe.size_entry.connect_activate(clone!(#[weak] pe, move |entry| catch_panic! {
+            let size = match entry.addr() {
+                Ok(size) => size,
+                Err(_) => { /* TODO: make a sound or something? */ return },
+            };
+
+            match pe.apply_size(size) {
+                Ok(_) => { /* yay! */ },
+                Err(_) => { /* TODO: make a sound or something? */ return },
+            }
+        }));
+        
         pe.title_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
             pe.apply_props(structure::MaybeProperties::new_title_display(match dd.selected() {
                 0 => structure::TitleDisplay::Inline,
@@ -163,7 +177,7 @@ impl PropsEditor {
                 match match &mut interior.mode {
                     PropsEditorMode::Deactivated => { /* silently discard this error */ return; },
                     
-                    PropsEditorMode::Single { path, props } => {
+                    PropsEditorMode::Single { path, props, size: _ } => {
                         props.apply_changes(prop_changes);
                         
                         interior.document_host.change(interior.selection.document.alter_node(path.clone(), props.clone()))
@@ -176,36 +190,7 @@ impl PropsEditor {
                     },
                 } {
                     Ok(new_document) => {
-                        /* Sometimes gtk will cause us to issue two property updates in
-                         * quick succession without a chance for the selection to get
-                         * updated and for us to pick that up, which would cause the second
-                         * update to get issued against an old version of the selection
-                         * referencing an old version of the document. We can't have that,
-                         * so update the selection synchronously right here right now. */
-
-                        let new_selection = match interior.selection_host.change(selection::tree::Change::DocumentUpdated(new_document)) {
-                            Ok(new) => new,
-
-                            Err((selection::tree::ApplyError::WasUpToDate, _)) => return,
-
-                            Err((error, attempted_version)) => {
-                                window.report_error(error::Error {
-                                    while_attempting: error::Action::EditProperties,
-                                    trouble: error::Trouble::TreeSelectionUpdateFailure {
-                                        error,
-                                        attempted_version
-                                    },
-                                    level: error::Level::Warning,
-                                    is_bug: true,
-                                });
-
-                                return
-                            },
-                        };
-                        
-                        self.in_update.set(true);
-                        new_selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.update_selection_internal(interior, selection.clone(), Some(record)));
-                        self.in_update.set(false);
+                        self.update_document(interior, &window, new_document);
                     },
                     
                     Err((error, attempted_version)) => {
@@ -226,9 +211,53 @@ impl PropsEditor {
         }        
     }
     
+    fn apply_size(&self, size: addr::Offset) -> Result<(), ()> {
+        if !self.in_update.get() {
+            let mut interior_guard = self.interior.borrow_mut();
+            if let Some(interior) = interior_guard.as_mut() {
+                let window = match self.window.borrow().upgrade() {
+                    Some(window) => window,
+                    None => return Err(()),
+                };
+                
+                match match &mut interior.mode {
+                    PropsEditorMode::Deactivated => { /* silently discard this error */ return Ok(()); },
+                    
+                    PropsEditorMode::Single { path, .. } => {
+                        interior.document_host.change(interior.selection.document.resize_node(path.clone(), size, true, false))
+                    },
+
+                    PropsEditorMode::Many { .. } => return Err(()),
+                } {
+                    Ok(new_document) => {
+                        self.update_document(interior, &window, new_document);
+                    },
+                    
+                    Err((error, attempted_version)) => {
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::ResizeNodeInPropertyEditor,
+                            trouble: error::Trouble::DocumentUpdateFailure {
+                                error,
+                                attempted_version
+                            },
+                            level: error::Level::Error,
+                            is_bug: false,
+                        });
+                    },
+                }
+
+                return Ok(());
+            }
+        }
+
+        /* Failed in a mysterious, internal, invisible way. */
+        Err(())
+    }
+    
     pub fn unbind(&self) {
         self.interior.take();
         self.name_entry.set_sensitive(false);
+        self.size_entry.set_sensitive(false);
         self.children_display.set_sensitive(false);
     }
     
@@ -260,11 +289,46 @@ impl PropsEditor {
         self.in_update.set(false);
     }
 
+    /* Sometimes gtk will cause us to issue two property updates in
+     * quick succession without a chance for the selection to get
+     * updated asynchronously and for us to pick that up, which would
+     * cause the second update to get issued against an old version of
+     * the selection referencing an old version of the document. We
+     * can't have that, so any time we update the document, we need to
+     * synchronously and forcibly update the selection to the new
+     * version of the document before GTK notifies us again and we try
+     * to make another change. */
+    fn update_document(&self, interior: &mut PropsInterior, window: &window::CharmWindow, document: sync::Arc<document::Document>) {
+        let new_selection = match interior.selection_host.change(selection::tree::Change::DocumentUpdated(document)) {
+            Ok(new) => new,
+
+            Err((selection::tree::ApplyError::WasUpToDate, _)) => return,
+
+            Err((error, attempted_version)) => {
+                window.report_error(error::Error {
+                    while_attempting: error::Action::EditProperties,
+                    trouble: error::Trouble::TreeSelectionUpdateFailure {
+                        error,
+                        attempted_version
+                    },
+                    level: error::Level::Warning,
+                    is_bug: true,
+                });
+
+                return
+            },
+        };
+        
+        self.in_update.set(true);
+        new_selection.changes_since(&interior.selection.clone(), &mut |selection, record| self.update_selection_internal(interior, selection.clone(), Some(record)));
+        self.in_update.set(false);
+    }
+
     fn selection_to_mode(selection: &sync::Arc<selection::TreeSelection>) -> PropsEditorMode {
         if selection.any_selected() {
             if let Some(path) = selection.single_selected() {
                 let (node, _addr) = selection.document.lookup_node(&path);
-                PropsEditorMode::Single { path, props: node.props.clone() }
+                PropsEditorMode::Single { path, props: node.props.clone(), size: node.size }
             } else if let Some(props) = structure::MaybeProperties::common_between(selection.node_iter()) {
                 PropsEditorMode::Many {
                     selection: selection.clone(),
@@ -288,14 +352,14 @@ impl PropsEditor {
             (_, PropsEditorMode::Deactivated) => {
                 self.deactivate_controls();
             },
-            (PropsEditorMode::Single { props: props_old, .. }, PropsEditorMode::Single { props: props_new, .. }) if props_old == props_new && !changed => {
+            (PropsEditorMode::Single { props: props_old, size: size_old, .. }, PropsEditorMode::Single { props: props_new, size: size_new, .. }) if props_old == props_new && size_old == size_new && !changed => {
                 /* If the selection didn't change and the properties don't disagree with what we think they are, DON'T update the interactive controls. This resets text box cursor positions. */
             },
             (PropsEditorMode::Many { props: props_old, .. }, PropsEditorMode::Many { props: props_new, .. }) if props_old == props_new && !changed => {
                 /* If the selection didn't change and the properties don't disagree with what we think they are, DON'T update the interactive controls. This resets text box cursor positions. */
             },
-            (_, PropsEditorMode::Single { props, .. }) => self.update_controls(&structure::MaybeProperties::new(props.clone())),
-            (_, PropsEditorMode::Many { props, .. }) => self.update_controls(&props),
+            (_, PropsEditorMode::Single { props, size, .. }) => self.update_controls(&structure::MaybeProperties::new(props.clone()), Some(*size)),
+            (_, PropsEditorMode::Many { props, .. }) => self.update_controls(&props, None),
         }
 
         match &new_mode {
@@ -310,10 +374,15 @@ impl PropsEditor {
         interior.mode = new_mode;
     }
         
-    fn update_controls(&self, props: &structure::MaybeProperties) {
+    fn update_controls(&self, props: &structure::MaybeProperties, size: Option<addr::Offset>) {
         match &props.name {
             Some(name) => self.name_entry.set_text(name),
             None => self.name_entry.set_text(""),
+        }
+
+        match size {
+            Some(size) => self.size_entry.set_text(&format!("{}", size)),
+            None => self.size_entry.set_text(""),
         }
 
         self.title_display.set_model(Some(&self.title_model));
@@ -349,7 +418,7 @@ impl PropsEditor {
         }
         
         self.name_entry.set_sensitive(true);
-        self.size_entry.set_sensitive(true);
+        self.size_entry.set_sensitive(size.is_some());
         self.title_display.set_sensitive(true);
         self.children_display.set_sensitive(true);
         self.content_display.set_sensitive(true);
@@ -358,6 +427,7 @@ impl PropsEditor {
 
     fn deactivate_controls(&self) {
         self.name_entry.set_text("");
+        self.size_entry.set_text("");
         self.title_display.set_model(gio::ListModel::NONE);
         self.children_display.set_model(gio::ListModel::NONE);
         self.content_display.set_model(gio::ListModel::NONE);

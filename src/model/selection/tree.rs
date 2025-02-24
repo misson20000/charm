@@ -215,6 +215,7 @@ impl Selection {
         match change_record {
             doc_change::ApplyRecord::AlterNode { .. } => false,
             doc_change::ApplyRecord::AlterNodesBulk { .. } => false,
+            doc_change::ApplyRecord::Resize { .. } => false,
             
             _ => {
                 // TODO: actually handle structural changes

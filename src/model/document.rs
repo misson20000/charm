@@ -237,6 +237,14 @@ impl Document {
             generation: self.generation(),
         }
     }
+
+    #[must_use]
+    pub fn resize_node(&self, path: structure::Path, new_size: addr::Offset, expand_parents: bool, truncate_parents: bool) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::Resize { path, new_size, expand_parents, truncate_parents },
+            generation: self.generation(),
+        }
+    }
 }
     
 #[derive(Debug, Clone, Copy)]

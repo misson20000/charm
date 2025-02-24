@@ -26,6 +26,7 @@ pub enum Action {
     EditProperties,
     DataEntry,
     SelectNext,
+    ResizeNodeInPropertyEditor,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -100,6 +101,7 @@ impl Error {
             Action::EditProperties => "Failed to edit node properties.",
             Action::DataEntry => "Failed to enter data.",
             Action::SelectNext => "Failed to select next node.",
+            Action::ResizeNodeInPropertyEditor => "Failed to resize node.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
