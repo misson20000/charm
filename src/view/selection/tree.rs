@@ -320,7 +320,7 @@ impl TreeSelectionModel {
         });
 
         let tlm = interior.gtk_model.clone();
-        let rlm = interior.gtk_model.model().downcast::<hierarchy::RootListModel>().unwrap();
+        let rlm = interior.gtk_model.model().downcast::<hierarchy::gtkmodel::RootListModel>().unwrap();
         let document = interior.selection.document.clone();
         drop(interior);
         
