@@ -311,17 +311,17 @@ impl StructureListModel {
         let items_changed = match &change_record {
             /* Was one of our children altered? */
             change::ApplyRecord::AlterNode { path, node: new_node_from_record } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
-                assert!(sync::Arc::ptr_eq(new_node_from_record, &new_node));
-
                 let index = path[i.path.len()];
-                let child_item = i.children[index].clone();
+                let child_item = &i.children[index];
                 let childhood = &new_node.children[index];
                 let document_host = i.document_host.clone();
+
+                assert!(sync::Arc::ptr_eq(new_node_from_record, &childhood.node));
 
                 child_item.stage(NodeInfo {
                     path: path.clone(),
                     node: childhood.node.clone(),
-                    props: new_node.props.clone(),
+                    props: childhood.node.props.clone(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -427,7 +427,7 @@ impl StructureListModel {
         {
             let i = &mut *i;
             for (index, child) in i.children.iter_mut().enumerate() {
-                let mut child_info = child.imp().info.get().unwrap().borrow().clone();
+                let mut child_info = child.staged_info();
                 child_info.path.splice(.., i.path.iter().cloned());
                 child_info.path.push(index);
                 child_info.document = new_doc.clone();
@@ -461,7 +461,7 @@ impl StructureListModel {
             
             for item in &self.imp().interior.get().unwrap().borrow().children {
                 item.update_document(new_doc);
-                item.trigger_notifies();                
+                item.trigger_notifies();
             }
 
             for (index, added, removed) in items_changed_records {
@@ -484,6 +484,14 @@ impl NodeItem {
 
     pub fn info(&self) -> cell::Ref<'_, NodeInfo> {
         self.imp().info.get().unwrap().borrow()
+    }
+
+    fn staged_info(&self) -> NodeInfo {
+        if let Some(info) = (*self.imp().staged_info.borrow_mut()).clone() {
+            return info.clone();
+        }
+
+        self.imp().info.get().unwrap().borrow().clone()
     }
 
     fn update_document(&self, new_doc: &sync::Arc<document::Document>) {
@@ -598,24 +606,28 @@ mod tests {
     use super::*;
     use rusty_fork::rusty_fork_test;
     
-    fn assert_tlr_node_correct(document: &sync::Arc<document::Document>, node: &sync::Arc<structure::Node>, iter: &mut impl std::iter::Iterator<Item = gtk::TreeListRow>) {
+    fn assert_tlr_node_correct(document: &sync::Arc<document::Document>, node: &sync::Arc<structure::Node>, iter: &mut impl std::iter::Iterator<Item = gtk::TreeListRow>, path: &mut structure::Path) {
         let tlr = iter.next().expect("tree list model ended early");
         let item = tlr.item().unwrap().downcast::<NodeItem>().unwrap();
         let info = item.imp().info.get().unwrap().borrow();
 
+        assert_eq!(&info.path, path);
         assert!(sync::Arc::ptr_eq(&info.document, document), "expected node info document to be up to date");
         assert!(sync::Arc::ptr_eq(&info.node, node), "expected to see '{}', but saw '{}' (path {:?})", node.props.name, info.props.name, info.path);
+        assert_eq!(info.props, node.props, "(path {:?})", info.path);
 
         if tlr.is_expanded() {
-            for childhood in &node.children {
-                assert_tlr_node_correct(document, &childhood.node, iter);
+            for (i, childhood) in node.children.iter().enumerate() {
+                path.push(i);
+                assert_tlr_node_correct(document, &childhood.node, iter, path);
+                path.pop();
             }
         }
     }
 
     fn assert_tlm_correct(document: &sync::Arc<document::Document>, tlm: &gtk::TreeListModel) {
         let mut iter = tlm.iter().map(Result::unwrap);
-        assert_tlr_node_correct(document, &document.root, &mut iter);
+        assert_tlr_node_correct(document, &document.root, &mut iter, &mut vec![]);
 
         if let Some(_) = iter.next() {
             panic!("tree list model had extra items");
@@ -660,6 +672,41 @@ mod tests {
             assert_tlm_correct(&document, &tlm);
 
             tlm.item(1).unwrap().downcast::<gtk::TreeListRow>().unwrap().set_expanded(true);
+            assert_tlm_correct(&document, &tlm);
+        }
+
+        #[test]
+        fn test_alter_node() {
+            gtk::init().unwrap();
+
+            let root = structure::Node::builder()
+                .name("root")
+                .size(0x40)
+                .child(0x0, |b| b
+                       .name("container")
+                       .size(0x40)
+                       .child(0x0, |b| b
+                              .name("child0")
+                              .size(0x8))
+                       .child(0x8, |b| b
+                              .name("child1")
+                              .size(0x8)))
+                .build();
+            
+            let document_host = sync::Arc::new(document::Builder::new(root).host());
+            let mut document = document_host.get();
+            
+            let tlm = create_tree_list_model(document_host.clone(), document.clone(), true);
+            assert_tlm_correct(&document, &tlm);
+
+            document = document_host.change(document.alter_node(vec![0], structure::Properties {
+                name: "foo".to_string(),
+                title_display: structure::TitleDisplay::Inline,
+                children_display: structure::ChildrenDisplay::None,
+                content_display: structure::ContentDisplay::None,
+                locked: true,
+            })).unwrap();
+            tlm.model().downcast::<RootListModel>().unwrap().update_document(&document);
             assert_tlm_correct(&document, &tlm);
         }
     }
