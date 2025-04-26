@@ -262,8 +262,8 @@ impl StructureRange {
     }
     
     fn port_doc_change(mut self, new_doc: &sync::Arc<document::Document>, change_record: &doc_change::ApplyRecord) -> StructureMode {
-        let ret = match change_record.update_path(&mut self.path) {
-            doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => StructureMode::Range(match change_record {
+        self = match change_record.update_path(&mut self.path) {
+            doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => match change_record {
                 doc_change::ApplyRecord::AlterNode { .. } => self,
                 doc_change::ApplyRecord::AlterNodesBulk { .. } => self,
                 doc_change::ApplyRecord::StackFilter { .. } => self,
@@ -274,15 +274,6 @@ impl StructureRange {
                     
                     if self.end.1 >= *insertion_index && self.end.0 >= childhood.offset {
                         self.end.1+= 1;
-                    }
-                    
-                    if childhood.extent().includes(self.begin.0) {
-                        self.begin.0 = childhood.offset;
-                        self.begin.1 = *insertion_index;
-                    }
-                    
-                    if childhood.extent().includes(self.end.0) {
-                        self.end.0 = childhood.end();
                     }
                     
                     self
@@ -392,7 +383,13 @@ impl StructureRange {
                         self
                     }
                 },
-            }),
+                doc_change::ApplyRecord::Paste(par) if par.parent == self.path => {
+                    par.adjust_sibling_index(&mut self.begin.1);
+                    par.adjust_sibling_index(&mut self.end.1);
+                    self
+                },
+                doc_change::ApplyRecord::Paste(_) => self,
+            },
             doc_change::UpdatePathResult::Destructured => match change_record {
                 /* We had selected a range within a node that got destructured,
                  * so we need to select that same range in its new position in
@@ -406,16 +403,26 @@ impl StructureRange {
                     self.begin.1 = dsr.mapping[self.begin.1];
                     self.end.1 = dsr.mapping[self.end.1];
                     
-                    StructureMode::Range(self)
+                    self
                 },
                 _ => panic!("got UpdatePathResult::Destructured from a non-Destructure type Change"),
             },
-            doc_change::UpdatePathResult::Deleted => StructureMode::Empty,
+            doc_change::UpdatePathResult::Deleted => return StructureMode::Empty,
         };
 
-        ret.assert_integrity(new_doc);
+        /* If the start or end are supposed to be within a child, repair by expanding the selection. */
+        let node = new_doc.lookup_node(&self.path).0;
+        if self.begin.1 > 0 && node.children[self.begin.1-1].extent().includes(self.begin.0) {
+            self.begin.0 = node.children[self.begin.1-1].offset;
+        }
 
-        ret
+        if self.end.1 > 0 && node.children[self.end.1-1].extent().includes(self.end.0) {
+            self.end.0 = node.children[self.end.1-1].end();
+        }
+        
+        self.assert_integrity(new_doc);
+
+        StructureMode::Range(self)
     }
 
     fn assert_integrity(&self, document: &document::Document) {

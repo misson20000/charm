@@ -140,6 +140,9 @@ enum UpdateMode {
 
     /* If the cursor is affected by an InsertNode, try to put the cursor after the new node. */
     AfterNewNode,
+
+    /* If the cursor is affected by a Paste, try to put the cursor after the paste. */
+    AfterPaste,
 }
 
 impl CursorClass {
@@ -234,6 +237,9 @@ impl Cursor {
             match update_mode {
                 UpdateMode::AfterNewNode => {
                     options = options.prefer_after_new_node();
+                },
+                UpdateMode::AfterPaste => {
+                    options = options.prefer_after_paste();
                 },
                 _ => {},
             };
@@ -504,6 +510,20 @@ impl Cursor {
                 structure::Childhood::new(node, self.structure_offset()))
         ).map(|new_doc| {
             self.update_internal(&new_doc, UpdateMode::AfterNewNode);
+        })
+    }
+
+    pub fn paste(&mut self, host: &document::DocumentHost, src: sync::Arc<structure::Node>, src_begin: (addr::Offset, usize), src_end: (addr::Offset, usize)) -> Result<(), (document::change::ApplyError, sync::Arc<document::Document>)> {
+        host.change(
+            self.document.paste(
+                src,
+                src_begin,
+                src_end,
+                self.structure_path(),
+                self.structure_offset(),
+                self.structure_child_index())
+        ).map(|new_doc| {
+            self.update_internal(&new_doc, UpdateMode::AfterPaste);
         })
     }
 }

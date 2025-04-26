@@ -27,6 +27,9 @@ pub enum Action {
     DataEntry,
     SelectNext,
     ResizeNodeInPropertyEditor,
+    CutStructure,
+    CopyStructure,
+    PasteStructure,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -67,6 +70,9 @@ pub enum Trouble {
         selection: sync::Arc<selection::ListingSelection>,
     },
     NoNodesInSelection,
+    ClipboardEmpty,
+    ClipboardNotContainingStructure,
+    GlibError(gtk::glib::Error),
     
     Other(String),
 }
@@ -102,6 +108,9 @@ impl Error {
             Action::DataEntry => "Failed to enter data.",
             Action::SelectNext => "Failed to select next node.",
             Action::ResizeNodeInPropertyEditor => "Failed to resize node.",
+            Action::CutStructure => "Failed to cut structure to clipboard from listing.",
+            Action::CopyStructure => "Failed to copy structure to clipboard from listing.",
+            Action::PasteStructure => "Failed to paste structure from clipboard.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
@@ -216,6 +225,18 @@ impl Error {
                 write!(msg, "No nodes in current selection.\n")?
             },
 
+            Trouble::ClipboardEmpty => {
+                write!(msg, "Clipboard is empty.\n")?
+            },
+            
+            Trouble::ClipboardNotContainingStructure => {
+                write!(msg, "Clipboard doesn't contain a structure copy.\n")?
+            },
+            
+            Trouble::GlibError(error) => {
+                write!(msg, "Glib error: {}\n", error)?
+            },
+            
             Trouble::Other(error) => {
                 write!(msg, "{}\n", error)?
             },            
@@ -331,6 +352,14 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Expand parents: {}\n", expand_parents)?;
             write!(msg, "Truncate parents: {}\n", truncate_parents)?;
         },
+        document::change::ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index } => {
+            write!(msg, "Paste:\n")?;
+            for child in &src_node.children[src_begin.1..src_end.1] {
+                write!(msg, "  - {}\n", child.node.props.name)?;
+            }
+            write!(msg, "Into {}\n", SafePathDescription::new(document, dst))?;
+            write!(msg, "At: {}, {}\n", dst_offset, dst_index)?;
+        },
     };
 
     Ok(())
@@ -376,6 +405,9 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
             write!(msg, "Resize {}\n", SafePathDescription::new(document, path))?;
             write!(msg, "New size: {}\n", new_size)?;
             write!(msg, "Number of parents resized: {}\n", parents_resized)?;
+        },
+        document::change::ApplyRecord::Paste(par) => {
+            write!(msg, "Pasting {} nodes into {}\n", par.mapping.len(), SafePathDescription::new(document, &par.parent))?;
         },
     };
 

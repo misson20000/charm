@@ -148,6 +148,7 @@ impl std::fmt::Debug for StackEntry {
 pub struct PortOptions {
     pub additional_offset: Option<addr::Offset>,
     pub prefer_after_new_node: bool,
+    pub prefer_after_paste: bool,
 }
 
 pub struct PortOptionsBuilder {
@@ -223,6 +224,11 @@ impl PortOptionsBuilder {
 
     pub fn prefer_after_new_node(mut self) -> PortOptionsBuilder {
         self.options.prefer_after_new_node = true;
+        self
+    }
+    
+    pub fn prefer_after_paste(mut self) -> PortOptionsBuilder {
+        self.options.prefer_after_paste = true;
         self
     }
     
@@ -540,6 +546,36 @@ impl Position {
                     }
                 }
             },
+
+            /* If the node we're on got pasted into. */
+            change::ApplyRecord::Paste(par) if par.parent == stack_state.current_path => {
+                if options.prefer_after_paste {
+                    /* Options said we should place after the paste, so do so. */
+                    *offset = Some(par.dst_end.0);
+                    *index = par.dst_end.1;
+                } else {
+                    if let Some(offset) = offset.as_mut() {
+                        /* if a pasted child contains our offset, we need to descend into it. */
+                        for pasted_child_index in &par.mapping {
+                            let pasted_child = &stack_state.node.children[*pasted_child_index];
+                            
+                            if *pasted_child_index < *index || (*pasted_child_index == *index && *offset > pasted_child.offset) {
+                                *index+= 1;
+                            }
+                            
+                            if stack_state.deep_descend_if_necessary(index, offset) {
+                                break;
+                            }
+                        }
+                    } else {
+                        for inserted_index in &par.mapping {
+                            if *inserted_index < *index {
+                                *index+= 1;
+                            }
+                        }
+                    }
+                }
+            },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
             change::ApplyRecord::Nest { .. } => {},
@@ -547,6 +583,7 @@ impl Position {
             change::ApplyRecord::InsertNode { .. } => {},
             change::ApplyRecord::DeleteRange { .. } => {},
             change::ApplyRecord::Resize { .. } => {},
+            change::ApplyRecord::Paste(_) => {},
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
@@ -604,7 +641,7 @@ impl Position {
     #[instrument]
     fn port_stack_entry(state: &mut PortStackState, old_tok: &StackEntry, change_record: &change::ApplyRecord) {
         /* This logic more-or-less mirrors change::update_path */
-        let child_index = match old_tok.descent {
+        let mut child_index = match old_tok.descent {
             Descent::Child(child_index) | Descent::ChildSummary(child_index) => child_index,
             
             /* This is handled implicitly by PortStackState::push behavior. */
@@ -653,6 +690,12 @@ impl Position {
                     state.push(child_index);
                 }
             },
+            change::ApplyRecord::Paste(par) => {
+                if par.parent == state.current_path {
+                    par.adjust_sibling_index(&mut child_index);
+                }
+                state.push(child_index);
+            }
         }
     }
 

@@ -64,6 +64,17 @@ pub enum ChangeType {
         /// If set, will truncate any parents that ended at the end of this child, unless they are locked in which case they will not be truncated.
         truncate_parents: bool,
     },
+
+    /// Pastes child nodes from a range within a given structure node (not necessarily from this document) at the given location
+    Paste {
+        src_node: sync::Arc<structure::Node>,
+        src_begin: (addr::Offset, usize),
+        src_end: (addr::Offset, usize), //< exclusive
+
+        dst: structure::Path,
+        dst_offset: addr::Offset,
+        dst_index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +118,8 @@ pub enum ApplyRecord {
         /// How many parents of the targeted node were also resized as part of this operation.
         parents_resized: usize,
     },
+
+    Paste(PasteApplyRecord),
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +131,19 @@ pub struct DestructureApplyRecord {
 
     /// Each item in this vector indicates the final index within
     /// the parent that a grandchild wound up at. This should be
+    /// monotonically increasing.
+    pub mapping: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PasteApplyRecord {
+    pub parent: structure::Path,
+
+    pub dst_begin: (addr::Offset, usize),
+    pub dst_end: (addr::Offset, usize),
+    
+    /// Each item in this vector indicates the final index within
+    /// the parent that a new child wound up at. This should be
     /// monotonically increasing.
     pub mapping: Vec<usize>,
 }
@@ -247,6 +273,7 @@ impl Change {
                             UpdatePathResult::Unmoved | UpdatePathResult::Moved => Ok(self.ty),
                             UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
                         },
+                        ChangeType::Paste { .. } => Err(UpdateError::NotYetImplemented),
                     }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
@@ -435,6 +462,62 @@ impl Change {
 
                 Ok(result.output)
             },
+            ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index } => {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &dst, |dst_node| {
+                    if src_begin.0 > src_node.size || src_end.0 > src_node.size {
+                        return Err(ApplyErrorType::InvalidParameters("attempted to paste from range outside of source node"));
+                    }
+
+                    if *dst_offset + (src_end.0 - src_begin.0) > dst_node.size {
+                        return Err(ApplyErrorType::InvalidParameters("attempted to paste into node that is too small"));
+                    }
+
+                    let mut dst_siblings = dst_node.children.split_off(*dst_index).into_iter().peekable();
+                    let mut src_siblings = src_node.children[src_begin.1..src_end.1].iter().cloned().peekable();
+                    let mut mapping = Vec::new();
+                    mapping.reserve(src_end.1 - src_begin.1);
+                    dst_node.children.reserve(dst_siblings.len() + src_siblings.len());
+
+                    /* Intersperse nodes, respecting offset monotonicity. */
+                    loop {
+                        dst_node.children.push(match (src_siblings.peek(), dst_siblings.peek()) {
+                            /* if there is both a child to paste still available and a child in the destination available, but the pastee is at a lower offset */
+                            (Some(s), Some(d)) if (s.offset - src_begin.0 + *dst_offset) <= d.offset => {
+                                mapping.push(dst_node.children.len());
+                                let mut child = src_siblings.next().unwrap();
+                                child.offset-= src_begin.0;
+                                child.offset+= *dst_offset;
+                                child
+                            },
+                            /* if there is both a child to paste still available and a child in the destination available, but we didn't match earlier, so the existing child comes first */
+                            (Some(_s), Some(_d)) => dst_siblings.next().unwrap(),
+                            /* there are no more children in the destination, but still pastee children */
+                            (Some(_s), None) => {
+                                mapping.push(dst_node.children.len());
+                                let mut child = src_siblings.next().unwrap();
+                                child.offset-= src_begin.0;
+                                child.offset+= *dst_offset;
+                                child
+                            },
+                            /* there are no more pastee children, but still destination children */
+                            (None, Some(_d)) => dst_siblings.next().unwrap(),
+                            /* done! */
+                            (None, None) => break,
+                        });
+                    }
+
+                    Ok(ApplyRecord::Paste(PasteApplyRecord {
+                        parent: dst.clone(),
+                        dst_begin: (*dst_offset, *dst_index),
+                        dst_end: (*dst_offset + (src_end.0 - src_begin.0), mapping.last().map(|i| i+1).unwrap_or(*dst_index)),
+                        mapping,
+                    }))
+                })?;
+
+                document.root = result.root;
+
+                Ok(result.output)
+            },
         }
     }
 }
@@ -597,6 +680,18 @@ impl ApplyRecord {
             },
             ApplyRecord::StackFilter { .. } => UpdatePathResult::Unmoved,
             ApplyRecord::Resize { .. } => UpdatePathResult::Unmoved,
+            ApplyRecord::Paste(par) => {
+                if path.len() > par.parent.len() && &path[0..par.parent.len()] == &par.parent[..] {
+                    if par.adjust_sibling_index(&mut path[par.parent.len()]) {
+                        UpdatePathResult::Moved
+                    } else {
+                        UpdatePathResult::Unmoved
+                    }
+                } else {
+                    /* Path is unrelated */
+                    UpdatePathResult::Unmoved
+                }
+            },
         }
     }
 
@@ -674,6 +769,8 @@ impl ApplyRecord {
 
             ApplyRecord::StackFilter { .. } => UpdateRangeResult::Unmoved(subject),
             ApplyRecord::Resize { .. } => UpdateRangeResult::Unmoved(subject),
+
+            ApplyRecord::Paste(_par) => todo!(),
         }
     }
 
@@ -687,6 +784,7 @@ impl ApplyRecord {
             ApplyRecord::DeleteRange { range, .. } => format!("Delete children under {}", document.describe_path(&range.parent)),
             ApplyRecord::StackFilter { filter } => format!("Add '{}' to datapath", filter.human_details()),
             ApplyRecord::Resize { path, new_size, .. } => format!("Resize {} to size {}", document.describe_path(path), new_size),
+            ApplyRecord::Paste(par) => format!("Paste structure nodes into {}", document.describe_path(&par.parent)),
         }
     }
 }
@@ -719,6 +817,23 @@ impl DestructureApplyRecord {
 
     pub fn end_index(&self) -> usize {
         self.mapping.last().copied().unwrap_or(self.child_index)
+    }
+}
+
+impl PasteApplyRecord {
+    /// Transforms the index of a sibling in the node that got pasted into.
+    pub fn adjust_sibling_index(&self, index: &mut usize) -> bool {
+        let mut moved = false;
+        for inserted_index in &self.mapping {
+            /* For each pastee that got inserted before the target node, adjust the index by 1. Note
+             * that we can't tell whether a pastee was inserted before the target node without
+             * processing the earlier pastee first... */
+            if *inserted_index <= *index {
+                *index+= 1;
+                moved = true;
+            }
+        }
+        moved
     }
 }
 
@@ -975,6 +1090,49 @@ mod tests {
         assert_eq!(path, vec![1, 0, 5, 4]);
     }
 
+    #[test]
+    fn test_update_path_through_paste() {
+        let record = ApplyRecord::Paste(PasteApplyRecord {
+            parent: vec![1],
+            dst_begin: (0x20.into(), 2),
+            dst_end: (0x30.into(), 6),
+            mapping: vec![2, 3, 5],
+        });
+
+        /*
+        src0
+        src1
+        paste0
+        paste1
+        src2
+        paste3
+        src3
+        ...
+         */
+
+        /* unrelated path */
+        let mut path = vec![2];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Unmoved);
+        assert_eq!(path, vec![2]);
+
+        /* paths in destination */
+        let mut path = vec![1, 1];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Unmoved);
+        assert_eq!(path, vec![1, 1]);
+
+        let mut path = vec![1, 2];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
+        assert_eq!(path, vec![1, 4]);
+
+        let mut path = vec![1, 3];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
+        assert_eq!(path, vec![1, 6]);
+
+        let mut path = vec![1, 4];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
+        assert_eq!(path, vec![1, 7]);
+    }
+    
     /* This exists to produce errors if another ApplyRecord gets added without corresponding tests. */
     fn update_path_exhaustiveness(ty: ApplyRecord) {
         match ty {
@@ -986,6 +1144,7 @@ mod tests {
             ApplyRecord::DeleteRange { .. } => test_update_path_through_delete_range(),
             ApplyRecord::StackFilter { .. } => { /* not structural; n/a */ },
             ApplyRecord::Resize { .. } => { /* doesn't affect paths; n/a */ },
+            ApplyRecord::Paste { .. } => test_update_path_through_paste(),
             /* Make tests for your new ApplyRecord! */
         }
     }
@@ -1449,6 +1608,67 @@ mod tests {
         }.apply(&mut new_doc), Err(ApplyError { ty: ApplyErrorType::ResizedSmallerThanChildren, .. }));
     }
 
+    
+    #[test]
+    fn test_structural_change_paste() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x100)
+            .child(0x20, |b| b
+                   .name("dst0")
+                   .size(0x10))
+            .child(0x30, |b| b
+                   .name("dst1")
+                   .size(0x10))
+            .build();
+
+        let paste = structure::Node::builder()
+            .name("paste")
+            .size(0x1000000)
+            .child(0x90, |b| b
+                   .name("not_pasted0")
+                   .size(0x100))
+            .child(0x100, |b| b
+                   .name("src0")
+                   .size(0x4))
+            .child(0x110, |b| b
+                   .name("src1")
+                   .size(0x4))
+            .child(0x110, |b| b
+                   .name("not_pasted1")
+                   .size(0x100))
+            .build();
+        
+        let old_doc = document::Builder::new(root).build();
+
+        let mut new_doc = old_doc.clone();
+        let record = match old_doc.paste(
+            paste.clone(),
+            (0x100.into(), 1),
+            (0x114.into(), 3),
+            vec![],
+            0x20.into(),
+            1
+        ).apply(&mut new_doc) {
+            Ok((_change, ApplyRecord::Paste(record))) => record,
+            e => panic!("did not get valid ApplyRecord::Paste from applying paste operation: {:?}", e),
+        };
+
+        assert_eq!(record.parent, vec![]);
+        assert_eq!(record.dst_begin, (0x20.into(), 1));
+        assert_eq!(record.dst_end, (0x34.into(), 3));
+        assert_eq!(record.mapping, vec![1, 2]);
+
+        assert!(sync::Arc::ptr_eq(&old_doc.root.children[0].node, &new_doc.root.children[0].node));
+        assert_eq!(old_doc.root.children[0].offset, new_doc.root.children[0].offset);
+        assert!(sync::Arc::ptr_eq(&paste.children[1].node, &new_doc.root.children[1].node));
+        assert_eq!(new_doc.root.children[1].offset, 0x20.into());
+        assert!(sync::Arc::ptr_eq(&paste.children[2].node, &new_doc.root.children[2].node));
+        assert_eq!(new_doc.root.children[2].offset, 0x30.into());
+        assert!(sync::Arc::ptr_eq(&old_doc.root.children[1].node, &new_doc.root.children[3].node));
+        assert_eq!(old_doc.root.children[1].offset, new_doc.root.children[3].offset);
+    }
+
     /* This exists to produce errors if another ChangeType gets added without corresponding tests. */
     fn structural_change_exhaustiveness(ty: ChangeType) {
         match ty {
@@ -1460,6 +1680,7 @@ mod tests {
             ChangeType::DeleteRange { .. } => test_structural_change_delete_range(),
             ChangeType::StackFilter { .. } => { /* n/a; not structural */ },
             ChangeType::Resize { .. } => test_structural_change_resize(),
+            ChangeType::Paste { .. } => test_structural_change_paste(),
             /* Make tests for your new ChangeType! */
         }
     }

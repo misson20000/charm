@@ -245,6 +245,14 @@ impl Document {
             generation: self.generation(),
         }
     }
+
+    #[must_use]
+    pub fn paste(&self, src_node: sync::Arc<structure::Node>, src_begin: (addr::Offset, usize), src_end: (addr::Offset, usize), dst: structure::Path, dst_offset: addr::Offset, dst_index: usize) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index },
+            generation: self.generation(),
+        }
+    }
 }
     
 #[derive(Debug, Clone, Copy)]

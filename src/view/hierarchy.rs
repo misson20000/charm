@@ -307,7 +307,8 @@ impl StructureListModel {
         let (new_node, addr) = new_doc.lookup_node(&i.path);
 
         i.address = addr;
-        
+
+        /* Some((index, removed, added)) */
         let items_changed = match &change_record {
             /* Was one of our children altered? */
             change::ApplyRecord::AlterNode { path, node: new_node_from_record } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
@@ -421,6 +422,30 @@ impl StructureListModel {
 
             /* Taken care of in the next step as property notifications via stage. */
             change::ApplyRecord::Resize { .. } => None,
+
+            /* Were nodes pasted into us? */
+            change::ApplyRecord::Paste(par) if par.parent == i.path => {
+                let document_host = i.document_host.clone();
+
+                for pasted_index in &par.mapping {
+                    let childhood = &new_node.children[*pasted_index];
+                    
+                    i.children.insert(*pasted_index, NodeItem::new(NodeInfo {
+                        path: vec![], /* will be fixed up later */
+                        node: childhood.node.clone(),
+                        props: childhood.node.props.clone(),
+                        offset: childhood.offset,
+                        address: addr + childhood.offset,
+                        document: new_doc.clone(),
+                        document_host: document_host.clone(),
+                    }));
+                }
+
+                let num_affected = par.dst_end.1 - par.dst_begin.1;
+
+                Some((par.dst_begin.1 as u32, (num_affected - par.mapping.len()) as u32, num_affected as u32))
+            },
+            change::ApplyRecord::Paste(_) => None,
         };
 
         /* Fixup children's paths and node pointers */
@@ -464,8 +489,8 @@ impl StructureListModel {
                 item.trigger_notifies();
             }
 
-            for (index, added, removed) in items_changed_records {
-                self.items_changed(index, added, removed);
+            for (index, removed, added) in items_changed_records {
+                self.items_changed(index, removed, added);
             }
         }
     }

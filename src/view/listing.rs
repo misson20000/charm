@@ -149,6 +149,16 @@ impl ObjectSubclass for ListingWidgetImp {
                     Ok(()) => glib::Propagation::Stop,
                     Err(_) => glib::Propagation::Proceed
                 }))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("<Ctrl>C"),
+                Some(gtk::NamedAction::new("ctx.copy"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("<Ctrl>X"),
+                Some(gtk::NamedAction::new("ctx.cut"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("<Ctrl>V"),
+                Some(gtk::NamedAction::new("ctx.paste"))));
+
             klass.set_css_name("listing");
         }
     }
@@ -353,6 +363,9 @@ impl ListingWidget {
         let render = RenderDetail::new(config.clone(), self.pango_context(), 0);
 
         let context_menu = gio::Menu::new();
+        context_menu.append(Some("Cut"), Some("ctx.cut"));
+        context_menu.append(Some("Copy"), Some("ctx.copy"));
+        context_menu.append(Some("Paste"), Some("ctx.paste"));
         context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
         context_menu.append(Some("Delete selected nodes"), Some("ctx.delete_selected_nodes"));
         context_menu.freeze();

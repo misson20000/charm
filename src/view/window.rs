@@ -539,6 +539,7 @@ impl WindowContext {
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
         action::listing::goto::add_action(&wc);
         action::listing::mode::add_action(&wc);
+        action::listing::clipboard::add_actions(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);
