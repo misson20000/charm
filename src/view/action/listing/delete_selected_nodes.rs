@@ -18,7 +18,7 @@ struct DeleteSelectedNodesAction {
     selection_host: sync::Arc<selection::listing::Host>,
     selection: cell::RefCell<sync::Arc<selection::ListingSelection>>,
     subscriber: helpers::AsyncSubscriber,
-    action: gio::SimpleAction,
+    action: glib::WeakRef<gio::SimpleAction>,
 }
 
 pub fn add_action(window_context: &window::WindowContext) {
@@ -52,7 +52,7 @@ impl DeleteSelectedNodesAction {
             document_host,
             selection_host,
             selection: cell::RefCell::new(selection),
-            action,
+            action: action.downgrade(),
         })
     }
 
@@ -62,14 +62,16 @@ impl DeleteSelectedNodesAction {
     }
 
     fn update_is_enabled(&self) {
-        self.action.set_enabled(match &self.selection.borrow().mode {
-            selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
-                /* Only enable the action if there are actually any nodes selected */
-                range.begin.1 != range.end.1
-            },
+        if let Some(action) = self.action.upgrade() {
+            action.set_enabled(match &self.selection.borrow().mode {
+                selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
+                    /* Only enable the action if there are actually any nodes selected */
+                    range.begin.1 != range.end.1
+                },
 
-            _ => false
-        });
+                _ => false
+            });
+        }
     }
 
     fn change(&self) -> Result<document::change::Change, error::Error> {
