@@ -464,17 +464,13 @@ impl Position {
                     *index+= 1;
                     *offset = Some(new_childhood.end());
                 } else if let Some(offset) = offset.as_mut() {
-                    if new_childhood.extent().includes(*offset) {
-                        /* if new node contains our offset, we need to descend into it. The state here is, once again, a placeholder. */
-                        stack_state.push(*affected_index);
-
-                        *index = 0;
-                        *offset-= new_childhood.offset;
-                    } else if *index == *affected_index && *offset > new_childhood.offset {
+                    if *index == *affected_index && *offset > new_childhood.offset {
                         *index+= 1;
                     } else if *index > *affected_index {
                         *index+= 1;
                     }
+
+                    stack_state.deep_descend_if_necessary(index, offset);
                 } else if *index >= *affected_index {
                     /* If the new node was inserted before the child we were on, need to bump our child index unless we already descended into the inserted child. */
                     *index+= 1;
@@ -1647,6 +1643,17 @@ impl PortStackState {
         
         self.push_descent(descent);
     }
+
+    fn deep_descend_if_necessary(&mut self, index: &mut usize, offset: &mut addr::Offset) -> bool {
+        let mut descended = false;
+        while *index > 0 && *index <= self.node.children.len() && self.node.children[*index-1].extent().includes(*offset) {
+            *offset-= self.node.children[*index-1].offset;
+            self.push(*index-1);
+            *index = self.node.children.partition_point(|ch| ch.offset < *offset);
+            descended = true;
+        }
+        descended
+    }
 }
 
 mod cmp {
@@ -2541,6 +2548,64 @@ mod tests {
     }
 
     #[test]
+    fn port_insert_node_deep() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+
+        let node = structure::Node::builder()
+            .name("node0")
+            .size(0x60)
+            .child(0x10, |b| b
+                   .name("node0.0")
+                   .size(0x10))
+            .child(0x30, |b| b
+                   .name("node0.1")
+                   .size(0x20)
+                   .child(0x0, |b| b
+                          .name("node0.1.0")
+                          .size(0x8)))
+            .build();
+        
+        new_doc.change_for_debug(old_doc.insert_node(vec![], 0, structure::Childhood::new(node.clone(), 0.into()))).unwrap();
+
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* offset 0x3c */
+            (
+                token::Token::Hexdump(token::Hexdump {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::AbsoluteAddress::NULL,
+                        node_child_index: 0,
+                        depth: 1,
+                    },
+                    extent: addr::Extent::sized(0x30, 0x10),
+                    line: addr::Extent::sized(0x30, 0x10),
+                }),
+                /* should correctly recurse into children of inserted node */
+                token::Token::Hexdump(token::Hexdump {
+                    common: token::TokenCommon {
+                        node: node.children[1].node.clone(),
+                        node_path: vec![0, 1],
+                        node_addr: 0x30.into(),
+                        node_child_index: 1,
+                        depth: 3,
+                    },
+                    extent: addr::Extent::sized(0x8, 0x8),
+                    line: addr::Extent::sized(0x0, 0x10),
+                }),
+                PortOptionsBuilder::new().additional_offset(0xc).build(),
+                PortOptionsBuilder::new().additional_offset(0x4).build(),
+            ),
+        ]);
+    }
+    
+    #[test]
     fn port_nest_nodes_simple() {
         let root = structure::Node::builder()
             .name("root")
@@ -2703,7 +2768,6 @@ mod tests {
             ),
         ]);
     }
-
 
     #[test]
     fn port_resize_node_shrink() {
