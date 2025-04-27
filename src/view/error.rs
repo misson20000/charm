@@ -205,14 +205,14 @@ impl Error {
             },
 
             Trouble::ProjectSerializationFailure(error) => {
-                write!(msg, "Failed to serialize project: {:?}\n", error)?
+                write!(msg, "Failed to serialize project: {}\n", error)?
             },
 
             Trouble::ProjectDeserializationFailure(error) => {
                 match error {
                     serialization::DeserializationError::InvalidMagic => write!(msg, "Invalid magic number. Is this file actually a charm project?\n")?,
                     serialization::DeserializationError::UnsupportedVersion(v) => write!(msg, "Unsuppoted project version {}\n", v)?,
-                    serialization::DeserializationError::BincodeError(e) => write!(msg, "Corrupt project file: {:?}\n", e)?,
+                    serialization::DeserializationError::BincodeError(e) => write!(msg, "Corrupt project file: {}\n", e)?,
                 }
             },
 

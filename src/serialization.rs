@@ -2,18 +2,19 @@ pub mod v1;
 
 use crate::model::document;
 
-pub use bincode::error::EncodeError as SerializationError;
+use bincode::Options;
+
+pub use bincode::Error as SerializationError;
 
 #[derive(Debug)]
 pub enum DeserializationError {
     InvalidMagic,
     UnsupportedVersion(u16),
-    BincodeError(bincode::error::DecodeError),
+    BincodeError(bincode::Error),
 }
 
-fn bincode_configuration() -> bincode::config::Configuration {
-    /* compatibility with original charm format written using bincode 1.3 */
-    bincode::config::legacy().with_variable_int_encoding()
+fn bincode_options() -> impl bincode::Options {
+    bincode::DefaultOptions::new()
 }
 
 pub fn serialize_project(document: &document::Document) -> Result<Vec<u8>, SerializationError> {
@@ -21,7 +22,7 @@ pub fn serialize_project(document: &document::Document) -> Result<Vec<u8>, Seria
     vec.push(1); // version number MSB
     vec.push(0); // version number LSB
 
-    vec.extend(bincode::serde::encode_to_vec(v1::Document::from(document), bincode_configuration())?.into_iter());
+    vec.extend(bincode_options().serialize(&v1::Document::from(document))?.into_iter());
 
     Ok(vec)
 }
@@ -35,7 +36,5 @@ pub fn deserialize_project(bytes: &[u8]) -> Result<document::Document, Deseriali
         return Err(DeserializationError::UnsupportedVersion(bytes[5] as u16 | ((bytes[6] as u16) << 8)));
     }
 
-    bincode::serde::decode_from_slice::<v1::Document, bincode::config::Configuration>(&bytes[7..], bincode_configuration())
-        .map_err(DeserializationError::BincodeError)
-        .map(|(doc, _)| doc.into())
+    bincode_options().deserialize::<v1::Document>(&bytes[7..]).map_err(DeserializationError::BincodeError).map(v1::Document::into)
 }
