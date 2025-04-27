@@ -5,3 +5,4 @@ doc/screenshotter/*.png
 !doc/screenshotter/projects/*.charm
 doc/build/
 gir/Charm-0.1.typelib
+src/view/charm.cmb.db
