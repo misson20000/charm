@@ -534,7 +534,7 @@ impl Position {
                             *index = des_index + 1;
                         } else {
                             /* Root node shrank. Just put us at the end of it. */
-                            *offset = self.node.size;
+                            *offset = stack_state.node.size;
                         }
                     }
 
@@ -2856,6 +2856,50 @@ mod tests {
                 }),
                 PortOptionsBuilder::new().additional_offset(0x1).build(),
                 PortOptionsBuilder::new().additional_offset(0x3).build(),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn port_resize_root_node_shrink() {
+        let root = structure::Node::builder()
+            .name("root")
+            .size(0x400)
+            .build();
+ 
+        let old_doc = document::Builder::new(root.clone()).build();
+        let mut new_doc = old_doc.clone();
+        
+        new_doc.change_for_debug(old_doc.resize_node(vec![], 0x40.into(), true, true)).unwrap();
+
+        let new_root = new_doc.root.clone();
+        
+        assert_port_functionality(&old_doc, &new_doc, &[
+            /* offset 0x345 */
+            (
+                token::Token::Hexdump(token::Hexdump {
+                    common: token::TokenCommon {
+                        node: root.clone(),
+                        node_path: vec![],
+                        node_addr: 0.into(),
+                        node_child_index: 0,
+                        depth: 1,
+                    },
+                    extent: addr::Extent::sized(0x340, 0x10),
+                    line: addr::Extent::sized(0x340, 0x10),
+                }),
+                token::Token::BlankLine(token::BlankLine {
+                    common: token::TokenCommon {
+                        node: new_root.clone(),
+                        node_path: vec![],
+                        node_addr: addr::AbsoluteAddress::NULL,
+                        node_child_index: 0,
+                        depth: 1,
+                    },
+                    accepts_cursor: true,
+                }),
+                PortOptionsBuilder::new().additional_offset(0x5).build(),
+                PortOptionsBuilder::new().additional_offset(0x0).build(),
             ),
         ]);
     }
