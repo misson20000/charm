@@ -208,6 +208,13 @@ declare_tokens! {
         pub extent: addr::Extent,
         pub line: addr::Extent,
     },
+
+    /// Binary dump, organized by byte and word
+    #[derive(Debug)]
+    Bindump {
+        pub extent: addr::Extent,
+        pub line: addr::Extent,
+    },
     
     /// Just a bunch of hex octets stuck together without any extra formatting.
     #[derive(Debug)]
@@ -338,6 +345,16 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
                 }
                 Ok(())
             },
+            TokenRef::Bindump(token) => {
+                write!(f, "(#{}) ", i)?;
+                for j in 0..token.extent.len().bytes() {
+                    write!(f, "{:08b}", (token.extent.begin.bytes() + j) & 0xff)?;
+                    if j + 1 < token.extent.len().bytes() {
+                        write!(f, " ")?;
+                    }
+                }
+                Ok(())
+            },
             TokenRef::Hexstring(token) => {
                 write!(f, "(#{}) ", i)?;
                 for j in 0..token.extent.len().bytes() {
@@ -374,6 +391,12 @@ impl PunctuationKind {
 }
 
 impl Hexdump {
+    pub fn absolute_extent(&self) -> addr::AbsoluteExtent {
+        self.extent.absolute_from(self.common.node_addr)
+    }
+}
+
+impl Bindump {
     pub fn absolute_extent(&self) -> addr::AbsoluteExtent {
         self.extent.absolute_from(self.common.node_addr)
     }

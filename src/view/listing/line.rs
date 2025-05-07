@@ -33,6 +33,10 @@ enum LineViewType {
         title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
         hexdump: bucket::HexdumpBucket,
     },
+    Bindump {
+        title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
+        bindump: bucket::BindumpBucket,
+    },
     Hexstring {
         title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
         hexstring: bucket::SingleTokenBucket<bucket::HexstringMarker>,
@@ -101,6 +105,10 @@ impl LineViewType {
                 title: title.into(),
                 hexdump: bucket::HexdumpBucket::new(node, node_path, node_addr, line_extent, tokens.into_iter())
             },
+            line_model::LineType::Bindump { title, node, node_path, node_addr, line_extent, tokens } => Self::Bindump {
+                title: title.into(),
+                bindump: bucket::BindumpBucket::new(node, node_path, node_addr, line_extent, tokens.into_iter())
+            },
             line_model::LineType::Hexstring { title, token } => Self::Hexstring {
                 title: title.into(),
                 hexstring: token.into()
@@ -122,6 +130,7 @@ impl LineViewType {
             Self::Blank(bucket) => util::PhiIterator::I2(bucket.iter_tokens()),
             Self::Title(bucket) => util::PhiIterator::I3(bucket.iter_tokens()),
             Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.iter_tokens().chain(hexdump.iter_tokens())),
+            Self::Bindump { title, bindump } => util::PhiIterator::I8(title.iter_tokens().chain(bindump.iter_tokens())),
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.iter_tokens().chain(hexstring.iter_tokens())),
             Self::Summary { title, content } => util::PhiIterator::I6(title.iter_tokens().chain(content.iter_tokens())),
             Self::Ellipsis { title, ellipsis } => util::PhiIterator::I7(title.iter_tokens().chain(ellipsis.iter_tokens())),
@@ -134,6 +143,7 @@ impl LineViewType {
             Self::Blank(bucket) => util::PhiIterator::I2(bucket.to_tokens()),
             Self::Title(bucket) => util::PhiIterator::I3(bucket.to_tokens()),
             Self::Hexdump { title, hexdump } => util::PhiIterator::I4(title.to_tokens().chain(hexdump.to_tokens())),
+            Self::Bindump { title, bindump } => util::PhiIterator::I8(title.to_tokens().chain(bindump.to_tokens())),
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.to_tokens().chain(hexstring.to_tokens())),
             Self::Summary { title, content } => util::PhiIterator::I6(title.to_tokens().chain(content.to_tokens())),
             Self::Ellipsis { title, ellipsis } => util::PhiIterator::I7(title.to_tokens().chain(ellipsis.to_tokens())),
@@ -146,6 +156,7 @@ impl LineViewType {
             Self::Blank(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket())),
             Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket())),
             Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket(), hexdump.as_bucket()].into_iter()),
+            Self::Bindump { title, bindump } => util::PhiIteratorOf3::I3([title.as_bucket(), bindump.as_bucket()].into_iter()),
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket(), hexstring.as_bucket()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket(), content.as_bucket()].into_iter()),
             Self::Ellipsis { title, ellipsis } => util::PhiIteratorOf3::I3([title.as_bucket(), ellipsis.as_bucket()].into_iter()),
@@ -158,6 +169,7 @@ impl LineViewType {
             Self::Blank(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket_mut())),
             Self::Title(bucket) => util::PhiIteratorOf3::I2(iter::once(bucket.as_bucket_mut())),
             Self::Hexdump { title, hexdump } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexdump.as_bucket_mut()].into_iter()),
+            Self::Bindump { title, bindump } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), bindump.as_bucket_mut()].into_iter()),
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexstring.as_bucket_mut()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), content.as_bucket_mut()].into_iter()),
             Self::Ellipsis { title, ellipsis } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), ellipsis.as_bucket_mut()].into_iter()),
@@ -178,6 +190,7 @@ impl LineViewType {
             Self::Blank(_) => None,
             Self::Title(bucket) => bucket.visible_address(),
             Self::Hexdump { title, hexdump } => title.visible_address().or(hexdump.visible_address()),
+            Self::Bindump { title, bindump } => title.visible_address().or(bindump.visible_address()),
             Self::Hexstring { title, hexstring } => title.visible_address().or(hexstring.visible_address()),
             Self::Summary { title, content } => title.visible_address().or(content.visible_address()),
             Self::Ellipsis { title, ellipsis } => title.visible_address().or(ellipsis.visible_address()),
@@ -190,6 +203,7 @@ impl LineViewType {
             Self::Blank(_) => {},
             Self::Title(_) => {},
             Self::Hexdump { title: _, hexdump } => hexdump.invalidate_data(),
+            Self::Bindump { title: _, bindump } => bindump.invalidate_data(),
             Self::Hexstring { title: _, hexstring } => hexstring.invalidate_data(),
             Self::Summary { title: _, content } => content.invalidate_data(),
             Self::Ellipsis { .. } => {},

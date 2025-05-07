@@ -17,6 +17,7 @@ pub mod key;
 
 pub mod title;
 pub mod hexdump;
+pub mod bindump;
 pub mod hexstring;
 pub mod punctuation;
 pub mod summary_label;
@@ -109,6 +110,7 @@ pub trait CursorClassExt {
 pub enum CursorClass {
     Title(title::Cursor),
     Hexdump(hexdump::Cursor),
+    Bindump(bindump::Cursor),
     Hexstring(hexstring::Cursor),
     Punctuation(punctuation::Cursor),
     SummaryLabel(summary_label::Cursor),
@@ -120,6 +122,7 @@ pub enum HorizontalPosition {
     Unspecified,
     Title,
     Hexdump(addr::Offset, bool),
+    Bindump(addr::Offset),
 }
 
 #[derive(Debug)]
@@ -540,6 +543,7 @@ impl CursorClass {
         match token {
             token::Token::Title(token) => title::Cursor::new_placement(token, hint).map(CursorClass::Title).map_err(Into::into),
             token::Token::Hexdump(token) => hexdump::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexdump).map_err(Into::into),
+            token::Token::Bindump(token) => bindump::Cursor::new_placement(token, offset, hint).map(CursorClass::Bindump).map_err(Into::into),
             token::Token::Hexstring(token) => hexstring::Cursor::new_placement(token, offset, hint).map(CursorClass::Hexstring).map_err(Into::into),
             token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_placement(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_placement(token.into(), hint).map(CursorClass::Punctuation),
@@ -555,6 +559,7 @@ impl CursorClass {
         match token {
             token::Token::Title(token) => title::Cursor::new_transition(token, hint).map(CursorClass::Title).map_err(Into::into),
             token::Token::Hexdump(token) => hexdump::Cursor::new_transition(token, hint).map(CursorClass::Hexdump).map_err(Into::into),
+            token::Token::Bindump(token) => bindump::Cursor::new_transition(token, hint).map(CursorClass::Bindump).map_err(Into::into),
             token::Token::Hexstring(token) => hexstring::Cursor::new_transition(token, hint).map(CursorClass::Hexstring).map_err(Into::into),
             token::Token::SummaryPunctuation(token) if token.kind.accepts_cursor() => punctuation::Cursor::new_transition(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_transition(token.into(), hint).map(CursorClass::Punctuation),
@@ -612,6 +617,7 @@ impl CursorClass {
 #[derive(Debug, Clone)]
 pub enum PlacementHint {
     Hexdump(hexdump::HexdumpPlacementHint),
+    Bindump(bindump::BindumpPlacementHint),
     Hexstring(hexstring::HexstringPlacementHint),
     Title,
     Punctuation,

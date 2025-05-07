@@ -12,6 +12,10 @@ pub enum Part {
         offset: addr::Offset,
         low_nybble: bool,
     },
+    Bindump {
+        index: usize,
+        offset: addr::Offset,
+    },
     Hexstring {
         index: usize,
         offset: addr::Offset,
@@ -71,6 +75,12 @@ fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (struc
             offset: *offset
         },
 
+        (path, Part::Bindump { index, offset, .. }) => selection::listing::StructureEndpoint {
+            parent: &path[..],
+            child_index: *index,
+            offset: *offset
+        },
+        
         (path, Part::Hexstring { index, offset, .. }) => selection::listing::StructureEndpoint {
             parent: &path[..],
             child_index: *index,
@@ -109,6 +119,8 @@ impl Part {
             Part::Hexdump { low_nybble, .. } => cursor::PlacementHint::Hexdump(cursor::hexdump::HexdumpPlacementHint {
                 low_nybble: *low_nybble
             }),
+            Part::Bindump { .. } => cursor::PlacementHint::Bindump(cursor::bindump::BindumpPlacementHint {
+            }),
             Part::Hexstring { low_nybble, .. } => cursor::PlacementHint::Hexstring(cursor::hexstring::HexstringPlacementHint {
                 low_nybble: *low_nybble
             }),
@@ -120,6 +132,7 @@ impl Part {
         match self {
             Part::Title => addr::Offset::NULL,
             Part::Hexdump { offset, .. } => *offset,
+            Part::Bindump { offset, .. } => *offset,
             Part::Hexstring { offset, .. } => *offset,
             Part::Ellipsis { offset, .. } => *offset,
         }
@@ -143,6 +156,8 @@ impl<'a> Ord for PickSort<'a> {
                 (Part::Title, _) => std::cmp::Ordering::Less,
                 (Part::Hexdump { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
                 (Part::Hexdump { index: _, .. }, _) => std::cmp::Ordering::Greater,
+                (Part::Bindump { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
+                (Part::Bindump { index: _, .. }, _) => std::cmp::Ordering::Greater,
                 (Part::Hexstring { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
                 (Part::Hexstring { index: _, .. }, _) => std::cmp::Ordering::Greater,
                 (Part::Ellipsis { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
@@ -153,6 +168,8 @@ impl<'a> Ord for PickSort<'a> {
                 (_, Part::Title) => std::cmp::Ordering::Greater,
                 (self_index, Part::Hexdump { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
                 (_, Part::Hexdump { index: _, .. }) => std::cmp::Ordering::Less,
+                (self_index, Part::Bindump { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
+                (_, Part::Bindump { index: _, .. }) => std::cmp::Ordering::Less,
                 (self_index, Part::Hexstring { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
                 (_, Part::Hexstring { index: _, .. }) => std::cmp::Ordering::Less,
                 (self_index, Part::Ellipsis { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,

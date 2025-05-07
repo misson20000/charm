@@ -29,6 +29,10 @@ pub enum ContentDisplay {
         line_pitch: addr::Offset,
         gutter_pitch: addr::Offset,
     },
+    Bindump {
+        line_pitch: addr::Offset,
+        word_pitch: addr::Offset,
+    },
     Hexstring
 }
 
@@ -183,6 +187,7 @@ impl ContentDisplay {
         match self {
             ContentDisplay::None => None,
             ContentDisplay::Hexdump { line_pitch, .. } => Some(*line_pitch),
+            ContentDisplay::Bindump { line_pitch, .. } => Some(*line_pitch),
             ContentDisplay::Hexstring => Some(32.into()),
         }
     }
@@ -192,6 +197,14 @@ impl ContentDisplay {
         ContentDisplay::Hexdump {
             line_pitch: addr::Offset::from(16),
             gutter_pitch: addr::Offset::from(8),
+        }
+    }
+
+    /// An alternative to default() that explicitly returns a bindump style.
+    pub fn default_bindump() -> ContentDisplay {
+        ContentDisplay::Bindump {
+            line_pitch: addr::Offset::from(8),
+            word_pitch: addr::Offset::from(4),
         }
     }
 }

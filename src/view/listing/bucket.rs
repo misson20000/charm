@@ -15,6 +15,7 @@ use crate::view::listing::layout::LayoutProvider;
 use gtk::graphene;
 
 mod hexdump;
+mod bindump;
 
 #[derive(Clone, Copy)]
 pub struct RenderArgs<'a> {
@@ -117,6 +118,7 @@ pub struct TitleMarker;
 pub struct HexstringMarker;
 pub struct SummaryMarker;
 pub struct HexdumpMarker;
+pub struct BindumpMarker;
 pub struct AsciidumpMarker;
 pub struct EllipsisMarker;
 
@@ -142,6 +144,7 @@ pub struct MultiTokenBucket<Marker> {
 }
 
 pub use hexdump::HexdumpBucket;
+pub use bindump::BindumpBucket;
 
 impl<Marker> SingleTokenBucket<Marker> {
 }

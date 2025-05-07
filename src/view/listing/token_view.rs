@@ -185,6 +185,10 @@ impl TokenView {
                 // TODO: enforce this with type system?
                 panic!("hexdump tokens should not be rendered via this codepath");
             },
+            token::Token::Bindump(_) => {
+                // TODO: enforce this with type system?
+                panic!("bindump tokens should not be rendered via this codepath");
+            },
             token::Token::Hexstring(token) => {
                 let hexstring_cursor = match &cursor.cursor.class {
                     cursor::CursorClass::Hexstring(hxc) => Some(hxc),

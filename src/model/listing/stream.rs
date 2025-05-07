@@ -22,6 +22,11 @@ enum PositionState {
         line_extent: addr::Extent,
         index: usize
     },
+    Bindump {
+        extent: addr::Extent,
+        line_extent: addr::Extent,
+        index: usize
+    },
     Hexstring(addr::Extent, usize),
     Ellipsis(addr::Extent, usize),
 
@@ -356,6 +361,7 @@ impl Position {
                 
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + *offset), dsr.mapping[*index]),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
+                PositionState::Bindump { extent, index, .. } => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
                 PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(dsr.offset() + extent.begin), dsr.mapping[*index]),
                 PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(dsr.offset()), dsr.child_index),
@@ -384,6 +390,7 @@ impl Position {
                 
                 PositionState::MetaContent(offset, index) => IntermediatePortState::NormalContent(Some(*offset), *index),
                 PositionState::Hexdump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
+                PositionState::Bindump { extent, index, .. } => IntermediatePortState::NormalContent(Some(extent.begin), *index),
                 PositionState::Hexstring(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
                 PositionState::Ellipsis(extent, index) => IntermediatePortState::NormalContent(Some(extent.begin), *index),
 
@@ -410,6 +417,7 @@ impl Position {
                 
                 PositionState::MetaContent(_, index) => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexdump { index, .. } => IntermediatePortState::SummaryLabel(*index),
+                PositionState::Bindump { index, .. } => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Hexstring(_, index) => IntermediatePortState::SummaryLabel(*index),
                 PositionState::Ellipsis(_, index) => IntermediatePortState::SummaryLabel(*index),
 
@@ -761,6 +769,11 @@ impl Position {
                 extent,
                 line: line_extent,
             }.into()),
+            PositionState::Bindump { extent, line_extent, .. } => TokenGenerationResult::Ok(token::Bindump {
+                common: common.adjust_depth(1),
+                extent,
+                line: line_extent,
+            }.into()),
             PositionState::Hexstring(extent, _) => TokenGenerationResult::Ok(token::Hexstring {
                 common: common.adjust_depth(1),
                 extent,
@@ -819,6 +832,11 @@ impl Position {
                     }.into(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
                     structure::ContentDisplay::Hexdump { .. } => token::Hexstring {
+                        common,
+                        extent,
+                    }.into(),
+                    // Disallow bindumps in summaries. This is a little nasty. Review later.
+                    structure::ContentDisplay::Bindump { .. } => token::Hexstring {
                         common,
                         extent,
                     }.into(),
@@ -893,7 +911,16 @@ impl Position {
                                 line_extent,
                                 index
                             }
-                        }
+                        },
+                        structure::ContentDisplay::Bindump { line_pitch, word_pitch: _ } => {
+                            let line_extent = get_line_extent(offset - addr::Offset::BIT, line_pitch);
+
+                            PositionState::Bindump {
+                                extent: addr::Extent::between(std::cmp::max(interstitial.begin, line_extent.begin), offset),
+                                line_extent,
+                                index
+                            }
+                        },
                         structure::ContentDisplay::Hexstring => {
                             let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
                             let extent = get_line_extent(offset - interstitial.begin - addr::Offset::BIT, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
@@ -914,6 +941,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.begin, index);
+                true
+            },
+            PositionState::Bindump { extent, index, .. } => {
                 self.state = PositionState::MetaContent(extent.begin, index);
                 true
             },
@@ -1053,6 +1084,15 @@ impl Position {
                                 index
                             }
                         },
+                        structure::ContentDisplay::Bindump { line_pitch, word_pitch: _ } => {
+                            let line_extent = get_line_extent(offset, line_pitch);
+                            
+                            PositionState::Bindump {
+                                extent: addr::Extent::between(offset, std::cmp::min(line_extent.end, interstitial.end)),
+                                line_extent,
+                                index
+                            }
+                        },
                         structure::ContentDisplay::Hexstring => {
                             let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
                             let extent = get_line_extent(offset - interstitial.begin, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
@@ -1073,6 +1113,10 @@ impl Position {
                 true
             },
             PositionState::Hexdump { extent, index, .. } => {
+                self.state = PositionState::MetaContent(extent.end, index);
+                true
+            },
+            PositionState::Bindump { extent, index, .. } => {
                 self.state = PositionState::MetaContent(extent.end, index);
                 true
             },
@@ -1276,6 +1320,7 @@ impl Position {
         match self.state {
             PositionState::MetaContent(_, ch) => ch,
             PositionState::Hexdump { index: ch, .. } => ch,
+            PositionState::Bindump { index: ch, .. } => ch,
             PositionState::Hexstring(_, ch) => ch,
             PositionState::Ellipsis(_, ch) => ch,
             PositionState::SummaryLabel(ch) => ch,
@@ -1294,6 +1339,7 @@ impl Position {
             PositionState::Title => addr::Offset::NULL,
             PositionState::MetaContent(offset, _) => offset,
             PositionState::Hexdump { extent, .. } => extent.begin,
+            PositionState::Bindump { extent, .. } => extent.begin,
             PositionState::Hexstring(extent, _) => extent.begin,
             PositionState::Ellipsis(extent, _) => extent.begin,
             PositionState::SummaryPreamble => addr::Offset::NULL,
@@ -1317,6 +1363,7 @@ impl Position {
             PositionState::Title => false,
             PositionState::MetaContent(_, _) => false,
             PositionState::Hexdump { .. } => false,
+            PositionState::Bindump { .. } => false,
             PositionState::Hexstring(_, _) => false,
             PositionState::Ellipsis(_, _) => false,
 
@@ -1738,6 +1785,8 @@ mod cmp {
                         super::PositionState::MetaContent(_, _) => std::cmp::Ordering::Greater,
                         super::PositionState::Hexdump { index, .. } if index == child_index => std::cmp::Ordering::Less,
                         super::PositionState::Hexdump { index, .. } => index.cmp(child_index),
+                        super::PositionState::Bindump { index, .. } if index == child_index => std::cmp::Ordering::Less,
+                        super::PositionState::Bindump { index, .. } => index.cmp(child_index),
                         super::PositionState::Hexstring(_, i) if i == child_index => std::cmp::Ordering::Less,
                         super::PositionState::Hexstring(_, i) => i.cmp(child_index),
                         super::PositionState::Ellipsis(_, i) if i == child_index => std::cmp::Ordering::Less,
@@ -1847,6 +1896,7 @@ mod cmp {
             
             super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
             super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
+            super::PositionState::Bindump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Hexstring(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::Ellipsis(extent, index) => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
             super::PositionState::SummaryPreamble => (StateGroup::SummaryContent, 0, 0, addr::Offset::NULL, 0),

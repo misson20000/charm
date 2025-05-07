@@ -52,7 +52,11 @@ enum ContentDisplay {
         line_pitch: Addr,
         gutter_pitch: Addr,
     },
-    Hexstring
+    Hexstring,
+    Bindump {
+        line_pitch: Addr,
+        word_pitch: Addr,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -179,6 +183,10 @@ impl From<structure::Childhood> for Childhood {
                     line_pitch: line_pitch.into(),
                     gutter_pitch: gutter_pitch.into()
                 },
+                structure::ContentDisplay::Bindump { line_pitch, word_pitch } => ContentDisplay::Bindump {
+                    line_pitch: line_pitch.into(),
+                    word_pitch: word_pitch.into()
+                },
                 structure::ContentDisplay::Hexstring => ContentDisplay::Hexstring,
             },
             locked: c.node.props.locked,
@@ -210,6 +218,10 @@ impl Into<structure::Childhood> for Childhood {
                         ContentDisplay::Hexdump { line_pitch, gutter_pitch } => structure::ContentDisplay::Hexdump {
                             line_pitch: line_pitch.into(),
                             gutter_pitch: gutter_pitch.into()
+                        },
+                        ContentDisplay::Bindump { line_pitch, word_pitch } => structure::ContentDisplay::Bindump {
+                            line_pitch: line_pitch.into(),
+                            word_pitch: word_pitch.into()
                         },
                         ContentDisplay::Hexstring => structure::ContentDisplay::Hexstring,
                     },

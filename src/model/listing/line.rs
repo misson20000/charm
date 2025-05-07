@@ -27,6 +27,14 @@ pub enum LineType {
         line_extent: addr::Extent,
         tokens: collections::VecDeque<token::Hexdump>
     },
+    Bindump {
+        title: Option<token::Title>,
+        node: sync::Arc<structure::Node>,
+        node_path: structure::Path,
+        node_addr: addr::AbsoluteAddress,
+        line_extent: addr::Extent,
+        tokens: collections::VecDeque<token::Bindump>
+    },
     Hexstring {
         title: Option<token::Title>,
         token: token::Hexstring,
@@ -192,6 +200,14 @@ impl Line {
                     line_extent: token.line.clone(),
                     tokens: collections::VecDeque::from([token])
                 },
+                token::Token::Bindump(token) => LineType::Bindump {
+                    title: None,
+                    node: token.common.node.clone(),
+                    node_path: token.common.node_path.clone(),
+                    node_addr: token.common.node_addr,
+                    line_extent: token.line.clone(),
+                    tokens: collections::VecDeque::from([token])
+                },
                 token::Token::Hexstring(token) => LineType::Hexstring { title: None, token },
             },
         }
@@ -261,6 +277,66 @@ impl Line {
                     };
 
                     (LineType::Hexdump {
+                        title,
+                        node: line_node,
+                        node_path,
+                        node_addr,
+                        line_extent,
+                        tokens
+                    }, result)
+                },
+
+            /* A bindump token can end a line. */
+            (LineType::Empty, token::Token::Bindump(token)) => (LineType::Bindump {
+                title: None,
+                node: token.common.node.clone(),
+                node_path: token.common.node_path.clone(),
+                node_addr: token.common.node_addr,
+                line_extent: token.line.clone(),
+                tokens: collections::VecDeque::from([token])
+            }, LinePushResult::Accepted),
+
+            /* A title token can occur on the same line as a bindump if the title is inline and there isn't already a title. */
+            (LineType::Bindump {
+                title: None,
+                node,
+                node_path,
+                node_addr,
+                line_extent,
+                tokens
+            }, token::Token::Title(token))
+                if sync::Arc::ptr_eq(&token.common.node, &node)
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && token.common.node.props.title_display.is_inline()
+                => (LineType::Bindump {
+                    title: Some(token),
+                    node,
+                    node_path,
+                    node_addr,
+                    line_extent,
+                    tokens
+                }, LinePushResult::Accepted),
+
+            /* Multiple bindump tokens can coexist on a line under certain conditions. */
+            (LineType::Bindump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
+             token::Token::Bindump(token))
+                if sync::Arc::ptr_eq(&line_node, &token.common.node)
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && token.line == line_extent
+                => {
+                    /* Must be monotonic and non-overlapping. */
+                    let result = if tokens.front().expect("should have at least one token").extent.begin < token.extent.end {
+                        // TODO: log properly
+                        println!("Attempted to add a token to a LineType::Bindump that would've broken monotonicity. This shouldn't really happen.");
+                        LinePushResult::Rejected
+                    } else {
+                        tokens.push_front(token);
+                        LinePushResult::Rejected
+                    };
+
+                    (LineType::Bindump {
                         title,
                         node: line_node,
                         node_path,
@@ -403,6 +479,57 @@ impl Line {
                     }, result)
                 },
 
+            /* A bindump token can begin a line. */
+            (LineType::Empty, token::Token::Bindump(token)) => (LineType::Bindump {
+                title: None,
+                node: token.node().clone(),
+                node_path: token.node_path().clone(),
+                node_addr: token.node_addr(),
+                line_extent: token.line,
+                tokens: collections::VecDeque::from([token])
+            }, LinePushResult::Accepted),
+
+            /* A bindump token can occur on the same line as a title if the title is inline. */
+            (LineType::Title(title_token), token::Token::Bindump(token))
+                if sync::Arc::ptr_eq(title_token.node(), token.node())
+                && title_token.node().props.title_display.is_inline()
+                => (LineType::Bindump {
+                    node: title_token.node().clone(),
+                    node_path: token.node_path().clone(),
+                    node_addr: token.node_addr(),
+                    title: Some(title_token),
+                    line_extent: token.line,
+                    tokens: collections::VecDeque::from([token]),
+                }, LinePushResult::Accepted),
+                
+            /* Multiple bindump tokens can coexist on a line under certain conditions. */
+            (LineType::Bindump { title, node: line_node, node_path, node_addr, line_extent, mut tokens },
+             token::Token::Bindump(token))
+                if sync::Arc::ptr_eq(&line_node, token.node())
+                && node_path == token.common.node_path
+                && node_addr == token.common.node_addr
+                && line_extent == token.line
+                => {
+                    /* Must be monotonic and non-overlapping. */
+                    let result = if tokens.back().expect("should have at least one token").extent.end > token.extent.begin {
+                        // TODO: log properly
+                        println!("Attempted to add a token to a LineType::Bindump that would've broken monotonicity. This shouldn't really happen.");
+                        LinePushResult::Rejected
+                    } else {
+                        tokens.push_back(token);
+                        LinePushResult::Rejected
+                    };
+
+                    (LineType::Bindump {
+                        title,
+                        node: line_node,
+                        node_path,
+                        node_addr,
+                        line_extent,
+                        tokens
+                    }, result)
+                },
+
             /* A hexstring token can begin a line */
             (LineType::Empty, token::Token::Hexstring(token)) => (LineType::Hexstring {
                 title: None,
@@ -480,25 +607,27 @@ impl Line {
     
     pub fn iter_tokens<'a>(&'a self) -> impl iter::Iterator<Item = token::TokenRef<'a>> {
         match &self.ty {
-            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.as_token_ref())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.as_token_ref())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
-            LineType::Ellipsis { title, token } => util::PhiIteratorOf5::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.as_token_ref())),
+            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.as_token_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf6::I6(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf6::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
         }
     }
 
     pub fn into_iter(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         match self.ty {
-            LineType::Empty => util::PhiIteratorOf5::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf5::I2(iter::once(t.into())),
-            LineType::Title(t) => util::PhiIteratorOf5::I2(iter::once(t.into())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf5::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf5::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf5::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
-            LineType::Ellipsis { title, token } => util::PhiIteratorOf5::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.into())),
+            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.into())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
+            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf6::I6(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf6::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
         }
     }
 }
@@ -527,6 +656,18 @@ impl PartialEq for Line {
                 && tokens1.iter().eq(tokens2.iter()),
             (LineType::Hexdump { .. }, _) => false,
 
+            (LineType::Bindump {
+                title: title1, node: node1, node_path: node_path1, node_addr: node_addr1, line_extent: line_extent1, tokens: tokens1
+            }, LineType::Bindump {
+                title: title2, node: node2, node_path: node_path2, node_addr: node_addr2, line_extent: line_extent2, tokens: tokens2
+            }) => title1.eq(title2)
+                && sync::Arc::ptr_eq(node1, node2)
+                && node_path1 == node_path2
+                && node_addr1 == node_addr2
+                && line_extent1.eq(line_extent2)
+                && tokens1.iter().eq(tokens2.iter()),
+            (LineType::Bindump { .. }, _) => false,
+            
             (LineType::Hexstring {
                 title: title1, token: token1
             }, LineType::Hexstring {
@@ -581,6 +722,7 @@ impl fmt::Debug for Line {
                 LineType::Blank(_) => &"blank",
                 LineType::Title(_) => &"title",
                 LineType::Hexdump { .. } => &"hexdump",
+                LineType::Bindump { .. } => &"bindump",
                 LineType::Hexstring { .. } => &"hexstring",
                 LineType::Summary { .. } => &"summary",
                 LineType::Ellipsis { .. } => &"ellipsis",
