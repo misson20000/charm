@@ -267,6 +267,20 @@ impl<Kind> Extent<Kind> where Address<Kind>: std::ops::Sub<Address<Kind>> {
         }
     }
 
+    /// Clamps the address to be within the extent. If the address was
+    /// before the beginning, return the beginning of the extent. If
+    /// the address was after the end, return the end of the
+    /// extent. Otherwise return it unmodified.
+    pub fn clamp(&self, addr: Address<Kind>) -> Address<Kind> {
+        if addr < self.begin {
+            self.begin
+        } else if addr > self.end {
+            self.end
+        } else {
+            addr
+        }
+    }
+
     /// Parses an extent of the form "\<begin\>:(\<end\>|+\<size\>)",
     /// such as "0x100:+0x10" or "0x100:110". In the "begin:end" form,
     /// a 0x prefix applies to both the beginning and the end, but in

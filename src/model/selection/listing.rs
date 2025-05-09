@@ -503,6 +503,14 @@ impl NodeIntersection {
         }
     }
 
+    pub fn touches(&self, addr: addr::Offset, index: usize) -> bool {
+        match self {
+            Self::None => false,
+            Self::Partial(e, first, last) => (e.includes(addr) || e.end == addr) && (*first..=*last).contains(&index),
+            Self::Total => true,
+        }
+    }
+
     pub fn overlaps(&self, extent: addr::Extent, index: usize) -> bool {
         match self {
             Self::None => false,

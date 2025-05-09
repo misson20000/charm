@@ -36,7 +36,7 @@ pub struct BindumpBucket {
 }
 
 enum Part<'a> {
-    Gap { width: usize, begin: Option<(addr::Offset, usize)>, end: (addr::Offset, usize) },
+    Gap { width: usize, left: Option<(addr::Offset, usize)>, right: (addr::Offset, usize) },
     Word { extent: addr::Extent, token: &'a token::Bindump },
 }
 
@@ -83,7 +83,7 @@ impl BindumpBucket {
         let mut token_iterator = self.toks.iter();
         let mut next_token = token_iterator.next();
 
-        let mut gap_begin = None;
+        let mut gap_left = None;
         let mut gap_width = 0;
 
         let mut column = 0;
@@ -105,7 +105,7 @@ impl BindumpBucket {
                 if token.extent.intersection(addr::Extent::sized(offset, word_size)).is_some() {
                     if gap_width > 0 {
                         /* If there was a gap between this token and the last one (or the beginning of the line), emit a Gap part */
-                        if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, begin: gap_begin, end: (offset, token.node_child_index()) }) {
+                        if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, left: gap_left, right: (offset + word_size, token.node_child_index()) }) {
                             /* Callback requested early exit */
                             return (column, Some(x));
                         }
@@ -119,7 +119,7 @@ impl BindumpBucket {
 
                     column+= word_size.as_bits() as usize;
                     gap_width = 0;
-                    gap_begin = Some((offset, token.node_child_index()));
+                    gap_left = Some((offset, token.node_child_index()));
                 } else {
                     /* No token included this word. */
                     let bits_skipped = (next_offset - offset).as_bits() as usize;
@@ -166,7 +166,7 @@ impl bucket::Bucket for BindumpBucket {
             };
 
             let column = self.each_part(|column, part| { match part {
-                Part::Gap { width, begin, end } => if begin.map_or(false, |(o, i)| selection.includes(o, i)) && selection.includes(end.0, end.1) {
+                Part::Gap { width, left, right } => if left.map_or(false, |left| selection.includes(left.0, left.1)) && selection.touches(right.0, right.1) {
                     /* Draw gaps that are selected. */
                     ctx.snapshot.append_color(ctx.render.config.selection_color.rgba(), &graphene::Rect::new(
                         x + space_x + space_width * column as f32,
@@ -260,6 +260,7 @@ impl bucket::PickableBucket for BindumpBucket {
     }
     
     fn pick(&self, pick_point: &graphene::Point) -> Option<listing::pick::Triplet> {
+        let word_bits = self.word_size().as_bits() as usize;
         let pick_x = pick_point.x();
         
         if pick_x < self.bd_begin {
@@ -269,31 +270,65 @@ impl bucket::PickableBucket for BindumpBucket {
             let pick_fraction = (pick_x - self.bd_begin) / self.space_width;
 
             self.each_part(|column, part| match part {
-                Part::Gap { width, begin, end } if pick_column >= column && pick_column < column + width => Some(listing::pick::Triplet {
+                Part::Gap { width, left, right } if pick_column >= column && pick_column < column + width => Some(listing::pick::Triplet {
                     begin: (self.node_path.clone(), listing::pick::Part::Bindump {
-                        index: end.1,
-                        offset: end.0,
+                        index: right.1,
+                        offset: right.0,
                     }),
-                    middle: (self.node_path.clone(), match (pick_fraction < column as f32 + width as f32 / 2.0, begin) {
-                        (true, Some(begin)) => listing::pick::Part::Bindump {
-                            index: begin.1,
-                            offset: begin.0,
+                    middle: (self.node_path.clone(), match (pick_fraction < column as f32 + width as f32 / 2.0, left) {
+                        (true, Some(left)) => listing::pick::Part::Bindump {
+                            index: left.1,
+                            offset: left.0,
                         },
                         _ => listing::pick::Part::Bindump {
-                            index: end.1,
-                            offset: end.0,
+                            index: right.1,
+                            offset: right.0,
                         }
                     }),
-                    end: (self.node_path.clone(), listing::pick::Part::Bindump {
-                        index: end.1,
-                        offset: end.0,
+                    end: (self.node_path.clone(), match left {
+                        Some(left) => listing::pick::Part::Bindump {
+                            index: left.1,
+                            offset: left.0,
+                        },
+                        _ => listing::pick::Part::Bindump {
+                            index: right.1,
+                            offset: right.0,
+                        }
                     }),
                 }),
 
-                Part::Word { extent, token } if pick_column >= column && pick_column < column + self.word_size().as_bits() as usize => Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Bindump {
-                    index: token.node_child_index(),
-                    offset: extent.begin + addr::Offset::BIT * (self.word_size().as_bits() as usize - (pick_column - column)) as u64,
-                })),
+                Part::Word { extent, token } if pick_column >= column && pick_column < column + word_bits => {
+                    let index = token.node_child_index();
+
+                    let begin_offset = if pick_column >= column + word_bits {
+                        extent.end
+                    } else {
+                        extent.begin + addr::Offset::BIT * (word_bits - (pick_column - column) - 1) as u64
+                    };
+
+                    let true_offset = begin_offset;
+
+                    let end_offset = if pick_column >= column + word_bits {
+                        extent.begin /* LSB */
+                    } else {
+                        extent.begin + addr::Offset::BIT * (word_bits - (pick_column - column)) as u64
+                    };
+                    
+                    Some(listing::pick::Triplet {
+                        begin: (self.node_path.clone(), listing::pick::Part::Bindump {
+                            index,
+                            offset: token.extent.clamp(begin_offset),
+                        }),
+                        middle: (self.node_path.clone(), listing::pick::Part::Bindump {
+                            index,
+                            offset: token.extent.clamp(true_offset),
+                        }),
+                        end: (self.node_path.clone(), listing::pick::Part::Bindump {
+                            index,
+                            offset: token.extent.clamp(end_offset),
+                        }),
+                    })
+                },
 
                 _ => None,
             }).1
