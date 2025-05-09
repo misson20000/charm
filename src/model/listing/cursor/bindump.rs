@@ -108,8 +108,8 @@ impl cursor::CursorClassExt for Cursor {
         let current_word = self.current_word();
         if self.token.extent.begin + self.offset + addr::Offset::BIT >= current_word.end {
             /* On MSB. Try to move to LSB of previous word. */
-            if current_word.begin >= self.token.line.begin + self.word_size() {
-                self.offset = std::cmp::max(current_word.begin - self.word_size(), self.token.extent.begin) - self.token.extent.begin;
+            if current_word.begin >= self.token.extent.begin + self.word_size() {
+                self.offset = current_word.begin - self.word_size() - self.token.extent.begin;
                 cursor::MovementResult::Ok
             } else {
                 /* We're in the first word. */
@@ -149,8 +149,8 @@ impl cursor::CursorClassExt for Cursor {
         let current_word = self.current_word();
         if self.token.extent.begin + self.offset + addr::Offset::BIT >= current_word.end {
             /* On MSB. Try to move to LSB of previous word. */
-            if current_word.begin >= self.token.line.begin + self.word_size() {
-                self.offset = std::cmp::max(current_word.begin - self.word_size(), self.token.extent.begin) - self.token.extent.begin;
+            if current_word.begin >= self.token.extent.begin + self.word_size() {
+                self.offset = current_word.begin - self.word_size() - self.token.extent.begin;
                 cursor::MovementResult::Ok
             } else {
                 /* We're in the first word. */
