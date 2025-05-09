@@ -41,6 +41,10 @@ impl<Kind> Address<Kind> {
         self.bits
     }
 
+    pub fn as_bits(&self) -> u64 {
+        self.bytes * 8 + self.bits as u64
+    }
+
     pub const fn zero() -> Self {
         Self::new(0, 0)
     }

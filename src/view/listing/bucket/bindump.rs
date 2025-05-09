@@ -37,7 +37,7 @@ pub struct BindumpBucket {
 
 enum Part<'a> {
     Gap { width: usize, begin: Option<(addr::Offset, usize)>, end: (addr::Offset, usize) },
-    Octet { offset: addr::Offset, next_offset: addr::Offset, num_bits: u8, token: &'a token::Bindump },
+    Word { extent: addr::Extent, token: &'a token::Bindump },
 }
 
 impl BindumpBucket {
@@ -63,16 +63,15 @@ impl BindumpBucket {
         self.toks.last().unwrap().extent.end
     }
     
-    fn word_pitch(&self) -> addr::Offset {
-        addr::Offset::from(4)
+    fn word_size(&self) -> addr::Offset {
+        addr::Offset::from(1)
     }
 
     fn each_part<T, F: FnMut(usize, Part<'_>) -> Option<T>>(&self, mut cb: F) -> (usize, Option<T>) {
-        let word_pitch = self.word_pitch();
+        let word_size = self.word_size();
         
         let mut offset = self.line_extent.begin;
-        let mut next_word = offset + word_pitch;
-
+        
         let mut token_iterator = self.toks.iter();
         let mut next_token = token_iterator.next();
 
@@ -83,52 +82,40 @@ impl BindumpBucket {
         
         while offset < self.line_extent.end {
             if offset != self.line_extent.begin {
-                /* put spaces between bytes */
+                /* put spaces between words */
                 gap_width+= 1;
                 column+= 1;
             }
 
-            while offset >= next_word {
-                /* additional words */
-                gap_width+= 1;
-                column+= 1;
-                next_word+= word_pitch;
-            }
-
-            let next_offset = std::cmp::min(offset + addr::Offset::BYTE, next_word);
-            
             while next_token.map_or(false, |t| t.extent.end <= offset) {
                 next_token = token_iterator.next();
             }
 
+            let next_offset = offset + word_size;
+            
             if let Some(token) = next_token {
-                if token.extent.includes(offset) {
+                if token.extent.intersection(addr::Extent::sized(offset, addr::Offset::BYTE)).is_some() {
                     if gap_width > 0 {
-                        /* If there was a gap between this token and the last one, emit a Gap part */
+                        /* If there was a gap between this token and the last one (or the beginning of the line), emit a Gap part */
                         if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, begin: gap_begin, end: (offset, token.node_child_index()) }) {
                             /* Callback requested early exit */
                             return (column, Some(x));
                         }
                     }
 
-                    /* Emit an octet */
-                    let mut num_bits = 8;
-                    if offset.bytes() == token.extent.end.bytes() {
-                        num_bits = token.extent.end.bits();
-                    }
-                    
-                    if let Some(x) = cb(column, Part::Octet { offset, next_offset, num_bits, token }) {
+                    /* Emit a word */                    
+                    if let Some(x) = cb(column, Part::Word { extent: addr::Extent::between(offset, next_offset), token }) {
                         /* Callback requested early exit */
                         return (column, Some(x));
                     }
 
-                    column+= num_bits as usize;
+                    column+= word_size.as_bits() as usize;
                     gap_width = 0;
                     gap_begin = Some((offset, token.node_child_index()));
                 } else {
-                    /* No token included this octet. */
-                    column+= 8;
-                    gap_width+= 2;
+                    /* No token included this word. */
+                    column+= word_size.as_bits() as usize;
+                    gap_width+= word_size.as_bits() as usize;
                 }
             } else {
                 /* Out of tokens. */
@@ -179,28 +166,36 @@ impl bucket::Bucket for BindumpBucket {
                         space_height - 1.0));
                 },
                 
-                Part::Octet { offset, next_offset: _, num_bits, token } => {
-                    // TODO: deal with bit-sized word pitches
-                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes() as usize)).unwrap_or_default();
-                    
-                    let mut text_color = ctx.render.config.text_color.rgba();
-                    let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
-
-                    if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
-                        text_color = ctx.render.config.edit_color.rgba();
-                    }
-                    
-                    let mut octet_point = graphene::Point::new(x + space_width * column as f32, lh);
-                    
+                Part::Word { extent, token } => {
                     /* render bits */
-                    for bit_index in (0..num_bits).rev() {
-                        let bit = (byte >> bit_index) & 1;
-                        let selected = selection.includes(offset + addr::Offset::new(0, bit_index), token.common().node_child_index);
-                        let has_cursor = bin_cursor.map_or(false, |bdc| sync::Arc::ptr_eq(&bdc.token.common.node, &self.node) && bdc.extent().begin + bdc.get_offset() == offset + addr::Offset::new(0, bit_index));
+                    for bit_index in 0..self.word_size().as_bits() {
+                        let bit_addr_in_node = extent.begin + addr::Offset::BIT * bit_index;
+                        
+                        if !token.extent.includes(bit_addr_in_node) {
+                            continue;
+                        }
+
+                        let mut bit_point = graphene::Point::new(x + space_width * (column as u64 + self.word_size().as_bits() - 1 - bit_index) as f32, lh);
+                        
+                        let (bit, flags) = self.line_data.as_ref().map(|fetcher| {
+                            let bit_index_in_fetcher = (self.node_addr + bit_addr_in_node - fetcher.addr()).as_bits();
+                            let (byte, flags) = fetcher.byte_and_flags((bit_index_in_fetcher / 8) as usize);
+                            ((byte >> (bit_index_in_fetcher % 8)) & 1, flags)
+                        }).unwrap_or_default();
+                        
+                        let mut text_color = ctx.render.config.text_color.rgba();
+                        let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
+
+                        if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
+                            text_color = ctx.render.config.edit_color.rgba();
+                        }
+                    
+                        let selected = selection.includes(bit_addr_in_node, token.common().node_child_index);
+                        let has_cursor = bin_cursor.map_or(false, |bdc| sync::Arc::ptr_eq(&bdc.token.common.node, &self.node) && bdc.extent().begin + bdc.get_offset() == bit_addr_in_node);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(bit) };
 
-                        ctx.render.gsc_mono.begin(digit, text_color, &mut octet_point)
+                        ctx.render.gsc_mono.begin(digit, text_color, &mut bit_point)
                             .selected(selected, ctx.render.config.selection_color.rgba())
                             .cursor(has_cursor, ctx.cursor, ctx.render.config.cursor_fg_color.rgba(), ctx.render.config.cursor_bg_color.rgba())
                             .placeholder(pending, ctx.render.config.placeholder_color.rgba())
@@ -286,9 +281,9 @@ impl bucket::PickableBucket for BindumpBucket {
                     }),
                 }),
 
-                Part::Octet { offset, next_offset: _, num_bits, token } if pick_column >= column && pick_column < column + num_bits as usize => Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Bindump {
+                Part::Word { extent, token } if pick_column >= column && pick_column < column + self.word_size().as_bits() as usize => Some(listing::pick::Triplet::all3(self.node_path.clone(), listing::pick::Part::Bindump {
                     index: token.node_child_index(),
-                    offset: offset + addr::Offset::BIT * (num_bits as usize - (pick_column - column)) as u64,
+                    offset: extent.begin + addr::Offset::BIT * (self.word_size().as_bits() as usize - (pick_column - column)) as u64,
                 })),
 
                 _ => None,

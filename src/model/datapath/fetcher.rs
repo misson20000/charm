@@ -1,5 +1,6 @@
 use std::vec;
 
+use crate::model::addr;
 use crate::model::datapath::DataPath;
 use crate::model::datapath::FetchFlags;
 use crate::model::datapath::FetchRequest;
@@ -100,6 +101,10 @@ impl Fetcher {
         let data = self.data()[offset].load(Ordering::Acquire);
         
         (data, flags)
+    }
+
+    pub fn addr(&self) -> addr::AbsoluteAddress {
+        addr::AbsoluteAddress::from(self.addr)
     }
 
     fn make_future<'data>(addr: u64, data: &'data [Atomic<u8>], flags: &'data [Atomic<FetchFlags>], datapath: DataPath) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = (FetchResult, &'data [Atomic<u8>], &'data [Atomic<FetchFlags>], DataPath)> + 'data>>> {

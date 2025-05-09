@@ -109,7 +109,7 @@ impl HexdumpBucket {
             if let Some(token) = next_token {
                 if token.extent.includes(offset) {
                     if gap_width > 0 {
-                        /* If there was a gap between this token and the last one, emit a Gap part */
+                        /* If there was a gap between this token and the last one (or the beginning of the line), emit a Gap part */
                         if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, begin: gap_begin, end: (offset, token.node_child_index()) }) {
                             /* Callback requested early exit */
                             return (column, Some(x));
