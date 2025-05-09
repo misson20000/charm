@@ -64,7 +64,15 @@ impl BindumpBucket {
     }
     
     fn word_size(&self) -> addr::Offset {
-        addr::Offset::from(1)
+        match node.props.content_display {
+            structure::ContentDisplay::Bindump {
+                word_size: ws,
+                ..
+            } => ws,
+
+            /* This shouldn't happen. */
+            _ => addr::Offset::from(1)
+        }
     }
 
     fn each_part<T, F: FnMut(usize, Part<'_>) -> Option<T>>(&self, mut cb: F) -> (usize, Option<T>) {
