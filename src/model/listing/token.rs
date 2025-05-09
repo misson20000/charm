@@ -400,6 +400,21 @@ impl Bindump {
     pub fn absolute_extent(&self) -> addr::AbsoluteExtent {
         self.extent.absolute_from(self.common.node_addr)
     }
+
+    pub fn word_size(&self) -> addr::Offset {
+        match self.common.node.props.content_display {
+            structure::ContentDisplay::Bindump { word_size, .. } => word_size,
+            /* This shouldn't happen. */
+            _ => addr::Offset::BYTE,
+        }
+    }
+    
+    pub fn word_at(&self, node_offset: addr::Offset) -> addr::Extent {
+        let offset_in_line = node_offset - self.line.begin;
+        let word_size = self.word_size();
+        let word_begin = self.line.begin + word_size * (offset_in_line / word_size);
+        self.extent.intersection(addr::Extent::sized(word_begin, word_size)).unwrap()        
+    }
 }
 
 impl Hexstring {

@@ -11,6 +11,8 @@ use crate::model::listing::token::AsTokenRef;
 #[derive(Debug)]
 pub struct Cursor {
     pub token: token::Bindump,
+
+    /* Offset within token */
     offset: addr::Offset,
 
     data: Option<datapath::Fetcher>,
@@ -19,19 +21,13 @@ pub struct Cursor {
 impl Cursor {
     pub fn new_transition(token: token::Bindump, hint: &cursor::TransitionHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
-        let limit = (extent.len() - addr::Offset::BIT).round_down();
 
         let offset = match hint {
             cursor::TransitionHint::MoveVertical {
                 horizontal_position: cursor::HorizontalPosition::Bindump(offset_in_line),
-                line,
                 ..
             } => {
-                let line_extent = match line.ty {
-                    line::LineType::Bindump { line_extent, .. } => line_extent,
-                    _ => return Err(token::Token::Bindump(token)),
-                };
-                let offset = line_extent.begin + *offset_in_line;
+                let offset = token.line.begin + *offset_in_line;
                 if offset >= extent.end {
                     return Err(token::Token::Bindump(token));
                 } else if offset < extent.begin {
@@ -44,8 +40,8 @@ impl Cursor {
                 }
             },
             
-            op if op.is_left() => addr::Offset::from(limit.bytes()),
-            op if op.is_right() => std::cmp::min(limit, addr::Offset::new(0, 7)),
+            op if op.is_left() => token.word_at(token.extent.end - addr::Offset::BIT).begin - token.extent.begin,
+            op if op.is_right() => token.word_at(token.extent.begin).end - addr::Offset::BIT - token.extent.begin,
             _ => addr::Offset::ZERO
         };
         
@@ -59,13 +55,12 @@ impl Cursor {
     
     pub fn new_placement(token: token::Bindump, offset: addr::Offset, _hint: &cursor::PlacementHint) -> Result<Cursor, token::Token> {
         let extent = token.extent;
-        let limit = (extent.len() - addr::Offset::BIT).round_down();
 
         Ok(Cursor {
             token,
             offset: match offset {
                 offset if offset < extent.begin => addr::Offset::ZERO,
-                offset if offset >= extent.begin + limit => limit,
+                offset if offset >= extent.end => extent.len() - addr::Offset::BIT,
                 offset => offset - extent.begin,
             },
 
@@ -75,6 +70,15 @@ impl Cursor {
 
     pub fn extent(&self) -> addr::Extent {
         self.token.extent
+    }
+
+    fn word_size(&self) -> addr::Offset {
+        self.token.word_size()
+    }
+
+    /* Node-relative */
+    pub fn current_word(&self) -> addr::Extent {
+        self.token.word_at(self.token.extent.begin + self.offset)
     }
 }
 
@@ -96,16 +100,27 @@ impl cursor::CursorClassExt for Cursor {
         if let line::LineType::Bindump { line_extent, .. } = &line.ty {
             cursor::HorizontalPosition::Bindump(self.extent().begin + self.offset - line_extent.begin)
         } else {
-            panic!("attempted to get horizontal position of HexdumpCursor on a non-Hexdump line");
+            panic!("attempted to get horizontal position of BindumpCursor on a non-Bindump line");
         }
     }
     
     fn move_left(&mut self) -> cursor::MovementResult {
-        if self.offset.bits() == 7 || self.offset == (self.extent().len() - addr::Offset::BIT) {
-            if self.offset >= addr::Offset::BYTE {
-                self.offset = addr::Offset::new(self.offset.bytes() - 1, 0);
+        let current_word = self.current_word();
+        if self.token.extent.begin + self.offset + addr::Offset::BIT >= current_word.end {
+            /* On MSB. Try to move to LSB of previous word. */
+            if current_word.begin >= self.token.line.begin + self.word_size() {
+                self.offset = std::cmp::max(current_word.begin - self.word_size(), self.token.extent.begin) - self.token.extent.begin;
                 cursor::MovementResult::Ok
             } else {
+                /* We're in the first word. */
+                // TODO: This is messed up for cases like this:
+                //  0.                1.
+                //   7 6 5 4 3 2 1 0   7 6 5 4 3 2 1 0
+                //  +---------+-----+ +-----------+---+
+                //  |    B    |  A  | |     C     | B |
+                //  +---------+-----+ +-----------+---+
+                //  The tokens will be emitted in A, B, C order,
+                //  but if we're on 1.7 and move left, we need to skip over B.
                 cursor::MovementResult::HitStart
             }
         } else {
@@ -115,47 +130,61 @@ impl cursor::CursorClassExt for Cursor {
     }
 
     fn move_right(&mut self) -> cursor::MovementResult {
-        if self.offset.bits() > 0 {
-            self.offset-= addr::Offset::BIT;
-            cursor::MovementResult::Ok
-        } else if self.extent().len().bits() == 0 && self.offset.bytes() + 1 == self.extent().len().bytes() {
-            cursor::MovementResult::HitEnd
-        } else if self.offset.bytes() == self.extent().len().bytes() {
-            cursor::MovementResult::HitEnd
-        } else {
-            self.offset = std::cmp::min(addr::Offset::new(self.offset.bytes() + 1, 7), self.extent().len() - addr::Offset::BIT);
-            cursor::MovementResult::Ok
-        }
-    }
-
-    fn move_left_large(&mut self) -> cursor::MovementResult {
-        if self.offset.bits() == 7 || (self.offset.bytes() == self.extent().len().bytes() && self.offset.bits() + 1 == self.extent().len().bits()) {
-            if self.offset.bytes() > 0 {
-                self.offset-= addr::Offset::BYTE;
-                cursor::MovementResult::Ok
-            } else {
-                cursor::MovementResult::HitStart
-            }
-        } else {
-            if self.offset.bytes() == self.extent().len().bytes() {
-                self.offset = addr::Offset::new(self.offset.bytes(), self.extent().len().bits() - 1);
-            } else {
-                self.offset = addr::Offset::new(self.offset.bytes(), 7);
-            }
-            cursor::MovementResult::Ok
-        }
-    }
-
-    fn move_right_large(&mut self) -> cursor::MovementResult {
-        if self.offset.bits() == 0 {
-            if self.offset.bytes() + 1 < self.extent().len().bytes() {
-                self.offset+= addr::Offset::BYTE;
+        let current_word = self.current_word();
+        if self.token.extent.begin + self.offset == current_word.begin {
+            if current_word.end < self.token.extent.end {
+                /* There is another word to move to. Move to the MSB of it. */
+                self.offset = std::cmp::min(self.token.extent.end, current_word.end + self.word_size()) - addr::Offset::BIT - self.token.extent.begin;
                 cursor::MovementResult::Ok
             } else {
                 cursor::MovementResult::HitEnd
             }
         } else {
-            self.offset = addr::Offset::new(self.offset.bytes(), 0);
+            self.offset-= addr::Offset::BIT;
+            cursor::MovementResult::Ok
+        }
+    }
+
+    fn move_left_large(&mut self) -> cursor::MovementResult {
+        let current_word = self.current_word();
+        if self.token.extent.begin + self.offset + addr::Offset::BIT >= current_word.end {
+            /* On MSB. Try to move to LSB of previous word. */
+            if current_word.begin >= self.token.line.begin + self.word_size() {
+                self.offset = std::cmp::max(current_word.begin - self.word_size(), self.token.extent.begin) - self.token.extent.begin;
+                cursor::MovementResult::Ok
+            } else {
+                /* We're in the first word. */
+                // TODO: This is messed up for cases like this:
+                //  0.                1.
+                //   7 6 5 4 3 2 1 0   7 6 5 4 3 2 1 0
+                //  +---------+-----+ +-----------+---+
+                //  |    B    |  A  | |     C     | B |
+                //  +---------+-----+ +-----------+---+
+                //  The tokens will be emitted in A, B, C order,
+                //  but if we're on 1.7 and move left, we need to skip over B.
+                cursor::MovementResult::HitStart
+            }
+        } else {
+            /* Move to MSB. */
+            self.offset = current_word.end - addr::Offset::BIT - self.token.extent.begin;
+            cursor::MovementResult::Ok
+        }
+    }
+
+    fn move_right_large(&mut self) -> cursor::MovementResult {
+        let current_word = self.current_word();
+        if self.token.extent.begin + self.offset == current_word.begin {
+            /* On LSB. */
+            if current_word.end < self.token.extent.end {
+                /* There is another word to move to. Move to the MSB of it. */
+                self.offset = std::cmp::min(self.token.extent.end, current_word.end + self.word_size()) - addr::Offset::BIT - self.token.extent.begin;
+                cursor::MovementResult::Ok
+            } else {
+                cursor::MovementResult::HitEnd
+            }
+        } else {
+            /* Move to LSB. */
+            self.offset = current_word.begin - self.token.extent.begin;
             cursor::MovementResult::Ok
         }
     }

@@ -64,7 +64,7 @@ impl BindumpBucket {
     }
     
     fn word_size(&self) -> addr::Offset {
-        match node.props.content_display {
+        match self.node.props.content_display {
             structure::ContentDisplay::Bindump {
                 word_size: ws,
                 ..
