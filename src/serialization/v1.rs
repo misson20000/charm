@@ -55,7 +55,7 @@ enum ContentDisplay {
     Hexstring,
     Bindump {
         line_pitch: Addr,
-        word_pitch: Addr,
+        word_size: Addr,
     },
 }
 
@@ -183,9 +183,9 @@ impl From<structure::Childhood> for Childhood {
                     line_pitch: line_pitch.into(),
                     gutter_pitch: gutter_pitch.into()
                 },
-                structure::ContentDisplay::Bindump { line_pitch, word_pitch } => ContentDisplay::Bindump {
+                structure::ContentDisplay::Bindump { line_pitch, word_size } => ContentDisplay::Bindump {
                     line_pitch: line_pitch.into(),
-                    word_pitch: word_pitch.into()
+                    word_size: word_size.into()
                 },
                 structure::ContentDisplay::Hexstring => ContentDisplay::Hexstring,
             },
@@ -219,9 +219,9 @@ impl Into<structure::Childhood> for Childhood {
                             line_pitch: line_pitch.into(),
                             gutter_pitch: gutter_pitch.into()
                         },
-                        ContentDisplay::Bindump { line_pitch, word_pitch } => structure::ContentDisplay::Bindump {
+                        ContentDisplay::Bindump { line_pitch, word_size } => structure::ContentDisplay::Bindump {
                             line_pitch: line_pitch.into(),
-                            word_pitch: word_pitch.into()
+                            word_size: word_size.into()
                         },
                         ContentDisplay::Hexstring => structure::ContentDisplay::Hexstring,
                     },

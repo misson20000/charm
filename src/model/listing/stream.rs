@@ -912,7 +912,7 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Bindump { line_pitch, word_pitch: _ } => {
+                        structure::ContentDisplay::Bindump { line_pitch, word_size: _ } => {
                             let line_extent = get_line_extent(offset - addr::Offset::BIT, line_pitch);
 
                             PositionState::Bindump {
@@ -1084,7 +1084,7 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Bindump { line_pitch, word_pitch: _ } => {
+                        structure::ContentDisplay::Bindump { line_pitch, word_size: _ } => {
                             let line_extent = get_line_extent(offset, line_pitch);
                             
                             PositionState::Bindump {

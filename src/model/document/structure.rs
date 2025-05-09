@@ -31,7 +31,7 @@ pub enum ContentDisplay {
     },
     Bindump {
         line_pitch: addr::Offset,
-        word_pitch: addr::Offset,
+        word_size: addr::Offset,
     },
     Hexstring
 }
@@ -204,7 +204,7 @@ impl ContentDisplay {
     pub fn default_bindump() -> ContentDisplay {
         ContentDisplay::Bindump {
             line_pitch: addr::Offset::from(8),
-            word_pitch: addr::Offset::from(4),
+            word_size: addr::Offset::from(4),
         }
     }
 }
