@@ -102,7 +102,7 @@ impl BindumpBucket {
             let next_offset = offset + word_size;
             
             if let Some(token) = next_token {
-                if token.extent.intersection(addr::Extent::sized(offset, addr::Offset::BYTE)).is_some() {
+                if token.extent.intersection(addr::Extent::sized(offset, word_size)).is_some() {
                     if gap_width > 0 {
                         /* If there was a gap between this token and the last one (or the beginning of the line), emit a Gap part */
                         if let Some(x) = cb(column - gap_width, Part::Gap { width: gap_width, begin: gap_begin, end: (offset, token.node_child_index()) }) {
@@ -122,8 +122,9 @@ impl BindumpBucket {
                     gap_begin = Some((offset, token.node_child_index()));
                 } else {
                     /* No token included this word. */
-                    column+= word_size.as_bits() as usize;
-                    gap_width+= word_size.as_bits() as usize;
+                    let bits_skipped = (next_offset - offset).as_bits() as usize;
+                    column+= bits_skipped;
+                    gap_width+= bits_skipped;
                 }
             } else {
                 /* Out of tokens. */
