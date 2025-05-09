@@ -925,10 +925,12 @@ impl Interior {
         let r = match (&self.mode, keyval, modifier.intersects(gdk::ModifierType::SHIFT_MASK), modifier.intersects(gdk::ModifierType::CONTROL_MASK)) {
             /* basic cursor movement keys */
             /*  key              shift  ctrl  */
-            (_, gdk::Key::Left,  shift, false) => self.cursor_transaction(shift, |c| c.move_left(),  facet::scroll::EnsureCursorInViewDirection::Up),
-            (_, gdk::Key::Right, shift, false) => self.cursor_transaction(shift, |c| c.move_right(), facet::scroll::EnsureCursorInViewDirection::Down),
-            (_, gdk::Key::Up,    shift, false) => self.cursor_transaction(shift, |c| c.move_up(),    facet::scroll::EnsureCursorInViewDirection::Up),
-            (_, gdk::Key::Down,  shift, false) => self.cursor_transaction(shift, |c| c.move_down(),  facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Left,  shift, false) => self.cursor_transaction(shift, |c| c.move_left(),        facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Right, shift, false) => self.cursor_transaction(shift, |c| c.move_right(),       facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Left,  shift, true)  => self.cursor_transaction(shift, |c| c.move_left_large(),  facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Right, shift, true)  => self.cursor_transaction(shift, |c| c.move_right_large(), facet::scroll::EnsureCursorInViewDirection::Down),
+            (_, gdk::Key::Up,    shift, false) => self.cursor_transaction(shift, |c| c.move_up(),          facet::scroll::EnsureCursorInViewDirection::Up),
+            (_, gdk::Key::Down,  shift, false) => self.cursor_transaction(shift, |c| c.move_down(),        facet::scroll::EnsureCursorInViewDirection::Down),
 
             /* basic scroll keys */
             /* key                   shift  ctrl  */
