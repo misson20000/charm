@@ -8,6 +8,10 @@
 	  <type name="none"/>
 	</return-value>
       </glib:signal>
+
+      <glib:property name="forbid-bits" writable="1" transfer-ownership="none" default-value="FALSE">
+	<type name="gboolean" c:type="gboolean"/>
+      </glib:property>
     </class>
   </namespace>
 </repository>

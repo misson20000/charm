@@ -23,6 +23,10 @@ impl AddrEntry {
         (*self.imp().addr.borrow()).clone()
     }
 
+    pub fn set_addr(&self, addr: addr::Offset) {
+        self.imp().set_addr(addr);
+    }
+
     pub fn connect_addr_changed<F: Fn(&Self, Result<addr::Offset, addr::AddressParseError>) + 'static>(&self, f: F) -> glib::SignalHandlerId {
         self.connect_closure(
             "addr-changed",
@@ -42,15 +46,21 @@ pub unsafe extern "C" fn charm_addr_entry_get_type() -> <glib::Type as IntoGlib>
 
 mod imp {
     use super::*;
+    use glib::Properties;
 
+    #[derive(Properties)]
+    #[properties(wrapper_type=super::AddrEntry)]
     pub struct AddrEntry {
         pub addr: cell::RefCell<Result<addr::Offset, addr::AddressParseError>>,
+        #[property(get,set)]
+        pub forbid_bits: cell::Cell<bool>,
     }
 
     impl Default for AddrEntry {
         fn default() -> Self {
             Self {
                 addr: cell::RefCell::new(Err(addr::AddressParseError::EmptyString)),
+                forbid_bits: cell::Cell::new(false),
             }
         }
     }
@@ -62,6 +72,7 @@ mod imp {
         type ParentType = gtk::Entry;
     }
 
+    #[glib::derived_properties]
     impl ObjectImpl for AddrEntry {
         fn constructed(&self) {
             self.parent_constructed();
@@ -88,12 +99,18 @@ mod imp {
     impl AddrEntry {
         fn refresh(&self) {
             match addr::Offset::parse(&self.obj().text(), false) {
-                Ok(addr) => {
+                Ok(addr) if !self.forbid_bits.get() || addr.bits() == 0 => {
                     self.obj().set_css_classes(&[]);
                     self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, None);
                     self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, None);
                     *self.addr.borrow_mut() = Ok(addr);
-                }
+                },
+                Ok(_) => {
+                    self.obj().set_css_classes(&["error"]);
+                    self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, Some("dialog-error"));
+                    self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, Some("must be byte-aligned"));
+                    *self.addr.borrow_mut() = Err(addr::AddressParseError::TooManyBits);
+                },
                 Err(e) => {
                     self.obj().set_css_classes(&["error"]);
                     self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, Some("dialog-error"));
@@ -111,6 +128,10 @@ mod imp {
             }
 
             self.obj().emit_by_name::<()>("addr-changed", &[]);
+        }
+
+        pub fn set_addr(&self, addr: addr::Offset) {
+            self.obj().set_text(&format!("{}", addr));
         }
     }
 }

@@ -101,6 +101,7 @@
             <property name="spacing">10</property>
             <child>
               <object class="CharmAddrEntry" id="size_entry">
+                <property name="forbid-bits">True</property>
                 <property name="hexpand">True</property>
               </object>
             </child>
@@ -213,6 +214,7 @@
         </child>
         <child>
           <object class="CharmAddrEntry" id="addr_entry">
+            <property name="forbid-bits">True</property>
             <property name="hexpand">True</property>
             <layout>
               <property name="column">1</property>

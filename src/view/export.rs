@@ -2,6 +2,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
+use crate::view::addr_entry;
 use crate::view::helpers;
 
 use atomig::Atomic;
@@ -36,6 +37,7 @@ enum ExportError {
     NoFileError,
     WriteTaskDied,
     ReadThreadPanic,
+    InvalidParameterEntry,
 }
 
 impl From<glib::Error> for ExportError {
@@ -50,6 +52,12 @@ impl From<tokio::task::JoinError> for ExportError {
     }
 }
 
+impl From<addr::AddressParseError> for ExportError {
+    fn from(_e: addr::AddressParseError) -> Self {
+        ExportError::InvalidParameterEntry
+    }
+}
+
 mod imp {
     use super::*;
     use gtk::CompositeTemplate;
@@ -58,9 +66,9 @@ mod imp {
     #[template(file = "export-dialog.ui")]
     pub struct CharmExportDialog {
         #[template_child]
-        address_entry: gtk::TemplateChild<gtk::Entry>,
+        addr_entry: gtk::TemplateChild<addr_entry::AddrEntry>,
         #[template_child]
-        size_entry: gtk::TemplateChild<gtk::Entry>,
+        size_entry: gtk::TemplateChild<addr_entry::AddrEntry>,
         #[template_child]
         size_display: gtk::TemplateChild<gtk::Label>,
         #[template_child]
@@ -76,9 +84,6 @@ mod imp {
         
         file_chooser: gtk::FileChooserNative,
         document: cell::RefCell<Option<sync::Arc<document::DocumentHost>>>,
-        begin_addr: cell::Cell<u64>,
-        size: cell::Cell<u64>,
-        entries_valid: cell::Cell<bool>,
         task: cell::RefCell<Option<helpers::AsyncSubscriber>>,
     }
 
@@ -89,14 +94,18 @@ mod imp {
         type ParentType = gtk::ApplicationWindow;
 
         fn class_init(klass: &mut Self::Class) {
-            /* FFI CALLBACK: assumed panic-safe */
-            klass.bind_template();
-            klass.bind_template_callbacks();
+            /* FFI CALLBACK: catch-panic */
+            catch_panic! {
+                klass.bind_template();
+                klass.bind_template_callbacks();
+            }
         }
 
         fn instance_init(obj: &glib::subclass::InitializingObject<Self>) {
-            /* FFI CALLBACK: assumed panic-safe */
-            obj.init_template();
+            /* FFI CALLBACK: catch-panic */
+            catch_panic! {
+                obj.init_template();
+            }
         }
     }
 
@@ -106,17 +115,16 @@ mod imp {
             
             self.parent_constructed();
 
-            self.address_entry.connect_text_notify(clone!(#[weak(rename_to = this)] self.obj(), move |_| catch_panic! {
-                this.imp().entry_updated();
+            self.addr_entry.connect_addr_changed(clone!(#[weak(rename_to = this)] self.obj(), move |_, _| catch_panic! {
+                this.imp().update_enabled();
             }));
 
-            self.size_entry.connect_text_notify(clone!(#[weak(rename_to = this)] self.obj(), move |_| catch_panic! {
-                this.imp().entry_updated();
+            self.size_entry.connect_addr_changed(clone!(#[weak(rename_to = this)] self.obj(), move |_, _| catch_panic! {
+                this.imp().update_size_display();
+                this.imp().update_enabled();
             }));
 
             self.file_chooser.connect_response(clone!(#[weak(rename_to = this)] self.obj(), move |fc, r| catch_panic! {
-                println!("got file chooser response {:?}, {:?}", r, fc.file());
-                
                 match r {
                     gtk::ResponseType::Cancel => {
                         this.imp().file_chooser.hide();
@@ -209,69 +217,34 @@ mod imp {
         }
 
         pub fn set_addr(&self, addr: u64) {
-            self.begin_addr.set(addr);
-            self.address_entry.buffer().set_text(&format!("0x{:x}", addr));
+            self.addr_entry.set_addr(addr.into());
         }
 
         pub fn set_size(&self, size: u64) {
-            self.size.set(size);
-            self.size_entry.buffer().set_text(&format!("0x{:x}", size));
-
+            self.size_entry.set_addr(size.into());
             self.update_size_display();
         }
 
         fn update_size_display(&self) {
-            self.size_display.set_label(&match self.size.get() {
-                x if x < 1024 => format!("{} bytes", x),
-                x if x < 1024 * 1024 => format!("{} KiB", x / 1024),
-                x if x < 1024 * 1024 * 1024 => format!("{:.2} MiB", x as f64 / (1024.0*1024.0)),
-                x if x < 1024 * 1024 * 1024 * 1024 => format!("{:.2} GiB", x as f64 / (1024.0*1024.0*1024.0)),
-                x => format!("{:.2} TiB", x as f64 / (1024.0*1024.0*1024.0*1024.0)),
+            self.size_display.set_label(&match self.size_entry.addr() {
+                Ok(x) if x.bytes() < 1024 => format!("{} bytes", x.bytes()),
+                Ok(x) if x.bytes() < 1024 * 1024 => format!("{} KiB", x.bytes() / 1024),
+                Ok(x) if x.bytes() < 1024 * 1024 * 1024 => format!("{:.2} MiB", x.bytes() as f64 / (1024.0*1024.0)),
+                Ok(x) if x.bytes() < 1024 * 1024 * 1024 * 1024 => format!("{:.2} GiB", x.bytes() as f64 / (1024.0*1024.0*1024.0)),
+                Ok(x) => format!("{:.2} TiB", x.bytes() as f64 / (1024.0*1024.0*1024.0*1024.0)),
+                _ => String::new(),
             });
-        }
-
-        fn entry_updated(&self) {
-            let mut all_valid = true;
-
-            match match self.address_entry.buffer().text().as_str() {
-                x if x.strip_prefix("0x").is_some() => u64::from_str_radix(&x[2..], 16),
-                x => u64::from_str_radix(x, 10)
-            } {
-                Ok(addr) => {
-                    self.begin_addr.set(addr);
-                    self.address_entry.remove_css_class("error");
-                },
-                Err(_e) => {
-                    self.address_entry.add_css_class("error");
-                    all_valid = false;
-                },
-            }
-            
-            match match self.size_entry.buffer().text().as_str() {
-                x if x.strip_prefix("0x").is_some() => u64::from_str_radix(&x[2..], 16),
-                x => u64::from_str_radix(x, 10)
-            } {
-                Ok(size) => {
-                    self.size.set(size);
-                    self.size_entry.remove_css_class("error");
-                    self.update_size_display();
-                },
-                Err(_e) => {
-                    self.size_entry.add_css_class("error");
-                    all_valid = false;
-                },
-            }
-
-            self.entries_valid.set(all_valid);
-
-            self.update_enabled();
         }
 
         fn update_enabled(&self) {
             let task = self.task.borrow();
             self.ignore_edits.set_sensitive(task.is_none());
             self.ignore_read_errors.set_sensitive(task.is_none());
-            self.export_button.set_sensitive(self.entries_valid.get() && self.file_chooser.file().is_some() && task.is_none());
+            self.export_button.set_sensitive(
+                self.addr_entry.addr().is_ok()
+                    && self.size_entry.addr().is_ok()
+                    && self.file_chooser.file().is_some()
+                    && task.is_none());
         }
         
         async fn perform(&self) -> Result<(), ExportError> {
@@ -291,8 +264,8 @@ mod imp {
                 free_data_buffers_tx.send(Vec::new()).await.unwrap();
             }
             
-            let begin_addr = self.begin_addr.get();
-            let end = begin_addr + self.size.get();
+            let begin_addr = self.addr_entry.addr()?.bytes();
+            let end = begin_addr + self.size_entry.addr()?.bytes();
 
             let ignore_edits = self.ignore_edits.is_active();
             let ignore_read_errors = self.ignore_read_errors.is_active();
