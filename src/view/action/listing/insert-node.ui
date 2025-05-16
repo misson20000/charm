@@ -166,6 +166,7 @@
         </child>
         <child>
           <object class="CharmAddrEntry" id="offset_entry">
+            <property name="activates-default">True</property>
             <property name="hexpand">True</property>
             <layout>
               <property name="column">1</property>
@@ -177,6 +178,7 @@
         </child>
         <child>
           <object class="CharmAddrEntry" id="size_entry">
+            <property name="activates-default">True</property>
             <property name="hexpand">True</property>
             <layout>
               <property name="column">1</property>
