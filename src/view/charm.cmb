@@ -2,14 +2,14 @@
 <!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
 <!-- Created with Cambalache 0.97.0 -->
 <cambalache-project version="0.96.0" target_tk="gtk-4.0">
-  <ui filename="props-editor.ui" sha256="799a82bd3fde7cc9e396e4b88c8770a83d9bb88b97343618c0a7fc5565ad6744"/>
-  <ui filename="action/listing/insert-node.ui" sha256="5284bd48b2c36b9fa9c97243b69cf29f3f920c4a1887c4bb5607ecfcf81b6c79"/>
-  <ui filename="action/listing/goto.ui" sha256="4d5fad7326c7134bc2da6147e7a6e253242c8e3307d3ff4c6e7d19b15dea6471"/>
-  <ui filename="error-dialog.ui" sha256="ad7a95ef163a552d4274f247aae9c78e34ab3f51c44da1a5f99f88960082672b"/>
-  <ui filename="crash-dialog.ui" sha256="a20580e9cfa5dc2608dd686c549d9f9786849f5ad9070d50d4b3dcdeca711059"/>
-  <ui template-class="CharmDocumentRecoveryWidget" filename="crash-document-recovery.ui" sha256="3a312ee9823b88c074213b0cc4b978545e46838d0324fa7b44caa392d7222598"/>
-  <ui filename="unsaved-dialog.ui" sha256="5b5e5cfbee261004cfcfb98808012b177a9696754736cbc15ca1314c43218882"/>
-  <ui filename="charm.ui" sha256="d610d1654fdff54f8885d79b75ce0bc95db3c3ee5bee17695ed90ad9a1510fa9"/>
-  <ui filename="settings.ui" sha256="91366aea11d22c9d2330f23c7d6517596b03c8b0a63868ef6bade2df02f0567c"/>
-  <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="0ae22a679a54f801283a47f079dc8d1ad1da91486f6e57c5e67fb38fe43e4362"/>
+  <ui filename="props-editor.ui" sha256="612c06bdb3b2199567013d1d6d5c66178895e1b5021dec81d2d469eb4198e490"/>
+  <ui filename="action/listing/insert-node.ui" sha256="d7c8fd913359e73f571d61345f99c1415b6b965a9ad00ef619015d0acb7ba023"/>
+  <ui filename="action/listing/goto.ui" sha256="42c47c1d011abd25921e4fd6d13742805f6234c77095a4103097312313a74ab1"/>
+  <ui filename="error-dialog.ui" sha256="0d8f80c7d914254f6bbcddf5a61386d4b49bb13f7c421a41d371e21c928a6965"/>
+  <ui filename="crash-dialog.ui" sha256="a627454458222a68963848652a0d6860bb5bf914d2b69bddc206934789f37124"/>
+  <ui template-class="CharmDocumentRecoveryWidget" filename="crash-document-recovery.ui" sha256="53a1c436169a8b06892fb9aefe17482d5c3a3bb1587ac53f5171c199053d408a"/>
+  <ui filename="unsaved-dialog.ui" sha256="38ffc2d545ac0cfc436b52ef5537e5896dd51f2ff667200941e9f0b92a3ae938"/>
+  <ui filename="charm.ui" sha256="a22166918d15c6de64352686292f919f8795d8045d67bad9a582af78a65ad37c"/>
+  <ui filename="settings.ui" sha256="7b583f3db3e5298d7453213a8c44b47a14d9e764bb060e084d02956eb846711d"/>
+  <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="928da54ea9e961144a1c45d13d16fcaaeed9de319fe3bbd7b4ec40eb72b751b6"/>
 </cambalache-project>

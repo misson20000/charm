@@ -1,8 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.93.0 -->
+<!-- Created with Cambalache 0.97.0 -->
 <interface>
-  <requires lib="gtk" version="4.0"/>
+  <!-- interface-name props-editor.ui -->
   <requires lib="charm" version="0.1"/>
+  <requires lib="gtk" version="4.0"/>
   <object class="GtkBox" id="toplevel">
     <child>
       <object class="GtkGrid">

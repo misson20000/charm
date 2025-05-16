@@ -1,8 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.93.0 -->
+<!-- Created with Cambalache 0.97.0 -->
 <interface>
+  <!-- interface-name export-dialog.ui -->
   <requires lib="charm" version="0.1"/>
-  <requires lib="gtk" version="4.12"/>
+  <requires lib="gtk" version="4.0"/>
   <template class="CharmExportDialog" parent="GtkApplicationWindow">
     <property name="title">Export</property>
     <child>
