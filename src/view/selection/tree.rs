@@ -284,7 +284,7 @@ impl TreeSelectionModel {
         
         let model: TreeSelectionModel = glib::Object::builder().build();
 
-        let gtk_model = hierarchy::create_tree_list_model(document_host.clone(), selection.document.clone(), true);
+        let gtk_model = hierarchy::create_tree_list_model(document_host.clone(), selection.document.clone(), false);
         gtk_model.connect_items_changed(clone!(#[weak] model, move |_, pos, removed, added| catch_panic! {
             model.items_changed(pos, removed, added)
         }));
