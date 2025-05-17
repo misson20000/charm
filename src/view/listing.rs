@@ -161,6 +161,9 @@ impl ObjectSubclass for ListingWidgetImp {
             klass.add_shortcut(&gtk::Shortcut::new(
                 gtk::ShortcutTrigger::parse_string("Delete"),
                 Some(gtk::NamedAction::new("ctx.delete_selected_nodes"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("bracketleft"),
+                Some(gtk::NamedAction::new("ctx.create_array"))));
             
             klass.set_css_name("listing");
         }
@@ -370,6 +373,7 @@ impl ListingWidget {
         context_menu.append(Some("Copy"), Some("ctx.copy"));
         context_menu.append(Some("Paste"), Some("ctx.paste"));
         context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
+        context_menu.append(Some("Create array..."), Some("ctx.create_array"));
         context_menu.append(Some("Delete nodes"), Some("ctx.delete_selected_nodes"));
         context_menu.freeze();
         

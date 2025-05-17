@@ -584,6 +584,19 @@ impl Position {
                     }
                 }
             },
+
+            /* If the node we're on got repeated. */
+            change::ApplyRecord::Repeat { path, .. } if path[..] == stack_state.current_path[..] => {
+                /* Descend into the first repetition. */
+                stack_state.push(0);
+            },
+            
+            /* If the node we're on had a child repeated within it. */
+            change::ApplyRecord::Repeat { path, .. } if path[0..path.len()-1] == stack_state.current_path => {
+                if let Some(offset) = offset.as_mut() {
+                    stack_state.deep_descend_if_necessary(index, offset);
+                }
+            },
             
             /* Other cases where the node we were on wasn't affected and our hints don't need adjustment. */
             change::ApplyRecord::Nest { .. } => {},
@@ -592,6 +605,7 @@ impl Position {
             change::ApplyRecord::DeleteRange { .. } => {},
             change::ApplyRecord::Resize { .. } => {},
             change::ApplyRecord::Paste(_) => {},
+            change::ApplyRecord::Repeat { .. } => {},
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
@@ -703,7 +717,15 @@ impl Position {
                     par.adjust_sibling_index(&mut child_index);
                 }
                 state.push(child_index);
-            }
+            },
+            change::ApplyRecord::Repeat { path, .. } => {
+                state.push(child_index);
+                /* If the child was repeated, then we just descended into the new array that was created. */
+                if path[0..path.len()-1] == state.current_path[..] && child_index == *path.last().unwrap() {
+                    /* Descend into the first repetition */
+                    state.push(0);
+                }
+            },
         }
     }
 

@@ -75,6 +75,16 @@ pub enum ChangeType {
         dst_offset: addr::Offset,
         dst_index: usize,
     },
+
+    /// Creates repetitions of the targeted node, naming them as "{name_prefix}{i}{name_postfix}", and wrapping them all in a new "array" node.
+    Repeat {
+        path: structure::Path,
+        pitch: addr::Offset,
+        count: usize,
+        name_prefix: String,
+        name_postfix: String,
+        props: structure::Properties,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +130,12 @@ pub enum ApplyRecord {
     },
 
     Paste(PasteApplyRecord),
+
+    Repeat {
+        path: structure::Path,
+        pitch: addr::Offset,
+        count: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -274,6 +290,7 @@ impl Change {
                             UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
                         },
                         ChangeType::Paste { .. } => Err(UpdateError::NotYetImplemented),
+                        ChangeType::Repeat { .. } => Err(UpdateError::NotYetImplemented),
                     }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
@@ -518,6 +535,48 @@ impl Change {
 
                 Ok(result.output)
             },
+            ChangeType::Repeat { path, pitch, count, name_prefix, name_postfix, props } => {
+                if path.len() == 0 {
+                    return Err(ApplyErrorType::InvalidParameters("cannot repeat the root node"));
+                }
+                if *count == 0 {
+                    return Err(ApplyErrorType::InvalidParameters("cannot repeat zero times"));
+                }
+                
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path[0..path.len()-1], |parent_node| {
+                    let template_child = &mut parent_node.children[*path.last().unwrap()];
+
+                    if template_child.end() + (*pitch * (count-1) as u64) > parent_node.size {
+                        return Err(ApplyErrorType::InvalidParameters("array would be too long to fit within parent node"));
+                    }
+
+                    let children: Vec<_> = (0..*count).into_iter().map(|i| {
+                        let mut props = template_child.node.props.clone();
+                        props.name = format!("{}{}{}", name_prefix, i, name_postfix);
+
+                        structure::Childhood {
+                            node: sync::Arc::new(structure::Node {
+                                size: template_child.node.size,
+                                children: template_child.node.children.clone(),
+                                props,
+                            }),
+                            offset: *pitch * i as u64
+                        }
+                    }).collect();
+                    
+                    template_child.node = sync::Arc::new(structure::Node {
+                        size: children.last().unwrap().end(),
+                        children,
+                        props: props.clone(),
+                    });
+
+                    Ok(ApplyRecord::Repeat { path: path.clone(), pitch: *pitch, count: *count })
+                })?;
+
+                document.root = result.root;
+
+                Ok(result.output)
+            },
         }
     }
 }
@@ -692,6 +751,14 @@ impl ApplyRecord {
                     UpdatePathResult::Unmoved
                 }
             },
+            ApplyRecord::Repeat { path: repeated_path, .. } => {
+                if path.len() >= repeated_path.len() && path[0..repeated_path.len()] == repeated_path[..] {
+                    path.insert(repeated_path.len(), 0);
+                    UpdatePathResult::Moved
+                } else {
+                    UpdatePathResult::Unmoved
+                }
+            }
         }
     }
 
@@ -771,6 +838,8 @@ impl ApplyRecord {
             ApplyRecord::Resize { .. } => UpdateRangeResult::Unmoved(subject),
 
             ApplyRecord::Paste(_par) => todo!(),
+
+            ApplyRecord::Repeat { .. } => todo!(),
         }
     }
 
@@ -785,6 +854,7 @@ impl ApplyRecord {
             ApplyRecord::StackFilter { filter } => format!("Add '{}' to datapath", filter.human_details()),
             ApplyRecord::Resize { path, new_size, .. } => format!("Resize {} to size {}", document.describe_path(path), new_size),
             ApplyRecord::Paste(par) => format!("Paste structure nodes into {}", document.describe_path(&par.parent)),
+            ApplyRecord::Repeat { path, count, .. } => format!("Repeat {} {} times", document.describe_path(path), count),
         }
     }
 }

@@ -100,7 +100,7 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
                                                                   
 pub fn rebuild_node_tree_visiting_path<Visitor>
     (root: &structure::Node,
-     path: &structure::Path,
+     path: structure::PathSlice,
      visitor: Visitor) -> Result<RebuiltTree<Visitor::Output>, Visitor::Error> where
     Visitor: TargetVisitor {
     let result = rebuild_partial_node_tree_visiting_path(root, path.iter().copied(), visitor)?.0;
@@ -115,7 +115,7 @@ pub fn rebuild_node_tree_visiting_path<Visitor>
 /// This exists to help type inference if you're trying to use a closure, especially when you don't have a failure path and it can't figure out the error type.
 pub fn rebuild_node_tree_visiting_path_simple<T, Visitor>
     (root: &structure::Node,
-     path: &structure::Path,
+     path: structure::PathSlice,
      visitor: Visitor) -> Result<RebuiltTree<T>, change::ApplyErrorType> where
     Visitor: FnOnce(&mut structure::Node) -> Result<T, change::ApplyErrorType> {
     rebuild_node_tree_visiting_path(root, path, visitor)

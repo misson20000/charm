@@ -127,6 +127,7 @@ impl CharmWindow {
                 struct_menu.append(Some("Insert dword at cursor"), Some("ctx.insert_dword"));
                 struct_menu.append(Some("Insert qword at cursor"), Some("ctx.insert_qword"));
                 struct_menu.append(Some("Insert node..."), Some("ctx.insert_node"));
+                struct_menu.append(Some("Create array..."), Some("ctx.create_array"));
                 struct_menu.freeze();
                 menu_bar.append_submenu(Some("Structure"), &struct_menu);
             }
@@ -537,6 +538,7 @@ impl WindowContext {
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "word", 2);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
+        action::listing::create_array::add_action(&wc);
         action::listing::goto::add_action(&wc);
         action::listing::mode::add_action(&wc);
         action::listing::clipboard::add_actions(&wc);

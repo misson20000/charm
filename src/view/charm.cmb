@@ -12,4 +12,5 @@
   <ui filename="charm.ui" sha256="a22166918d15c6de64352686292f919f8795d8045d67bad9a582af78a65ad37c"/>
   <ui filename="settings.ui" sha256="7b583f3db3e5298d7453213a8c44b47a14d9e764bb060e084d02956eb846711d"/>
   <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="928da54ea9e961144a1c45d13d16fcaaeed9de319fe3bbd7b4ec40eb72b751b6"/>
+  <ui filename="action/listing/array.ui" sha256="f5150938c49a33f017793b401c66100683702ab17bf0716b8498dd0a3b81dd39"/>
 </cambalache-project>

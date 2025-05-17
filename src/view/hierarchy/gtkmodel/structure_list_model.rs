@@ -280,6 +280,27 @@ impl StructureListModel {
                 Some((par.dst_begin.1 as u32, (num_affected - par.mapping.len()) as u32, num_affected as u32))
             },
             change::ApplyRecord::Paste(_) => None,
+
+            /* Was one of our children repeated? */
+            change::ApplyRecord::Repeat { path, .. } if path[0..path.len()-1] == i.path[..] => {
+                let index = *path.last().unwrap();
+                let child_item = &i.children[index];
+                let childhood = &new_node.children[index];
+                let document_host = i.document_host.clone();
+
+                child_item.stage(super::NodeInfo {
+                    path: path.clone(),
+                    node: childhood.node.clone(),
+                    props: childhood.node.props.clone(),
+                    offset: childhood.offset,
+                    address: addr + childhood.offset,
+                    document: new_doc.clone(),
+                    document_host,
+                });
+
+                Some((index as u32, 1, 1))
+            },
+            change::ApplyRecord::Repeat { .. } => None,
         };
 
         /* Fixup children's paths and node pointers */

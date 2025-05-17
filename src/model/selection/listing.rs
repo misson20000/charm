@@ -389,6 +389,7 @@ impl StructureRange {
                     self
                 },
                 doc_change::ApplyRecord::Paste(_) => self,
+                doc_change::ApplyRecord::Repeat { .. } => self,
             },
             doc_change::UpdatePathResult::Destructured => match change_record {
                 /* We had selected a range within a node that got destructured,

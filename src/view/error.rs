@@ -30,6 +30,7 @@ pub enum Action {
     CutStructure,
     CopyStructure,
     PasteStructure,
+    CreateArray,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -111,6 +112,7 @@ impl Error {
             Action::CutStructure => "Failed to cut structure to clipboard from listing.",
             Action::CopyStructure => "Failed to copy structure to clipboard from listing.",
             Action::PasteStructure => "Failed to paste structure from clipboard.",
+            Action::CreateArray => "Failed to create array.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
@@ -360,6 +362,9 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Into {}\n", SafePathDescription::new(document, dst))?;
             write!(msg, "At: {}, {}\n", dst_offset, dst_index)?;
         },
+        document::change::ChangeType::Repeat { path, pitch, count, .. } => {
+            write!(msg, "Repeat {} {} times with pitch of {}\n", SafePathDescription::new(document, path), pitch, count)?;
+        },
     };
 
     Ok(())
@@ -408,6 +413,9 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
         },
         document::change::ApplyRecord::Paste(par) => {
             write!(msg, "Pasting {} nodes into {}\n", par.mapping.len(), SafePathDescription::new(document, &par.parent))?;
+        },
+        document::change::ApplyRecord::Repeat { path, pitch, count } => {
+            write!(msg, "Repeat {} {} times with pitch of {}\n", SafePathDescription::new(document, &path), pitch, count)?;
         },
     };
 

@@ -141,7 +141,7 @@ impl Document {
         search::AddressSearch::new(self, addr.into(), traversal)
     }
 
-    pub fn describe_path(&self, path: &structure::Path) -> String {
+    pub fn describe_path(&self, path: structure::PathSlice) -> String {
         let mut node = &self.root;
         let mut path_description = node.props.name.clone();
         
@@ -250,6 +250,14 @@ impl Document {
     pub fn paste(&self, src_node: sync::Arc<structure::Node>, src_begin: (addr::Offset, usize), src_end: (addr::Offset, usize), dst: structure::Path, dst_offset: addr::Offset, dst_index: usize) -> change::Change {
         change::Change {
             ty: change::ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index },
+            generation: self.generation(),
+        }
+    }
+
+    #[must_use]
+    pub fn repeat(&self, path: structure::Path, pitch: addr::Offset, count: usize, name_prefix: String, name_postfix: String, array_props: structure::Properties) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::Repeat { path, pitch, count, name_prefix, name_postfix, props: array_props },
             generation: self.generation(),
         }
     }

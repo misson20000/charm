@@ -1,0 +1,241 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.97.0 -->
+<interface>
+  <!-- interface-name array.ui -->
+  <requires lib="charm" version="0.1"/>
+  <requires lib="gtk" version="4.18"/>
+  <object class="GtkBox" id="toplevel">
+    <property name="margin-bottom">15</property>
+    <property name="margin-end">15</property>
+    <property name="margin-start">15</property>
+    <property name="margin-top">15</property>
+    <property name="orientation">vertical</property>
+    <property name="spacing">15</property>
+    <child>
+      <object class="GtkLabel">
+        <property name="halign">start</property>
+        <property name="label">Create array</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkGrid">
+        <property name="column-spacing">15</property>
+        <property name="row-spacing">5</property>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Item size</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">1</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Item count</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">2</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="justify">fill</property>
+            <property name="label">Total length</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">3</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="CharmAddrEntry" id="item_size_display">
+            <property name="sensitive">False</property>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">1</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="CharmAddrEntry" id="total_size_entry">
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">3</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSpinButton" id="item_count_spinner">
+            <property name="activates-default">True</property>
+            <property name="adjustment">
+              <object class="GtkAdjustment" id="item_count_adjustment">
+                <property name="lower">1.0</property>
+                <property name="step-increment">1.0</property>
+                <property name="upper">65536.0</property>
+                <property name="value">2.0</property>
+              </object>
+            </property>
+            <property name="numeric">True</property>
+            <property name="snap-to-ticks">True</property>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">2</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSeparator">
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
+              <property name="row">4</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Path</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">7</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="path_display">
+            <property name="sensitive">False</property>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">7</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="high_count_warning">
+            <property name="css-classes">warning</property>
+            <property name="label">This operation will create a large number of structure nodes. Are you sure?</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
+              <property name="row">8</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSeparator">
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">2</property>
+              <property name="row">6</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Item name pattern</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">5</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">5</property>
+            <child>
+              <object class="GtkEntry" id="name_prefix">
+                <property name="activates-default">True</property>
+                <property name="xalign">1.0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label">n</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="name_postfix">
+                <property name="activates-default">True</property>
+              </object>
+            </child>
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">5</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="label">Array name</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="column-span">1</property>
+              <property name="row">0</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="array_name_entry">
+            <layout>
+              <property name="column">1</property>
+              <property name="column-span">1</property>
+              <property name="row">0</property>
+              <property name="row-span">1</property>
+            </layout>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox">
+        <property name="halign">end</property>
+        <property name="spacing">10</property>
+        <child>
+          <object class="GtkButton" id="cancel_button">
+            <property name="action-name">win.cancel</property>
+            <property name="label">Cancel</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="create_button">
+            <property name="action-name">win.create</property>
+            <property name="css-classes">suggested-action</property>
+            <property name="label">Create</property>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
