@@ -363,7 +363,7 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "At: {}, {}\n", dst_offset, dst_index)?;
         },
         document::change::ChangeType::Repeat { path, pitch, count, .. } => {
-            write!(msg, "Repeat {} {} times with pitch of {}\n", SafePathDescription::new(document, path), pitch, count)?;
+            write!(msg, "Repeat {} {} times with pitch of {}\n", SafePathDescription::new(document, path), count, pitch)?;
         },
     };
 
