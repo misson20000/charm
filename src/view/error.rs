@@ -31,6 +31,9 @@ pub enum Action {
     CopyStructure,
     PasteStructure,
     CreateArray,
+    SelectDescendants,
+    SelectAll,
+    SelectNone,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -113,6 +116,9 @@ impl Error {
             Action::CopyStructure => "Failed to copy structure to clipboard from listing.",
             Action::PasteStructure => "Failed to paste structure from clipboard.",
             Action::CreateArray => "Failed to create array.",
+            Action::SelectDescendants => "Failed to select descendants.",
+            Action::SelectAll => "Failed to select all.",
+            Action::SelectNone => "Failed to select none.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",

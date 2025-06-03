@@ -396,6 +396,8 @@ pub enum Change {
     SetSingle(sync::Arc<document::Document>, structure::Path),
     AddSingle(sync::Arc<document::Document>, structure::Path),
     RemoveSingle(sync::Arc<document::Document>, structure::Path),
+
+    SelectDescendants,
         
     SelectAll,
 }
@@ -509,6 +511,15 @@ impl versioned::Change<Selection> for Change {
                 cr.selection_changed = true;
                 
                 cr
+            },
+
+            Change::SelectDescendants => {
+                selection.root.select_descendants();
+
+                ChangeRecord {
+                    document_updated: None,
+                    selection_changed: true,
+                }
             },
             
             Change::SelectAll => {
@@ -635,6 +646,19 @@ impl SparseNode {
         self.canonicalize(node);
     }
 
+    fn select_descendants(&mut self) {
+        if self.self_selected {
+            self.children_selected = ChildrenMode::AllGrandchildren;
+        } else {
+            match &mut self.children_selected {
+                ChildrenMode::Mixed(v) => for n in v {
+                    n.select_descendants()
+                },
+                _ => {},
+            }
+        }
+    }
+    
     fn descendants_maybe_selected(&self, node: &structure::Node) -> bool {
         match (node.children.len(), &self.children_selected) {
             (0, _) => false,
