@@ -2,7 +2,7 @@
 <!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
 <!-- Created with Cambalache 0.97.0 -->
 <cambalache-project version="0.96.0" target_tk="gtk-4.0">
-  <ui filename="props-editor.ui" sha256="debc3035621a0764e84908ff339c1f213fc84b1540a2d4c10c63aeda51cbe67d"/>
+  <ui filename="props-editor.ui" sha256="fc5d9e13f52f1c28ba91f1cfc90df9a7363678d6abf56fd9a7e2f0fa5f346af4"/>
   <ui filename="action/listing/insert-node.ui" sha256="d6b539638c8ad8e00b5e6b3bd37cd6db3074b2f3f6d10422f8273e633c442447"/>
   <ui filename="action/listing/goto.ui" sha256="42c47c1d011abd25921e4fd6d13742805f6234c77095a4103097312313a74ab1"/>
   <ui filename="error-dialog.ui" sha256="0d8f80c7d914254f6bbcddf5a61386d4b49bb13f7c421a41d371e21c928a6965"/>

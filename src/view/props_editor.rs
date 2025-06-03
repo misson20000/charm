@@ -4,7 +4,6 @@ use std::rc::Rc;
 use std::sync;
 
 use gtk::prelude::*;
-use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 
@@ -53,10 +52,14 @@ pub struct PropsEditor {
     title_display_switcher: gtk::StackSwitcher,
     children_display: gtk::Stack,
     children_display_switcher: gtk::StackSwitcher,
-    content_display: gtk::DropDown,
+    content_display: gtk::Stack,
+    content_display_switcher: gtk::StackSwitcher,
 
-    content_model: gtk::StringList,
-    
+    hexdump_line_pitch_entry: addr_entry::AddrEntry,
+    hexdump_gutter_pitch_entry: addr_entry::AddrEntry,
+    bindump_line_pitch_entry: addr_entry::AddrEntry,
+    bindump_word_size_entry: addr_entry::AddrEntry,
+
     locked: gtk::CheckButton,
     path_display: gtk::Entry,
 
@@ -77,12 +80,15 @@ impl PropsEditor {
         let title_display_switcher: gtk::StackSwitcher = builder.object("title_display_switcher").unwrap();
         let children_display: gtk::Stack = builder.object("children_display").unwrap();
         let children_display_switcher: gtk::StackSwitcher = builder.object("children_display_switcher").unwrap();
-        let content_display: gtk::DropDown = builder.object("content_display").unwrap();
+        let content_display: gtk::Stack = builder.object("content_display").unwrap();
+        let content_display_switcher: gtk::StackSwitcher = builder.object("content_display_switcher").unwrap();
+        let hexdump_line_pitch_entry: addr_entry::AddrEntry = builder.object("hexdump_line_pitch").unwrap();
+        let hexdump_gutter_pitch_entry: addr_entry::AddrEntry = builder.object("hexdump_gutter_pitch").unwrap();
+        let bindump_line_pitch_entry: addr_entry::AddrEntry = builder.object("bindump_line_pitch").unwrap();
+        let bindump_word_size_entry: addr_entry::AddrEntry = builder.object("bindump_word_size").unwrap();
         let locked: gtk::CheckButton = builder.object("locked").unwrap();
         let path_display: gtk::Entry = builder.object("path_display").unwrap();
 
-        let content_model = gtk::StringList::new(&["Hidden", "Hexdump", "Hexstring", "Bindump"]);
-        
         let pe = PropsEditor {
             toplevel,
             name_entry,
@@ -93,9 +99,13 @@ impl PropsEditor {
             children_display,
             children_display_switcher,
             content_display,
-
-            content_model,
+            content_display_switcher,
             
+            hexdump_line_pitch_entry,
+            hexdump_gutter_pitch_entry,
+            bindump_line_pitch_entry,
+            bindump_word_size_entry,
+
             locked,
             path_display,
             in_update: cell::Cell::new(false),
@@ -145,15 +155,28 @@ impl PropsEditor {
             }));
         }));
 
-        pe.content_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
-            pe.apply_props(structure::MaybeProperties::new_content_display(match dd.selected() {
-                0 => structure::ContentDisplay::None,
-                1 => structure::ContentDisplay::default_hexdump(),
-                2 => structure::ContentDisplay::Hexstring,
-                3 => structure::ContentDisplay::default_bindump(),
-                gtk::INVALID_LIST_POSITION => return,
-                x => panic!("unexpected selected index: {}", x)
-            }));
+        pe.content_display.connect_visible_child_name_notify(clone!(#[weak] pe, move |_| catch_panic! {
+            pe.apply_content_display()
+        }));
+
+        pe.hexdump_line_pitch_entry.set_addr(16.into());
+        pe.hexdump_line_pitch_entry.connect_activate(clone!(#[weak] pe, move |_| catch_panic! {
+            pe.apply_content_display();
+        }));
+
+        pe.hexdump_gutter_pitch_entry.set_addr(8.into());
+        pe.hexdump_gutter_pitch_entry.connect_activate(clone!(#[weak] pe, move |_| catch_panic! {
+            pe.apply_content_display();
+        }));
+
+        pe.bindump_line_pitch_entry.set_addr(4.into());
+        pe.bindump_line_pitch_entry.connect_activate(clone!(#[weak] pe, move |_| catch_panic! {
+            pe.apply_content_display();
+        }));
+
+        pe.bindump_word_size_entry.set_addr(1.into());
+        pe.bindump_word_size_entry.connect_activate(clone!(#[weak] pe, move |_| catch_panic! {
+            pe.apply_content_display();
         }));
         
         pe
@@ -161,6 +184,34 @@ impl PropsEditor {
 
     pub fn bind_window(&self, window: &Rc<window::CharmWindow>) {
         *self.window.borrow_mut() = Rc::downgrade(window);
+    }
+
+    fn apply_content_display(&self) {
+        self.apply_props(structure::MaybeProperties::new_content_display(match self.content_display.visible_child_name() {
+            Some(x) if x == "none" => structure::ContentDisplay::None,
+            Some(x) if x == "hexdump" => structure::ContentDisplay::Hexdump {
+                line_pitch: match self.hexdump_line_pitch_entry.addr() {
+                    Ok(p) => p,
+                    _ => return,
+                },
+                gutter_pitch: match self.hexdump_gutter_pitch_entry.addr() {
+                    Ok(p) => p,
+                    _ => return,
+                },
+            },
+            Some(x) if x == "hexstring" => structure::ContentDisplay::Hexstring,
+            Some(x) if x == "bindump" => structure::ContentDisplay::Bindump {
+                line_pitch: match self.bindump_line_pitch_entry.addr() {
+                    Ok(p) => p,
+                    _ => return,
+                },
+                word_size: match self.bindump_word_size_entry.addr() {
+                    Ok(p) => p,
+                    _ => return,
+                },
+            },
+            _ => return,
+        }));
     }
     
     fn apply_props(&self, prop_changes: structure::MaybeProperties) {
@@ -399,13 +450,23 @@ impl PropsEditor {
             None => "inconsistent",
         });
 
-        self.content_display.set_model(Some(&self.content_model));
-        self.content_display.set_selected(match &props.content_display {
-            Some(structure::ContentDisplay::None) => 0,
-            Some(structure::ContentDisplay::Hexdump { .. }) => 1,
-            Some(structure::ContentDisplay::Hexstring) => 2,
-            Some(structure::ContentDisplay::Bindump { .. }) => 3,
-            None => gtk::INVALID_LIST_POSITION,
+        self.content_display_switcher.set_sensitive(true);
+        self.content_display.set_visible_child_name(match &props.content_display {
+            Some(structure::ContentDisplay::None) => "none",
+            Some(structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch }) => {
+                self.hexdump_line_pitch_entry.set_addr(*line_pitch);
+                self.hexdump_gutter_pitch_entry.set_addr(*gutter_pitch);
+                
+                "hexdump"
+            },
+            Some(structure::ContentDisplay::Hexstring) => "hexstring",
+            Some(structure::ContentDisplay::Bindump { line_pitch, word_size }) => {
+                self.bindump_line_pitch_entry.set_addr(*line_pitch);
+                self.bindump_word_size_entry.set_addr(*word_size);
+                
+                "bindump"
+            },
+            None => "inconsistent",
         });
 
         match &props.locked {
@@ -431,7 +492,8 @@ impl PropsEditor {
         self.title_display.set_visible_child_name("inconsistent");
         self.children_display_switcher.set_sensitive(false);
         self.children_display.set_visible_child_name("inconsistent");
-        self.content_display.set_model(gio::ListModel::NONE);
+        self.content_display_switcher.set_sensitive(false);
+        self.content_display.set_visible_child_name("inconsistent");
         self.locked.set_inconsistent(false);
         self.locked.set_active(false);
             
