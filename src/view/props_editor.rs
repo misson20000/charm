@@ -49,12 +49,12 @@ pub struct PropsEditor {
     name_entry: gtk::Entry,
     size_entry: addr_entry::AddrEntry,
     
-    title_display: gtk::DropDown,
-    children_display: gtk::DropDown,
+    title_display: gtk::Stack,
+    title_display_switcher: gtk::StackSwitcher,
+    children_display: gtk::Stack,
+    children_display_switcher: gtk::StackSwitcher,
     content_display: gtk::DropDown,
 
-    title_model: gtk::StringList,
-    children_model: gtk::StringList,
     content_model: gtk::StringList,
     
     locked: gtk::CheckButton,
@@ -73,14 +73,14 @@ impl PropsEditor {
         
         let name_entry: gtk::Entry = builder.object("name_entry").unwrap();
         let size_entry: addr_entry::AddrEntry = builder.object("size_entry").unwrap();
-        let title_display: gtk::DropDown = builder.object("title_display").unwrap();
-        let children_display: gtk::DropDown = builder.object("children_display").unwrap();
+        let title_display: gtk::Stack = builder.object("title_display").unwrap();
+        let title_display_switcher: gtk::StackSwitcher = builder.object("title_display_switcher").unwrap();
+        let children_display: gtk::Stack = builder.object("children_display").unwrap();
+        let children_display_switcher: gtk::StackSwitcher = builder.object("children_display_switcher").unwrap();
         let content_display: gtk::DropDown = builder.object("content_display").unwrap();
         let locked: gtk::CheckButton = builder.object("locked").unwrap();
         let path_display: gtk::Entry = builder.object("path_display").unwrap();
 
-        let title_model = gtk::StringList::new(&["Inline", "Major", "Minor"]);
-        let children_model = gtk::StringList::new(&["Full", "Summary"]);
         let content_model = gtk::StringList::new(&["Hidden", "Hexdump", "Hexstring", "Bindump"]);
         
         let pe = PropsEditor {
@@ -89,11 +89,11 @@ impl PropsEditor {
             size_entry,
             
             title_display,
+            title_display_switcher,
             children_display,
+            children_display_switcher,
             content_display,
 
-            title_model,
-            children_model,
             content_model,
             
             locked,
@@ -128,23 +128,20 @@ impl PropsEditor {
             }
         }));
         
-        pe.title_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
-            pe.apply_props(structure::MaybeProperties::new_title_display(match dd.selected() {
-                0 => structure::TitleDisplay::Inline,
-                1 => structure::TitleDisplay::Major,
-                2 => structure::TitleDisplay::Minor,
-                gtk::INVALID_LIST_POSITION => return,
-                x => panic!("unexpected selected index: {}", x)
+        pe.title_display.connect_visible_child_name_notify(clone!(#[weak] pe, move |st| catch_panic! {
+            pe.apply_props(structure::MaybeProperties::new_title_display(match st.visible_child_name() {
+                Some(x) if x == "inline" => structure::TitleDisplay::Inline,
+                Some(x) if x == "major" => structure::TitleDisplay::Major,
+                Some(x) if x == "minor" => structure::TitleDisplay::Minor,
+                _ => return,
             }));
         }));
 
-        pe.children_display.connect_selected_notify(clone!(#[weak] pe, move |dd| catch_panic! {
-            pe.apply_props(structure::MaybeProperties::new_children_display(match dd.selected() {
-                0 => structure::ChildrenDisplay::Full,
-                1 => structure::ChildrenDisplay::Summary,
-                //2 => structure::ChildrenDisplay::None,
-                gtk::INVALID_LIST_POSITION => return,
-                x => panic!("unexpected selected index: {}", x)
+        pe.children_display.connect_visible_child_name_notify(clone!(#[weak] pe, move |st| catch_panic! {
+            pe.apply_props(structure::MaybeProperties::new_children_display(match st.visible_child_name() {
+                Some(x) if x == "full" => structure::ChildrenDisplay::Full,
+                Some(x) if x == "summary" => structure::ChildrenDisplay::Summary,
+                _ => return,
             }));
         }));
 
@@ -386,20 +383,20 @@ impl PropsEditor {
             None => self.size_entry.set_text(""),
         }
 
-        self.title_display.set_model(Some(&self.title_model));
-        self.title_display.set_selected(match props.title_display {
-            Some(structure::TitleDisplay::Inline) => 0,
-            Some(structure::TitleDisplay::Major) => 1,
-            Some(structure::TitleDisplay::Minor) => 2,
-            None => gtk::INVALID_LIST_POSITION,
+        self.title_display_switcher.set_sensitive(true);
+        self.title_display.set_visible_child_name(match props.title_display {
+            Some(structure::TitleDisplay::Inline) => "inline",
+            Some(structure::TitleDisplay::Major) => "major",
+            Some(structure::TitleDisplay::Minor) => "minor",
+            None => "inconsistent",
         });
 
-        self.children_display.set_model(Some(&self.children_model));
-        self.children_display.set_selected(match &props.children_display {
-            Some(structure::ChildrenDisplay::Full) => 0,
-            Some(structure::ChildrenDisplay::Summary) => 1,
-            Some(structure::ChildrenDisplay::None) => gtk::INVALID_LIST_POSITION,
-            None => gtk::INVALID_LIST_POSITION,
+        self.children_display_switcher.set_sensitive(true);
+        self.children_display.set_visible_child_name(match &props.children_display {
+            Some(structure::ChildrenDisplay::Full) => "full",
+            Some(structure::ChildrenDisplay::Summary) => "summary",
+            Some(structure::ChildrenDisplay::None) => "inconsistent",
+            None => "inconsistent",
         });
 
         self.content_display.set_model(Some(&self.content_model));
@@ -430,8 +427,10 @@ impl PropsEditor {
     fn deactivate_controls(&self) {
         self.name_entry.set_text("");
         self.size_entry.set_text("");
-        self.title_display.set_model(gio::ListModel::NONE);
-        self.children_display.set_model(gio::ListModel::NONE);
+        self.title_display_switcher.set_sensitive(false);
+        self.title_display.set_visible_child_name("inconsistent");
+        self.children_display_switcher.set_sensitive(false);
+        self.children_display.set_visible_child_name("inconsistent");
         self.content_display.set_model(gio::ListModel::NONE);
         self.locked.set_inconsistent(false);
         self.locked.set_active(false);
