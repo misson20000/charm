@@ -5,7 +5,6 @@ use std::sync;
 use gtk::prelude::*;
 use gtk::glib;
 use gtk::glib::clone;
-use gtk::gio;
 
 use crate::model::document;
 use crate::model::selection;
@@ -50,10 +49,6 @@ pub fn add_action(window_context: &window::WindowContext) {
     ).unwrap();
     
     window_context.action_group.add_action(&action);
-}
-
-fn update_enabled(action: &gio::SimpleAction, selection: &selection::TreeSelection) {
-    action.set_enabled(selection.any_selected() && !selection.root_selected());
 }
 
 impl DeleteNodeAction {
