@@ -236,14 +236,59 @@ mod imp {
             }
         }
 
-        fn unselect_item(&self, _position: u32) -> bool {
-            /* FFI CALLBACK: trivially panic-safe */
-            false
+        fn unselect_item(&self, position: u32) -> bool {
+            catch_panic! {
+                @default(false);
+                
+                if let Some(interior) = self.borrow_interior_mut() {
+                    let item = match interior.item(position) {
+                        Some(item) => item,
+                        None => return true
+                    };
+
+                    let info = item.imp().info.get().unwrap().borrow();
+                    
+                    let document = info.document.clone();
+                    let path = info.path.clone();
+
+                    std::mem::drop(info);
+                    
+                    self.change(interior, tree_model::Change::RemoveSingle(document, path));
+                    
+                    true
+                } else {
+                    true
+                }
+            }
         }
 
-        fn unselect_range(&self, _position: u32, _n_items: u32) -> bool {
-            /* FFI CALLBACK: trivially panic-safe */
-            false
+        fn unselect_range(&self, position: u32, n_items: u32) -> bool {
+            catch_panic! {
+                @default(false);
+                
+                if let Some(interior) = self.borrow_interior_mut() {
+                    self.change_multiple(interior, |interior| {
+                        let mut sel = interior.selection.clone();
+                        
+                        for i in position..(position+n_items) {
+                            let item = match interior.item(i) {
+                                Some(item) => item,
+                                None => continue
+                            };
+
+                            let info = item.imp().info.get().unwrap().borrow();
+
+                            sel = interior.selection_host.change(tree_model::Change::RemoveSingle(info.document.clone(), info.path.clone()))?;
+                        }
+
+                        Ok(sel)
+                    });
+
+                    true
+                } else {
+                    true
+                }
+            }
         }
     }
 
