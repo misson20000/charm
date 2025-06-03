@@ -192,6 +192,7 @@ pub enum AddressParseError {
     MalformedBytes(std::num::ParseIntError),
     MalformedBits(std::num::ParseIntError),
     TooManyBits,
+    TooLarge,
 }
 
 #[derive(Debug, PartialEq, Eq)]

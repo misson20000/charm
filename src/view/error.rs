@@ -197,6 +197,7 @@ impl Error {
                     model::addr::AddressParseError::MalformedBytes(e) => write!(msg, "the bytes section was malformed ({}).\n", e)?,
                     model::addr::AddressParseError::MalformedBits(e) => write!(msg, "the bytes section was malformed ({}).\n", e)?,
                     model::addr::AddressParseError::TooManyBits => write!(msg, "a bit was specified outside of 0-7.\n")?,
+                    model::addr::AddressParseError::TooLarge => write!(msg, "it was too large.\n")?,
                 }
             },
 

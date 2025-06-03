@@ -323,6 +323,8 @@
                         </child>
                         <child>
                           <object class="CharmAddrEntry" id="hexdump_line_pitch">
+                            <property name="byte-limit">256</property>
+                            <property name="has-limit">True</property>
                             <property name="hexpand">True</property>
                             <layout>
                               <property name="column">1</property>
@@ -334,6 +336,8 @@
                         </child>
                         <child>
                           <object class="CharmAddrEntry" id="hexdump_gutter_pitch">
+                            <property name="byte-limit">256</property>
+                            <property name="has-limit">True</property>
                             <property name="hexpand">True</property>
                             <layout>
                               <property name="column">1</property>
@@ -398,6 +402,8 @@
                         </child>
                         <child>
                           <object class="CharmAddrEntry" id="bindump_line_pitch">
+                            <property name="byte-limit">256</property>
+                            <property name="has-limit">True</property>
                             <property name="hexpand">True</property>
                             <layout>
                               <property name="column">1</property>
@@ -409,6 +415,8 @@
                         </child>
                         <child>
                           <object class="CharmAddrEntry" id="bindump_word_size">
+                            <property name="byte-limit">256</property>
+                            <property name="has-limit">True</property>
                             <property name="hexpand">True</property>
                             <layout>
                               <property name="column">1</property>

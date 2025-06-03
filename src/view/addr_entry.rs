@@ -54,6 +54,10 @@ mod imp {
         pub addr: cell::RefCell<Result<addr::Offset, addr::AddressParseError>>,
         #[property(get,set)]
         pub forbid_bits: cell::Cell<bool>,
+        #[property(get,set)]
+        pub has_limit: cell::Cell<bool>,
+        #[property(get,set)]
+        pub byte_limit: cell::Cell<u64>,
     }
 
     impl Default for AddrEntry {
@@ -61,6 +65,8 @@ mod imp {
             Self {
                 addr: cell::RefCell::new(Err(addr::AddressParseError::EmptyString)),
                 forbid_bits: cell::Cell::new(false),
+                has_limit: cell::Cell::new(false),
+                byte_limit: cell::Cell::new(0),
             }
         }
     }
@@ -99,17 +105,23 @@ mod imp {
     impl AddrEntry {
         fn refresh(&self) {
             match addr::Offset::parse(&self.obj().text(), false) {
-                Ok(addr) if !self.forbid_bits.get() || addr.bits() == 0 => {
-                    self.obj().set_css_classes(&[]);
-                    self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, None);
-                    self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, None);
-                    *self.addr.borrow_mut() = Ok(addr);
-                },
-                Ok(_) => {
+                Ok(addr) if self.forbid_bits.get() && addr.bits() != 0 => {
                     self.obj().set_css_classes(&["error"]);
                     self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, Some("dialog-error"));
                     self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, Some("must be byte-aligned"));
                     *self.addr.borrow_mut() = Err(addr::AddressParseError::TooManyBits);
+                },
+                Ok(addr) if self.has_limit.get() && addr.bytes() > self.byte_limit.get() => {
+                    self.obj().set_css_classes(&["error"]);
+                    self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, Some("dialog-error"));
+                    self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, Some(&format!("exceeds limit of 0x{:x} bytes", self.byte_limit.get())));
+                    *self.addr.borrow_mut() = Err(addr::AddressParseError::TooLarge);
+                },
+                Ok(addr) => {
+                    self.obj().set_css_classes(&[]);
+                    self.obj().set_icon_from_icon_name(gtk::EntryIconPosition::Secondary, None);
+                    self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, None);
+                    *self.addr.borrow_mut() = Ok(addr);
                 },
                 Err(e) => {
                     self.obj().set_css_classes(&["error"]);
@@ -120,6 +132,7 @@ mod imp {
                         addr::AddressParseError::MalformedBytes(pie) => format!("failed to parse bytes: {}", pie),
                         addr::AddressParseError::MalformedBits(pie) => format!("failed to parse bits: {}", pie),
                         addr::AddressParseError::TooManyBits => "bit offset too large".to_string(),
+                        addr::AddressParseError::TooLarge => "too large".to_string(),
                     };
                     
                     self.obj().set_icon_tooltip_text(gtk::EntryIconPosition::Secondary, Some(&error_string));

@@ -20,9 +20,11 @@
   <type_child_constraint>
   </type_child_constraint>
   <property>
-    ("CharmAddrEntry","forbid-bits","gboolean",None, None, None, None, None, None, None, None, None, None, None, None, None, None, None)
+    ("CharmAddrEntry","forbid-bits","gboolean",None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+    ("CharmAddrEntry","has-limit","gboolean",None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+    ("CharmAddrEntry","byte-limit","uint64_t",None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
   </property>
   <signal>
-    ("CharmAddrEntry","addr-changed",None,None,None)
+    ("CharmAddrEntry","addr-changed",None,None,None),
   </signal>
 </cambalache-catalog>
