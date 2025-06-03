@@ -164,6 +164,8 @@ impl CreateArrayAction {
         if current_value < 0 || current_value as u64 != count {
             self.item_count_spinner.set_value(count as f64);
         }
+
+        self.high_count_warning.set_visible(count > 1000);
         
         if let Some(a) = self.activation.borrow().as_ref() {
             let new_total_size = a.item_size() * count;
@@ -307,6 +309,7 @@ impl CreateArrayAction {
         self.name_postfix.set_text(&postfix);
         self.item_size_display.set_addr(activation.item_size());
         self.item_count_spinner.set_value(1.0);
+        self.high_count_warning.set_visible(false);
         self.total_size_entry.set_addr(activation.item_size());
         self.path_display.set_text(&activation.document.describe_path(activation.path()));
         
