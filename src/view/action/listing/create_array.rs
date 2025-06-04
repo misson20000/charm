@@ -54,6 +54,7 @@ enum Mode {
 
 struct CreateArrayActivation {
     document: sync::Arc<document::Document>,
+    props: structure::Properties,
     mode: Mode,
 }
 
@@ -183,10 +184,6 @@ impl CreateArrayAction {
         self.create_button.set_sensitive(ok);
     }
     
-    fn change(&self) -> Result<document::change::Change, error::Error> {
-        todo!();
-    }
-    
     fn do_create(&self) {
         if let Some(window) = self.window.upgrade() {
             let Some(activation) = self.activation.take() else { return };
@@ -211,7 +208,8 @@ impl CreateArrayAction {
 
                     let size = range.extent().len();
 
-                    let mut props = structure::Properties::default();
+                    let mut props = activation.props.clone();
+                    props.title_display = structure::TitleDisplay::Inline;
                     props.name = format!("{}0{}", name_prefix, name_postfix);
                     
                     let change = match range.to_sibling_range_and_extent() {
@@ -272,6 +270,7 @@ impl CreateArrayAction {
 
                 CreateArrayActivation {
                     document: selection.document.clone(),
+                    props: selection.document.lookup_node(&range.path[..]).0.props.clone(),
                     mode: Mode::Range(range.clone()),
                 }
             },
@@ -285,6 +284,7 @@ impl CreateArrayAction {
                     /* Explicitly forbid the root node. */
                     cursor::CursorClass::Title(tc) if tc.get_token().node_path().len() > 0 => CreateArrayActivation {
                         document: cursor.document(),
+                        props: tc.get_token().node().props.clone(),
                         mode: Mode::Node {
                             path: tc.get_token().node_path().clone(),
                             node: tc.get_token().node().clone(),
