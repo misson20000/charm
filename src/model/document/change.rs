@@ -1202,6 +1202,39 @@ mod tests {
         assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
         assert_eq!(path, vec![1, 7]);
     }
+
+    #[test]
+    fn test_update_path_through_repeat() {
+        let record = ApplyRecord::Repeat {
+            path: vec![1, 2],
+            pitch: 0x20.into(),
+            count: 100,
+        };
+
+        /* unrelated path */
+        let mut path = vec![2];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Unmoved);
+        assert_eq!(path, vec![2]);        
+
+        /* siblings of repeated node */
+        let mut path = vec![1, 3];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Unmoved);
+        assert_eq!(path, vec![1, 3]);
+        
+        let mut path = vec![1, 1];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Unmoved);
+        assert_eq!(path, vec![1, 1]);
+
+        /* repeated node */
+        let mut path = vec![1, 2];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
+        assert_eq!(path, vec![1, 2, 0]);        
+
+        /* child of repeated node */
+        let mut path = vec![1, 2, 9];
+        assert_eq!(record.update_path(&mut path), UpdatePathResult::Moved);
+        assert_eq!(path, vec![1, 2, 0, 9]);        
+    }
     
     /* This exists to produce errors if another ApplyRecord gets added without corresponding tests. */
     fn update_path_exhaustiveness(ty: ApplyRecord) {
@@ -1215,6 +1248,7 @@ mod tests {
             ApplyRecord::StackFilter { .. } => { /* not structural; n/a */ },
             ApplyRecord::Resize { .. } => { /* doesn't affect paths; n/a */ },
             ApplyRecord::Paste { .. } => test_update_path_through_paste(),
+            ApplyRecord::Repeat { .. } => test_update_path_through_repeat(),
             /* Make tests for your new ApplyRecord! */
         }
     }
@@ -1677,7 +1711,6 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut new_doc), Err(ApplyError { ty: ApplyErrorType::ResizedSmallerThanChildren, .. }));
     }
-
     
     #[test]
     fn test_structural_change_paste() {
@@ -1739,6 +1772,58 @@ mod tests {
         assert_eq!(old_doc.root.children[1].offset, new_doc.root.children[3].offset);
     }
 
+    #[test]
+    fn test_structural_change_repeat() {
+        let doc = create_test_document_2();
+
+        let mut new_doc = doc.clone();
+        assert_matches!(Change {
+            ty: ChangeType::Repeat {
+                path: vec![1],
+                pitch: 0x20.into(),
+                count: 100,
+                name_prefix: "[".to_string(),
+                name_postfix: "]".to_string(),
+                props: structure::Properties::default(),
+            },
+            generation: doc.generation(),
+        }.apply(&mut new_doc), Err(ApplyError {
+            ty: ApplyErrorType::InvalidParameters("array would be too long to fit within parent node"),
+            ..
+        }));
+
+        match (Change {
+            ty: ChangeType::Repeat {
+                path: vec![1],
+                pitch: 0x10.into(),
+                count: 2,
+                name_prefix: "[".to_string(),
+                name_postfix: "]".to_string(),
+                props: structure::Properties::default().clone_rename("array".to_string()),
+            },
+            generation: doc.generation(),
+        }.apply(&mut new_doc)) {
+            Ok((_, ApplyRecord::Repeat {
+                path,
+                pitch,
+                count: 2,
+            })) if path[..] == [1] && pitch == 0x10.into() => {},
+            x => panic!("got wrong record from apply: {:?}", x)
+        };
+
+        let array_node = new_doc.lookup_node(&[1]).0;
+        assert_eq!(array_node.props.name, "array");
+        assert_eq!(array_node.children[0].node.props.name, "[0]");
+        assert_eq!(array_node.children[1].node.props.name, "[1]");
+        assert_eq!(array_node.children[1].offset, 0x10.into());
+
+        /* check that the array nodes have the same children */
+        for (l, r) in array_node.children[0].node.children.iter().zip(doc.root.children[1].node.children.iter()) {
+            assert_eq!(l.offset, r.offset);
+            assert!(sync::Arc::ptr_eq(&l.node, &r.node));
+        }
+    }
+    
     /* This exists to produce errors if another ChangeType gets added without corresponding tests. */
     fn structural_change_exhaustiveness(ty: ChangeType) {
         match ty {
@@ -1751,6 +1836,7 @@ mod tests {
             ChangeType::StackFilter { .. } => { /* n/a; not structural */ },
             ChangeType::Resize { .. } => test_structural_change_resize(),
             ChangeType::Paste { .. } => test_structural_change_paste(),
+            ChangeType::Repeat { .. } => test_structural_change_repeat(),
             /* Make tests for your new ChangeType! */
         }
     }
