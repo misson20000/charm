@@ -1,5 +1,6 @@
 use std::string;
 use std::sync;
+use std::time;
 use std::vec;
 
 use crate::model::space;
@@ -140,6 +141,13 @@ impl Filter {
             Filter::Insert(f) => f.human_affects_size(),
         }
     }
+
+    pub fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
+        match self {
+            Filter::LoadSpace(f) => f.is_dirty_since(timestamp),
+            _ => false,
+        }
+    }
 }
 
 impl DataPath {
@@ -191,6 +199,15 @@ impl DataPath {
         }
     }
 
+    /// Returns whether or not we can reasonably expect data accessed at the
+    /// provided time to be the same as if you accessed it now. This is on a
+    /// best-effort basis and is used to warn the user when they are pasting
+    /// data out of a file that has been modified since the data was lazily
+    /// copied, and they might not get the same data they thought they were
+    /// copying.
+    pub fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
+        self.filters.iter().any(|f| f.is_dirty_since(timestamp))
+    }
 }
     
 impl<'a> FetchRequest<'a> {
@@ -417,6 +434,10 @@ impl LoadSpaceFilter {
 
     pub fn cache_block_count(&self) -> std::num::NonZeroUsize {
         self.cache.block_count
+    }
+
+    pub fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
+        self.cache.space.is_dirty_since(timestamp)
     }
 }
 

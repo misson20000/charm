@@ -1,4 +1,5 @@
 use std::sync;
+use std::time;
 use std::vec;
 
 pub mod cache;
@@ -15,6 +16,11 @@ pub enum FetchResult {
 pub trait AddressSpaceExt {
     fn get_label(&self) -> &str;
     fn fetch(&self, extent: (u64, u64)) -> impl std::future::Future<Output = FetchResult>;
+
+    /// Returns whether or not the underlying data may have been
+    /// modified since the provided timestamp. This doesn't need to be
+    /// precise, this is just a best-effort guess.
+    fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool;
 }
 
 pub enum AddressSpace {
@@ -41,6 +47,12 @@ impl AddressSpaceExt for AddressSpace {
     async fn fetch(&self, extent: (u64, u64)) -> FetchResult {
         match self {
             AddressSpace::File(fas) => fas.fetch(extent).await,
+        }
+    }
+
+    fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
+        match self {
+            AddressSpace::File(fas) => fas.is_dirty_since(timestamp),
         }
     }
 }

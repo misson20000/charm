@@ -1,6 +1,7 @@
-use std::sync;
-use std::vec;
 use std::string;
+use std::sync;
+use std::time;
+use std::vec;
 use std::io::Read;
 use std::io::Seek;
 
@@ -95,5 +96,15 @@ impl space::AddressSpaceExt for FileAddressSpace {
         tokio::time::sleep(tokio::time::Duration::from_millis(get_file_access_delay())).await;
 
         self.read_sync(extent.0, vec![0; extent.1 as usize])
+    }
+
+    fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
+        let Ok(meta) = std::fs::metadata(&self.path) else { return false };
+
+        if let Ok(modified) = meta.modified() {
+            return modified > timestamp;
+        }
+
+        false
     }
 }
