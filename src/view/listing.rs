@@ -290,6 +290,7 @@ impl WidgetImpl for ListingWidgetImp {
                 &render.pango,
                 &render.font_mono,
                 render.config.text_color.rgba(),
+                &render.config,
                 match &interior.mode_line_text() {
                     Ok(t) => &t,
                     Err(_) => "(failed to format mode line text)",
@@ -308,6 +309,7 @@ impl WidgetImpl for ListingWidgetImp {
                 &render.pango,
                 &render.font_bold,
                 render.config.mode_text_color.rgba(),
+                &render.config,
                 interior.mode.name(),
                 &mut graphene::Point::new(render.config.padding as f32, widget.height() as f32 - ml_pad - helpers::pango_unscale(render.metrics.descent()))
             ).render(&snapshot);

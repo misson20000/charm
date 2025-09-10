@@ -204,10 +204,10 @@ impl bucket::Bucket for BindumpBucket {
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(bit) };
 
-                        ctx.render.gsc_mono.begin(digit, text_color, &mut bit_point)
-                            .selected(selected, ctx.render.config.selection_color.rgba())
-                            .cursor(has_cursor, ctx.cursor, ctx.render.config.cursor_fg_color.rgba(), ctx.render.config.cursor_bg_color.rgba())
-                            .placeholder(pending, ctx.render.config.placeholder_color.rgba())
+                        ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut bit_point)
+                            .selected(selected)
+                            .cursor(has_cursor, ctx.cursor)
+                            .placeholder(pending)
                             .render(ctx.snapshot);
                     }
                 }

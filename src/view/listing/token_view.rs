@@ -112,9 +112,9 @@ impl TokenView {
         
         match &self.token {
             token::Token::BlankLine(token) if token.accepts_cursor && has_cursor => {
-                render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationKind::Space), render.config.text_color.rgba(), &mut pos)
-                    .cursor(true, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationKind::Space), render.config.text_color.rgba(), &render.config, &mut pos)
+                    .cursor(true, cursor)
+                    .selected(selection.is_total())
                     .render(snapshot);
             },
             token::Token::SummaryPunctuation(token) => {
@@ -123,15 +123,15 @@ impl TokenView {
                     _ => selection.is_total()
                 };
                 
-                render.gsc_mono.begin(gsc::Entry::Punctuation(token.kind), render.config.text_color.rgba(), &mut pos)
-                    .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selected, render.config.selection_color.rgba())
+                render.gsc_mono.begin(gsc::Entry::Punctuation(token.kind), render.config.text_color.rgba(), &render.config, &mut pos)
+                    .cursor(has_cursor, cursor)
+                    .selected(selected)
                     .render(snapshot);
 
                 /* need to render space separately so it doesn't draw cursor because that looks bad */
                 match token.kind {
-                    token::PunctuationKind::Comma => render.gsc_mono.begin(gsc::Entry::Space, render.config.text_color.rgba(), &mut pos)
-                        .selected(selected, render.config.selection_color.rgba())
+                    token::PunctuationKind::Comma => render.gsc_mono.begin(gsc::Entry::Space, render.config.text_color.rgba(), &render.config, &mut pos)
+                        .selected(selected)
                         .render(snapshot),
                     
                     _ => {}
@@ -142,17 +142,19 @@ impl TokenView {
                     &render.pango,
                     &render.font_bold,
                     render.config.text_color.rgba(),
+                    &render.config,
                     &token.common.node.props.name,
                     &mut pos)
-                    .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                    .cursor(has_cursor, cursor)
+                    .selected(selection.is_total())
                     .render(snapshot);
 
                 render.gsc_bold.begin(
                     gsc::Entry::Colon,
                     render.config.text_color.rgba(),
+                    &render.config,
                     &mut pos)
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                    .selected(selection.is_total())
                     .render(snapshot);
             },
             token::Token::SummaryLabel(token) => {
@@ -160,25 +162,27 @@ impl TokenView {
                     &render.pango,
                     &render.font_bold,
                     render.config.text_color.rgba(),
+                    &render.config,
                     &token.common.node.props.name,
                     &mut pos)
-                    .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                    .cursor(has_cursor, cursor)
+                    .selected(selection.is_total())
                     .render(snapshot);
                 
                 render.gsc_bold.begin(
                     gsc::Entry::Colon,
                     render.config.text_color.rgba(),
+                    &render.config,
                     &mut pos)
-                    .selected(selection.is_total(), render.config.selection_color.rgba())
+                    .selected(selection.is_total())
                     .render(snapshot);
             },
             token::Token::Ellipsis(token) => {
                 let selected = selection.overlaps(token.extent, token.common().node_child_index);
                 
-                render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &mut pos)
-                    .cursor(has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                    .selected(selected, render.config.selection_color.rgba())
+                render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &render.config, &mut pos)
+                    .cursor(has_cursor, cursor)
+                    .selected(selected)
                     .render(snapshot);
             },
             token::Token::Hexdump(_) => {
@@ -212,10 +216,10 @@ impl TokenView {
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
                     
-                        render.gsc_mono.begin(digit, text_color, &mut pos)
-                            .cursor(nybble_has_cursor, cursor, render.config.cursor_fg_color.rgba(), render.config.cursor_bg_color.rgba())
-                            .selected(selected, render.config.selection_color.rgba())
-                            .placeholder(pending, render.config.placeholder_color.rgba())
+                        render.gsc_mono.begin(digit, text_color, &render.config, &mut pos)
+                            .cursor(nybble_has_cursor, cursor)
+                            .selected(selected)
+                            .placeholder(pending)
                             .render(snapshot);
                     }
                 }

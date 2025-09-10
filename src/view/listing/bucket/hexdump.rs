@@ -200,10 +200,10 @@ impl bucket::Bucket for HexdumpBucket {
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
-                        ctx.render.gsc_mono.begin(digit, text_color, &mut octet_point)
-                            .selected(selected, ctx.render.config.selection_color.rgba())
-                            .cursor(has_cursor, ctx.cursor, ctx.render.config.cursor_fg_color.rgba(), ctx.render.config.cursor_bg_color.rgba())
-                            .placeholder(pending, ctx.render.config.placeholder_color.rgba())
+                        ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut octet_point)
+                            .selected(selected)
+                            .cursor(has_cursor, ctx.cursor)
+                            .placeholder(pending)
                             .render(ctx.snapshot);
                     }
                 }
@@ -247,9 +247,9 @@ impl bucket::Bucket for HexdumpBucket {
 
                             let mut char_point = graphene::Point::new(x + space_width * i as f32, lh);
                         
-                            ctx.render.gsc_mono.begin(digit, text_color, &mut char_point)
-                                .selected(selected, ctx.render.config.selection_color.rgba())
-                                .placeholder(pending, ctx.render.config.placeholder_color.rgba())
+                            ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut char_point)
+                                .selected(selected)
+                                .placeholder(pending)
                                 .render(ctx.snapshot);
                         }
                     }

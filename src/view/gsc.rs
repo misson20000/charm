@@ -3,6 +3,7 @@
 const DIGIT_STRINGS: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
 use crate::model::listing::token;
+use crate::view::config;
 use crate::view::helpers;
 use crate::view::listing::facet::cursor::CursorView;
 
@@ -55,6 +56,7 @@ pub struct TextBuilder<'a, I: Iterator<Item = pango::GlyphString>> {
 struct TextConfig<'a> {
     font: &'a pango::Font,
     color: &'a gdk::RGBA,
+    config: &'a config::Config,
     cursor: Option<CursorConfig<'a>>,
     selected: Option<&'a gdk::RGBA>,
     placeholder: Option<&'a gdk::RGBA>,
@@ -118,13 +120,14 @@ impl Cache {
         }
     }
 
-    pub fn begin<'a>(&'a self, entry: Entry, color: &'a gdk::RGBA, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString>> {
+    pub fn begin<'a>(&'a self, entry: Entry, color: &'a gdk::RGBA, config: &'a config::Config, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString>> {
         TextBuilder {
             iterator: self.get(entry).cloned().into_iter(),
             pos,
             config: TextConfig {
                 font: &self.font,
                 color,
+                config,
                 cursor: None,
                 selected: None,
                 placeholder: None,
@@ -132,13 +135,14 @@ impl Cache {
         }
     }
 
-    pub fn begin_iter<'a, I: Iterator<Item = Entry> + 'a>(&'a self, entries: I, color: &'a gdk::RGBA, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString> + 'a> {
+    pub fn begin_iter<'a, I: Iterator<Item = Entry> + 'a>(&'a self, entries: I, color: &'a gdk::RGBA, config: &'a config::Config, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl Iterator<Item = pango::GlyphString> + 'a> {
         TextBuilder {
             iterator: entries.map(|e| self.get(e).cloned()).flatten(),
             pos,
             config: TextConfig {
                 font: &self.font,
                 color,
+                config,
                 cursor: None,
                 selected: None,
                 placeholder: None,
@@ -147,7 +151,7 @@ impl Cache {
     }
 }
 
-pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a gdk::RGBA, text: &'a str, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl std::iter::DoubleEndedIterator<Item = pango::GlyphString> + 'a> {
+pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a gdk::RGBA, config: &'a config::Config, text: &'a str, pos: &'a mut graphene::Point) -> TextBuilder<'a, impl std::iter::DoubleEndedIterator<Item = pango::GlyphString> + 'a> {
     let old_desc = pg.font_description();
     pg.set_font_description(Some(&font.describe()));
     let items = pango::itemize(pg, text, 0, text.len() as i32, &pango::AttrList::new(), None);
@@ -163,6 +167,7 @@ pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a 
         config: TextConfig {
             font,
             color,
+            config,
             cursor: None,
             selected: None,
             placeholder: None,
@@ -171,27 +176,27 @@ pub fn begin_text<'a>(pg: &'a pango::Context, font: &'a pango::Font, color: &'a 
 }
 
 impl<'a, I: Iterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
-    pub fn cursor(mut self, enable: bool, cursor: &'a CursorView, cursor_fg_color: &'a gdk::RGBA, cursor_bg_color: &'a gdk::RGBA) -> Self {
+    pub fn cursor(mut self, enable: bool, cursor: &'a CursorView) -> Self {
         if enable {
             self.config.cursor = Some(CursorConfig {
                 cursor,
-                cursor_fg_color,
-                cursor_bg_color,
+                cursor_fg_color: &self.config.config.cursor_fg_color.rgba(),
+                cursor_bg_color: &self.config.config.cursor_bg_color.rgba(),
             });
         }
         self
     }
 
-    pub fn selected(mut self, enable: bool, selection_bg_color: &'a gdk::RGBA) -> Self {
+    pub fn selected(mut self, enable: bool) -> Self {
         if enable {
-            self.config.selected = Some(selection_bg_color);
+            self.config.selected = Some(self.config.config.selection_color.rgba());
         }
         self
     }
 
-    pub fn placeholder(mut self, enable: bool, placeholder_color: &'a gdk::RGBA) -> Self {
+    pub fn placeholder(mut self, enable: bool) -> Self {
         if enable {
-            self.config.placeholder = Some(placeholder_color);
+            self.config.placeholder = Some(self.config.config.placeholder_color.rgba());
         }
         
         self
