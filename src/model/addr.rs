@@ -315,7 +315,7 @@ impl<Kind> PartialEq for Extent<Kind> {
 
 impl Extent<AbsoluteAddressKind> {
     pub fn relative_to(&self, base: AbsoluteAddress) -> Extent<OffsetKind> {
-        Extent { begin: base - self.begin, end: base - self.end }
+        Extent { begin: self.begin - base, end: self.end - base }
     }
 }
 
@@ -404,6 +404,16 @@ mod tests {
     #[test]
     fn extent_comparisons() {
         assert_eq!(Extent::<OffsetKind>::sized(4, 5), Extent::<OffsetKind>::between(4, 9));
+    }
+
+    #[test]
+    fn extent_relativity() {
+        let extent = Extent::<OffsetKind>::sized(4, 5);
+        let addr = AbsoluteAddress::from(100);
+
+        let absolute_extent = extent.absolute_from(addr);
+        assert_eq!(absolute_extent, AbsoluteExtent::sized(104, 5));
+        assert_eq!(absolute_extent.relative_to(addr), extent);
     }
 }
 
