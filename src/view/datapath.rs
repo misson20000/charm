@@ -36,6 +36,7 @@ fn update_store(store: &gtk::ListStore, document: &sync::Arc<document::Document>
             (0, match filter {
                 datapath::Filter::LoadSpace(_) => &"Load Address Space",
                 datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
+                datapath::Filter::Fill(_) => &"Fill Bytes",
                 datapath::Filter::Move(_) => &"Move Bytes",
                 datapath::Filter::Insert(_) => &"Insert Bytes",
             }),

@@ -34,6 +34,7 @@ pub enum Action {
     SelectDescendants,
     SelectAll,
     SelectNone,
+    FillZeros,
 
     ModifyTreeSelection,
     RubberBandSelection,
@@ -121,6 +122,7 @@ impl Error {
             Action::SelectDescendants => "Failed to select descendants.",
             Action::SelectAll => "Failed to select all.",
             Action::SelectNone => "Failed to select none.",
+            Action::FillZeros => "Failed to fill selection with zeros.",
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",

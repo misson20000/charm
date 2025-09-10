@@ -218,13 +218,27 @@ impl Document {
             ty: change::ChangeType::StackFilter {
                 filter: datapath::OverwriteFilter {
                     offset: location,
-                    bytes: vec![patch]
+                    bytes: vec![patch],
                 }.to_filter()
             },
             generation: self.generation(),
         }
     }
 
+    #[must_use]
+    pub fn fill_with_zeros(&self, location: u64, len: u64) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::StackFilter {
+                filter: datapath::FillFilter {
+                    offset: location,
+                    bytes: vec![0],
+                    len,
+                }.to_filter()
+            },
+            generation: self.generation(),
+        }
+    }
+    
     #[must_use]
     pub fn insert_byte(&self, location: u64, patch: u8) -> change::Change {
         change::Change {

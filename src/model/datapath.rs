@@ -85,6 +85,7 @@ enum RequestSlice<'a> {
 pub enum Filter {
     LoadSpace(LoadSpaceFilter),
     Overwrite(OverwriteFilter),
+    Fill(FillFilter),
     Move(MoveFilter),
     Insert(InsertFilter),
 }
@@ -99,6 +100,7 @@ impl Filter {
         match (a, b) {
             (Filter::LoadSpace(_), Filter::LoadSpace(_)) => None,
             (Filter::Overwrite(ai), Filter::Overwrite(bi)) => OverwriteFilter::stack(ai, bi).map(Filter::Overwrite),
+            (Filter::Fill(ai), Filter::Fill(bi)) => FillFilter::stack(ai, bi).map(Filter::Fill),
             (Filter::Move(ai), Filter::Move(bi)) => MoveFilter::stack(ai, bi).map(Filter::Move),
             (Filter::Insert(ai), Filter::Insert(bi)) => InsertFilter::stack(ai, bi).map(Filter::Insert),
             (Filter::Insert(ai), Filter::Overwrite(bi)) => InsertFilter::stack_overwrite(ai, bi).map(Filter::Insert),
@@ -110,6 +112,7 @@ impl Filter {
         match self {
             Filter::LoadSpace(f) => f.load(rq).await,
             Filter::Overwrite(f) => f.load(rq),
+            Filter::Fill(f) => f.load(rq),
             Filter::Move(_f) => todo!(),//f.load(iter, rq),
             Filter::Insert(_f) => todo!(),//f.load(iter, rq),
         }
@@ -119,6 +122,7 @@ impl Filter {
         match self {
             Filter::LoadSpace(f) => f.human_details(),
             Filter::Overwrite(f) => f.human_details(),
+            Filter::Fill(f) => f.human_details(),
             Filter::Move(f) => f.human_details(),
             Filter::Insert(f) => f.human_details(),
         }
@@ -128,6 +132,7 @@ impl Filter {
         match self {
             Filter::LoadSpace(f) => f.human_affects_addr(),
             Filter::Overwrite(f) => f.human_affects_addr(),
+            Filter::Fill(f) => f.human_affects_addr(),
             Filter::Move(f) => f.human_affects_addr(),
             Filter::Insert(f) => f.human_affects_addr(),
         }
@@ -137,6 +142,7 @@ impl Filter {
         match self {
             Filter::LoadSpace(f) => f.human_affects_size(),
             Filter::Overwrite(f) => f.human_affects_size(),
+            Filter::Fill(f) => f.human_affects_size(),
             Filter::Move(f) => f.human_affects_size(),
             Filter::Insert(f) => f.human_affects_size(),
         }
@@ -301,6 +307,13 @@ pub struct LoadSpaceFilter {
 pub struct OverwriteFilter {
     pub offset: u64,
     pub bytes: vec::Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FillFilter {
+    pub offset: u64,
+    pub bytes: vec::Vec<u8>,
+    pub len: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -538,6 +551,67 @@ impl OverwriteFilter {
     
     pub fn to_filter(self) -> Filter {
         Filter::Overwrite(self)
+    }
+}
+
+impl FillFilter {
+    fn load<'a>(&self, rq: FetchRequest<'a>) -> FilterFetchResult<'a> {
+        if rq.ignore_edits {
+            return FilterFetchResult::Pass(rq);
+        }
+        
+        let (before, overlap, after) = rq.split3(self.offset, Some(self.len));
+
+        /* Process this immediately since callers can observe that this data loads instantly even if data before it takes a while to load asynchronously. */
+        if !overlap.is_empty() {
+            let offset = (overlap.addr - self.offset) as usize;
+            
+            for i in 0..(overlap.len() as usize) {
+                overlap.data[i].store(self.bytes[(i + offset) % self.bytes.len()], Ordering::Relaxed);
+            }
+
+            if let Some(flags) = overlap.flags.as_ref() {
+                /* This guarantees that if another thread observes a LOADED flag, it will also observe our earlier write to the corresponding data field. */
+                sync::atomic::fence(Ordering::Release);
+                
+                for f in flags.iter() {
+                    f.fetch_or(FetchFlags::OVERWRITTEN, Ordering::Acquire);
+                }
+            }
+        }
+
+        if !before.is_empty() {
+            return FilterFetchResult::Pass(before);
+        }
+
+        if !overlap.is_empty() {
+            return FilterFetchResult::Done(FetchResult {
+                flags: FetchFlags::OVERWRITTEN,
+                loaded: overlap.len(),
+            });
+        }
+
+        FilterFetchResult::Pass(after)
+    }
+        
+    fn stack(_a: &FillFilter, _b: &FillFilter) -> Option<FillFilter> {
+        None
+    }
+
+    fn human_details(&self) -> string::String {
+        util::fmt_hex_slice(&self.bytes).unwrap_or_else(|_| "error".to_string())
+    }
+
+    fn human_affects_addr(&self) -> u64 {
+        self.offset
+    }
+
+    fn human_affects_size(&self) -> Option<u64> {
+        Some(self.len)
+    }
+    
+    pub fn to_filter(self) -> Filter {
+        Filter::Fill(self)
     }
 }
 

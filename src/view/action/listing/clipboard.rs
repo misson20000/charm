@@ -82,7 +82,8 @@ pub fn add_actions(window_context: &window::WindowContext) {
     
     let window = window_context.window.clone();
     action_impl.update_is_enabled();
-    
+
+    // TODO: this usage of #[strong] window is confusing but I think it's correct. I think it's a strong reference to a weak reference. Need to double check this, then write a comment explaining.
     gio_cut_action.connect_activate(clone!(#[strong] window, #[strong] action_impl, move |_, _| catch_panic! {
         let Some(window) = window.upgrade() else { return };
         

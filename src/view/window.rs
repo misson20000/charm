@@ -122,6 +122,12 @@ impl CharmWindow {
                 menu_bar.append_submenu(Some("Edit"), &edit_menu);
             }
             {
+                let data_menu = gio::Menu::new();
+                data_menu.append(Some("Fill with zeros"), Some("ctx.fill_zeros"));
+                data_menu.freeze();
+                menu_bar.append_submenu(Some("Data"), &data_menu);
+            }
+            {
                 let struct_menu = gio::Menu::new();
                 struct_menu.append(Some("Insert byte at cursor"), Some("ctx.insert_byte"));
                 struct_menu.append(Some("Insert word at cursor"), Some("ctx.insert_word"));
@@ -547,6 +553,7 @@ impl WindowContext {
         action::listing::mode::add_action(&wc);
         action::listing::clipboard::add_actions(&wc);
         action::listing::import_file::add_action(&wc);
+        action::listing::data::fill_zeros::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

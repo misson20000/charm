@@ -131,6 +131,14 @@ impl<Kind> Address<Kind> {
         Self::new(self.bytes(), 0)
     }
 
+    pub fn truncate_or_else<F, E>(&self, error_cb: F) -> Result<u64, E> where F: FnOnce() -> E {
+        if self.bits() == 0 {
+            Ok(self.bytes())
+        } else {
+            Err(error_cb())
+        }
+    }
+
     pub fn round_up(&self) -> Self {
         if self.bits() == 0 || self.bits() == 8 {
             *self

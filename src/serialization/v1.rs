@@ -83,6 +83,8 @@ enum Filter {
     Overwrite(OverwriteFilter),
     Move(MoveFilter),
     Insert(InsertFilter),
+    /* This doesn't match the order in datapath because it was added later */
+    Fill(FillFilter),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,7 +102,14 @@ struct LoadSpaceFilter {
 #[derive(Serialize, Deserialize)]
 struct OverwriteFilter {
     offset: u64,
-    bytes: vec::Vec<u8>
+    bytes: vec::Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FillFilter {
+    offset: u64,
+    bytes: vec::Vec<u8>,
+    len: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -251,6 +260,7 @@ impl From<&datapath::Filter> for Filter {
         match f {
             datapath::Filter::LoadSpace(f) => Filter::LoadSpace(LoadSpaceFilter::from(f)),
             datapath::Filter::Overwrite(f) => Filter::Overwrite(OverwriteFilter::from(f)),
+            datapath::Filter::Fill(f) => Filter::Fill(FillFilter::from(f)),
             datapath::Filter::Move(f) => Filter::Move(MoveFilter::from(f)),
             datapath::Filter::Insert(f) => Filter::Insert(InsertFilter::from(f)),
         }
@@ -262,6 +272,7 @@ impl Into<datapath::Filter> for Filter {
         match self {
             Filter::LoadSpace(f) => datapath::Filter::LoadSpace(f.into()),
             Filter::Overwrite(f) => datapath::Filter::Overwrite(f.into()),
+            Filter::Fill(f) => datapath::Filter::Fill(f.into()),
             Filter::Move(f) => datapath::Filter::Move(f.into()),
             Filter::Insert(f) => datapath::Filter::Insert(f.into()),
         }
@@ -309,6 +320,26 @@ impl Into<datapath::OverwriteFilter> for OverwriteFilter {
         datapath::OverwriteFilter {
             offset: self.offset,
             bytes: self.bytes,
+        }
+    }
+}
+
+impl From<&datapath::FillFilter> for FillFilter {
+    fn from(f: &datapath::FillFilter) -> FillFilter {
+        FillFilter {
+            offset: f.offset,
+            bytes: f.bytes.clone(),
+            len: f.len,
+        }
+    }
+}
+
+impl Into<datapath::FillFilter> for FillFilter {
+    fn into(self) -> datapath::FillFilter {
+        datapath::FillFilter {
+            offset: self.offset,
+            bytes: self.bytes,
+            len: self.len,
         }
     }
 }

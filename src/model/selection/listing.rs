@@ -7,7 +7,7 @@ use crate::model::document::structure;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModeType {
     Neither,
     Structure,
@@ -135,6 +135,13 @@ impl Selection {
         }
     }
 
+    pub fn is_address(&self) -> bool {
+        match &self.mode {
+            Mode::Address(_) => true,
+            _ => false
+        }
+    }
+    
     pub fn assert_integrity(&self) {
         match &self.mode {
             Mode::Structure(sm) => sm.assert_integrity(&*self.document),
