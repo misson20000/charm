@@ -317,7 +317,7 @@ pub struct InsertFilter {
 }
 
 impl LoadSpaceFilter {
-    pub fn new_defaults(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64) -> LoadSpaceFilter {
+    pub fn new_defaults(space: sync::Arc<space::AddressSpace>, load_offset: u64, space_offset: u64, size: Option<u64>) -> LoadSpaceFilter {
         // TODO: make this const when const unwrap gets stabilized
         //       https://github.com/rust-lang/rust/issues/67441
         //const block_count: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1024).unwrap();
@@ -326,7 +326,7 @@ impl LoadSpaceFilter {
         LoadSpaceFilter {
             load_offset,
             space_offset,
-            size: None,
+            size,
             cache: sync::Arc::new(space::cache::SpaceCache::new(space, 0x1000, block_count)), // 4 MiB cache is plenty
         }
     }
@@ -356,11 +356,13 @@ impl LoadSpaceFilter {
         }
 
         if !overlap.is_empty() {
-            let block_addr = (overlap.addr / self.cache.block_size) * self.cache.block_size;
+            let overlap_space_addr = self.convert_to_space(overlap.addr);
+            let overlap_space_end = self.convert_to_space(overlap.end());
+            let block_addr = (overlap_space_addr / self.cache.block_size) * self.cache.block_size;
             
             return self.cache.fetch_block(block_addr, |fr| match fr {
                 space::FetchResult::Ok(v) | space::FetchResult::Partial(v) => {
-                    let begin_index = (overlap.addr - block_addr) as usize;
+                    let begin_index = (overlap_space_addr - block_addr) as usize;
 
                     if begin_index >= v.len() {
                         /* hit EOF */
@@ -370,7 +372,7 @@ impl LoadSpaceFilter {
                         });
                     }
                     
-                    let loaded_count = std::cmp::min((overlap.end() - block_addr) as usize, v.len()) - begin_index;
+                    let loaded_count = std::cmp::min((overlap_space_end - block_addr) as usize, v.len()) - begin_index;
 
                     for i in 0..loaded_count {
                         overlap.data[i].store(v[begin_index+i], Ordering::Relaxed);

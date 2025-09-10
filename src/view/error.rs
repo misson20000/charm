@@ -42,6 +42,7 @@ pub enum Action {
     OpenProject,
     NewProjectFromFile,
     SaveRecoveredDocument,
+    ImportFile,
 }
 
 pub enum Trouble {
@@ -127,6 +128,7 @@ impl Error {
             Action::OpenProject => "Failed to open project.",
             Action::NewProjectFromFile => "Failed to create new project from file.",
             Action::SaveRecoveredDocument => "Failed to save recovered document.",
+            Action::ImportFile => "Failed to import file into project.",
         }.to_string()
     }
 
@@ -427,4 +429,25 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
     };
 
     Ok(())
+}
+
+impl From<glib::Error> for Trouble {
+    fn from(gle: glib::Error) -> Self {
+        Trouble::GlibError(gle)
+    }
+}
+
+impl From<std::io::Error> for Trouble {
+    fn from(ioe: std::io::Error) -> Self {
+        Trouble::StdIoError(ioe)
+    }
+}
+
+impl From<(document::change::ApplyError, sync::Arc<document::Document>)> for Trouble {
+    fn from(tuple: (document::change::ApplyError, sync::Arc<document::Document>)) -> Self {
+        Trouble::DocumentUpdateFailure {
+            error: tuple.0,
+            attempted_version: tuple.1
+        }
+    }
 }

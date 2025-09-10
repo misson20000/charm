@@ -85,8 +85,8 @@ impl Builder {
         self
     }
 
-    pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>) -> Self {
-        self.datapath.push(datapath::LoadSpaceFilter::new_defaults(space, 0, 0).to_filter());
+    pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>, size: Option<u64>) -> Self {
+        self.datapath.push(datapath::LoadSpaceFilter::new_defaults(space, 0, 0, size).to_filter());
         self
     }
 
@@ -238,6 +238,16 @@ impl Document {
         }
     }
 
+    #[must_use]
+    pub fn overwrite_space(&self, location: u64, space: sync::Arc<space::AddressSpace>, size: Option<u64>) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::StackFilter {
+                filter: datapath::LoadSpaceFilter::new_defaults(space, location, 0, size).to_filter(),
+            },
+            generation: self.generation(),
+        }
+    }
+    
     #[must_use]
     pub fn resize_node(&self, path: structure::Path, new_size: addr::Offset, expand_parents: bool, truncate_parents: bool) -> change::Change {
         change::Change {

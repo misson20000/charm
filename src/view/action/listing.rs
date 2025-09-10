@@ -4,3 +4,4 @@ pub mod create_array;
 pub mod goto;
 pub mod mode;
 pub mod clipboard;
+pub mod import_file;

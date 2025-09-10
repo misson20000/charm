@@ -505,7 +505,7 @@ impl Cursor {
         self.document.clone()
     }
     
-    pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<(), (document::change::ApplyError, sync::Arc<document::Document>)> {
+    pub fn insert_node(&mut self, host: &document::DocumentHost, node: sync::Arc<structure::Node>) -> Result<sync::Arc<document::Document>, (document::change::ApplyError, sync::Arc<document::Document>)> {
         host.change(
             self.document.insert_node(
                 self.structure_path(),
@@ -513,9 +513,10 @@ impl Cursor {
                 structure::Childhood::new(node, self.structure_offset()))
         ).map(|new_doc| {
             self.update_internal(&new_doc, UpdateMode::AfterNewNode);
+            new_doc
         })
     }
-
+    
     pub fn paste(&mut self, host: &document::DocumentHost, src: sync::Arc<structure::Node>, src_begin: (addr::Offset, usize), src_end: (addr::Offset, usize)) -> Result<(), (document::change::ApplyError, sync::Arc<document::Document>)> {
         host.change(
             self.document.paste(

@@ -100,6 +100,7 @@ impl CharmWindow {
                 file_menu.append(Some("Open Project..."), Some("win.open_project"));
                 file_menu.append(Some("Save Project"), Some("win.save_project"));
                 file_menu.append(Some("Save Project As..."), Some("win.save_project_as"));
+                file_menu.append(Some("Import File..."), Some("ctx.import_file"));
                 file_menu.freeze();
                 menu_bar.append_submenu(Some("File"), &file_menu);
             }
@@ -545,6 +546,7 @@ impl WindowContext {
         action::listing::goto::add_action(&wc);
         action::listing::mode::add_action(&wc);
         action::listing::clipboard::add_actions(&wc);
+        action::listing::import_file::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

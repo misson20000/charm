@@ -90,7 +90,7 @@ impl NewProjectAction {
         
         let attributes = file.query_info("standard::display-name,standard::size", gio::FileQueryInfoFlags::NONE, gio::Cancellable::NONE)?;
         let dn = attributes.attribute_as_string("standard::display-name").ok_or(NewProjectError::MissingDisplayName)?;
-        let size = attributes.size();
+        let size = attributes.size() as u64;
 
         let fas = space::file::FileAddressSpace::new(file.path().unwrap(), &dn);
         fas.try_open()?;
@@ -105,12 +105,12 @@ impl NewProjectAction {
                 content_display: structure::ContentDisplay::default(),
                 locked: true,
             },
-            size: u64::try_from(size)?.into(),
+            size: size.into(),
             children: vec::Vec::new(),
         });
 
         Ok(document::Builder::new(root)
-            .load_space(space)
+            .load_space(space, Some(size))
             .build())
     }
     

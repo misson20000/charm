@@ -348,7 +348,7 @@ pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Offset>>(window
             children: Vec::new(),
             size,
         })) {
-            Ok(()) => {},
+            Ok(_) => {},
             Err((error, attempted_version)) => {
                 let report_error = match &error.ty {
                     /* don't bother popping up the dialog for this */
