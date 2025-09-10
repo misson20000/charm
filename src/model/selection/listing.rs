@@ -61,9 +61,9 @@ pub enum Change {
     ConvertToAddress,
     AssignFromTree(sync::Arc<super::TreeSelection>),
     AssignStructure(StructureMode),
-    AssignAddress(addr::Extent),
+    AssignAddress(addr::AbsoluteExtent),
     UnionStructure(StructureRange),
-    UnionAddress(addr::Extent),
+    UnionAddress(addr::AbsoluteExtent),
 }
 
 #[derive(Debug, Clone)]
@@ -78,8 +78,10 @@ pub enum ApplyError {
 #[derive(Clone, Copy, Debug, Hash)]
 pub enum NodeIntersection {
     None,
-    Partial(addr::Extent, usize, usize),
-    Total,
+    PartialStructure(addr::Extent, usize, usize),
+    PartialAddress(addr::Extent),
+    TotalStructure,
+    TotalAddress,
 }
 
 impl Selection {
@@ -171,6 +173,11 @@ impl versioned::Change<Selection> for Change {
                     Mode::Structure(_) => Mode::Structure(StructureMode::Empty),
                     Mode::Address(_) => Mode::Address(addr::Extent::default()),
                 };
+                ChangeRecord {}
+            },
+
+            Change::AssignAddress(extent) => {
+                selection.mode = Mode::Address(*extent);
                 ChangeRecord {}
             },
 
@@ -461,13 +468,13 @@ impl Mode {
     pub fn node_intersection(&self, node: &structure::Node, node_path: &structure::Path, node_addr: addr::AbsoluteAddress) -> NodeIntersection {
         match self {
             Mode::Structure(StructureMode::Empty) => NodeIntersection::None,
-            Mode::Structure(StructureMode::All) => NodeIntersection::Total,
+            Mode::Structure(StructureMode::All) => NodeIntersection::TotalStructure,
             Mode::Structure(StructureMode::Range(range)) => {
                 if node_path.len() >= range.path.len() && node_path[0..range.path.len()] == range.path[..] {
                     if node_path.len() == range.path.len() {
-                        NodeIntersection::Partial(addr::Extent::between(range.begin.0, range.end.0), range.begin.1, range.end.1)
+                        NodeIntersection::PartialStructure(addr::Extent::between(range.begin.0, range.end.0), range.begin.1, range.end.1)
                     } else if (range.begin.1..range.end.1).contains(&node_path[range.path.len()]) {
-                        NodeIntersection::Total
+                        NodeIntersection::TotalStructure
                     } else {
                         NodeIntersection::None
                     }
@@ -479,14 +486,10 @@ impl Mode {
                 let node_extent = addr::Extent::sized(node_addr, node.size);
 
                 if extent.contains(node_extent) {
-                    NodeIntersection::Total
+                    NodeIntersection::TotalAddress
                 } else {
                     match extent.intersection(node_extent) {
-                        Some(e) => {
-                            let e = e.relative_to(node_addr);
-                            // TODO: this is probably wrong lmao
-                            NodeIntersection::Partial(e, node.child_at_offset(e.begin), node.children.partition_point(|ch| ch.end() >= e.end))
-                        },
+                        Some(e) => NodeIntersection::PartialAddress(e.relative_to(node_addr)),
                         None => NodeIntersection::None,
                     }
                 }
@@ -499,39 +502,64 @@ impl NodeIntersection {
     pub fn includes(&self, addr: addr::Offset, index: usize) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e, first, last) => e.includes(addr) && (*first..=*last).contains(&index),
-            Self::Total => true,
+            Self::PartialStructure(e, first, last) => e.includes(addr) && (*first..=*last).contains(&index),
+            Self::PartialAddress(e) => e.includes(addr),
+            Self::TotalStructure => true,
+            Self::TotalAddress => true,
         }
     }
 
     pub fn touches(&self, addr: addr::Offset, index: usize) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e, first, last) => (e.includes(addr) || e.end == addr) && (*first..=*last).contains(&index),
-            Self::Total => true,
+            Self::PartialStructure(e, first, last) => (e.includes(addr) || e.end == addr) && (*first..=*last).contains(&index),
+            Self::PartialAddress(e) => e.includes(addr) || e.end == addr,
+            Self::TotalStructure => true,
+            Self::TotalAddress => true,
         }
     }
 
     pub fn overlaps(&self, extent: addr::Extent, index: usize) -> bool {
         match self {
             Self::None => false,
-            Self::Partial(e, first, last) => e.intersection(extent).is_some() && (*first..=*last).contains(&index),
-            Self::Total => true,
+            Self::PartialStructure(e, first, last) => e.intersection(extent).is_some() && (*first..=*last).contains(&index),
+            Self::PartialAddress(e) => e.intersection(extent).is_some(),
+            Self::TotalStructure => true,
+            Self::TotalAddress => true,
         }
     }
     
     pub fn includes_child(&self, index: usize) -> bool {
         match self {
-            Self::None => false,
-            Self::Partial(_extent, first, last) => (*first..*last).contains(&index),
-            Self::Total => true,
+            Self::PartialStructure(_extent, first, last) => (*first..*last).contains(&index),
+            Self::TotalStructure => true,
+            _ => false,
+        }
+    }
+
+    pub fn mode_type(&self) -> ModeType {
+        match self {
+            Self::None => ModeType::Neither,
+            Self::PartialStructure(..) => ModeType::Structure,
+            Self::PartialAddress(..) => ModeType::Address,
+            Self::TotalStructure => ModeType::Structure,
+            Self::TotalAddress => ModeType::Address,
         }
     }
     
     pub fn is_total(&self) -> bool {
         match self {
-            Self::Total => true,
+            Self::TotalStructure => true,
+            Self::TotalAddress => true,
             _ => false,
+        }
+    }
+
+    pub fn mode_type_if(&self, cond: bool) -> ModeType {
+        if cond {
+            self.mode_type()
+        } else {
+            ModeType::Neither
         }
     }
 }
@@ -543,6 +571,10 @@ impl<'a> StructureEndpoint<'a> {
             child_index: tuple.1,
             offset: tuple.2,
         }
+    }
+
+    pub fn to_absolute_addr(&self, document: &document::Document) -> addr::AbsoluteAddress {
+        document.lookup_node(self.parent).1 + self.offset
     }
 }
 

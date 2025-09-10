@@ -47,6 +47,18 @@ impl Triplet {
     }
 }
 
+fn path_part_to_addr(document: &document::Document, tuple: &(structure::Path, Part)) -> addr::AbsoluteAddress {
+    let (_node, addr) = document.lookup_node(&tuple.0);
+
+    addr + match tuple.1 {
+        Part::Title => addr::Offset::ZERO,
+        Part::Hexdump { offset, .. } => offset,
+        Part::Bindump { offset, .. } => offset,
+        Part::Hexstring { offset, .. } => offset,
+        Part::Ellipsis { offset, .. } => offset,
+    }
+}
+
 fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (structure::Path, Part), is_end: bool) -> Result<selection::listing::StructureEndpoint<'a>, selection::listing::StructureMode> {
     Ok(match tuple {
         (path, Part::Title) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
@@ -110,6 +122,15 @@ pub fn to_structure_selection(document: &document::Document, a: &Triplet, b: &Tr
     };
 
     selection::listing::StructureMode::Range(selection::listing::StructureRange::between(document, begin, end))
+}
+
+pub fn to_address_selection(document: &document::Document, a: &Triplet, b: &Triplet) -> addr::AbsoluteExtent {
+    let begin = std::cmp::min(PickSort(&a.begin), PickSort(&b.begin)).0;
+    let end = std::cmp::max(PickSort(&a.end), PickSort(&b.end)).0;
+
+    addr::AbsoluteExtent::between(
+        path_part_to_addr(document, &begin),
+        path_part_to_addr(document, &end))
 }
 
 impl Part {

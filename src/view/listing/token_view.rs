@@ -114,24 +114,24 @@ impl TokenView {
             token::Token::BlankLine(token) if token.accepts_cursor && has_cursor => {
                 render.gsc_mono.begin(gsc::Entry::Punctuation(token::PunctuationKind::Space), render.config.text_color.rgba(), &render.config, &mut pos)
                     .cursor(true, cursor)
-                    .selected(selection.is_total())
+                    .selected(selection.mode_type_if(selection.is_total()))
                     .render(snapshot);
             },
             token::Token::SummaryPunctuation(token) => {
-                let selected = match token.kind {
+                let selection_type = selection.mode_type_if(match token.kind {
                     token::PunctuationKind::Comma => selection.includes_child(token.node_child_index()) && selection.includes_child(token.node_child_index()+1),
                     _ => selection.is_total()
-                };
+                });
                 
                 render.gsc_mono.begin(gsc::Entry::Punctuation(token.kind), render.config.text_color.rgba(), &render.config, &mut pos)
                     .cursor(has_cursor, cursor)
-                    .selected(selected)
+                    .selected(selection_type)
                     .render(snapshot);
 
                 /* need to render space separately so it doesn't draw cursor because that looks bad */
                 match token.kind {
                     token::PunctuationKind::Comma => render.gsc_mono.begin(gsc::Entry::Space, render.config.text_color.rgba(), &render.config, &mut pos)
-                        .selected(selected)
+                        .selected(selection_type)
                         .render(snapshot),
                     
                     _ => {}
@@ -146,7 +146,7 @@ impl TokenView {
                     &token.common.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor)
-                    .selected(selection.is_total())
+                    .selected(selection.mode_type_if(selection.is_total()))
                     .render(snapshot);
 
                 render.gsc_bold.begin(
@@ -154,7 +154,7 @@ impl TokenView {
                     render.config.text_color.rgba(),
                     &render.config,
                     &mut pos)
-                    .selected(selection.is_total())
+                    .selected(selection.mode_type_if(selection.is_total()))
                     .render(snapshot);
             },
             token::Token::SummaryLabel(token) => {
@@ -166,7 +166,7 @@ impl TokenView {
                     &token.common.node.props.name,
                     &mut pos)
                     .cursor(has_cursor, cursor)
-                    .selected(selection.is_total())
+                    .selected(selection.mode_type_if(selection.is_total()))
                     .render(snapshot);
                 
                 render.gsc_bold.begin(
@@ -174,15 +174,15 @@ impl TokenView {
                     render.config.text_color.rgba(),
                     &render.config,
                     &mut pos)
-                    .selected(selection.is_total())
+                    .selected(selection.mode_type_if(selection.is_total()))
                     .render(snapshot);
             },
             token::Token::Ellipsis(token) => {
-                let selected = selection.overlaps(token.extent, token.common().node_child_index);
+                let selection_type = selection.mode_type_if(selection.overlaps(token.extent, token.common().node_child_index));
                 
                 render.gsc_mono.begin(gsc::Entry::Ellipsis, render.config.text_color.rgba(), &render.config, &mut pos)
                     .cursor(has_cursor, cursor)
-                    .selected(selected)
+                    .selected(selection_type)
                     .render(snapshot);
             },
             token::Token::Hexdump(_) => {
@@ -202,7 +202,7 @@ impl TokenView {
                 for i in 0..token.extent.len().bytes() {
                     let (byte, flags) = self.data.as_ref().map(|fetcher| fetcher.byte_and_flags(i as usize)).unwrap_or_default();
                     let byte_extent = addr::Extent::sized(i, addr::Offset::BYTE).offset(token.extent.begin).intersection(token.extent);
-                    let selected = byte_extent.map_or(false, |be| selection.includes(be.begin, token.common().node_child_index));
+                    let selection_type = selection.mode_type_if(byte_extent.map_or(false, |be| selection.includes(be.begin, token.common().node_child_index)));
                     
                     let mut text_color = render.config.text_color.rgba();
                     if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
@@ -218,7 +218,7 @@ impl TokenView {
                     
                         render.gsc_mono.begin(digit, text_color, &render.config, &mut pos)
                             .cursor(nybble_has_cursor, cursor)
-                            .selected(selected)
+                            .selected(selection_type)
                             .placeholder(pending)
                             .render(snapshot);
                     }

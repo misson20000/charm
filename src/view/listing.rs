@@ -72,6 +72,11 @@ enum RubberBandState {
     Keyboard((structure::Path, usize, addr::Offset)),
 }
 
+enum RubberBandMode {
+    Structure,
+    Address,
+}
+
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::listing::Host>,
@@ -87,6 +92,7 @@ struct Interior {
     mode: mode::Mode,
     hover: Option<(f64, f64)>,
     rubber_band_begin: RubberBandState,
+    rubber_band_mode: RubberBandMode,
     popover_menu: gtk::PopoverMenu,
     breadcrumbs: gio::ListStore,
     
@@ -394,6 +400,7 @@ impl ListingWidget {
             mode: mode::Mode::default(),
             hover: None,
             rubber_band_begin: RubberBandState::Inactive,
+            rubber_band_mode: RubberBandMode::Address,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
             breadcrumbs: gio::ListStore::new::<breadcrumbs::CharmBreadcrumb>(),
 
@@ -1087,7 +1094,14 @@ impl Interior {
     
     fn update_rubber_band(&mut self, x: f64, y: f64) {
         if let (RubberBandState::Mouse(rbb), Some(rbe)) = (&self.rubber_band_begin, self.pick(x, y)) {
-            match self.selection_host.change(selection::listing::Change::AssignStructure(pick::to_structure_selection(&self.document, rbb, &rbe))) {
+            match self.selection_host.change(match self.rubber_band_mode {
+                RubberBandMode::Structure => selection::listing::Change::AssignStructure(
+                    pick::to_structure_selection(&self.document, rbb, &rbe)
+                ),
+                RubberBandMode::Address => selection::listing::Change::AssignAddress(
+                    pick::to_address_selection(&self.document, rbb, &rbe)
+                ),
+            }) {
                 Ok(new_selection) => {
                     self.selection_updated(&new_selection);
                 },

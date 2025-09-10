@@ -7,6 +7,7 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
+use crate::model::selection;
 use crate::view::gsc;
 use crate::view::helpers;
 use crate::view::listing;
@@ -168,11 +169,18 @@ impl bucket::Bucket for BindumpBucket {
             let column = self.each_part(|column, part| { match part {
                 Part::Gap { width, left, right } => if left.map_or(false, |left| selection.includes(left.0, left.1)) && selection.touches(right.0, right.1) {
                     /* Draw gaps that are selected. */
-                    ctx.snapshot.append_color(ctx.render.config.selection_color.rgba(), &graphene::Rect::new(
-                        x + space_x + space_width * column as f32,
-                        lh + space_y,
-                        space_width * width as f32,
-                        space_height - 1.0));
+                    ctx.snapshot.append_color(
+                        match selection.mode_type() {
+                            selection::listing::ModeType::Neither => panic!("selection should not be Neither"),
+                            selection::listing::ModeType::Structure => ctx.render.config.structure_selection_color.rgba(),
+                            selection::listing::ModeType::Address => ctx.render.config.address_selection_color.rgba(),
+                        },
+                        &graphene::Rect::new(
+                            x + space_x + space_width * column as f32,
+                            lh + space_y,
+                            space_width * width as f32,
+                            space_height - 1.0)
+                    );
                 },
                 
                 Part::Word { extent, token } => {
@@ -199,13 +207,13 @@ impl bucket::Bucket for BindumpBucket {
                             text_color = ctx.render.config.edit_color.rgba();
                         }
                     
-                        let selected = selection.includes(bit_addr_in_node, token.common().node_child_index);
+                        let selection_type = selection.mode_type_if(selection.includes(bit_addr_in_node, token.common().node_child_index));
                         let has_cursor = bin_cursor.map_or(false, |bdc| sync::Arc::ptr_eq(&bdc.token.common.node, &self.node) && bdc.extent().begin + bdc.get_offset() == bit_addr_in_node);
                         
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(bit) };
 
                         ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut bit_point)
-                            .selected(selected)
+                            .selected(selection_type)
                             .cursor(has_cursor, ctx.cursor)
                             .placeholder(pending)
                             .render(ctx.snapshot);

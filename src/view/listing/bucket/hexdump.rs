@@ -8,6 +8,7 @@ use crate::model::document::structure;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 use crate::model::listing::cursor::CursorClass;
+use crate::model::selection;
 use crate::view::gsc;
 use crate::view::helpers;
 use crate::view::listing;
@@ -172,11 +173,18 @@ impl bucket::Bucket for HexdumpBucket {
             let column = self.each_part(|column, part| { match part {
                 Part::Gap { width, begin, end } => if begin.map_or(false, |(o, i)| selection.includes(o, i)) && selection.includes(end.0, end.1) {
                     /* Draw gaps that are selected. */
-                    ctx.snapshot.append_color(ctx.render.config.selection_color.rgba(), &graphene::Rect::new(
-                        x + space_x + space_width * column as f32,
-                        lh + space_y,
-                        space_width * width as f32,
-                        space_height - 1.0));
+                    ctx.snapshot.append_color(
+                        match selection.mode_type() {
+                            selection::listing::ModeType::Neither => panic!("selection should not be Neither"),
+                            selection::listing::ModeType::Structure => ctx.render.config.structure_selection_color.rgba(),
+                            selection::listing::ModeType::Address => ctx.render.config.address_selection_color.rgba(),
+                        },
+                        &graphene::Rect::new(
+                            x + space_x + space_width * column as f32,
+                            lh + space_y,
+                            space_width * width as f32,
+                            space_height - 1.0)
+                    );
                 },
                 
                 Part::Octet { offset, next_offset: _, token } => {
@@ -185,7 +193,7 @@ impl bucket::Bucket for HexdumpBucket {
                     
                     let mut text_color = ctx.render.config.text_color.rgba();
                     let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
-                    let selected = selection.includes(offset, token.common().node_child_index);
+                    let selection_type = selection.mode_type_if(selection.includes(offset, token.common().node_child_index));
 
                     if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                         text_color = ctx.render.config.edit_color.rgba();
@@ -201,7 +209,7 @@ impl bucket::Bucket for HexdumpBucket {
                         let digit = if pending { gsc::Entry::Space } else { gsc::Entry::Digit(nybble) };
 
                         ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut octet_point)
-                            .selected(selected)
+                            .selected(selection_type)
                             .cursor(has_cursor, ctx.cursor)
                             .placeholder(pending)
                             .render(ctx.snapshot);
@@ -237,7 +245,7 @@ impl bucket::Bucket for HexdumpBucket {
 
                             let mut text_color = ctx.render.config.text_color.rgba();
                             let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
-                            let selected = selection.includes(byte_extent.begin, token.common().node_child_index);
+                            let selection_type = selection.mode_type_if(selection.includes(byte_extent.begin, token.common().node_child_index));
 
                             if flags.intersects(datapath::FetchFlags::HAS_DIRECT_EDIT) {
                                 text_color = ctx.render.config.edit_color.rgba();
@@ -248,7 +256,7 @@ impl bucket::Bucket for HexdumpBucket {
                             let mut char_point = graphene::Point::new(x + space_width * i as f32, lh);
                         
                             ctx.render.gsc_mono.begin(digit, text_color, &ctx.render.config, &mut char_point)
-                                .selected(selected)
+                                .selected(selection_type)
                                 .placeholder(pending)
                                 .render(ctx.snapshot);
                         }

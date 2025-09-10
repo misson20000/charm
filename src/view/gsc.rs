@@ -2,6 +2,7 @@
 
 const DIGIT_STRINGS: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
 
+use crate::model::selection;
 use crate::model::listing::token;
 use crate::view::config;
 use crate::view::helpers;
@@ -187,9 +188,11 @@ impl<'a, I: Iterator<Item = pango::GlyphString>> TextBuilder<'a, I> {
         self
     }
 
-    pub fn selected(mut self, enable: bool) -> Self {
-        if enable {
-            self.config.selected = Some(self.config.config.selection_color.rgba());
+    pub fn selected(mut self, mode_type: selection::listing::ModeType) -> Self {
+        match mode_type {
+            selection::listing::ModeType::Neither => {},
+            selection::listing::ModeType::Structure => self.config.selected = Some(self.config.config.structure_selection_color.rgba()),
+            selection::listing::ModeType::Address => self.config.selected = Some(self.config.config.address_selection_color.rgba()),
         }
         self
     }

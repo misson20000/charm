@@ -61,7 +61,7 @@ macro_rules! bind2asyncsubscriber {
 
 macro_rules! declare_config {
     [ $typename:ident {
-        $($(#[bind($bind_name:literal)])? $name:ident : $type:path = $default:expr),* $(,)?
+        $($(#[bind($bind_name:literal)])? $(#[alias($alias_name:literal)])* $name:ident : $type:path = $default:expr),* $(,)?
     } ] => {
         #[derive(Clone, Debug)]
         pub struct $typename {
@@ -113,7 +113,7 @@ macro_rules! declare_config {
                         while let Some(key) = map.next_key::<String>()? {
                             match key.as_str() {
                                 $(
-                                    stringify!($name) => {
+                                    stringify!($name) $(| $alias_name)* => {
                                         match map.next_value() {
                                             Ok(v) => config.$name = v,
                                             Err(e) => {
@@ -267,9 +267,12 @@ declare_config![Config {
     #[bind("color-placeholder")]
     placeholder_color: Color = color!("1414147f"),
 
-    #[bind("color-selection")]
-    selection_color: Color = color!("8888ff60"),
+    #[bind("color-structure-selection")]
+    #[alias("selection_color")] /* old name before address selections got a different color */
+    structure_selection_color: Color = color!("8888ff60"),
 
+    address_selection_color: Color = color!("F3571E60"),
+    
     #[bind("color-cursor-background")]
     cursor_bg_color: Color = color!("8891efff"),
     

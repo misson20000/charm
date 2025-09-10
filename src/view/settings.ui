@@ -294,7 +294,7 @@
                   </object>
                 </child>
                 <child>
-                  <object class="GtkColorButton" id="color-selection-light">
+                  <object class="GtkColorButton" id="color-structure-selection-light">
                     <layout>
                       <property name="column">1</property>
                       <property name="column-span">1</property>
@@ -364,7 +364,7 @@
                   </object>
                 </child>
                 <child>
-                  <object class="GtkColorButton" id="color-selection-dark">
+                  <object class="GtkColorButton" id="color-structure-selection-dark">
                     <layout>
                       <property name="column">2</property>
                       <property name="column-span">1</property>
