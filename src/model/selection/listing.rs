@@ -233,6 +233,18 @@ impl StructureRange {
         addr::Extent::between(self.begin.0, self.end.0)
     }
 
+    pub fn single_child(document: &document::Document, parent: structure::PathSlice, child_index: usize) -> Self {
+        let (parent_node, _) = document.lookup_node(parent);
+        let childhood = &parent_node.children[child_index];
+        let extent = childhood.extent();
+
+        StructureRange {
+            path: parent.iter().copied().collect(),
+            begin: (extent.begin, child_index),
+            end: (extent.end, child_index+1),
+        }
+    }
+    
     pub fn between(document: &document::Document, a: StructureEndpoint, b: StructureEndpoint) -> Self {
         /* choose which is the beginning and which is the end */
         // TODO: replace with minmax when stabilized (https://github.com/rust-lang/rust/issues/115939)
@@ -460,6 +472,14 @@ impl StructureMode {
             StructureMode::Empty => {},
             StructureMode::Range(sr) => sr.assert_integrity(document),
             StructureMode::All => {},
+        }
+    }
+
+    pub fn entire_node(document: &document::Document, path: structure::PathSlice) -> Self {
+        if path.is_empty() {
+            StructureMode::All
+        } else {
+            StructureMode::Range(StructureRange::single_child(document, &path[0..(path.len()-1)], *path.last().unwrap()))
         }
     }
 }

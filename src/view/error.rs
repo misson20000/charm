@@ -37,6 +37,7 @@ pub enum Action {
 
     ModifyTreeSelection,
     RubberBandSelection,
+    DoubleClickSelection,
 
     SaveProject,
     OpenProject,
@@ -123,6 +124,7 @@ impl Error {
 
             Action::ModifyTreeSelection => "Failed to modify tree selection.",
             Action::RubberBandSelection => "Failed to rubber-band select.",
+            Action::DoubleClickSelection => "Failed to double-click select.",
             
             Action::SaveProject => "Failed to save project.",
             Action::OpenProject => "Failed to open project.",

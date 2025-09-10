@@ -533,9 +533,9 @@ impl ListingWidget {
         ec_click.connect_pressed(clone!(#[weak(rename_to=lw)] self, move |_gesture, _n_press, _x, _y| catch_panic! {
             lw.grab_focus();
         }));
-        ec_click.connect_released(clone!(#[weak(rename_to=lw)] self, move |gesture, _n_press, x, y| catch_panic! {
+        ec_click.connect_released(clone!(#[weak(rename_to=lw)] self, move |gesture, n_press, x, y| catch_panic! {
             let mut interior = lw.imp().interior.get().unwrap().write();
-            interior.move_cursor_to_coordinates(x, y);
+            interior.click_at(x, y, n_press);
             interior.collect_events(&lw);
             gesture.set_state(gtk::EventSequenceState::Claimed);
         }));
@@ -1138,7 +1138,7 @@ impl Interior {
         widget.queue_draw();
     }
 
-    fn move_cursor_to_coordinates(&mut self, x: f64, y: f64) {
+    fn click_at(&mut self, x: f64, y: f64, n_press: i32) {
         let _circumstances = crashreport::circumstances([
             crashreport::Circumstance::InWindow(self.charm_window_id),
         ]);
@@ -1155,9 +1155,37 @@ impl Interior {
         };
 
         let new_cursor = cursor::Cursor::place(self.document.clone(), &path, part.offset(), part.cursor_placement_hint());
-
+        
         self.cursor.set(new_cursor);
-        self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any)
+        self.scroll.ensure_cursor_is_in_view(&mut self.window, &mut self.cursor, facet::scroll::EnsureCursorInViewDirection::Any);
+
+        if n_press >= 2 {
+            let n_press = n_press as usize;
+            let sel_node_path = &path[0..(path.len()-std::cmp::min(path.len(), n_press-2))];
+
+            match self.selection_host.change(match self.rubber_band_mode {
+                RubberBandMode::Structure => selection::listing::Change::AssignStructure(
+                    selection::listing::StructureMode::entire_node(&*self.document, sel_node_path)
+                ),
+                RubberBandMode::Address => {
+                    let (node, addr) = self.document.lookup_node(sel_node_path);
+                    selection::listing::Change::AssignAddress(addr::AbsoluteExtent::sized(addr, node.size))
+                },
+            }) {
+                Ok(new_selection) => {
+                    self.selection_updated(&new_selection);
+                },
+                Err((error, attempted_version)) => { self.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                    while_attempting: error::Action::DoubleClickSelection,
+                    trouble: error::Trouble::ListingSelectionUpdateFailure {
+                        error,
+                        attempted_version,
+                    },
+                    level: error::Level::Warning,
+                    is_bug: true,
+                })); }
+            }
+        }
     }
     
     fn pick_line(&self, y: f64) -> Option<(usize, f64)> {
