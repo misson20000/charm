@@ -292,7 +292,7 @@ mod imp {
 
                         if result.flags.intersects(datapath::FetchFlags::IO_ERROR) && !ignore_read_errors {
                             return Err(ExportError::DatapathIoError);
-                       } 
+                        } 
 
                         let mut data_buffer = match free_data_buffers_rx.recv().await {
                             Some(b) => b,
@@ -303,20 +303,33 @@ mod imp {
                         data_buffer.extend(atomic_buffer[0..result.loaded].iter().map(|b| b.load(Ordering::Relaxed)));
 
                         let progress_fraction = (addr - begin_addr) as f64 / (end - begin_addr) as f64;
-                        if let Err(_) = full_data_buffers_tx.send((progress_fraction, data_buffer)).await {
+                        if let Err(_) = full_data_buffers_tx.send(Some((progress_fraction, data_buffer))).await {
                             return Err(ExportError::WriteTaskDied);
                         }
 
                         addr+= result.loaded as u64;
                     }
+
+                    /* If we drop our Sender immediately after queueing a
+                     * message, tokio will consider the channel closed and never
+                     * deliver it. We need to send a special message that
+                     * indicates to the other thread that it should close the
+                     * channel, which we can then use to know that it received
+                     * the buffer. */
+                    
+                    if let Err(_) = full_data_buffers_tx.send(None).await {
+                        return Err(ExportError::WriteTaskDied);
+                    }
+
+                    full_data_buffers_tx.closed().await;
                     
                     Ok(())
                 })
             });
 
-            while let Some((progress_fraction, data_buffer)) = full_data_buffers_rx.recv().await {
+            while let Some(Some((progress_fraction, data_buffer))) = full_data_buffers_rx.recv().await {
                 self.progress.set_fraction(progress_fraction);
-                
+
                 let data_buffer = match fos.write_all_future(data_buffer, glib::Priority::LOW).await {
                     Ok((buffer, _bytes, None)) => buffer,
                     Ok((_buffer, _bytes, Some(err))) => return Err(err.into()),
@@ -327,6 +340,9 @@ mod imp {
                     break;
                 }
             }
+
+            /* Close the Receiver, which allows read thread to exit. */
+            std::mem::drop(full_data_buffers_rx);
 
             /* Since the channel closed, the thread should exit in a timely manner. */
             read_thread.join().map_err(|_| ExportError::ReadThreadPanic)??;
