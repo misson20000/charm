@@ -126,13 +126,6 @@ mod imp {
 
             self.file_chooser.connect_response(clone!(#[weak(rename_to = this)] self.obj(), move |fc, r| catch_panic! {
                 match r {
-                    gtk::ResponseType::Cancel => {
-                        this.imp().file_chooser.hide();
-                        this.imp().file_chooser.destroy();
-                        this.hide();
-                        this.destroy();
-                    },
-                    
                     gtk::ResponseType::Accept => match fc.file() {
                         Some(file) => match file.path().as_ref().and_then(|path| path.to_str()) {
                             Some(path) => this.imp().file_display.buffer().set_text(path),
