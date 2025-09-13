@@ -1,16 +1,16 @@
 <?xml version='1.0' encoding='UTF-8' standalone='no'?>
 <!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
-<!-- Created with Cambalache 0.97.0 -->
+<!-- Created with Cambalache 0.97.8 -->
 <cambalache-project version="0.96.0" target_tk="gtk-4.0">
   <ui filename="props-editor.ui" sha256="544617fb40ad2a7a261a6102957d95d6c70014e276b9ff55c38cc39f83c74a67"/>
   <ui filename="action/listing/insert-node.ui" sha256="d6b539638c8ad8e00b5e6b3bd37cd6db3074b2f3f6d10422f8273e633c442447"/>
   <ui filename="action/listing/goto.ui" sha256="42c47c1d011abd25921e4fd6d13742805f6234c77095a4103097312313a74ab1"/>
   <ui filename="error-dialog.ui" sha256="0d8f80c7d914254f6bbcddf5a61386d4b49bb13f7c421a41d371e21c928a6965"/>
   <ui filename="crash-dialog.ui" sha256="a627454458222a68963848652a0d6860bb5bf914d2b69bddc206934789f37124"/>
-  <ui template-class="CharmDocumentRecoveryWidget" filename="crash-document-recovery.ui" sha256="53a1c436169a8b06892fb9aefe17482d5c3a3bb1587ac53f5171c199053d408a"/>
+  <ui template-class="CharmDocumentRecoveryWidget" filename="crash-document-recovery.ui" sha256="6933618d3ef315e8a6cd9ecfee84eccb9cac701479615bc2bb23fc5b1cbbf22f"/>
   <ui filename="unsaved-dialog.ui" sha256="38ffc2d545ac0cfc436b52ef5537e5896dd51f2ff667200941e9f0b92a3ae938"/>
   <ui filename="charm.ui" sha256="a22166918d15c6de64352686292f919f8795d8045d67bad9a582af78a65ad37c"/>
-  <ui filename="settings.ui" sha256="7b583f3db3e5298d7453213a8c44b47a14d9e764bb060e084d02956eb846711d"/>
-  <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="928da54ea9e961144a1c45d13d16fcaaeed9de319fe3bbd7b4ec40eb72b751b6"/>
-  <ui filename="action/listing/array.ui" sha256="f5150938c49a33f017793b401c66100683702ab17bf0716b8498dd0a3b81dd39"/>
+  <ui filename="settings.ui" sha256="fa4fd53d5c848146b52f505e1a207ff68b1f38eff72079eb967f48cff56cb22c"/>
+  <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="d4c5fbc0827f35876e70173273ee82f0c77d6031c9f9c90aedc039d1608f29c9"/>
+  <ui filename="action/listing/array.ui" sha256="2ee7f5ea37e5cbd6625cc3ce26b376bd508a2969f3172f1302c2f882ee5f92f0"/>
 </cambalache-project>

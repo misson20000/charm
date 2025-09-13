@@ -1,10 +1,11 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.97.0 -->
+<!-- Created with Cambalache 0.97.8 -->
 <interface>
   <!-- interface-name export-dialog.ui -->
   <requires lib="charm" version="0.1"/>
   <requires lib="gtk" version="4.0"/>
   <template class="CharmExportDialog" parent="GtkApplicationWindow">
+    <property name="default-widget">export_button</property>
     <property name="title">Export</property>
     <child>
       <object class="GtkGrid">
@@ -39,7 +40,7 @@
             <child>
               <object class="GtkButton" id="file_button">
                 <property name="icon-name">folder-symbolic</property>
-                <signal name="clicked" handler="open_file_chooser" swapped="yes"/>
+                <signal name="clicked" handler="open_file_chooser" swapped="True"/>
               </object>
             </child>
             <layout>
@@ -194,7 +195,7 @@
             <child>
               <object class="GtkButton" id="cancel_button">
                 <property name="label">Cancel</property>
-                <signal name="clicked" handler="cancel" swapped="yes"/>
+                <signal name="clicked" handler="cancel" swapped="True"/>
               </object>
             </child>
             <child>
@@ -202,7 +203,7 @@
                 <property name="css-classes">suggested-action</property>
                 <property name="label">Export</property>
                 <property name="receives-default">True</property>
-                <signal name="clicked" handler="export" swapped="yes"/>
+                <signal name="clicked" handler="export" swapped="True"/>
               </object>
             </child>
             <layout>

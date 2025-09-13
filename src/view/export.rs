@@ -74,6 +74,8 @@ mod imp {
         #[template_child]
         export_button: gtk::TemplateChild<gtk::Button>,
         #[template_child]
+        file_button: gtk::TemplateChild<gtk::Button>,
+        #[template_child]
         file_display: gtk::TemplateChild<gtk::Entry>,
         #[template_child]
         progress: gtk::TemplateChild<gtk::ProgressBar>,
@@ -233,6 +235,7 @@ mod imp {
             let task = self.task.borrow();
             self.ignore_edits.set_sensitive(task.is_none());
             self.ignore_read_errors.set_sensitive(task.is_none());
+            self.file_button.set_sensitive(task.is_none());
             self.export_button.set_sensitive(
                 self.addr_entry.addr().is_ok()
                     && self.size_entry.addr().is_ok()
