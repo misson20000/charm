@@ -400,7 +400,7 @@ impl ListingWidget {
             mode: mode::Mode::default(),
             hover: None,
             rubber_band_begin: RubberBandState::Inactive,
-            rubber_band_mode: RubberBandMode::Address,
+            rubber_band_mode: RubberBandMode::Structure,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
             breadcrumbs: gio::ListStore::new::<breadcrumbs::CharmBreadcrumb>(),
 
