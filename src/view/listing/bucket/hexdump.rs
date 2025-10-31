@@ -118,7 +118,7 @@ impl HexdumpBucket {
                     }
 
                     /* Emit an octet */
-                    if let Some(x) = cb(column, Part::Octet { offset, next_offset, token }) {
+                    if let Some(x) = cb(column, Part::Octet { offset, next_offset: std::cmp::min(next_offset, token.extent.end), token }) {
                         /* Callback requested early exit */
                         return (column, Some(x));
                     }
