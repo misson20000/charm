@@ -189,7 +189,29 @@ impl bucket::Bucket for HexdumpBucket {
                 
                 Part::Octet { offset, next_offset: _, token } => {
                     // TODO: deal with bit-sized gutter pitches
-                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| fetcher.byte_and_flags((offset - self.line_extent.begin).bytes() as usize)).unwrap_or_default();
+                    let (byte, flags) = self.line_data.as_ref().map(|fetcher| {
+                        let fetcher_offset = self.node_addr + offset - fetcher.addr();
+                        if fetcher_offset.bits() == 0 {
+                            fetcher.byte_and_flags(fetcher_offset.bytes() as usize)
+                        } else {
+                            let lsb = fetcher.byte_and_flags(fetcher_offset.bytes() as usize);
+                            let msb = fetcher.byte_and_flags((fetcher_offset.bytes() + 1) as usize);
+
+                            (
+                                (((lsb.0 as u16 | (msb.0 as u16) << 8) >> fetcher_offset.bits()) & 0xff) as u8,
+                                lsb.1 | msb.1
+                            )
+                        }
+                    }).unwrap_or_default();
+
+                    let remaining_in_extent = token.extent.end - offset;
+
+                    /* if the token's extent ends fractionally inside this byte, mask out the high bits */
+                    let byte = if remaining_in_extent.bytes() == 0 {
+                        byte & ((1 << remaining_in_extent.bits()) - 1)
+                    } else {
+                        byte
+                    };
                     
                     let mut text_color = ctx.render.config.text_color.rgba();
                     let pending = !flags.intersects(datapath::FetchFlags::HAS_ANY_DATA);
