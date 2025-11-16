@@ -340,7 +340,7 @@ impl CreateArrayActivation {
         }
     }
 
-    fn path(&self) -> structure::PathSlice {
+    fn path(&self) -> structure::PathSlice<'_> {
         match &self.mode {
             Mode::Range(range) => &range.path[..],
             Mode::Node { path, .. } => &path[0..path.len()-1],

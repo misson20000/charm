@@ -424,7 +424,7 @@ impl CharmWindow {
         self.context.borrow().is_some()
     }
     
-    pub fn context(&self) -> cell::Ref<Option<WindowContext>> {
+    pub fn context(&self) -> cell::Ref<'_, Option<WindowContext>> {
         self.context.borrow()
     }
 
