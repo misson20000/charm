@@ -7,6 +7,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::search;
+use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::view::addr_entry;
 use crate::view::helpers;
@@ -143,7 +144,7 @@ impl GotoAction {
 
         let item_interior = item.imp().interior.get().unwrap();
         
-        self.lw.goto(&item_interior.document, &item_interior.hit.path, item_interior.hit.offset, cursor::PlacementHint::Unused);
+        self.lw.goto(&item_interior.document, &item_interior.path, item_interior.offset, cursor::PlacementHint::Unused);
 
         self.dialog.hide();
 
@@ -164,7 +165,8 @@ mod imp {
     #[derive(Debug)]
     pub struct HitItemInterior {
         pub document: sync::Arc<document::Document>,
-        pub hit: search::Hit,
+        pub path: structure::Path,
+        pub offset: addr::Offset,
         path_description: String,
     }
     
@@ -208,7 +210,10 @@ mod imp {
             write!(path_description, " + {}", hit.offset).unwrap();
             
             self.interior.set(HitItemInterior {
-                document, hit, path_description
+                document,
+                path: hit.path.clone(),
+                offset: hit.offset,
+                path_description
             }).unwrap();
         }
     }

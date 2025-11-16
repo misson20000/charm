@@ -28,10 +28,16 @@ pub struct AddressSearch<'a> {
     stack: Vec<TraversalStackEntry<'a>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hit {
+#[derive(Debug, Clone)]
+pub struct Hit<'a> {
+    /// Path to node containing search address
     pub path: structure::Path,
+    /// Offset of search address from beginning of node
     pub offset: addr::Offset,
+    /// Absolute address of beginning of node
+    pub node_addr: addr::AbsoluteAddress,
+    /// Node that search address was found in
+    pub node: &'a sync::Arc<structure::Node>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -88,9 +94,9 @@ impl<'a> AddressSearch<'a> {
 }
 
 impl<'a> Iterator for AddressSearch<'a> {
-    type Item = Hit;
+    type Item = Hit<'a>;
     
-    fn next(&mut self) -> Option<Hit> {
+    fn next(&mut self) -> Option<Hit<'a>> {
         loop {
             let state = match self.stack.last_mut() {
                 Some(entry) => entry,
@@ -104,6 +110,8 @@ impl<'a> Iterator for AddressSearch<'a> {
                     match self.traversal {
                         Traversal::PreOrder => return Some(Hit {
                             offset: self.needle - state.node_addr,
+                            node_addr: state.node_addr,
+                            node: state.node,
                             path: self.stack.iter().enumerate().filter_map(|(i, e)| if (i+1) < self.stack.len() { e.child } else { None }).map(|i| i-1).collect(),
                         }),
                         _ => {}
@@ -137,6 +145,8 @@ impl<'a> Iterator for AddressSearch<'a> {
                         return Some(Hit {
                             offset: self.needle - state.node_addr,
                             path: self.stack.iter().filter_map(|e| e.child).map(|i| i-1).collect(),
+                            node_addr: state.node_addr,
+                            node: state.node,
                         });
                     }
                 }
