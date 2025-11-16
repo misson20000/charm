@@ -157,6 +157,18 @@ impl<'a> Iterator for AddressSearch<'a> {
     }
 }
 
+impl PartialEq for Hit<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path &&
+            self.offset == other.offset &&
+            self.node_addr == other.node_addr &&
+            sync::Arc::ptr_eq(&self.node, &other.node)
+    }
+}
+
+impl Eq for Hit<'_> {
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,43 +198,53 @@ mod tests {
 
         document::Builder::new(root).arc()
     }
+
+    fn reference_hit_for_test(document: &document::Document, path: structure::Path, offset: addr::Offset) -> Hit<'_> {
+        let (node, node_addr) = document.lookup_node(&path);
+        Hit {
+            path, offset, node_addr, node
+        }
+    }
     
     #[test]
     fn basic_preorder() {
+        let d = test_document_1();
         assert_eq!(
-            test_document_1().search_addr(0x1a, Traversal::PreOrder).unwrap().collect::<Vec<Hit>>(),
+            d.search_addr(0x1a, Traversal::PreOrder).unwrap().collect::<Vec<Hit>>(),
             vec![
-                Hit { path: vec![],     offset: 0x1a.into() },
-                Hit { path: vec![0],    offset:  0xa.into() },
-                Hit { path: vec![1],    offset:  0x6.into() },
+                reference_hit_for_test(&d, vec![],     0x1a.into()),
+                reference_hit_for_test(&d, vec![0],     0xa.into()),
+                reference_hit_for_test(&d, vec![1],     0x6.into()),
                 /* child1.0 should not be considered since it doesn't include the needle */
-                Hit { path: vec![1, 1], offset:  0x2.into() },
+                reference_hit_for_test(&d, vec![1, 1],  0x2.into()),
                 /* child2 should not be considered */
             ]);
     }
 
     #[test]
     fn basic_postorder() {
+        let d = test_document_1();
         assert_eq!(
-            test_document_1().search_addr(0x1a, Traversal::PostOrder).unwrap().collect::<Vec<Hit>>(),
+            d.search_addr(0x1a, Traversal::PostOrder).unwrap().collect::<Vec<Hit>>(),
             vec![
-                Hit { path: vec![0],    offset:  0xa.into() },
+                reference_hit_for_test(&d, vec![0],     0xa.into()),
                 /* child1.0 should not be considered since it doesn't include the needle */
-                Hit { path: vec![1, 1], offset:  0x2.into() },
-                Hit { path: vec![1],    offset:  0x6.into() },
+                reference_hit_for_test(&d, vec![1, 1],  0x2.into()),
+                reference_hit_for_test(&d, vec![1],     0x6.into()),
                 /* child2 should not be considered */
-                Hit { path: vec![],     offset: 0x1a.into() },
+                reference_hit_for_test(&d, vec![],     0x1a.into()),
             ]);
     }
 
     #[test]
     fn basic_leaves_only() {
+        let d = test_document_1();
         assert_eq!(
-            test_document_1().search_addr(0x1a, Traversal::LeavesOnly).unwrap().collect::<Vec<Hit>>(),
+            d.search_addr(0x1a, Traversal::LeavesOnly).unwrap().collect::<Vec<Hit>>(),
             vec![
-                Hit { path: vec![0],    offset:  0xa.into() },
+                reference_hit_for_test(&d, vec![0],     0xa.into()),
                 /* child1.0 should not be considered since it doesn't include the needle */
-                Hit { path: vec![1, 1], offset:  0x2.into() },
+                reference_hit_for_test(&d, vec![1, 1],  0x2.into()),
                 /* child1 is not a leaf so it won't be reported */
                 /* child2 should not be considered */
                 /* root is not a leaf so it won't be reported */
