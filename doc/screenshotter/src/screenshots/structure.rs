@@ -23,7 +23,7 @@ pub async fn title_display(app: &rc::Rc<CharmApplication>) {
                    .title_display(structure::TitleDisplay::Major)
                    .size(0x30))
             .build()
-    ).load_space(space).build());
+    ).load_space(space, None).build());
     
     crate::screenshot(app, project, |ctx| {
         ctx.lw.set_cursor_hidden(true);
@@ -53,7 +53,7 @@ pub async fn content_display(app: &rc::Rc<CharmApplication>) {
                    .content_display(structure::ContentDisplay::Hexstring)
                    .size(0x10))
             .build()
-    ).load_space(space).build());
+    ).load_space(space, None).build());
     
     crate::screenshot(app, project, |ctx| {
         ctx.lw.set_cursor_hidden(true);
