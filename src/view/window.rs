@@ -16,6 +16,7 @@ use crate::view::crashreport;
 use crate::view::error;
 use crate::view::helpers;
 use crate::view::hierarchy;
+use crate::view::listing::selection_mode;
 use crate::view::selection;
 use crate::view::project;
 use crate::view::props_editor;
@@ -34,7 +35,8 @@ pub struct CharmWindow {
     datapath_editor: gtk::TreeView,
     hierarchy_editor: gtk::ColumnView,
     pub props_editor: rc::Rc<props_editor::PropsEditor>,
-
+    selection_mode_button: gtk::Button,
+    
     debug_revert_menu: gio::Menu,
     
     context: cell::RefCell<Option<WindowContext>>,
@@ -109,6 +111,14 @@ impl CharmWindow {
                 edit_menu.append(Some("Goto..."), Some("ctx.goto"));
                 edit_menu.append(Some("Settings..."), Some("win.settings"));
 
+                {
+                    let mode_menu = gio::Menu::new();
+                    mode_menu.append(Some("Structure"), Some("ctx.selection-mode::structure"));
+                    mode_menu.append(Some("Address"), Some("ctx.selection-mode::address"));
+                    edit_menu.append_section(Some("Selection Mode"), &mode_menu);
+                    mode_menu.freeze();
+                }
+                
                 {
                     let mode_menu = gio::Menu::new();
                     mode_menu.append(Some("Command mode"), Some("ctx.mode::command"));
@@ -252,6 +262,7 @@ impl CharmWindow {
         let hierarchy_box: gtk::Box = builder.object("hierarchy_box").unwrap();
         let props_editor = props_editor::PropsEditor::new();
         hierarchy_box.append(props_editor.toplevel());
+        let selection_mode_button: gtk::Button = builder.object("selection_mode_button").unwrap();
         
         let w = rc::Rc::new(CharmWindow {
             application: charm.clone(),
@@ -262,6 +273,7 @@ impl CharmWindow {
             datapath_editor,
             hierarchy_editor,
             props_editor,
+            selection_mode_button,
             debug_revert_menu,
             context: cell::RefCell::new(None),
         });
@@ -365,17 +377,29 @@ impl CharmWindow {
         self.breadcrumbs.set_factory(gtk::ListItemFactory::NONE);
         self.breadcrumbs.set_model(gtk::SelectionModel::NONE);
         self.debug_revert_menu.remove_all();
+        self.selection_mode_button.set_icon_name(selection_mode::SelectionMode::default().icon_name());
+        self.selection_mode_button.set_tooltip_text(None);
 
         *guard = context;
 
         if let Some(new_context) = guard.as_ref() {
-            self.listing_container.set_child(Some(&new_context.lw));
+            let lw = new_context.lw.clone();
+            self.listing_container.set_child(Some(&lw));
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
             self.hierarchy_editor.set_model(Some(&new_context.tree_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind(&new_context);
-            self.breadcrumbs.set_factory(Some(&breadcrumbs::CharmBreadcrumbWidget::list_item_factory(new_context.lw.clone())));
-            self.breadcrumbs.set_model(Some(&gtk::NoSelection::new(Some(new_context.lw.breadcrumbs()))));
+            self.breadcrumbs.set_factory(Some(&breadcrumbs::CharmBreadcrumbWidget::list_item_factory(lw.clone())));
+            self.breadcrumbs.set_model(Some(&gtk::NoSelection::new(Some(lw.breadcrumbs()))));
+
+            let selection_mode_button = self.selection_mode_button.clone();
+            selection_mode_button.set_icon_name(lw.get_selection_mode().icon_name());
+            selection_mode_button.set_tooltip_text(Some(lw.get_selection_mode().tooltip()));
+            new_context.action_group.connect_action_state_changed(Some("selection-mode"), move |_ag, _action, variant| catch_panic! {
+                let Some(mode) = variant.str().and_then(selection_mode::SelectionMode::from_name) else { return };
+                selection_mode_button.set_icon_name(mode.icon_name());
+                selection_mode_button.set_tooltip_text(Some(mode.tooltip()));
+            });
             
             new_context.lw.grab_focus();
         }
@@ -554,6 +578,7 @@ impl WindowContext {
         action::listing::clipboard::add_actions(&wc);
         action::listing::import_file::add_action(&wc);
         action::listing::data::fill_zeros::add_action(&wc);
+        action::listing::selection::toggle_mode::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

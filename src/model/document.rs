@@ -157,6 +157,10 @@ impl Document {
         path_description
     }
 
+    pub fn extent(&self) -> addr::AbsoluteExtent {
+        addr::AbsoluteExtent::sized(addr::AbsoluteAddress::ZERO, self.root.size)
+    }
+
     #[must_use]
     pub fn alter_node(&self, path: structure::Path, props: structure::Properties) -> change::Change {
         change::Change {

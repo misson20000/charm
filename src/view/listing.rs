@@ -41,6 +41,7 @@ mod line;
 mod layout;
 mod pick;
 pub mod mode;
+pub mod selection_mode;
 
 use facet::Facet;
 
@@ -72,11 +73,6 @@ enum RubberBandState {
     Keyboard((structure::Path, usize, addr::Offset)),
 }
 
-enum RubberBandMode {
-    Structure,
-    Address,
-}
-
 struct Interior {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::listing::Host>,
@@ -92,7 +88,7 @@ struct Interior {
     mode: mode::Mode,
     hover: Option<(f64, f64)>,
     rubber_band_begin: RubberBandState,
-    rubber_band_mode: RubberBandMode,
+    selection_mode: selection_mode::SelectionMode,
     popover_menu: gtk::PopoverMenu,
     breadcrumbs: gio::ListStore,
     
@@ -400,7 +396,7 @@ impl ListingWidget {
             mode: mode::Mode::default(),
             hover: None,
             rubber_band_begin: RubberBandState::Inactive,
-            rubber_band_mode: RubberBandMode::Structure,
+            selection_mode: selection_mode::SelectionMode::Structure,
             popover_menu: gtk::PopoverMenu::from_model(Some(&context_menu)),
             breadcrumbs: gio::ListStore::new::<breadcrumbs::CharmBreadcrumb>(),
 
@@ -631,6 +627,32 @@ impl ListingWidget {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.mode = mode;
         self.queue_draw();
+    }
+
+    pub fn set_selection_mode(&self, mode: selection_mode::SelectionMode) {
+        let mut interior = self.imp().interior.get().unwrap().write();
+        if interior.selection_mode != mode {
+            interior.selection_mode = mode;
+            
+            match interior.selection_host.change(mode.conversion_change()) {
+                Ok(_) => {},
+                Err((error, attempted_version)) => { interior.charm_window.upgrade().map(|window| window.report_error(error::Error {
+                    while_attempting: error::Action::ToggleSelectionMode,
+                    trouble: error::Trouble::ListingSelectionUpdateFailure {
+                        error,
+                        attempted_version,
+                    },
+                    level: error::Level::Warning,
+                    is_bug: true,
+                })); }
+            }
+        }
+        self.queue_draw();
+    }
+
+    pub fn get_selection_mode(&self) -> selection_mode::SelectionMode {
+        let interior = self.imp().interior.get().unwrap().read();
+        interior.selection_mode
     }
     
     fn open_context_menu(&self, x: f64, y: f64) {
@@ -1094,11 +1116,11 @@ impl Interior {
     
     fn update_rubber_band(&mut self, x: f64, y: f64) {
         if let (RubberBandState::Mouse(rbb), Some(rbe)) = (&self.rubber_band_begin, self.pick(x, y)) {
-            match self.selection_host.change(match self.rubber_band_mode {
-                RubberBandMode::Structure => selection::listing::Change::AssignStructure(
+            match self.selection_host.change(match self.selection_mode {
+                selection_mode::SelectionMode::Structure => selection::listing::Change::AssignStructure(
                     pick::to_structure_selection(&self.document, rbb, &rbe)
                 ),
-                RubberBandMode::Address => selection::listing::Change::AssignAddress(
+                selection_mode::SelectionMode::Address => selection::listing::Change::AssignAddress(
                     pick::to_address_selection(&self.document, rbb, &rbe)
                 ),
             }) {
@@ -1163,11 +1185,11 @@ impl Interior {
             let n_press = n_press as usize;
             let sel_node_path = &path[0..(path.len()-std::cmp::min(path.len(), n_press-2))];
 
-            match self.selection_host.change(match self.rubber_band_mode {
-                RubberBandMode::Structure => selection::listing::Change::AssignStructure(
+            match self.selection_host.change(match self.selection_mode {
+                selection_mode::SelectionMode::Structure => selection::listing::Change::AssignStructure(
                     selection::listing::StructureMode::entire_node(&*self.document, sel_node_path)
                 ),
-                RubberBandMode::Address => {
+                selection_mode::SelectionMode::Address => {
                     let (node, addr) = self.document.lookup_node(sel_node_path);
                     selection::listing::Change::AssignAddress(addr::AbsoluteExtent::sized(addr, node.size))
                 },

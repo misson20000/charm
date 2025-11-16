@@ -6,3 +6,4 @@ pub mod mode;
 pub mod clipboard;
 pub mod import_file;
 pub mod data;
+pub mod selection;

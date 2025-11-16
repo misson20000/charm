@@ -188,28 +188,31 @@ impl versioned::Change<Selection> for Change {
                 ChangeRecord {}
             },
 
-                        /*
             Change::SelectAll => {
-                selection.mode.select_all(),
+                selection.mode = match selection.mode {
+                    Mode::Structure(_) => Mode::Structure(StructureMode::All),
+                    Mode::Address(_) => Mode::Address(selection.document.extent()),
+                };
+                ChangeRecord {}
+            }
             
-            Change::ConvertToStructure => match selection.mode {
-                Mode::Structure(_) =>
-                    return Err(ApplyError::WrongMode),
-                Mode::Address(extent) =>
-                    selection.mode = Mode::Structure(StructureMode::try_from_extent(extent)?),
+            Change::ConvertToStructure => {
+                selection.mode = match selection.mode {
+                    Mode::Structure(_) => return Err(ApplyError::WrongMode),
+                    Mode::Address(extent) => Mode::Structure(StructureMode::best_effort_from_extent(&selection.document, extent)),
+                };
+                ChangeRecord {}
             },
 
-            Change::ConvertToAddress => match selection.mode {
-                Mode::Structure(StructureMode::Empty) => selection.mode =
-                    Mode::Address(addr::unit::EMPTY),
-                Mode::Structure(StructureMode::Range(sr)) => selection.mode =
-                    Mode::Address(sr.get_extent(self.document)),
-                Mode::Structure(StructureMode::All) => selection.mode =
-                    Mode::Address(addr::unit::UNBOUNDED),
+            Change::ConvertToAddress => {
+                selection.mode = match &selection.mode {
+                    Mode::Address(_) => return Err(ApplyError::WrongMode),
+                    Mode::Structure(StructureMode::Empty) => Mode::Address(addr::AbsoluteExtent::sized(0, 0)),
+                    Mode::Structure(StructureMode::Range(sr)) => Mode::Address(sr.absolute_extent(&selection.document)),
+                    Mode::Structure(StructureMode::All) => Mode::Address(selection.document.extent()),
+                };
+                ChangeRecord {}
             },
-
-                Change::AssignFromTree(sync::Arc<super::TreeSelection>) => todo!(),
-             */
 
             _ => todo!(),
         };
@@ -238,6 +241,11 @@ impl StructureRange {
     
     pub fn extent(&self) -> addr::Extent {
         addr::Extent::between(self.begin.0, self.end.0)
+    }
+
+    pub fn absolute_extent(&self, document: &document::Document) -> addr::AbsoluteExtent {
+        let (_, addr) = document.lookup_node(&self.path);
+        self.extent().absolute_from(addr)
     }
 
     pub fn single_child(document: &document::Document, parent: structure::PathSlice, child_index: usize) -> Self {
@@ -488,6 +496,46 @@ impl StructureMode {
         } else {
             StructureMode::Range(StructureRange::single_child(document, &path[0..(path.len()-1)], *path.last().unwrap()))
         }
+    }
+
+    pub fn best_effort_from_extent(document: &document::Document, extent: addr::AbsoluteExtent) -> Self {
+        let Ok(search) = document.search_addr(extent.begin, document::search::Traversal::PostOrder) else { return Self::Empty };
+
+        for hit in search {
+            let extent_in_node = extent.relative_to(hit.node_addr);
+            if extent_in_node.end >= hit.node.size {
+                continue;
+            }
+
+            /* This finds the first node that starts after `extent_in_node.begin`. It's possible the one before that overlaps `extent_in_node`. */
+            let mut begin = (extent_in_node.begin, hit.node.child_at_offset(extent_in_node.begin));
+            if begin.1 > 0 {
+                /* If the structure range would begin in the middle of a child, we can't have that. Need to expand it to include the child. */
+                if hit.node.children[begin.1-1].end() > begin.0 {
+                    begin.0 = hit.node.children[begin.1-1].offset;
+                    begin.1-= 1;
+                }
+            }
+
+            /* This finds the first node that starts after `extent_in_node.end`. This is actually a little bit more
+             * conservative than necessary in the case that children are overlapping. It's possible the one before that
+             * overlaps `extent_in_node`. */
+            let mut end = (extent_in_node.end, hit.node.child_at_offset(extent_in_node.end));
+            if end.1 > 0 {
+                /* If the structure range would end in the middle of a child, we can't have that. Need to expand it to include the child. */
+                if hit.node.children[end.1-1].end() > end.0 {
+                    end.0 = hit.node.children[end.1-1].end();
+                }
+            }
+
+            return Self::Range(StructureRange {
+                path: hit.path,
+                begin,
+                end,
+            });
+        }
+
+        return Self::Empty;
     }
 }
 

@@ -80,11 +80,16 @@ impl CharmApplication {
         app.application.set_accels_for_action("win.save_project", &["<Ctrl>S"]);
         app.application.set_accels_for_action("win.cancel", &["Escape"]);
         app.application.set_accels_for_action("ctx.debug.revert_document(uint32 1)", &["<Ctrl>Z"]);
-
+        
         /* css */
+        let display = gtk::gdk::Display::default().expect("there should be a GDK display");
         let css = gtk::CssProvider::new();
         css.load_from_data(include_str!("charm.css"));
-        gtk::style_context_add_provider_for_display(&gtk::gdk::Display::default().expect("there should be a GDK display"), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+        /* icons */
+        let icon_theme = gtk::IconTheme::for_display(&display);
+        icon_theme.add_search_path("src/view/icons/");
         
         app
     }
