@@ -19,7 +19,7 @@ use std::sync;
 glib::wrapper! {
     pub struct CharmExportDialog(ObjectSubclass<imp::CharmExportDialog>)
         @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow,
-        @implements gtk::Buildable;
+        @implements gtk::Buildable, gtk::ConstraintTarget, gtk::Accessible, gtk::ShortcutManager, gtk::Root, gtk::Native, gio::ActionMap, gio::ActionGroup;
 }
 
 impl CharmExportDialog {

@@ -274,7 +274,7 @@ fn panic_hook(pi: &panic::PanicInfo, charm: sync::Arc<glib::thread_guard::Thread
 glib::wrapper! {
     pub struct CharmDocumentRecoveryWidget(ObjectSubclass<imp::CharmDocumentRecoveryWidget>)
         @extends gtk::Box, gtk::Widget,
-        @implements gtk::Buildable;
+        @implements gtk::Buildable, gtk::ConstraintTarget, gtk::Accessible;
 }
 
 

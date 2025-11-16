@@ -298,18 +298,12 @@ declare_config![Config {
 }];
 
 fn config_path() -> Option<std::path::PathBuf> {
-    match xdg::BaseDirectories::new() {
-        Ok(bd) => match bd.place_config_file("charm.toml") {
-            Ok(path) => Some(path),
-            Err(e) => {
-                println!("failed to place configuration file within directory: {}", e);
-                None
-            },
-        },
+    match xdg::BaseDirectories::new().place_config_file("charm.toml") {
+        Ok(path) => Some(path),
         Err(e) => {
-            println!("failed to find configuration directory: {}", e);
+            println!("failed to place configuration file within directory: {}", e);
             None
-        }
+        },
     }
 }
 

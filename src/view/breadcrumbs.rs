@@ -18,7 +18,7 @@ glib::wrapper! {
 glib::wrapper! {
     pub struct CharmBreadcrumbWidget(ObjectSubclass<imp::CharmBreadcrumbWidget>)
         @extends gtk::Button, gtk::Widget,
-        @implements gtk::Buildable;
+        @implements gtk::Buildable, gtk::ConstraintTarget, gtk::Accessible, gtk::Actionable;
 }
 
 mod imp {
