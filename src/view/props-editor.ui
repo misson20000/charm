@@ -5,6 +5,7 @@
   <requires lib="charm" version="0.1"/>
   <requires lib="gtk" version="4.0"/>
   <object class="GtkBox" id="toplevel">
+    <property name="css-classes">background</property>
     <child>
       <object class="GtkGrid">
         <property name="column-spacing">30</property>

@@ -16,6 +16,7 @@ use prelude::*;
 pub enum Element {
     Window(i32, i32),
     Listing,
+    PropsEditor,
 }
 
 pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
@@ -25,7 +26,7 @@ pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
     element: Element,
     path: impl AsRef<std::path::Path> + 'static) {
     let w = match element {
-        Element::Window(_, _) => {
+        Element::Window(_, _) | Element::PropsEditor => {
             app.new_window(false)
         },
         Element::Listing => {
@@ -57,8 +58,10 @@ pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
                 let used_height = lw.used_height();
                 w.window.set_default_size(lw.measure(gtk::Orientation::Horizontal, -1).1, used_height as i32);
             },
+            Element::PropsEditor => {
+            },
         }
-        
+
         w.present();
 
         rx.await.unwrap();
@@ -71,7 +74,14 @@ pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
     /* Wait for all the visible data to load */
     lw.complete_work().await;
 
-    let wp = gtk::WidgetPaintable::new(Some(&w.window));
+    let wp = gtk::WidgetPaintable::new(Some(match element {
+        Element::Window(_, _) | Element::Listing => {
+            w.window.upcast_ref()
+        },
+        Element::PropsEditor => {
+            &w.props_editor.toplevel
+        },
+    }));
 
     /* Wait for the listing widget to re-render */
     {
