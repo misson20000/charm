@@ -64,6 +64,7 @@ pub async fn screenshot<F: FnOnce(&charm::view::window::WindowContext)>(
 
         w.present();
 
+        /* Wait for window to be mapped */
         rx.await.unwrap();
 
         w.window.disconnect(shid);
@@ -141,7 +142,8 @@ fn main() {
 
         glib::MainContext::default().spawn_local(async move {
             let _hold = hold;
-            
+
+            screenshots::structure::shadowing(&app).await;
             screenshots::structure::title_display(&app).await;
             screenshots::structure::content_display(&app).await;
             screenshots::demo::demo(&app).await;
