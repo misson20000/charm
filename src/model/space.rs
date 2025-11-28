@@ -5,6 +5,7 @@ use std::vec;
 pub mod cache;
 
 pub mod file;
+pub mod memory;
 
 pub enum FetchResult {
     Ok(vec::Vec<u8>),
@@ -24,7 +25,8 @@ pub trait AddressSpaceExt {
 }
 
 pub enum AddressSpace {
-    File(file::FileAddressSpace)
+    File(file::FileAddressSpace),
+    Memory(memory::InMemoryAddressSpace),
 }
 
 impl AddressSpace {
@@ -32,6 +34,7 @@ impl AddressSpace {
         async move {
             match &*self {
                 AddressSpace::File(fas) => fas.fetch(extent).await,
+                AddressSpace::Memory(mas) => mas.fetch(extent).await,
             }
         }
     }
@@ -41,18 +44,21 @@ impl AddressSpaceExt for AddressSpace {
     fn get_label(&self) -> &str {
         match self {
             AddressSpace::File(fas) => fas.get_label(),
+            AddressSpace::Memory(mas) => mas.get_label(),
         }
     }
 
     async fn fetch(&self, extent: (u64, u64)) -> FetchResult {
         match self {
             AddressSpace::File(fas) => fas.fetch(extent).await,
+            AddressSpace::Memory(mas) => mas.fetch(extent).await,
         }
     }
 
     fn is_dirty_since(&self, timestamp: time::SystemTime) -> bool {
         match self {
             AddressSpace::File(fas) => fas.is_dirty_since(timestamp),
+            AddressSpace::Memory(mas) => mas.is_dirty_since(timestamp),
         }
     }
 }
@@ -60,5 +66,11 @@ impl AddressSpaceExt for AddressSpace {
 impl From<file::FileAddressSpace> for AddressSpace {
     fn from(fas: file::FileAddressSpace) -> AddressSpace {
         AddressSpace::File(fas)
+    }
+}
+
+impl From<memory::InMemoryAddressSpace> for AddressSpace {
+    fn from(mas: memory::InMemoryAddressSpace) -> AddressSpace {
+        AddressSpace::Memory(mas)
     }
 }

@@ -78,6 +78,7 @@ fn try_open_project(window: &rc::Rc<window::CharmWindow>, project_file: gio::Fil
     for filter in document.datapath.iter_filters() {
         match filter {
             datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
+                space::AddressSpace::Memory(_) => {},
                 space::AddressSpace::File(f) => match f.try_open() {
                     Ok(_) => {},
                     Err(e) => window.report_error(error::Error {

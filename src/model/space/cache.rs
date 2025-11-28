@@ -78,13 +78,15 @@ impl SpaceCache {
             let mut lru_lock = self.lru.lock();
             if let Some(entry) = lru_lock.get(&addr).cloned() {
                 std::mem::drop(lru_lock);
-                /* This address was in the cache. If it has been forgotten about, it will need a new permit to be remembered. Let the CacheLineReference constructor take care of awaiting the future to get a rememberance permit, if it needs one. */
+                /* This address was in the cache. It may have been forgotten about, in which case it will need a new
+                 * permit to be remembered. Let the CacheLineReference constructor take care of awaiting the future to
+                 * get a rememberance permit, if it needs one. */
                 return CacheLineReference::new(entry, permit_future_pin).await;
             }
             std::mem::drop(lru_lock);
             
-            /* This address wasn't in the cache need to either get a rememberance permit to create a new CacheLine
-            object, or luck out and have some other task do it for the same block in the meantime. */
+            /* This address wasn't in the cache, so need to either get a rememberance permit to create a new CacheLine
+             * object, or luck out and have some other task do it for the same block in the meantime. */
             
             match PreemptableFuture(permit_future_pin.as_mut(), pin!(self.lru_update_notifier.notified())).await {
                 /* Got a rememberance permit! */

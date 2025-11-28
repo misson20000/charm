@@ -112,6 +112,7 @@ fn load_project(path: &str) -> project::Project {
         match filter {
             charm::model::datapath::Filter::LoadSpace(lsf) => match &**lsf.space() {
                 space::AddressSpace::File(f) => { f.try_open().unwrap(); },
+                space::AddressSpace::Memory(_) => { },
             },
             _ => {}
         }

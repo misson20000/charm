@@ -127,12 +127,19 @@ struct InsertFilter {
 
 #[derive(Serialize, Deserialize)]
 enum Space {
-    File(FileAddressSpace)
+    File(FileAddressSpace),
+    Memory(InMemoryAddressSpace),
 }
 
 #[derive(Serialize, Deserialize)]
 struct FileAddressSpace {
     path: std::path::PathBuf,
+    label: std::string::String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct InMemoryAddressSpace {
+    data: vec::Vec<u8>,
     label: std::string::String,
 }
 
@@ -386,6 +393,7 @@ impl From<&space::AddressSpace> for Space {
     fn from(s: &space::AddressSpace) -> Space {
         match s {
             space::AddressSpace::File(f) => Space::File(f.into()),
+            space::AddressSpace::Memory(m) => Space::Memory(m.into()),
         }
     }
 }
@@ -393,7 +401,8 @@ impl From<&space::AddressSpace> for Space {
 impl Into<space::AddressSpace> for Space {
     fn into(self) -> space::AddressSpace {
         match self {
-            Space::File(f) => space::AddressSpace::File(f.into())
+            Space::File(f) => space::AddressSpace::File(f.into()),
+            Space::Memory(m) => space::AddressSpace::Memory(m.into()),
         }
     }
 }
@@ -410,6 +419,21 @@ impl From<&space::file::FileAddressSpace> for FileAddressSpace {
 impl Into<space::file::FileAddressSpace> for FileAddressSpace {
     fn into(self) -> space::file::FileAddressSpace {
         space::file::FileAddressSpace::new(self.path, &self.label)
+    }
+}
+
+impl From<&space::memory::InMemoryAddressSpace> for InMemoryAddressSpace {
+    fn from(m: &space::memory::InMemoryAddressSpace) -> InMemoryAddressSpace {
+        InMemoryAddressSpace {
+            data: m.data.clone(),
+            label: m.label.clone(),
+        }
+    }
+}
+
+impl Into<space::memory::InMemoryAddressSpace> for InMemoryAddressSpace {
+    fn into(self) -> space::memory::InMemoryAddressSpace {
+        space::memory::InMemoryAddressSpace::new(self.data, &self.label)
     }
 }
 
