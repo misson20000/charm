@@ -75,7 +75,7 @@ mod imp {
         fn change(&self, interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, change: tree_model::Change) {
             if let Some(error_reporter) = interior.error_reporter.upgrade() {
                 match interior.selection_host.change(change) {
-                    Ok(new_selection) => self.obj().update_selection(interior, new_selection),
+                    Ok(new_selection) => self.obj().update_selection_internal(interior, new_selection),
                     Err((error, attempted_version)) => {
                         error_reporter.report_error(error::Error {
                             while_attempting: error::Action::ModifyTreeSelection,
@@ -94,7 +94,7 @@ mod imp {
         fn change_multiple<F: FnOnce(&mut TreeSelectionModelInterior) -> Result<sync::Arc<tree_model::Selection>, (tree_model::ApplyError, sync::Arc<tree_model::Selection>)>>(&self, mut interior: std::cell::RefMut<'_, TreeSelectionModelInterior>, cb: F) {
             if let Some(error_reporter) = interior.error_reporter.upgrade() {
                 match cb(&mut *interior) {
-                    Ok(new_selection) => self.obj().update_selection(interior, new_selection),
+                    Ok(new_selection) => self.obj().update_selection_internal(interior, new_selection),
                     Err((error, attempted_version)) => {
                         error_reporter.report_error(error::Error {
                             while_attempting: error::Action::ModifyTreeSelection,
@@ -336,7 +336,7 @@ impl TreeSelectionModel {
 
         let selection_subscriber = helpers::subscribe_to_updates(model.downgrade(), selection_host.clone(), selection.clone(), move |model, new_selection| {
             if let Some(interior) = model.imp().borrow_interior_mut() {
-                model.update_selection(interior, new_selection.clone());
+                model.update_selection_internal(interior, new_selection.clone());
             }
         });
         
@@ -355,8 +355,12 @@ impl TreeSelectionModel {
     pub fn selection(&self) -> sync::Arc<selection::TreeSelection> {
         self.imp().borrow_interior().unwrap().selection.clone()
     }
+
+    pub fn update(&self, new_selection: sync::Arc<selection::TreeSelection>) {
+        self.update_selection_internal(self.imp().borrow_interior_mut().unwrap(), new_selection);
+    }
     
-    fn update_selection(&self, mut interior: std::cell::RefMut<'_, imp::TreeSelectionModelInterior>, new_selection: sync::Arc<selection::TreeSelection>) {
+    fn update_selection_internal(&self, mut interior: std::cell::RefMut<'_, imp::TreeSelectionModelInterior>, new_selection: sync::Arc<selection::TreeSelection>) {
         let mut selection_changed = false;
         
         new_selection.changes_since(&interior.selection.clone(), &mut |new_selection, record| {
