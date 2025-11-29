@@ -452,6 +452,12 @@ pub mod builder {
             self
         }
 
+        /// Convenience alias for setting title display to inline
+        pub fn inline(mut self) -> Self {
+            self.node.props.title_display = TitleDisplay::Inline;
+            self
+        }
+        
         pub fn children_display(mut self, value: ChildrenDisplay) -> Self {
             self.node.props.children_display = value;
             self

@@ -685,7 +685,7 @@ impl ListingWidget {
         self.queue_draw();
     }
 
-    fn selection_updated(&self, new_selection: &sync::Arc<selection::ListingSelection>) {
+    pub fn selection_updated(&self, new_selection: &sync::Arc<selection::ListingSelection>) {
         let mut interior = self.imp().interior.get().unwrap().write();
         interior.selection_updated(new_selection);
         interior.collect_events(self);
