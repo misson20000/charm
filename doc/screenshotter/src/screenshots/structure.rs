@@ -1,7 +1,6 @@
 use crate::prelude::*;
 
 pub async fn shadowing(app: &rc::Rc<CharmApplication>) {
-    /* Just so we have some data to show, open /proc/self/exe */
     let mut data = vec![0; 1024];
     data[50..54].copy_from_slice(&[1, 2, 3, 4]);
     data[100..104].copy_from_slice(&[1, 2, 3, 4]);

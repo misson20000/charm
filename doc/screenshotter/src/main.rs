@@ -143,10 +143,13 @@ fn main() {
         glib::MainContext::default().spawn_local(async move {
             let _hold = hold;
 
+            screenshots::demo::demo(&app).await;
+            screenshots::selection::address(&app).await;
+            screenshots::selection::address_overlap(&app).await;
+            screenshots::selection::structure(&app).await;
             screenshots::structure::shadowing(&app).await;
             screenshots::structure::title_display(&app).await;
             screenshots::structure::content_display(&app).await;
-            screenshots::demo::demo(&app).await;
         });
     });
 }
