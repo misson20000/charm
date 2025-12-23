@@ -36,16 +36,14 @@ struct PropsInterior {
     document_host: sync::Arc<document::DocumentHost>,
     selection_host: sync::Arc<selection::tree::Host>,
     selection: sync::Arc<selection::TreeSelection>,
-
     mode: PropsEditorMode,
-    
-    subscriber: helpers::AsyncSubscriber,    
+    subscriber: helpers::AsyncSubscriber,
 }
 
 pub struct PropsEditor {
     pub toplevel: gtk::Widget,
 
-    name_entry: gtk::Entry,
+    pub name_entry: gtk::Entry,
     size_entry: addr_entry::AddrEntry,
     
     title_display: gtk::Stack,
@@ -91,6 +89,7 @@ impl PropsEditor {
 
         let pe = PropsEditor {
             toplevel,
+
             name_entry,
             size_entry,
             
@@ -310,7 +309,7 @@ impl PropsEditor {
         self.children_display.set_sensitive(false);
     }
     
-    pub fn bind(self: &Rc<Self>, ctx: &window::WindowContext) {
+    pub fn bind_linked(self: &Rc<Self>, ctx: &window::WindowContext) {
         let selection_host = ctx.tree_selection_host.clone();
         let selection = ctx.tree_selection_host.get();
 
@@ -328,6 +327,31 @@ impl PropsEditor {
         *self.interior.borrow_mut() = Some(interior);
     }
 
+    pub fn bind_independent(self: &Rc<Self>, document_host: sync::Arc<document::DocumentHost>, selection: sync::Arc<selection::TreeSelection>) {
+        let selection_host = sync::Arc::new(selection::tree::Host::new_from_existing(selection.clone()));
+
+        let mut interior = PropsInterior {
+            document_host: document_host.clone(),
+            selection_host,
+            selection: selection.clone(),
+            mode: PropsEditorMode::Deactivated,
+            subscriber: helpers::subscribe_to_updates(Rc::downgrade(self), document_host, selection.document.clone(), |pe, new_doc| {
+                let window = match pe.window.borrow().upgrade() {
+                    Some(window) => window,
+                    None => return,
+                };
+                
+                if let Some(interior) = pe.interior.borrow_mut().as_mut() {
+                    println!("");
+                    pe.update_document(interior, &window, new_doc.clone())
+                }
+            }),
+        };
+
+        self.update_selection_internal(&mut interior, selection, None);
+        *self.interior.borrow_mut() = Some(interior);
+    }
+    
     pub fn update_selection(&self, selection: &sync::Arc<selection::TreeSelection>) {
         self.in_update.set(true);
         let mut interior_guard = self.interior.borrow_mut();

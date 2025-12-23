@@ -150,6 +150,13 @@ impl<Object: Versioned> Host<Object> {
         }
     }
 
+    pub fn new_from_existing(initial: sync::Arc<Object>) -> Self {
+        Host {
+            notifier: util::Notifier::new(),
+            current: arc_swap::ArcSwap::from(initial),
+        }
+    }
+    
     pub fn enroll(&self, cx: &task::Context) {
         self.notifier.enroll(cx);
     }

@@ -388,7 +388,7 @@ impl CharmWindow {
             self.datapath_editor.set_model(Some(&new_context.datapath_model));
             self.hierarchy_editor.set_model(Some(&new_context.tree_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
-            self.props_editor.bind(&new_context);
+            self.props_editor.bind_linked(&new_context);
             self.breadcrumbs.set_factory(Some(&breadcrumbs::CharmBreadcrumbWidget::list_item_factory(lw.clone())));
             self.breadcrumbs.set_model(Some(&gtk::NoSelection::new(Some(lw.breadcrumbs()))));
 
@@ -579,6 +579,7 @@ impl WindowContext {
         action::listing::import_file::add_action(&wc);
         action::listing::data::fill_zeros::add_action(&wc);
         action::listing::selection::toggle_mode::add_action(&wc);
+        action::listing::edit_props::add_action(&wc);
         action::tree::delete_node::add_action(&wc);
         action::tree::nest::add_action(&wc);
         action::tree::destructure::add_action(&wc);

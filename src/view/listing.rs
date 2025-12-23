@@ -11,6 +11,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
+use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 use crate::model::listing::window as window_model;
 use crate::model::listing::window::LineView;
@@ -166,6 +167,9 @@ impl ObjectSubclass for ListingWidgetImp {
             klass.add_shortcut(&gtk::Shortcut::new(
                 gtk::ShortcutTrigger::parse_string("bracketleft"),
                 Some(gtk::NamedAction::new("ctx.create_array"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("P"),
+                Some(gtk::NamedAction::new("ctx.edit_props"))));
             
             klass.set_css_name("listing");
         }
@@ -376,6 +380,7 @@ impl ListingWidget {
         context_menu.append(Some("Cut"), Some("ctx.cut"));
         context_menu.append(Some("Copy"), Some("ctx.copy"));
         context_menu.append(Some("Paste"), Some("ctx.paste"));
+        context_menu.append(Some("Edit properties..."), Some("ctx.edit_props"));
         context_menu.append(Some("Create node..."), Some("ctx.insert_node"));
         context_menu.append(Some("Create array..."), Some("ctx.create_array"));
         context_menu.append(Some("Delete nodes"), Some("ctx.delete_selected_nodes"));
@@ -589,6 +594,10 @@ impl ListingWidget {
     
     pub fn cursor_mut(&self) -> parking_lot::MappedRwLockWriteGuard<'_, crate::model::listing::cursor::Cursor> {
         parking_lot::RwLockWriteGuard::map(self.imp().interior.get().unwrap().write(), |int| &mut int.cursor.cursor)
+    }
+
+    pub fn cursor_token_watch(&self) -> tokio::sync::watch::Receiver<(sync::Arc<document::Document>, token::Token)> {
+        self.imp().interior.get().unwrap().read().cursor.get_token_watch()
     }
 
     pub fn animate(&self, frame_clock: &gdk::FrameClock) {
