@@ -4,7 +4,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document::structure;
 
-pub trait TokenKind {
+pub trait TokenKind {    
     fn kind_name(&self) -> &'static str;
     fn common(&self) -> &TokenCommon;
     
@@ -25,8 +25,22 @@ pub trait TokenKind {
     }
 }
 
+pub trait TokenRefConversion<'a, T: TokenKind> {
+    fn as_specific_token_ref(&'a self) -> Option<&'a T>;
+}
+
 pub trait AsTokenRef<'a, Ref> {
+    const MARKER: std::marker::PhantomData<Self> = std::marker::PhantomData;
+    
     fn as_token_ref(&'a self) -> Ref;
+    
+    fn as_specific_token_ref<'b, T: TokenKind>(&'b self, _marker: std::marker::PhantomData<T>) -> Option<&'a T> where Self: TokenRefConversion<'a, T>, 'b: 'a {
+        TokenRefConversion::as_specific_token_ref(self)
+    }
+}
+
+pub trait CloneToken<Output: TokenKind> {
+    fn clone_token(&self) -> Output;
 }
 
 macro_rules! declare_token_set {
@@ -73,6 +87,12 @@ macro_rules! declare_token_set {
             }
         }
 
+        impl CloneToken<$name> for $name {
+            fn clone_token(&self) -> $name {
+                self.clone()
+            }
+        }
+
         impl<'a> TokenKind for $ref_name<'a> {
             fn kind_name(&self) -> &'static str {
                 match self {
@@ -86,6 +106,16 @@ macro_rules! declare_token_set {
                 match self {
                     $(
                         $ref_name::$member(t) => &t.common()
+                    ),*
+                }
+            }
+        }
+
+        impl<'a> CloneToken<$name> for $ref_name<'a> {
+            fn clone_token(&self) -> $name {
+                match self {
+                    $(
+                        $ref_name::$member(t) => t.clone_token()
                     ),*
                 }
             }
@@ -111,6 +141,30 @@ macro_rules! declare_token_set {
             impl<'a> AsTokenRef<'a, $ref_name<'a>> for $member {
                 fn as_token_ref(&'a self) -> $ref_name<'a> {
                     $ref_name::$member(self)
+                }
+            }
+
+            impl<'a> TokenRefConversion<'a, $member> for $ref_name<'a> {
+                fn as_specific_token_ref(&'a self) -> Option<&'a $member> {
+                    match self {
+                        $ref_name::$member(t) => Some(t),
+                        _ => None
+                    }
+                }
+            }
+
+            impl<'a> TokenRefConversion<'a, $member> for $name {
+                fn as_specific_token_ref(&'a self) -> Option<&'a $member> {
+                    match self {
+                        $name::$member(t) => Some(t),
+                        _ => None
+                    }
+                }
+            }
+
+            impl CloneToken<$name> for $member {
+                fn clone_token(&self) -> $name {
+                    $name::$member(self.clone())
                 }
             }
         )*
