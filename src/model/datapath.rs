@@ -92,7 +92,7 @@ pub enum Filter {
 
 #[derive(Clone, Debug)]
 pub struct DataPath {
-    filters: imbl::Vector<Filter>,
+    filters: imbl::Vector<sync::Arc<Filter>>,
 }
 
 impl Filter {
@@ -163,7 +163,7 @@ impl DataPath {
         }
     }
 
-    pub fn from_filters(filters: imbl::Vector<Filter>) -> Self {
+    pub fn from_filters(filters: imbl::Vector<sync::Arc<Filter>>) -> Self {
         DataPath {
             filters,
         }
@@ -172,20 +172,20 @@ impl DataPath {
     pub fn stack(&mut self, filter: &Filter) {
         if let Some(top_filter) = self.filters.last() {
             if let Some(stacked_filter) = Filter::stack(top_filter, filter) {
-                self.filters.set(self.filters.len() - 1, stacked_filter);
+                self.filters.set(self.filters.len() - 1, sync::Arc::new(stacked_filter));
                 
                 return;
             }
         }
         
-        self.filters.push_back(filter.clone());
+        self.filters.push_back(sync::Arc::new(filter.clone()));
     }
 
-    pub fn push(&mut self, filter: Filter) {
+    pub fn push(&mut self, filter: sync::Arc<Filter>) {
         self.filters.push_back(filter);
     }
 
-    pub fn iter_filters(&self) -> impl std::iter::DoubleEndedIterator<Item = &Filter> {
+    pub fn iter_filters(&self) -> impl std::iter::DoubleEndedIterator<Item = &sync::Arc<Filter>> {
         self.filters.iter()
     }
 

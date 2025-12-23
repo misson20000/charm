@@ -33,7 +33,7 @@ fn update_store(store: &gtk::ListStore, document: &sync::Arc<document::Document>
     for filter in document.datapath.iter_filters().rev() {
         let i = store.append();
         store.set(&i, &[
-            (0, match filter {
+            (0, match &**filter {
                 datapath::Filter::LoadSpace(_) => &"Load Address Space",
                 datapath::Filter::Overwrite(_) => &"Overwrite Bytes",
                 datapath::Filter::Fill(_) => &"Fill Bytes",

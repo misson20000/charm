@@ -86,7 +86,7 @@ impl Builder {
     }
 
     pub fn load_space(mut self, space: sync::Arc<space::AddressSpace>, size: Option<u64>) -> Self {
-        self.datapath.push(datapath::LoadSpaceFilter::new_defaults(space, 0, 0, size).to_filter());
+        self.datapath.push(sync::Arc::new(datapath::LoadSpaceFilter::new_defaults(space, 0, 0, size).to_filter()));
         self
     }
 

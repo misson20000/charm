@@ -252,13 +252,13 @@ impl Into<structure::Childhood> for Childhood {
 
 impl From<&datapath::DataPath> for DataPath {
     fn from(dp: &datapath::DataPath) -> Self {
-        DataPath(dp.iter_filters().map(Filter::from).collect())
+        DataPath(dp.iter_filters().map(std::ops::Deref::deref).map(Filter::from).collect())
     }
 }
 
 impl Into<datapath::DataPath> for DataPath {
     fn into(self) -> datapath::DataPath {
-        datapath::DataPath::from_filters(self.0.into_iter().map(Filter::into).collect())
+        datapath::DataPath::from_filters(self.0.into_iter().map(Filter::into).map(sync::Arc::new).collect())
     }
 }
 
