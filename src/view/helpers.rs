@@ -79,6 +79,7 @@ where F: Fn(&gio::SimpleAction, rc::Rc<T>, Option<S>) + 'static,
 #[derive(Debug)]
 pub struct AsyncSubscriber(Option<glib::JoinHandle<()>>);
 
+/// Creates a task that invokes the callback whenever there is a new version of the supplied host's contents. You need to supply the version that you know about right now, so that if there is *already* a new version, you get notified properly. If your callback ever panics, the task exits and will need to be restarted.
 pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'static>(
     subscriber_weak: SubscriberRef,
     host: sync::Arc<versioned::Host<Object>>,
@@ -101,22 +102,33 @@ pub fn subscribe_to_updates<SubscriberRef, F, Object: versioned::Versioned + 'st
 
             object = new_object.clone();
 
-            catch_panic! {
-                callback(subscriber, &object);
-            }
+            callback(subscriber, &object);
         };
     })
 }
 
 /// This callback is an FFI boundary.
 pub fn spawn_on_main_context<F: future::Future<Output = ()> + 'static>(task: F) -> AsyncSubscriber {
-    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(task)))
+    AsyncSubscriber(Some(glib::MainContext::default().spawn_local(PanicCatchingFuture(task))))
 }
 
 impl Drop for AsyncSubscriber {
     fn drop(&mut self) {
         if let Some(jh) = self.0.take() {
             jh.abort();
+        }
+    }
+}
+
+struct PanicCatchingFuture<F: future::Future>(F);
+
+impl<F: future::Future<Output = ()>> future::Future for PanicCatchingFuture<F> {
+    type Output = ();
+    
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        catch_panic! {
+            @default(std::task::Poll::Ready(()));
+            unsafe { self.map_unchecked_mut(|s| &mut s.0) }.poll(cx)
         }
     }
 }
