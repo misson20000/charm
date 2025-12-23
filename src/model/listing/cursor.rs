@@ -52,9 +52,6 @@ pub enum EntryError {
 
 #[enum_dispatch]
 pub trait CursorClassExt {
-    fn update(&mut self, _document: &document::Document) {
-    }
-
     /// Checks whether the provided token is the same one that this cursor is on top of.
     fn is_over(&self, token: token::TokenRef<'_>) -> bool {
         self.get_token() == token
@@ -261,7 +258,6 @@ impl Cursor {
             *self = Self::place_position(document.clone(), position, offset, &self.class.get_placement_hint());
         }
 
-        self.class.update(document);
     }
 
     pub fn update(&mut self, document: &sync::Arc<document::Document>) {
