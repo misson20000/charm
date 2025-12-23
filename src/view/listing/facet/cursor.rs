@@ -3,6 +3,8 @@ use crate::model::document;
 use crate::model::document::structure;
 use crate::model::listing::cursor;
 use crate::model::listing::cursor::CursorClassExt;
+use crate::model::listing::token;
+use crate::model::listing::token::CloneToken;
 use crate::view::config;
 use crate::view::listing::facet;
 
@@ -30,6 +32,8 @@ pub struct CursorView {
 
     blink_timer: f64,
     bonk_timer: f32,
+
+    token_watch_sender: tokio::sync::watch::Sender<(sync::Arc<document::Document>, token::Token)>,
 }
 
 impl std::fmt::Debug for CursorView {
@@ -49,8 +53,12 @@ impl std::fmt::Debug for CursorView {
 
 impl CursorView {
     pub fn new(document: sync::Arc<document::Document>, config: sync::Arc<config::Config>) -> CursorView {
+        let cursor = cursor::Cursor::new(document);
+        let token_watch_sender = tokio::sync::watch::Sender::new((cursor.document(), cursor.class.get_token().clone_token()));
+        
         CursorView {
-            cursor: cursor::Cursor::new(document),
+            cursor,
+            
             mode: Mode::Command,
             has_focus: true,
             insert: false,
@@ -62,6 +70,8 @@ impl CursorView {
             
             blink_timer: 0.0,
             bonk_timer: 0.0,
+
+            token_watch_sender,
         }
     }
 
@@ -124,6 +134,12 @@ impl CursorView {
         self.has_focus = focused;
         self.ev_draw.want();
     }
+
+    pub fn document_updated(&mut self, new_doc: &sync::Arc<document::Document>) {
+        if self.cursor.update(new_doc) {
+            self.notify_moved();
+        }
+    }
     
     // TODO: macro this
     fn movement<F>(&mut self, mov: F) where F: FnOnce(&mut cursor::Cursor) -> cursor::MovementResult {
@@ -131,12 +147,12 @@ impl CursorView {
         self.ev_work.want();
         self.blink();
 
-        let result = mov(&mut self.cursor);
-        
-        match result {
+        match mov(&mut self.cursor) {
             cursor::MovementResult::Ok => (),
             _ => self.bonk(),
         }
+
+        self.notify_moved();
     }
     
     pub fn move_left(&mut self) { self.movement(|c| c.move_left()); }
@@ -154,7 +170,9 @@ impl CursorView {
         self.blink();
         self.ev_draw.want();
         self.ev_work.want();
-        self.cursor.goto(document, path, offset, hint)
+        self.cursor.goto(document, path, offset, hint);
+
+        self.notify_moved();
     }
 
     pub fn set(&mut self, new: cursor::Cursor) {
@@ -162,6 +180,8 @@ impl CursorView {
         self.ev_draw.want();
         self.ev_work.want();
         self.cursor = new;
+
+        self.notify_moved();
     }
     
     pub fn enter_hex(&mut self, document_host: &document::DocumentHost, nybble: u8) -> Result<(), cursor::EntryError> {
@@ -174,6 +194,8 @@ impl CursorView {
             Ok(_) => self.bonk(),
             Err(e) => return Err(e)
         }
+
+        self.notify_moved();
 
         Ok(())
     }
@@ -200,6 +222,18 @@ impl CursorView {
         };
 
         (path, child, offset)
+    }
+
+    fn notify_moved(&self) {
+        self.token_watch_sender.send_replace((self.cursor.document(), self.get_token().clone_token()));
+    }
+    
+    pub fn get_token(&self) -> token::TokenRef<'_> {
+        self.cursor.class.get_token()
+    }
+
+    pub fn get_token_watch(&self) -> tokio::sync::watch::Receiver<(sync::Arc<document::Document>, token::Token)> {
+        self.token_watch_sender.subscribe()
     }
 }
 

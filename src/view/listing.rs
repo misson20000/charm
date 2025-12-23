@@ -748,7 +748,7 @@ impl Interior {
 
         self.window.update(new_document);
         self.update_breadcrumbs();
-        self.cursor.cursor.update(new_document);
+        self.cursor.document_updated(new_document);
         self.document = new_document.clone();
         self.rubber_band_begin = RubberBandState::Inactive;
 

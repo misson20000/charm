@@ -226,7 +226,7 @@ impl Cursor {
 
     /// Notify cursor that the underlying document has changed and it needs to renogitiate its position.
     #[instrument]
-    fn update_internal(&mut self, document: &sync::Arc<document::Document>, update_mode: UpdateMode) {
+    fn update_internal(&mut self, document: &sync::Arc<document::Document>, update_mode: UpdateMode) -> bool {
         /* if we're using an outdated structure hierarchy root, make a
          * new position and try to put the cursor nearby in the new
          * hierarchy. */
@@ -256,12 +256,15 @@ impl Cursor {
 
             let offset = position.structure_position_offset() + options.additional_offset.unwrap_or(addr::Offset::ZERO);
             *self = Self::place_position(document.clone(), position, offset, &self.class.get_placement_hint());
-        }
 
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn update(&mut self, document: &sync::Arc<document::Document>) {
-        self.update_internal(document, UpdateMode::Default);
+    pub fn update(&mut self, document: &sync::Arc<document::Document>) -> bool {
+        self.update_internal(document, UpdateMode::Default)
     }
 
     pub fn goto(&mut self, document: sync::Arc<document::Document>, path: &structure::Path, offset: addr::Offset, hint: PlacementHint) {
