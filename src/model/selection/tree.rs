@@ -168,6 +168,21 @@ impl Selection {
     pub fn add_single(&mut self, path: structure::PathSlice) {
         self.root.add_single(&self.document.root, &path[..]);
     }
+
+    /// Adds all the children under the given path indexed between begin (inclusive) and end (exclusive), and optionally all of their descendants as well.
+    pub fn add_range(&mut self, path: structure::PathSlice, begin: usize, end: usize, include_descendants: bool) {
+        if begin == end {
+            return;
+        }
+
+        self.root.add_range(&self.document.root, &path[..], begin, end, include_descendants);
+    }
+
+    /// Adds all nodes in the entire document to the selection.
+    pub fn add_all(&mut self) {
+        self.root.self_selected = true;
+        self.root.children_selected = ChildrenMode::AllGrandchildren;
+    }
     
     fn update_document(&mut self, new_doc: &sync::Arc<document::Document>) -> ChangeRecord {
         if self.document.is_outdated(new_doc) {
@@ -582,7 +597,7 @@ impl SparseNode {
             }
         }
     }
-
+    
     fn add_single(&mut self, node: &structure::Node, remaining_path: structure::PathSlice) {
         if remaining_path.len() == 0 {
             self.self_selected = true;
@@ -606,6 +621,66 @@ impl SparseNode {
 
                 ChildrenMode::Mixed(vec) => {
                     vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                },
+            }
+        }
+
+        self.canonicalize(node);
+    }
+
+    fn add_range(&mut self, node: &structure::Node, remaining_path: structure::PathSlice, begin: usize, end: usize, include_descendants: bool) {        
+        if remaining_path.len() == 0 {
+            let mut vec_storage: Vec<SparseNode>;
+            
+            let vec = match &mut self.children_selected {
+                /* Nothing needs to be done. */
+                ChildrenMode::AllGrandchildren => return,
+                ChildrenMode::AllDirect if remaining_path.len() == 1 => return,
+
+                ChildrenMode::None => {
+                    vec_storage = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                    &mut vec_storage
+                },
+
+                ChildrenMode::AllDirect => {
+                    vec_storage = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                    &mut vec_storage
+                },
+
+                ChildrenMode::Mixed(ref mut vec) => {
+                    vec
+                },
+            };
+
+            for i in begin..end {
+                vec[i].self_selected = true;
+                if include_descendants {
+                    vec[i].children_selected = ChildrenMode::AllGrandchildren;
+                }
+            }
+
+            let vec = std::mem::take(vec);
+            self.children_selected = ChildrenMode::Mixed(vec);
+        } else {
+            match &mut self.children_selected {
+                /* Nothing needs to be done. */
+                ChildrenMode::AllGrandchildren => (),
+                ChildrenMode::AllDirect if remaining_path.len() == 1 => (),
+
+                ChildrenMode::None => {
+                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
+                    self.children_selected = ChildrenMode::Mixed(vec);
+                },
+
+                ChildrenMode::AllDirect => {
+                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
+                    self.children_selected = ChildrenMode::Mixed(vec);
+                },
+
+                ChildrenMode::Mixed(vec) => {
+                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
                 },
             }
         }

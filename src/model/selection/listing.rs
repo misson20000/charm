@@ -4,6 +4,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change as doc_change;
 use crate::model::document::structure;
+use crate::model::selection;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -146,6 +147,13 @@ impl Selection {
         match &self.mode {
             Mode::Structure(sm) => sm.assert_integrity(&*self.document),
             _ => {},
+        }
+    }
+
+    pub fn to_tree(&self) -> selection::TreeSelection {
+        match &self.mode {
+            Mode::Structure(sm) => sm.to_tree(self.document.clone()),
+            _ => selection::TreeSelection::new(self.document.clone())
         }
     }
 }
@@ -536,6 +544,18 @@ impl StructureMode {
         }
 
         return Self::Empty;
+    }
+
+    pub fn to_tree(&self, doc: sync::Arc<document::Document>) -> selection::TreeSelection {
+        let mut sel = selection::TreeSelection::new(doc);
+
+        match self {
+            StructureMode::Empty => {}
+            StructureMode::Range(range) => sel.add_range(&range.path[..], range.begin.1, range.end.1, true),
+            StructureMode::All => sel.add_all(),
+        }
+
+        sel
     }
 }
 
