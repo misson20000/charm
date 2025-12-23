@@ -1,15 +1,17 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.97.0 -->
+<!-- Created with Cambalache 0.99.8 -->
 <interface>
   <!-- interface-name props-editor.ui -->
   <requires lib="charm" version="0.1"/>
   <requires lib="gtk" version="4.0"/>
   <object class="GtkBox" id="toplevel">
     <property name="css-classes">background</property>
+    <property name="hexpand">True</property>
     <child>
       <object class="GtkGrid">
         <property name="column-spacing">30</property>
-        <property name="halign">start</property>
+        <property name="halign">fill</property>
+        <property name="hexpand">True</property>
         <property name="margin-bottom">10</property>
         <property name="margin-end">10</property>
         <property name="margin-start">10</property>
