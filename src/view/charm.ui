@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.99.5 -->
+<!-- Created with Cambalache 0.99.8 -->
 <interface>
   <!-- interface-name charm.ui -->
   <requires lib="gtk" version="4.0"/>
@@ -9,88 +9,103 @@
       <object class="GtkPopoverMenuBar" id="menu_bar"/>
     </child>
     <child>
-      <object class="GtkPaned" id="paned_main_area">
+      <object class="GtkPaned" id="paned_main">
         <property name="end-child">
-          <object class="GtkScrolledWindow">
-            <property name="child">
-              <object class="GtkTreeView" id="datapath_editor"/>
-            </property>
+          <object class="GtkBox" id="listing_box">
+            <property name="hexpand">True</property>
+            <property name="orientation">vertical</property>
+            <property name="vexpand">True</property>
+            <child>
+              <object class="GtkBox">
+                <property name="hexpand">True</property>
+                <property name="margin-start">5</property>
+                <property name="spacing">10</property>
+                <child>
+                  <object class="GtkButton" id="selection_mode_button">
+                    <property name="action-name">ctx.selection-mode</property>
+                    <property name="action-target">""</property>
+                    <property name="icon-name">icon-selection-address</property>
+                    <property name="margin-bottom">5</property>
+                    <property name="margin-end">5</property>
+                    <property name="margin-start">5</property>
+                    <property name="margin-top">5</property>
+                    <property name="valign">center</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkSeparator">
+                    <property name="orientation">vertical</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkScrolledWindow">
+                    <property name="hexpand">True</property>
+                    <property name="vscrollbar-policy">never</property>
+                    <child>
+                      <object class="GtkListView" id="breadcrumbs">
+                        <property name="hexpand">True</property>
+                        <property name="orientation">horizontal</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkOverlay" id="listing_overlay"/>
+            </child>
           </object>
         </property>
         <property name="hexpand">True</property>
-        <property name="orientation">vertical</property>
-        <property name="resize-end-child">False</property>
+        <property name="resize-start-child">False</property>
         <property name="shrink-end-child">False</property>
         <property name="shrink-start-child">False</property>
         <property name="start-child">
-          <object class="GtkPaned" id="paned_upper_half">
-            <property name="end-child">
-              <object class="GtkBox" id="listing_box">
+          <object class="GtkBox" id="left_pane">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkNotebook">
                 <property name="hexpand">True</property>
-                <property name="orientation">vertical</property>
                 <property name="vexpand">True</property>
                 <child>
-                  <object class="GtkBox">
+                  <object class="GtkBox" id="hierarchy_box">
                     <property name="hexpand">True</property>
-                    <property name="margin-start">5</property>
-                    <property name="spacing">10</property>
-                    <child>
-                      <object class="GtkButton" id="selection_mode_button">
-                        <property name="action-name">ctx.selection-mode</property>
-                        <property name="action-target">""</property>
-                        <property name="icon-name">icon-selection-address</property>
-                        <property name="margin-bottom">5</property>
-                        <property name="margin-end">5</property>
-                        <property name="margin-start">5</property>
-                        <property name="margin-top">5</property>
-                        <property name="valign">center</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkSeparator">
-                        <property name="orientation">vertical</property>
-                      </object>
-                    </child>
+                    <property name="orientation">vertical</property>
+                    <property name="vexpand">True</property>
                     <child>
                       <object class="GtkScrolledWindow">
                         <property name="hexpand">True</property>
-                        <property name="vscrollbar-policy">never</property>
+                        <property name="vexpand">True</property>
                         <child>
-                          <object class="GtkListView" id="breadcrumbs">
+                          <object class="GtkColumnView" id="hierarchy_editor">
                             <property name="hexpand">True</property>
-                            <property name="orientation">horizontal</property>
+                            <property name="vexpand">True</property>
                           </object>
                         </child>
                       </object>
                     </child>
                   </object>
                 </child>
-                <child>
-                  <object class="GtkOverlay" id="listing_overlay"/>
+                <child type="tab">
+                  <object class="GtkLabel">
+                    <property name="label">Tree</property>
+                  </object>
                 </child>
-              </object>
-            </property>
-            <property name="hexpand">True</property>
-            <property name="resize-start-child">False</property>
-            <property name="shrink-end-child">False</property>
-            <property name="shrink-start-child">False</property>
-            <property name="start-child">
-              <object class="GtkBox" id="hierarchy_box">
-                <property name="orientation">vertical</property>
                 <child>
-                  <object class="GtkScrolledWindow">
+                  <object class="GtkTreeView" id="datapath_editor">
                     <property name="hexpand">True</property>
                     <property name="vexpand">True</property>
-                    <child>
-                      <object class="GtkColumnView" id="hierarchy_editor"/>
-                    </child>
+                  </object>
+                </child>
+                <child type="tab">
+                  <object class="GtkLabel">
+                    <property name="label">Datapath</property>
                   </object>
                 </child>
               </object>
-            </property>
+            </child>
           </object>
         </property>
-        <property name="vexpand">True</property>
       </object>
     </child>
   </object>
