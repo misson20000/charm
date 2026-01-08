@@ -32,7 +32,7 @@ pub struct CharmWindow {
     pub id: u64,
     listing_container: gtk::Overlay,
     breadcrumbs: gtk::ListView,
-    datapath_editor: gtk::TreeView,
+    datapath_editor: gtk::ColumnView,
     hierarchy_editor: gtk::ColumnView,
     pub props_editor: rc::Rc<props_editor::PropsEditor>,
     selection_mode_button: gtk::Button,
@@ -52,7 +52,7 @@ pub struct WindowContext {
     
     /* Widgets and models */
     pub lw: view::listing::ListingWidget,
-    pub datapath_model: gtk::TreeModel,
+    pub datapath_model: view::datapath::gtkmodel::FilterListModel,
     pub tree_selection_model: selection::TreeSelectionModel,
 
     pub action_group: gio::SimpleActionGroup,
@@ -62,7 +62,6 @@ pub struct WindowContext {
     document_subscriber_for_listing_selection_update: helpers::AsyncSubscriber,
     document_subscriber_for_debug_revert_menu_update: helpers::AsyncSubscriber,
     document_subscriber_for_title_update: helpers::AsyncSubscriber,
-    datapath_subscriber: helpers::AsyncSubscriber,
 }
 
 static NEXT_WINDOW_ID: sync::atomic::AtomicU64 = sync::atomic::AtomicU64::new(1);
@@ -149,12 +148,6 @@ impl CharmWindow {
                 menu_bar.append_submenu(Some("Structure"), &struct_menu);
             }
             {
-                let view_menu = gio::Menu::new();
-                view_menu.append(Some("Datapath Editor"), Some("win.view.datapath_editor"));
-                view_menu.freeze();
-                menu_bar.append_submenu(Some("View"), &view_menu);
-            }
-            {
                 let help_menu = gio::Menu::new();
                 help_menu.append(Some("About"), Some("app.about"));
                 help_menu.freeze();
@@ -174,39 +167,20 @@ impl CharmWindow {
             menu_bar_widget.set_menu_model(Some(&menu_bar));
         }
 
-        let datapath_editor: gtk::TreeView = builder.object("datapath_editor").unwrap();
+        let datapath_editor: gtk::ColumnView = builder.object("datapath_editor").unwrap();
         {
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 0);
-                c.set_title("Type");
-                datapath_editor.append_column(&c);
-            }
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 1);
-                c.set_title("Address");
-                datapath_editor.append_column(&c);
-            }
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 2);
-                c.set_title("Size");
-                datapath_editor.append_column(&c);
-            }
-            {
-                let crt = gtk::CellRendererText::new();
-                let c = gtk::TreeViewColumn::new();
-                c.pack_start(&crt, true);
-                c.add_attribute(&crt, "text", 3);
-                c.set_title("Description");
-                datapath_editor.append_column(&c);
+            for (title, ui) in [
+                ("Type",        &include_bytes!("column_filter_type.ui")[..]),
+                ("Address",     &include_bytes!("column_filter_addr.ui")[..]),
+                ("Size",        &include_bytes!("column_filter_size.ui")[..]),
+                ("Details",     &include_bytes!("column_filter_details.ui")[..])] {
+                datapath_editor.append_column(
+                    &gtk::ColumnViewColumn::builder()
+                        .expand(true)
+                        .resizable(true)
+                        .title(title)
+                        .factory(&gtk::BuilderListItemFactory::from_bytes(gtk::BuilderScope::NONE, &glib::Bytes::from_static(ui)))
+                        .build());
             }
         }
 
@@ -344,13 +318,6 @@ impl CharmWindow {
         action::debug::reopen_current_project::add_action(&w);
         action::settings::add_action(&w);
     
-        helpers::bind_stateful_action(&w, &w.window, "view.datapath_editor", true, |act, w, state| {
-            if let Some(vis) = state {
-                w.datapath_editor.set_visible(vis);
-                act.set_state(&vis.to_variant());
-            }
-        });
-        
         w
     }
     
@@ -370,7 +337,7 @@ impl CharmWindow {
         let mut guard = self.context.borrow_mut();
 
         self.listing_container.set_child(gtk::Widget::NONE);
-        self.datapath_editor.set_model(Option::<&gtk::TreeModel>::None);
+        self.datapath_editor.set_model(Option::<&gtk::SelectionModel>::None);
         self.hierarchy_editor.set_model(Option::<&gtk::SelectionModel>::None);
         self.window.insert_action_group("ctx", gio::ActionGroup::NONE);
         self.props_editor.unbind();
@@ -385,7 +352,7 @@ impl CharmWindow {
         if let Some(new_context) = guard.as_ref() {
             let lw = new_context.lw.clone();
             self.listing_container.set_child(Some(&lw));
-            self.datapath_editor.set_model(Some(&new_context.datapath_model));
+            self.datapath_editor.set_model(Some(&gtk::NoSelection::new(Some(new_context.datapath_model.clone()))));
             self.hierarchy_editor.set_model(Some(&new_context.tree_selection_model));
             self.window.insert_action_group("ctx", Some(&new_context.action_group));
             self.props_editor.bind_linked(&new_context);
@@ -543,8 +510,9 @@ impl WindowContext {
             document_host.clone(),
             listing_selection_host.clone()
         );
-        
-        let (datapath_model, datapath_subscriber) = view::datapath::create_model(document_host.clone());
+
+        let datapath_model = view::datapath::gtkmodel::FilterListModel::new(document_host.clone(), document.clone());
+
         let tree_selection_model = selection::TreeSelectionModel::new(window.clone() as rc::Rc<dyn ErrorReporter>, tree_selection_host.clone(), document_host.clone());
         
         let wc = WindowContext {
@@ -563,7 +531,6 @@ impl WindowContext {
             document_subscriber_for_listing_selection_update,
             document_subscriber_for_debug_revert_menu_update,
             document_subscriber_for_title_update,
-            datapath_subscriber,
         };
 
         action::listing::delete_selected_nodes::add_action(&wc);

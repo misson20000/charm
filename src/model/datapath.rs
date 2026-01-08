@@ -117,6 +117,16 @@ impl Filter {
             Filter::Insert(_f) => todo!(),//f.load(iter, rq),
         }
     }
+
+    pub fn human_type(&self) -> &'static str {
+        match self {
+            Filter::LoadSpace(_) => "Load Address Space",
+            Filter::Overwrite(_) => "Overwrite",
+            Filter::Fill(_) => "Fill",
+            Filter::Move(_) => "Move",
+            Filter::Insert(_) => "Insert"
+        }
+    }
     
     pub fn human_details(&self) -> string::String {
         match self {

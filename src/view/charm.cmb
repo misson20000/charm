@@ -9,7 +9,7 @@
   <ui filename="crash-dialog.ui" sha256="a627454458222a68963848652a0d6860bb5bf914d2b69bddc206934789f37124"/>
   <ui template-class="CharmDocumentRecoveryWidget" filename="crash-document-recovery.ui" sha256="6933618d3ef315e8a6cd9ecfee84eccb9cac701479615bc2bb23fc5b1cbbf22f"/>
   <ui filename="unsaved-dialog.ui" sha256="38ffc2d545ac0cfc436b52ef5537e5896dd51f2ff667200941e9f0b92a3ae938"/>
-  <ui filename="charm.ui" sha256="5f9ea6d0f1064af9693db777ae37463d91b1e664281c5bec75e8b82a87edbf11"/>
+  <ui filename="charm.ui" sha256="3aa793907c9859c81e70e5364ac178541d8f56d6c97a235c0fe60965b635a8e5"/>
   <ui filename="settings.ui" sha256="fa4fd53d5c848146b52f505e1a207ff68b1f38eff72079eb967f48cff56cb22c"/>
   <ui template-class="CharmExportDialog" filename="export-dialog.ui" sha256="a5ac2e286df21b433631a934e724203a2cb405dae92bc8382809d70d09271b50"/>
   <ui filename="action/listing/array.ui" sha256="62c22924f522345bf996ded1f41c5984185f40728fa2f238e84165ee88a21503"/>

@@ -92,7 +92,7 @@
                   </object>
                 </child>
                 <child>
-                  <object class="GtkTreeView" id="datapath_editor">
+                  <object class="GtkColumnView" id="datapath_editor">
                     <property name="hexpand">True</property>
                     <property name="vexpand">True</property>
                   </object>
