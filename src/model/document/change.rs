@@ -88,6 +88,47 @@ pub enum ChangeType {
     },
 }
 
+/// Some changes intersperse a number of children with existing siblings. This records the final index of each of the nodes that got inserted.
+#[derive(Debug, Clone)]
+pub struct Mapping(pub Vec<usize>);
+
+impl Mapping {
+    /// Given the index of a node that existed in the destination before the operation this mapping represents, adjust it to represent the index after the operation. Returns whether or not the index actually changed.
+    pub fn adjust_sibling_index(&self, index: &mut usize) -> bool {
+        let mut moved = false;
+        for inserted_index in &self.0 {
+            /* For each pastee that got inserted before the target node, adjust the index by 1. Note
+             * that we can't tell whether a pastee was inserted before the target node without
+             * processing the earlier pastee first... */
+            if *inserted_index <= *index {
+                *index+= 1;
+                moved = true;
+            }
+        }
+        moved
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl std::ops::Index<usize> for Mapping {
+    type Output = usize;
+    fn index(&self, index: usize) -> &usize {
+        &self.0[index]
+    }
+}
+
+impl<'a> std::iter::IntoIterator for &'a Mapping {
+    type Item = &'a usize;
+    type IntoIter = <&'a Vec<usize> as std::iter::IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ApplyRecord {
     AlterNode {
@@ -146,10 +187,8 @@ pub struct DestructureApplyRecord {
 
     pub childhood: structure::Childhood,
 
-    /// Each item in this vector indicates the final index within
-    /// the parent that a grandchild wound up at. This should be
-    /// monotonically increasing.
-    pub mapping: Vec<usize>,
+    /// Records the final indices of the grandchildren.
+    pub mapping: Mapping,
 }
 
 #[derive(Debug, Clone)]
@@ -158,11 +197,9 @@ pub struct PasteApplyRecord {
 
     pub dst_begin: (addr::Offset, usize),
     pub dst_end: (addr::Offset, usize),
-    
-    /// Each item in this vector indicates the final index within
-    /// the parent that a new child wound up at. This should be
-    /// monotonically increasing.
-    pub mapping: Vec<usize>,
+
+    /// Records the final indices of the pastees.
+    pub mapping: Mapping,
 }
 
 #[derive(Debug, Clone)]
@@ -478,7 +515,7 @@ impl Change {
                     Ok(ApplyRecord::Paste(PasteApplyRecord {
                         parent: dst.clone(),
                         dst_begin: (*dst_offset, *dst_index),
-                        dst_end: (*dst_offset + (src_end.0 - src_begin.0), mapping.last().map(|i| i+1).unwrap_or(*dst_index)),
+                        dst_end: (*dst_offset + (src_end.0 - src_begin.0), mapping.0.last().map(|i| i+1).unwrap_or(*dst_index)),
                         mapping,
                     }))
                 })?;
@@ -601,7 +638,7 @@ impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
 }
 
 /// Pastes children into a node, starting at a given destination index, interspersing them with existing children as necessary to maintain offset monotonicity. Returns a vector of the indices that each pasted child was actually placed at in the destination.
-fn do_paste(dst_node: &mut structure::Node, pastees: impl iter::ExactSizeIterator<Item = structure::Childhood>, dst_index: usize) -> Vec<usize> {
+fn do_paste(dst_node: &mut structure::Node, pastees: impl iter::ExactSizeIterator<Item = structure::Childhood>, dst_index: usize) -> Mapping {
     let mut pastees = pastees.peekable();
     let mut dst_siblings = dst_node.children.split_off(dst_index).into_iter().peekable();
     
@@ -631,7 +668,7 @@ fn do_paste(dst_node: &mut structure::Node, pastees: impl iter::ExactSizeIterato
         });
     }
 
-    mapping
+    Mapping(mapping)
 }
 
 impl ApplyRecord {
@@ -852,14 +889,7 @@ impl DestructureApplyRecord {
             /* Subtract 1 to account for the destructured node being removed. */
             *index-= 1;
 
-            for inserted_index in &self.mapping {
-                /* For each grandchild that got inserted before the target node, adjust the index by 1. Note
-                 * that we can't tell whether a grandchild was inserted before the target node without
-                 * processing the earlier grandchildren first... */
-                if *inserted_index <= *index {
-                    *index+= 1;
-                }
-            }
+            self.mapping.adjust_sibling_index(index);
         }
     }
 
@@ -872,24 +902,14 @@ impl DestructureApplyRecord {
     }
 
     pub fn end_index(&self) -> usize {
-        self.mapping.last().copied().unwrap_or(self.child_index)
+        self.mapping.0.last().copied().unwrap_or(self.child_index)
     }
 }
 
 impl PasteApplyRecord {
     /// Transforms the index of a sibling in the node that got pasted into.
     pub fn adjust_sibling_index(&self, index: &mut usize) -> bool {
-        let mut moved = false;
-        for inserted_index in &self.mapping {
-            /* For each pastee that got inserted before the target node, adjust the index by 1. Note
-             * that we can't tell whether a pastee was inserted before the target node without
-             * processing the earlier pastee first... */
-            if *inserted_index <= *index {
-                *index+= 1;
-                moved = true;
-            }
-        }
-        moved
+        self.mapping.adjust_sibling_index(index)
     }
 }
 
