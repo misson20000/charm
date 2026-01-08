@@ -1,3 +1,4 @@
+use std::iter;
 use std::sync;
 
 use crate::model::addr;
@@ -404,33 +405,10 @@ impl Change {
                     let destructured_child = parent_node.children.remove(*child_index);
                     let offset = destructured_child.offset;
 
-                    let mut siblings = parent_node.children.split_off(*child_index).into_iter().peekable();
-                    let mut grandchildren = destructured_child.node.children.iter().peekable();
-                    let mut mapping = Vec::new();
-                    mapping.reserve(grandchildren.len());
-                    parent_node.children.reserve(grandchildren.len() + siblings.len());
-
-                    /* Intersperse siblings with grandchildren, respecting offset monotonicity. */
-                    loop {
-                        parent_node.children.push(match (siblings.peek(), grandchildren.peek()) {
-                            /* Prefer to sort grandchildren from destructured node before siblings that came after the destructured node. */
-                            (Some(s), Some(g)) if (g.offset + offset) <= s.offset => {
-                                mapping.push(parent_node.children.len());
-                                let mut child = grandchildren.next().unwrap().clone();
-                                child.offset+= offset;
-                                child
-                            },
-                            (Some(_s), Some(_g)) => siblings.next().unwrap(),
-                            (Some(_s), None) => siblings.next().unwrap(),
-                            (None, Some(_g)) => {
-                                mapping.push(parent_node.children.len());
-                                let mut child = grandchildren.next().unwrap().clone();
-                                child.offset+= offset;
-                                child
-                            },
-                            (None, None) => break,
-                        });
-                    }
+                    let mapping = do_paste(parent_node, destructured_child.node.children.iter().cloned().map(|mut child| {
+                        child.offset+= offset;
+                        child
+                    }), *child_index);
 
                     Ok(ApplyRecord::Destructure(DestructureApplyRecord {
                         parent: parent.clone(),
@@ -489,40 +467,14 @@ impl Change {
                         return Err(ApplyErrorType::InvalidParameters("attempted to paste into node that is too small"));
                     }
 
-                    let mut dst_siblings = dst_node.children.split_off(*dst_index).into_iter().peekable();
-                    let mut src_siblings = src_node.children[src_begin.1..src_end.1].iter().cloned().peekable();
-                    let mut mapping = Vec::new();
-                    mapping.reserve(src_end.1 - src_begin.1);
-                    dst_node.children.reserve(dst_siblings.len() + src_siblings.len());
+                    let src_siblings = src_node.children[src_begin.1..src_end.1].iter().cloned().map(|mut childhood| {
+                        childhood.offset-= src_begin.0;
+                        childhood.offset+= *dst_offset;
+                        childhood
+                    });
 
-                    /* Intersperse nodes, respecting offset monotonicity. */
-                    loop {
-                        dst_node.children.push(match (src_siblings.peek(), dst_siblings.peek()) {
-                            /* if there is both a child to paste still available and a child in the destination available, but the pastee is at a lower offset */
-                            (Some(s), Some(d)) if (s.offset - src_begin.0 + *dst_offset) <= d.offset => {
-                                mapping.push(dst_node.children.len());
-                                let mut child = src_siblings.next().unwrap();
-                                child.offset-= src_begin.0;
-                                child.offset+= *dst_offset;
-                                child
-                            },
-                            /* if there is both a child to paste still available and a child in the destination available, but we didn't match earlier, so the existing child comes first */
-                            (Some(_s), Some(_d)) => dst_siblings.next().unwrap(),
-                            /* there are no more children in the destination, but still pastee children */
-                            (Some(_s), None) => {
-                                mapping.push(dst_node.children.len());
-                                let mut child = src_siblings.next().unwrap();
-                                child.offset-= src_begin.0;
-                                child.offset+= *dst_offset;
-                                child
-                            },
-                            /* there are no more pastee children, but still destination children */
-                            (None, Some(_d)) => dst_siblings.next().unwrap(),
-                            /* done! */
-                            (None, None) => break,
-                        });
-                    }
-
+                    let mapping = do_paste(dst_node, src_siblings, *dst_index);
+                    
                     Ok(ApplyRecord::Paste(PasteApplyRecord {
                         parent: dst.clone(),
                         dst_begin: (*dst_offset, *dst_index),
@@ -646,6 +598,40 @@ impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
             parents_resized: self.highest_ancestor_modified,
         }
     }
+}
+
+/// Pastes children into a node, starting at a given destination index, interspersing them with existing children as necessary to maintain offset monotonicity. Returns a vector of the indices that each pasted child was actually placed at in the destination.
+fn do_paste(dst_node: &mut structure::Node, pastees: impl iter::ExactSizeIterator<Item = structure::Childhood>, dst_index: usize) -> Vec<usize> {
+    let mut pastees = pastees.peekable();
+    let mut dst_siblings = dst_node.children.split_off(dst_index).into_iter().peekable();
+    
+    let mut mapping = Vec::new();
+    mapping.reserve(pastees.len());
+    dst_node.children.reserve(dst_siblings.len() + pastees.len());
+
+    /* Intersperse nodes, respecting offset monotonicity. */
+    loop {
+        dst_node.children.push(match (pastees.peek(), dst_siblings.peek()) {
+            /* if there is both a child to paste still available and a child in the destination available, but the pastee is at a lower offset */
+            (Some(s), Some(d)) if s.offset <= d.offset => {
+                mapping.push(dst_node.children.len());
+                pastees.next().unwrap()
+            },
+            /* if there is both a child to paste still available and a child in the destination available, but we didn't match earlier, so the existing child comes first */
+            (Some(_s), Some(_d)) => dst_siblings.next().unwrap(),
+            /* there are no more children in the destination, but there are still pastee children */
+            (Some(_s), None) => {
+                mapping.push(dst_node.children.len());
+                pastees.next().unwrap()
+            },
+            /* there are no more pastee children, but still destination children */
+            (None, Some(_d)) => dst_siblings.next().unwrap(),
+            /* done! */
+            (None, None) => break,
+        });
+    }
+
+    mapping
 }
 
 impl ApplyRecord {
