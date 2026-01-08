@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::sync;
 
+use crate::model::addr;
 use crate::model::document::change;
 use crate::model::document::structure;
 use crate::model::selection;
@@ -16,7 +17,7 @@ pub trait TargetVisitor {
     type Error;
     type AncestorVisitor: AncestorVisitor<Output = Self::Output, Error = Self::Error>;
     
-    fn visit_target(self, target: &mut structure::Node) -> Result<Self::AncestorVisitor, Self::Error>;
+    fn visit_target(self, target: &mut structure::Node, addr: addr::AbsoluteAddress) -> Result<Self::AncestorVisitor, Self::Error>;
 }
                                                                   
 pub trait AncestorVisitor {
@@ -36,13 +37,13 @@ pub trait AncestorVisitor {
 
 pub struct NoopAncestorVisitor<T, E>(T, PhantomData<E>);
 
-impl<T, E, F: FnOnce(&mut structure::Node) -> Result<T, E>> TargetVisitor for F {
+impl<T, E, F: FnOnce(&mut structure::Node, addr::AbsoluteAddress) -> Result<T, E>> TargetVisitor for F {
     type Output = T;
     type Error = E;
     type AncestorVisitor = NoopAncestorVisitor<T, E>;
 
-    fn visit_target(self, target: &mut structure::Node) -> Result<Self::AncestorVisitor, Self::Error> {
-        Ok(NoopAncestorVisitor(self(target)?, PhantomData))
+    fn visit_target(self, target: &mut structure::Node, addr: addr::AbsoluteAddress) -> Result<Self::AncestorVisitor, Self::Error> {
+        Ok(NoopAncestorVisitor(self(target, addr)?, PhantomData))
     }
 }
 
@@ -61,6 +62,7 @@ impl<T, E> AncestorVisitor for NoopAncestorVisitor<T, E> {
 
 fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<Item = usize>>
     (target: &structure::Node,
+     addr: addr::AbsoluteAddress,
      mut path_segment: Iter,
      visitor: Visitor) -> Result<(RebuiltTree<Visitor::AncestorVisitor>, usize), Visitor::Error> where
     Visitor: TargetVisitor {
@@ -68,7 +70,7 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
             let child = &target.children[index];
-            let (mut new_result, mut ancestry) = rebuild_partial_node_tree_visiting_path(&child.node, path_segment, visitor)?;
+            let (mut new_result, mut ancestry) = rebuild_partial_node_tree_visiting_path(&child.node, addr + child.offset, path_segment, visitor)?;
             ancestry+= 1;
             let mut new_target = (*target).clone();
             let old_childhood = std::mem::replace(&mut new_target.children[index], structure::Childhood {
@@ -86,7 +88,7 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
         None => {
             /* Reached the end of the path. Just modify this node directly. */
             let mut new_target = (*target).clone();
-            let ancestor_visitor = visitor.visit_target(&mut new_target)?;
+            let ancestor_visitor = visitor.visit_target(&mut new_target, addr)?;
             new_target.assert_validity();
             let new_target = sync::Arc::new(new_target);
             Ok((RebuiltTree {
@@ -97,13 +99,13 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
         }
     }
 }
-                                                                  
+
 pub fn rebuild_node_tree_visiting_path<Visitor>
     (root: &structure::Node,
      path: structure::PathSlice,
      visitor: Visitor) -> Result<RebuiltTree<Visitor::Output>, Visitor::Error> where
     Visitor: TargetVisitor {
-    let result = rebuild_partial_node_tree_visiting_path(root, path.iter().copied(), visitor)?.0;
+    let result = rebuild_partial_node_tree_visiting_path(root, addr::AbsoluteAddress::ZERO, path.iter().copied(), visitor)?.0;
 
     Ok(RebuiltTree {
         root: result.root,
@@ -117,7 +119,7 @@ pub fn rebuild_node_tree_visiting_path_simple<T, Visitor>
     (root: &structure::Node,
      path: structure::PathSlice,
      visitor: Visitor) -> Result<RebuiltTree<T>, change::ApplyErrorType> where
-    Visitor: FnOnce(&mut structure::Node) -> Result<T, change::ApplyErrorType> {
+    Visitor: FnOnce(&mut structure::Node, addr::AbsoluteAddress) -> Result<T, change::ApplyErrorType> {
     rebuild_node_tree_visiting_path(root, path, visitor)
 }
     

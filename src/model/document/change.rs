@@ -339,7 +339,7 @@ impl Change {
     fn apply_impl(&self, document: &mut document::Document) -> Result<ApplyRecord, ApplyErrorType> {
         match &self.ty {
             ChangeType::AlterNode { path, props } => {
-                let new_tree = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, path, |target| {
+                let new_tree = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, path, |target, _| {
                     target.props = props.clone();
                     Ok(())
                 })?;
@@ -361,7 +361,7 @@ impl Change {
                 Ok(ApplyRecord::AlterNodesBulk { selection: selection.clone(), prop_changes: prop_changes.clone() })
             },
             ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => {
-                document.root = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path, |target| {
+                document.root = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path, |target, _| {
                     /* Check at_child to make sure it's not farther than one-past the end. */
                     if *at_child > target.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"));
@@ -399,7 +399,7 @@ impl Change {
                 Ok(ApplyRecord::InsertNode { parent: path.clone(), index: *at_child, child: childhood.clone() })
             },
             ChangeType::Nest { range, extent, props } => {
-                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node, _| {
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -432,7 +432,7 @@ impl Change {
                 Ok(ApplyRecord::Nest { range: range.clone(), extent: *extent, child: result.target.children[range.first].clone()})
             }
             ChangeType::Destructure { parent, child_index } => {
-                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &parent, |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &parent, |parent_node, _| {
                     /* Check that we're trying to destructure a child that actually exists. */
                     if *child_index >= parent_node.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"));
@@ -460,7 +460,7 @@ impl Change {
                 Ok(result.output) 
             },
             ChangeType::DeleteRange { range } => {
-                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node, _| {
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -495,7 +495,7 @@ impl Change {
                 Ok(result.output)
             },
             ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index } => {
-                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &dst, |dst_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &dst, |dst_node, _| {
                     if src_begin.0 > src_node.size || src_end.0 > src_node.size {
                         return Err(ApplyErrorType::InvalidParameters("attempted to paste from range outside of source node"));
                     }
@@ -532,7 +532,7 @@ impl Change {
                     return Err(ApplyErrorType::InvalidParameters("cannot repeat zero times"));
                 }
                 
-                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path[0..path.len()-1], |parent_node| {
+                let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path[0..path.len()-1], |parent_node, _| {
                     let template_child = &mut parent_node.children[*path.last().unwrap()];
 
                     if template_child.end() + (*pitch * (count-1) as u64) > parent_node.size {
@@ -583,7 +583,7 @@ impl<'a> rebuild::TargetVisitor for RebuildNodeTreeVisitorForResize<'a> {
     type Error = ApplyErrorType;
     type AncestorVisitor = Self;
 
-    fn visit_target(self, target: &mut structure::Node) -> Result<Self::AncestorVisitor, Self::Error> {
+    fn visit_target(self, target: &mut structure::Node, _addr: addr::AbsoluteAddress) -> Result<Self::AncestorVisitor, Self::Error> {
         if target.children.iter().any(|c| c.end() > self.new_size) {
             return Err(ApplyErrorType::ResizedSmallerThanChildren);
         }
