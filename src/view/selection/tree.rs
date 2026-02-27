@@ -450,8 +450,7 @@ mod tests {
             
             /* tree nest action forces selection, so we do too */
             let selection = tsh.change(selection::tree::Change::SetSingle(document.clone(), vec![0])).unwrap();
-            let interior = tsm.imp().borrow_interior_mut().unwrap();
-            tsm.update_selection(interior, selection);
+            tsm.update(selection);
 
             /* panic happens in:
             TreeSelectionModel::update_selection
