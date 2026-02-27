@@ -1070,7 +1070,7 @@ mod tests {
             parent: vec![1],
             child_index: 1,
             childhood: structure::Node::builder().build_child(addr::Offset::NULL),
-            mapping: vec![1, 2, 4],
+            mapping: Mapping(vec![1, 2, 4]),
         });
         
         /* sibling of destructured node (before) */
@@ -1172,7 +1172,7 @@ mod tests {
             parent: vec![1],
             dst_begin: (0x20.into(), 2),
             dst_end: (0x30.into(), 6),
-            mapping: vec![2, 3, 5],
+            mapping: Mapping(vec![2, 3, 5]),
         });
 
         /*
@@ -1766,7 +1766,7 @@ mod tests {
         assert_eq!(record.parent, vec![]);
         assert_eq!(record.dst_begin, (0x20.into(), 1));
         assert_eq!(record.dst_end, (0x34.into(), 3));
-        assert_eq!(record.mapping, vec![1, 2]);
+        assert_eq!(record.mapping.0, vec![1, 2]);
 
         assert!(sync::Arc::ptr_eq(&old_doc.root.children[0].node, &new_doc.root.children[0].node));
         assert_eq!(old_doc.root.children[0].offset, new_doc.root.children[0].offset);
