@@ -262,6 +262,8 @@ declare_config![Config {
     #[bind("color-text")]
     text_color: Color = color!("121214ff", "dbdbe6ff"),
 
+    comment_color: Color = color!("e08450ff", "e08450ff"),
+    
     edit_color: Color = color!("ffff00ff", "ffff00ff"),
     
     #[bind("color-placeholder")]

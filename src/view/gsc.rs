@@ -22,7 +22,8 @@ pub enum Entry {
     Dot,
     Colon,
     Space,
-    Ellipsis
+    Ellipsis,
+    Semicolon,
 }
 
 pub struct Cache {
@@ -37,6 +38,7 @@ pub struct Cache {
     gs_dot: pango::GlyphString, // "."
     gs_colon: pango::GlyphString, // ": "
     gs_ellipsis: pango::GlyphString, // "…"
+    gs_semicolon: pango::GlyphString, // ";"
 
     space_width: i32,
 }
@@ -82,6 +84,7 @@ impl Cache {
             gs_dot: Self::shape(pg, "."),
             gs_colon: Self::shape(pg, ": "),
             gs_ellipsis: Self::shape(pg, "…"),
+            gs_semicolon: Self::shape(pg, ";"),
 
             space_width,
         }
@@ -118,6 +121,7 @@ impl Cache {
             Entry::Colon => Some(&self.gs_colon),
             Entry::Space => Some(&self.gs_space),
             Entry::Ellipsis => Some(&self.gs_ellipsis),
+            Entry::Semicolon => Some(&self.gs_semicolon),
         }
     }
 

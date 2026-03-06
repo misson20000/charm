@@ -121,6 +121,7 @@ pub struct HexdumpMarker;
 pub struct BindumpMarker;
 pub struct AsciidumpMarker;
 pub struct EllipsisMarker;
+pub struct CommentMarker;
 
 pub struct SingleTokenBucket<Marker> {
     begin: f32,

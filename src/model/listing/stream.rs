@@ -46,6 +46,9 @@ enum PositionState {
     SummaryLeaf,
     SummaryValueEnd,
 
+    CommentIndicator,
+    CommentText,
+
     PostBlank,
     End,
 }
@@ -375,6 +378,9 @@ impl Position {
                     | PositionState::SummaryCloser
                     | PositionState::PostBlank
                     | PositionState::End => IntermediatePortState::NormalContent(Some(dsr.end()), dsr.end_index()),
+
+                PositionState::CommentIndicator
+                    | PositionState::CommentText => panic!("should not have been able to destructure comment node"),
             },
             // TODO: try harder here
             (PortStackMode::Destructuring { dsr, summary: true, .. }, _) => IntermediatePortState::SummaryLabel(dsr.child_index),
@@ -384,7 +390,8 @@ impl Position {
              * fixup the Descent::MySummary later. */
             (PortStackMode::Normal, PositionState::PreBlank) => IntermediatePortState::Finished(PositionState::PreBlank),
             (PortStackMode::Normal, PositionState::Title) => IntermediatePortState::Finished(PositionState::Title),
-            
+
+            /* We're not in summary, and the children won't be summarized. */
             (PortStackMode::Normal, state) if !stack_state.children_summarized() => match state {
                 PositionState::PreBlank => IntermediatePortState::Finished(PositionState::PreBlank),
                 PositionState::Title => IntermediatePortState::Finished(PositionState::Title),
@@ -404,11 +411,15 @@ impl Position {
                 PositionState::SummaryValueBegin => IntermediatePortState::Finished(PositionState::Title),
                 PositionState::SummaryLeaf => IntermediatePortState::NormalContent(Some(addr::Offset::NULL), 0),
                 PositionState::SummaryValueEnd => IntermediatePortState::Finished(PositionState::End),
+                
+                PositionState::CommentIndicator => IntermediatePortState::Finished(PositionState::CommentIndicator),
+                PositionState::CommentText => IntermediatePortState::Finished(PositionState::CommentText),
 
                 PositionState::PostBlank => IntermediatePortState::Finished(PositionState::PostBlank),
                 PositionState::End => IntermediatePortState::Finished(PositionState::End),
             },
 
+            /* We're either already in summmary, or dealing with a child node that should be summarized */
             (PortStackMode::Normal | PortStackMode::Summary, state) => match state {
                 // TODO: these are maybe wrong and should be tested
                 PositionState::PreBlank =>
@@ -432,6 +443,9 @@ impl Position {
                 PositionState::SummaryLeaf => IntermediatePortState::Finished(PositionState::SummaryLeaf),
                 PositionState::SummaryValueEnd => IntermediatePortState::Finished(PositionState::SummaryValueEnd),
 
+                PositionState::CommentIndicator => IntermediatePortState::Finished(PositionState::SummaryValueEnd),
+                PositionState::CommentText => IntermediatePortState::Finished(PositionState::SummaryValueEnd),
+                
                 PositionState::PostBlank => IntermediatePortState::Finished(PositionState::SummaryEpilogue),
                 PositionState::End => IntermediatePortState::Finished(PositionState::SummaryCloser),
             }
@@ -610,11 +624,13 @@ impl Position {
         };
 
         /* Now that we've adjusted offset and size, we can convert the intermediate state to actual state. */
-        let final_state = match intermediate_state {
+        let final_state = match (intermediate_state, &*stack_state.node) {
             /* This should've been handled earlier, but whatever. */
-            IntermediatePortState::Finished(finalized_state) => finalized_state,
+            (IntermediatePortState::Finished(finalized_state), _) => finalized_state,
 
-            IntermediatePortState::NormalContent(offset, index) => {
+            (_, structure::Node::Comment(_)) => PositionState::CommentText,
+
+            (IntermediatePortState::NormalContent(offset, index), _) => {
                 let line_begin = estimate_line_begin(&stack_state.node, offset, index);
                 /* Output the difference between the requested "additional offset" and where the token actually will begin. */
                 options.additional_offset = offset.and_then(|offset| if offset >= line_begin {
@@ -626,10 +642,10 @@ impl Position {
             },
 
             /* Real PositionState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
-            IntermediatePortState::SummaryLabel(index) if index < stack_state.node.num_children() => PositionState::SummaryLabel(index),
-            IntermediatePortState::SummarySeparator(index) if index < stack_state.node.num_children() => PositionState::SummarySeparator(index),
-            IntermediatePortState::SummaryLabel(_) => PositionState::SummaryCloser,
-            IntermediatePortState::SummarySeparator(_) => PositionState::SummaryCloser,
+            (IntermediatePortState::SummaryLabel(index), _) if index < stack_state.node.num_children() => PositionState::SummaryLabel(index),
+            (IntermediatePortState::SummarySeparator(index), _) if index < stack_state.node.num_children() => PositionState::SummarySeparator(index),
+            (IntermediatePortState::SummaryLabel(_), _) => PositionState::SummaryCloser,
+            (IntermediatePortState::SummarySeparator(_), _) => PositionState::SummaryCloser,
         };
         *self = stack_state.into_position(final_state);
 
@@ -871,6 +887,13 @@ impl Position {
             },
             PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
 
+            PositionState::CommentIndicator => TokenGenerationResult::Ok(token::CommentIndicator {
+                common,
+            }.into()),
+            PositionState::CommentText => TokenGenerationResult::Ok(token::CommentText {
+                common,
+            }.into()),
+
             PositionState::PostBlank => if self.node.props().map_or(false, |p| p.title_display.has_blanks()) {
                 TokenGenerationResult::Ok(token::BlankLine {
                     common: common.adjust_depth(1),
@@ -1025,6 +1048,15 @@ impl Position {
                 true
             },
 
+            PositionState::CommentIndicator => {
+                self.state = PositionState::PreBlank;
+                true
+            },
+            PositionState::CommentText => {
+                self.state = PositionState::CommentIndicator;
+                true
+            },
+
             PositionState::PostBlank => {
                 match self.node.props().map(|p| p.children_display) {
                     Some(structure::ChildrenDisplay::None) | None => {
@@ -1040,7 +1072,10 @@ impl Position {
                 true
             },
             PositionState::End => {
-                self.state = PositionState::PostBlank;
+                self.state = match &*self.node {
+                    structure::Node::Hierarchy(_) => PositionState::PostBlank,
+                    structure::Node::Comment(_) => PositionState::CommentText,
+                };
                 true
             },
         }
@@ -1051,7 +1086,10 @@ impl Position {
     pub fn move_next(&mut self) -> bool {
         match self.state {
             PositionState::PreBlank => {
-                self.state = PositionState::Title;
+                self.state = match &*self.node {
+                    structure::Node::Hierarchy(_) => PositionState::Title,
+                    structure::Node::Comment(_) => PositionState::CommentIndicator,
+                };
                 true
             },
             PositionState::Title => {
@@ -1192,6 +1230,15 @@ impl Position {
             },
             PositionState::SummaryValueEnd => {
                 self.try_ascend(AscendDirection::Next)
+            },
+
+            PositionState::CommentIndicator => {
+                self.state = PositionState::CommentText;
+                true
+            },
+            PositionState::CommentText => {
+                self.state = PositionState::End;
+                true
             },
 
             PositionState::PostBlank => {
@@ -1374,6 +1421,8 @@ impl Position {
             PositionState::SummaryValueBegin => addr::Offset::NULL,
             PositionState::SummaryLeaf => addr::Offset::NULL,
             PositionState::SummaryValueEnd => self.node.size(),
+            PositionState::CommentIndicator => addr::Offset::NULL,
+            PositionState::CommentText => addr::Offset::NULL,
             PositionState::PostBlank => self.node.size(),
             PositionState::End => self.node.size(),
         }
@@ -1400,6 +1449,9 @@ impl Position {
             PositionState::SummaryLeaf => true,
             PositionState::SummaryValueEnd => true,
 
+            PositionState::CommentIndicator => false,
+            PositionState::CommentText => false,
+            
             PositionState::PostBlank => false,
             PositionState::End => false,
         }
@@ -1830,6 +1882,8 @@ mod cmp {
                         super::PositionState::SummaryValueBegin => std::cmp::Ordering::Less,
                         super::PositionState::SummaryValueEnd => std::cmp::Ordering::Greater,
                         super::PositionState::SummaryLeaf => return None,
+                        super::PositionState::CommentIndicator => return None,
+                        super::PositionState::CommentText => return None,
                         super::PositionState::PostBlank => std::cmp::Ordering::Greater,
                         super::PositionState::End => std::cmp::Ordering::Greater,
                     })
@@ -1911,6 +1965,7 @@ mod cmp {
         NormalContent,
         SummaryContent,
         SummaryLeaf,
+        CommentText,
 
         /* comparable with all */
         Postamble,
@@ -1921,6 +1976,7 @@ mod cmp {
             super::PositionState::PreBlank => (StateGroup::Preamble, 0, 0, addr::Offset::NULL, 0),
             super::PositionState::Title => (StateGroup::Preamble, 1, 0, addr::Offset::NULL, 0),
             super::PositionState::SummaryValueBegin => (StateGroup::Preamble, 2, 0, addr::Offset::NULL, 0),
+            super::PositionState::CommentIndicator => (StateGroup::Preamble, 3, 0, addr::Offset::NULL, 0),
             
             super::PositionState::MetaContent(addr, index) => (StateGroup::NormalContent, 0, *index, *addr, 0),
             super::PositionState::Hexdump { extent, line_extent: _, index } => (StateGroup::NormalContent, 0, *index, extent.begin, 1),
@@ -1935,6 +1991,8 @@ mod cmp {
             super::PositionState::SummaryEpilogue => (StateGroup::SummaryContent, 4, 0, addr::Offset::NULL, 0),
             
             super::PositionState::SummaryLeaf => (StateGroup::SummaryLeaf, 0, 0, addr::Offset::NULL, 0),
+
+            super::PositionState::CommentText => (StateGroup::CommentText, 0, 0, addr::Offset::NULL, 0),
             
             super::PositionState::SummaryValueEnd => (StateGroup::Postamble, 0, 0, addr::Offset::NULL, 0),
             super::PositionState::PostBlank => (StateGroup::Postamble, 1, 0, addr::Offset::NULL, 0),
@@ -2074,53 +2132,60 @@ pub mod xml {
         
     pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::AbsoluteAddress, node_path: structure::Path, map: &mut collections::HashMap<String, (addr::AbsoluteAddress, structure::Path, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
         let name = xml.attribute("name").unwrap().to_string();
-        let node = structure::HierarchyNode {
-            size: addr::Offset::parse(xml.attribute("size").unwrap(), false).unwrap(),
-            props: structure::Properties {
-                name: name.clone(),
-                title_display: match xml.attribute("title") {
-                    None => structure::TitleDisplay::Major,
-                    Some("major") => structure::TitleDisplay::Major,
-                    Some("minor") => structure::TitleDisplay::Minor,
-                    Some("inline") => structure::TitleDisplay::Inline,
-                    Some(invalid) => panic!("invalid title attribute: {}", invalid)
-                },
-                children_display: match xml.attribute("children") {
-                    None => structure::ChildrenDisplay::Full,
-                    Some("none") => structure::ChildrenDisplay::None,
-                    Some("summary") => structure::ChildrenDisplay::Summary,
-                    Some("full") => structure::ChildrenDisplay::Full,
-                    Some(invalid) => panic!("invalid children attribute: {}", invalid)
-                },
-                content_display: match xml.attribute("content") {
-                    None => structure::ContentDisplay::default(),
-                    Some("hexstring") => structure::ContentDisplay::Hexstring,
-                    Some("hexdump") => structure::ContentDisplay::Hexdump {
-                        line_pitch: xml.attribute("line_pitch")
-                            .or_else(|| xml.attribute("pitch"))
-                            .map_or(
-                                16.into(),
+        let arc = match xml.tag_name().name() {
+            "node" => structure::HierarchyNode {
+                size: addr::Offset::parse(xml.attribute("size").unwrap(), false).unwrap(),
+                props: structure::Properties {
+                    name: name.clone(),
+                    title_display: match xml.attribute("title") {
+                        None => structure::TitleDisplay::Major,
+                        Some("major") => structure::TitleDisplay::Major,
+                        Some("minor") => structure::TitleDisplay::Minor,
+                        Some("inline") => structure::TitleDisplay::Inline,
+                        Some(invalid) => panic!("invalid title attribute: {}", invalid)
+                    },
+                    children_display: match xml.attribute("children") {
+                        None => structure::ChildrenDisplay::Full,
+                        Some("none") => structure::ChildrenDisplay::None,
+                        Some("summary") => structure::ChildrenDisplay::Summary,
+                        Some("full") => structure::ChildrenDisplay::Full,
+                        Some(invalid) => panic!("invalid children attribute: {}", invalid)
+                    },
+                    content_display: match xml.attribute("content") {
+                        None => structure::ContentDisplay::default(),
+                        Some("hexstring") => structure::ContentDisplay::Hexstring,
+                        Some("hexdump") => structure::ContentDisplay::Hexdump {
+                            line_pitch: xml.attribute("line_pitch")
+                                .or_else(|| xml.attribute("pitch"))
+                                .map_or(
+                                    16.into(),
+                                    |p| addr::Offset::parse(p, false).map_or_else(                                
+                                        |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
+                                        |a| a)),
+                            gutter_pitch: xml.attribute("gutter_pitch").map_or(
+                                8.into(),
                                 |p| addr::Offset::parse(p, false).map_or_else(                                
                                     |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
                                     |a| a)),
-                        gutter_pitch: xml.attribute("gutter_pitch").map_or(
-                            8.into(),
-                            |p| addr::Offset::parse(p, false).map_or_else(                                
-                                |e| panic!("expected valid pitch, got '{}' ({:?})", p, e),
-                                |a| a)),
+                        },
+                        Some("none") => structure::ContentDisplay::None,
+                        Some(invalid) => panic!("invalid content attribute: {}", invalid)
                     },
-                    Some("none") => structure::ContentDisplay::None,
-                    Some(invalid) => panic!("invalid content attribute: {}", invalid)
+                    locked: true,
                 },
-                locked: true,
-            },
-            children: xml.children().filter(|c| c.is_element()).enumerate().map(|(i, c)| {
-                let mut path = node_path.clone();
-                path.push(i);
-                inflate_childhood(c, node_addr, path, map)
-            }).collect()
+                children: xml.children().filter(|c| c.is_element()).enumerate().map(|(i, c)| {
+                    let mut path = node_path.clone();
+                    path.push(i);
+                    inflate_childhood(c, node_addr, path, map)
+                }).collect()
+            }.into_arc(),
+            
+            "comment" => structure::CommentNode {
+                text: xml.text().unwrap().to_string(),
+            }.into_arc(),
+            
+            tn => panic!("unrecognized tag name: {}", tn),
         };
-        let arc = node.into_arc();
         map.insert(name, (node_addr, node_path, arc.clone()));
         arc
     }
@@ -2158,6 +2223,12 @@ pub mod xml {
                 "ellipsis" => token::Ellipsis {
                     common,
                     extent: inflate_extent(&self.node)
+                }.into(),
+                "comment_indicator" => token::CommentIndicator {
+                    common,
+                }.into(),
+                "comment_text" => token::CommentText {
+                    common,
                 }.into(),
                 tn => panic!("invalid token def: '{}'", tn)
             }
@@ -2342,6 +2413,19 @@ mod tests {
     #[test]
     fn summary_cmp() {
         let tc = parse_testcase(include_bytes!("stream_tests/summary.xml"));
+        test_cmp(Position::at_beginning(tc.structure.clone()));
+    }
+    
+    #[test]
+    fn comment() {
+        let tc = parse_testcase(include_bytes!("stream_tests/comment.xml"));
+        test_forward(&tc);
+        test_backward(&tc);
+    }
+
+    #[test]
+    fn comment_cmp() {
+        let tc = parse_testcase(include_bytes!("stream_tests/comment.xml"));
         test_cmp(Position::at_beginning(tc.structure.clone()));
     }
     

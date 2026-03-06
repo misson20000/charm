@@ -4,6 +4,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
+use crate::model::document::structure;
 use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
@@ -224,6 +225,30 @@ impl TokenView {
                             .render(snapshot);
                     }
                 }
+            },
+
+            token::Token::CommentIndicator(_) => {
+                render.gsc_mono.begin(gsc::Entry::Semicolon, render.config.comment_color.rgba(), &render.config, &mut pos)
+                    .selected(selection.mode_type_if(selection.is_total()))
+                    .render(snapshot);
+
+                render.gsc_mono.begin(gsc::Entry::Space, render.config.comment_color.rgba(), &render.config, &mut pos)
+                    .selected(selection.mode_type_if(selection.is_total()))
+                    .render(snapshot);
+            },
+            token::Token::CommentText(token) => {
+                gsc::begin_text(
+                    &render.pango,
+                    &render.font_mono,
+                    render.config.comment_color.rgba(),
+                    &render.config,
+                    match &*token.common.node {
+                        structure::Node::Comment(comment) => &comment.text,
+                        _ => "<non-comment node being rendered as comment?>",
+                    },
+                    &mut pos)
+                    .selected(selection.mode_type_if(selection.is_total()))
+                    .render(snapshot);
             },
 
             /* Internal tokens that shouldn't be drawn. */

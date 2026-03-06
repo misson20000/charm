@@ -1,0 +1,31 @@
+<testcase>
+  <node name="root" size="0x50" content="hexdump" children="full">
+    <comment name="comment1" offset="0x10">test comment</comment>
+    <node name="child" offset="0x10" size="0x30" content="hexdump" title="inline">
+      <comment name="comment2" offset="0x0">inner test comment</comment>
+    </node>
+  </node>
+  <tokens>
+    <null node="root" index="0" />
+    <title node="root" index="0" />
+    <indent>
+	<hexdump node="root" extent="00:+0x10" line="00:+0x10" index="0" />
+      
+	<comment_indicator node="comment1" index="0" />
+	<comment_text node="comment1" index="0" />
+      
+	<title node="child" index="0" />
+	<indent>
+	  <comment_indicator node="comment2" index="0" />
+	  <comment_text node="comment2" index="0" />
+
+	  <hexdump node="child" extent="00:+0x10" line="00:+0x10" index="1" />
+	  <hexdump node="child" extent="10:+0x10" line="10:+0x10" index="1" />
+	  <hexdump node="child" extent="20:+0x10" line="20:+0x10" index="1" />
+	</indent>
+
+	<hexdump node="root" extent="40:+0x10" line="40:+0x10" index="2" />
+	<null node="root" cursor="true" index="2" />
+    </indent>
+  </tokens>
+</testcase>

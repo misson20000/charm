@@ -48,6 +48,10 @@ pub enum LineType {
         title: Option<token::Title>,
         token: token::Ellipsis,
     },
+    Comment {
+        indicator: Option<token::CommentIndicator>,
+        text: Option<token::CommentText>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -210,6 +214,9 @@ impl Line {
                     tokens: collections::VecDeque::from([token])
                 },
                 token::Token::Hexstring(token) => LineType::Hexstring { title: None, token },
+
+                token::Token::CommentIndicator(token) => LineType::Comment { indicator: Some(token), text: None },
+                token::Token::CommentText(token) => LineType::Comment { indicator: None, text: Some(token) },
             },
         }
     }
@@ -407,6 +414,20 @@ impl Line {
                 (LineType::Empty, LinePushResult::BadPosition)
         },
             */
+
+            /* Comments... */
+            (LineType::Empty, token::Token::CommentIndicator(token)) => (LineType::Comment {
+                indicator: Some(token),
+                text: None,
+            }, LinePushResult::Accepted),
+            (LineType::Empty, token::Token::CommentText(token)) => (LineType::Comment {
+                indicator: None,
+                text: Some(token),
+            }, LinePushResult::Accepted),
+            (LineType::Comment { indicator: None, text }, token::Token::CommentIndicator(token)) => (LineType::Comment {
+                indicator: Some(token),
+                text,
+            }, LinePushResult::Completed),
             
             (ty, _) => (ty, LinePushResult::Rejected)
         };
@@ -586,6 +607,20 @@ impl Line {
                 (LineType::Summary { title, tokens }, result)
             },
 
+            /* Comments... */
+            (LineType::Empty, token::Token::CommentIndicator(token)) => (LineType::Comment {
+                indicator: Some(token),
+                text: None,
+            }, LinePushResult::Accepted),
+            (LineType::Empty, token::Token::CommentText(token)) => (LineType::Comment {
+                indicator: None,
+                text: Some(token),
+            }, LinePushResult::Accepted),
+            (LineType::Comment { indicator, text: None }, token::Token::CommentText(text)) => (LineType::Comment {
+                indicator,
+                text: Some(text),
+            }, LinePushResult::Completed),
+
             (LineType::Empty, _class) => {
                 println!("Attempted to start a line on a bad token");
                 (LineType::Empty, LinePushResult::BadPosition)
@@ -608,27 +643,29 @@ impl Line {
     
     pub fn iter_tokens<'a>(&'a self) -> impl iter::Iterator<Item = token::TokenRef<'a>> {
         match &self.ty {
-            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.as_token_ref())),
-            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.as_token_ref())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
-            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf6::I6(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
-            LineType::Ellipsis { title, token } => util::PhiIteratorOf6::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Empty => util::PhiIteratorOf7::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf7::I2(iter::once(t.as_token_ref())),
+            LineType::Title(t) => util::PhiIteratorOf7::I2(iter::once(t.as_token_ref())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf7::I3(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf7::I6(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf7::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf7::I5(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(tokens.iter().map(AsTokenRef::as_token_ref))),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf7::I4(title.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(iter::once(token.as_token_ref()))),
+            LineType::Comment { indicator, text } => util::PhiIteratorOf7::I7(indicator.as_ref().map(AsTokenRef::as_token_ref).into_iter().chain(text.as_ref().map(AsTokenRef::as_token_ref).into_iter())),
         }
     }
 
     pub fn into_iter(self) -> impl iter::DoubleEndedIterator<Item = token::Token> {
         match self.ty {
-            LineType::Empty => util::PhiIteratorOf6::I1(iter::empty()),
-            LineType::Blank(t) => util::PhiIteratorOf6::I2(iter::once(t.into())),
-            LineType::Title(t) => util::PhiIteratorOf6::I2(iter::once(t.into())),
-            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf6::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
-            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf6::I6(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
-            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf6::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
-            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf6::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
-            LineType::Ellipsis { title, token } => util::PhiIteratorOf6::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Empty => util::PhiIteratorOf7::I1(iter::empty()),
+            LineType::Blank(t) => util::PhiIteratorOf7::I2(iter::once(t.into())),
+            LineType::Title(t) => util::PhiIteratorOf7::I2(iter::once(t.into())),
+            LineType::Hexdump { title, tokens, .. } => util::PhiIteratorOf7::I3(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
+            LineType::Bindump { title, tokens, .. } => util::PhiIteratorOf7::I6(title.map(Into::into).into_iter().chain(tokens.into_iter().map(Into::into))),
+            LineType::Hexstring { title, token, .. } => util::PhiIteratorOf7::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Summary { title, tokens, .. } => util::PhiIteratorOf7::I5(title.map(Into::into).into_iter().chain(tokens.into_iter())),
+            LineType::Ellipsis { title, token } => util::PhiIteratorOf7::I4(title.map(Into::into).into_iter().chain(iter::once(token.into()))),
+            LineType::Comment { indicator, text } => util::PhiIteratorOf7::I7(indicator.map(Into::into).into_iter().chain(text.map(Into::into).into_iter())),
         }
     }
 }
@@ -689,6 +726,13 @@ impl PartialEq for Line {
                 title: title2, token: token2
             }) => title1.eq(title2) && token1.eq(token2),
             (LineType::Ellipsis { .. }, _) => false,
+
+            (LineType::Comment {
+                indicator: indicator1, text: text1
+            }, LineType::Comment {
+                indicator: indicator2, text: text2
+            }) => indicator1.eq(indicator2) && text1.eq(text2),
+            (LineType::Comment { .. }, _) => false,
         }
     }
 }
@@ -727,6 +771,7 @@ impl fmt::Debug for Line {
                 LineType::Hexstring { .. } => &"hexstring",
                 LineType::Summary { .. } => &"summary",
                 LineType::Ellipsis { .. } => &"ellipsis",
+                LineType::Comment { .. } => &"comment",
             })
             .field("tokens", &self.iter_tokens().map(|tok| token::TokenTestFormat(tok)).collect::<Vec<_>>())
             .finish()

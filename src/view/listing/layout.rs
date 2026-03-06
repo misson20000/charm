@@ -150,3 +150,9 @@ impl LayoutProvider<bucket::EllipsisMarker> for LayoutController {
         self.allocate_main(cb);
     }
 }
+
+impl LayoutProvider<bucket::CommentMarker> for LayoutController {
+    fn allocate<F: FnOnce(f32) -> f32>(&mut self, _marker: std::marker::PhantomData<bucket::CommentMarker>, cb: F) {
+        self.allocate_main(cb);
+    }
+}

@@ -276,6 +276,16 @@ declare_tokens! {
     Hexstring {
         pub extent: addr::Extent,
     },
+
+    /// A comment indicator (;)
+    #[derive(Debug)]
+    CommentIndicator {
+    },
+
+    /// Comment body text
+    #[derive(Debug)]
+    CommentText {
+    },
 }
 
 /// Various forms of punctuation used ONLY in summaries.
@@ -417,6 +427,8 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
                 }
                 Ok(())
             },
+            TokenRef::CommentIndicator(_) => write!(f, "; "),
+            TokenRef::CommentText(_) => write!(f, "<comment text>"),
         }
     }
 }

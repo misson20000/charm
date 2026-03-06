@@ -49,6 +49,10 @@ enum LineViewType {
         title: bucket::MaybeTokenBucket<bucket::TitleMarker>,
         ellipsis: bucket::SingleTokenBucket<bucket::EllipsisMarker>,
     },
+    Comment {
+        indicator: bucket::MaybeTokenBucket<bucket::CommentMarker>,
+        text: bucket::MaybeTokenBucket<bucket::CommentMarker>,
+    },
 }
 
 impl std::fmt::Debug for LineViewType {
@@ -121,6 +125,10 @@ impl LineViewType {
                 title: title.into(),
                 ellipsis: token.into()
             },
+            line_model::LineType::Comment { indicator, text } => Self::Comment {
+                indicator: indicator.into(),
+                text: text.into()
+            },
         }
     }
 
@@ -134,6 +142,7 @@ impl LineViewType {
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.iter_tokens().chain(hexstring.iter_tokens())),
             Self::Summary { title, content } => util::PhiIterator::I6(title.iter_tokens().chain(content.iter_tokens())),
             Self::Ellipsis { title, ellipsis } => util::PhiIterator::I7(title.iter_tokens().chain(ellipsis.iter_tokens())),
+            Self::Comment { indicator, text } => util::PhiIterator::I9(indicator.iter_tokens().chain(text.iter_tokens())),
         }
     }
 
@@ -147,6 +156,7 @@ impl LineViewType {
             Self::Hexstring { title, hexstring } => util::PhiIterator::I5(title.to_tokens().chain(hexstring.to_tokens())),
             Self::Summary { title, content } => util::PhiIterator::I6(title.to_tokens().chain(content.to_tokens())),
             Self::Ellipsis { title, ellipsis } => util::PhiIterator::I7(title.to_tokens().chain(ellipsis.to_tokens())),
+            Self::Comment { indicator, text } => util::PhiIterator::I9(indicator.to_tokens().chain(text.to_tokens())),
         }
     }
 
@@ -160,6 +170,7 @@ impl LineViewType {
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket(), hexstring.as_bucket()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket(), content.as_bucket()].into_iter()),
             Self::Ellipsis { title, ellipsis } => util::PhiIteratorOf3::I3([title.as_bucket(), ellipsis.as_bucket()].into_iter()),
+            Self::Comment { indicator, text } => util::PhiIteratorOf3::I3([indicator.as_bucket(), text.as_bucket()].into_iter()),
         }
     }
     
@@ -173,6 +184,7 @@ impl LineViewType {
             Self::Hexstring { title, hexstring } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), hexstring.as_bucket_mut()].into_iter()),
             Self::Summary { title, content } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), content.as_bucket_mut()].into_iter()),
             Self::Ellipsis { title, ellipsis } => util::PhiIteratorOf3::I3([title.as_bucket_mut(), ellipsis.as_bucket_mut()].into_iter()),
+            Self::Comment { indicator, text } => util::PhiIteratorOf3::I3([indicator.as_bucket_mut(), text.as_bucket_mut()].into_iter()),
         }
     }
     
@@ -194,6 +206,7 @@ impl LineViewType {
             Self::Hexstring { title, hexstring } => title.visible_address().or(hexstring.visible_address()),
             Self::Summary { title, content } => title.visible_address().or(content.visible_address()),
             Self::Ellipsis { title, ellipsis } => title.visible_address().or(ellipsis.visible_address()),
+            Self::Comment { indicator, text } => indicator.visible_address().or(text.visible_address()),
         }
     }
     
@@ -207,6 +220,7 @@ impl LineViewType {
             Self::Hexstring { title: _, hexstring } => hexstring.invalidate_data(),
             Self::Summary { title: _, content } => content.invalidate_data(),
             Self::Ellipsis { .. } => {},
+            Self::Comment { .. } => {},
         }
     }
 }
