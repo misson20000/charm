@@ -11,6 +11,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view::addr_entry;
@@ -401,7 +402,11 @@ impl PropsEditor {
         if selection.any_selected() {
             if let Some(path) = selection.single_selected() {
                 let (node, _addr) = selection.document.lookup_node(&path);
-                PropsEditorMode::Single { path, props: node.props.clone(), size: node.size }
+                
+                match node.props().cloned() {
+                    Some(props) => PropsEditorMode::Single { path, props, size: node.size() },
+                    None => PropsEditorMode::Deactivated
+                }
             } else if let Some(props) = structure::MaybeProperties::common_between(selection.node_iter()) {
                 PropsEditorMode::Many {
                     selection: selection.clone(),

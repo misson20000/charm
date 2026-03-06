@@ -8,6 +8,7 @@ use std::vec;
 
 use crate::model::addr;
 use crate::model::datapath;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::space;
 use crate::model::versioned;
@@ -60,7 +61,7 @@ impl From<roxmltree::Error> for LoadForTestingError {
 
 impl Builder {
     pub fn default() -> Self {
-        Self::new(sync::Arc::new(structure::Node {
+        Self::new(structure::HierarchyNode {
             size: addr::Offset::MAX,
             props: structure::Properties {
                 name: "root".to_string(),
@@ -70,7 +71,7 @@ impl Builder {
                 locked: true,
             },
             children: vec::Vec::new()
-        }))
+        }.into_arc())
     }
     
     pub fn new(root: sync::Arc<structure::Node>) -> Self {
@@ -125,7 +126,7 @@ impl Document {
         let mut node_addr = addr::AbsoluteAddress::NULL;
 
         for i in path {
-            let childhood = &current_node.children[*i];
+            let childhood = current_node.child(*i);
             node_addr+= childhood.offset;
             current_node = &childhood.node;
         }
@@ -143,22 +144,22 @@ impl Document {
 
     pub fn describe_path(&self, path: structure::PathSlice) -> String {
         let mut node = &self.root;
-        let mut path_description = node.props.name.clone();
+        let mut path_description = node.inspect();
         
         for i in path {
-            node = &node.children[*i].node;
+            node = node.child(*i).node;
             
             if !sync::Arc::ptr_eq(node, &self.root) {
                 path_description.push_str(".");
             }
-            path_description.push_str(&node.props.name);
+            path_description.push_str(&node.inspect());
         }
 
         path_description
     }
 
     pub fn extent(&self) -> addr::AbsoluteExtent {
-        addr::AbsoluteExtent::sized(addr::AbsoluteAddress::ZERO, self.root.size)
+        addr::AbsoluteExtent::sized(addr::AbsoluteAddress::ZERO, self.root.size())
     }
 
     #[must_use]
@@ -310,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_describe_path() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b
@@ -332,18 +333,18 @@ mod tests {
 
         let d = Builder::new(root).build();
 
-        assert_eq!(d.describe_path(&vec![]), "root");
-        assert_eq!(d.describe_path(&vec![0]), "root.child0");
-        assert_eq!(d.describe_path(&vec![1]), "root.child1");
-        assert_eq!(d.describe_path(&vec![1, 0]), "root.child1.child1:0");
-        assert_eq!(d.describe_path(&vec![1, 1]), "root.child1.child1:1");
-        assert_eq!(d.describe_path(&vec![2]), "root.child2");
+        assert_eq!(d.describe_path(&vec![]), "'root'");
+        assert_eq!(d.describe_path(&vec![0]), "'root'.'child0'");
+        assert_eq!(d.describe_path(&vec![1]), "'root'.'child1'");
+        assert_eq!(d.describe_path(&vec![1, 0]), "'root'.'child1'.'child1:0'");
+        assert_eq!(d.describe_path(&vec![1, 1]), "'root'.'child1'.'child1:1'");
+        assert_eq!(d.describe_path(&vec![2]), "'root'.'child2'");
     }
 
 
     #[test]
     fn test_successor() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b

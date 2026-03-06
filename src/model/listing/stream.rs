@@ -6,6 +6,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document::change;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::document;
 use crate::model::listing::token;
 
@@ -117,7 +118,7 @@ impl std::fmt::Debug for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Position")
             .field("state", &self.state)
-            .field("node", &self.node.props.name)
+            .field("node", &self.node.inspect())
             .field("node_addr", &self.node_addr)
             .field("stack", &StackDebugHelper(&self.stack))
             .finish_non_exhaustive()
@@ -142,7 +143,7 @@ impl std::fmt::Debug for StackEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Entry")
             .field("descent", &self.descent)
-            .field("node", &self.node.props.name)
+            .field("node", &self.node.inspect())
             .field("node_addr", &self.node_addr)
             .finish_non_exhaustive()
     }
@@ -201,7 +202,7 @@ impl std::fmt::Debug for PortStackState {
             .field("apparent_depth", &self.apparent_depth)
             .field("logical_depth", &self.logical_depth)
             .field("node_addr", &self.node_addr)
-            .field("node", &self.node.props.name)
+            .field("node", &self.node.inspect())
             .finish_non_exhaustive()
     }
 }
@@ -269,8 +270,8 @@ impl Position {
         let mut logical_depth = 0;
         let mut stack = None;
         let mut summary_prev = false;
-        let mut summary_next = match root.props.children_display {
-            structure::ChildrenDisplay::Summary => true,
+        let mut summary_next = match root.props().map(|p| p.children_display) {
+            Some(structure::ChildrenDisplay::Summary) => true,
             _ => false
         };
                 
@@ -299,14 +300,14 @@ impl Position {
                 node_addr,
             }));
 
-            let childhood = &node.children[*child_index];
+            let childhood = node.child(*child_index);
             node = &childhood.node;
             node_addr+= childhood.offset;
             apparent_depth+= 1;
             logical_depth+= 1;
 
-            summary_next = summary_next || match node.props.children_display {
-                structure::ChildrenDisplay::Summary => true,
+            summary_next = summary_next || match node.props().map(|p| p.children_display) {
+                Some(structure::ChildrenDisplay::Summary) => true,
                 _ => false
             };
         }
@@ -493,7 +494,7 @@ impl Position {
             
             change::ApplyRecord::Nest { range, extent, .. } if range.parent == stack_state.current_path => {
                 /* Children were nested on this node */
-                let new_nest = &stack_state.node.children[range.first];
+                let new_nest = stack_state.node.child(range.first);
                 
                 if range.contains_index(*index) && offset.map_or(false, |o| extent.includes(o)) {
                     if options.prefer_after_new_node {
@@ -536,21 +537,21 @@ impl Position {
             change::ApplyRecord::Resize { path, new_size: _, parents_resized: _ } if path.len() >= stack_state.current_path.len() && path[0..stack_state.current_path.len()] == stack_state.current_path => {
                 if let Some(offset) = offset.as_mut() {
                     /* If we the node we're on shrank and our specified offset is now past the end, destructure. Potentially multiple times if multiple ancestors were shrunken. */
-                    while *offset > stack_state.node.size {
+                    while *offset > stack_state.node.size() {
                         if let Some(des_index) = stack_state.pop_actual() {
-                            *offset+= stack_state.node.children[des_index].offset;
+                            *offset+= stack_state.node.child(des_index).offset;
                             *index = des_index + 1;
                         } else {
                             /* Root node shrank. Just put us at the end of it. */
-                            *offset = stack_state.node.size;
+                            *offset = stack_state.node.size();
                         }
                     }
 
                     /* If the child immediately before our selected offset was grown, descend into it. Potentially multiple times. */
-                    while *index > 0 && stack_state.node.children[*index-1].end() > *offset {
-                        *offset-= stack_state.node.children[*index-1].offset;
+                    while *index > 0 && stack_state.node.child(*index-1).end() > *offset {
+                        *offset-= stack_state.node.child(*index-1).offset;
                         stack_state.push(*index-1);
-                        *index = stack_state.node.children.len();
+                        *index = stack_state.node.num_children();
                     }
                 }
             },
@@ -565,7 +566,7 @@ impl Position {
                     if let Some(offset) = offset.as_mut() {
                         /* if a pasted child contains our offset, we need to descend into it. */
                         for pasted_child_index in &par.mapping {
-                            let pasted_child = &stack_state.node.children[*pasted_child_index];
+                            let pasted_child = &stack_state.node.child(*pasted_child_index);
                             
                             if *pasted_child_index < *index || (*pasted_child_index == *index && *offset > pasted_child.offset) {
                                 *index+= 1;
@@ -625,8 +626,8 @@ impl Position {
             },
 
             /* Real PositionState doesn't support one-past-the-end for SummaryLabel and SummarySeparator, so need to fix if that would be the case. */
-            IntermediatePortState::SummaryLabel(index) if index < stack_state.node.children.len() => PositionState::SummaryLabel(index),
-            IntermediatePortState::SummarySeparator(index) if index < stack_state.node.children.len() => PositionState::SummarySeparator(index),
+            IntermediatePortState::SummaryLabel(index) if index < stack_state.node.num_children() => PositionState::SummaryLabel(index),
+            IntermediatePortState::SummarySeparator(index) if index < stack_state.node.num_children() => PositionState::SummarySeparator(index),
             IntermediatePortState::SummaryLabel(_) => PositionState::SummaryCloser,
             IntermediatePortState::SummarySeparator(_) => PositionState::SummaryCloser,
         };
@@ -696,7 +697,7 @@ impl Position {
             },
             change::ApplyRecord::Destructure(dsr) => {
                 if &dsr.parent == &state.current_path {
-                    state.destructure(dsr, child_index, &old_tok.node.children[dsr.child_index]);
+                    state.destructure(dsr, child_index, old_tok.node.child(dsr.child_index));
                 } else {
                     state.push(child_index);
                 }
@@ -730,10 +731,10 @@ impl Position {
     }
 
     fn seek_in_node_to_offset(&mut self, offset: addr::Offset, summary: bool) {
-        let index = self.node.children.partition_point(|ch| ch.offset < offset);
+        let index = self.node.child_index_at_offset(offset);
         
         if summary {
-            if self.node.children.len() > 0 {
+            if self.node.num_children() > 0 {
                 self.state = PositionState::SummaryLabel(index);
             } else {
                 self.state = PositionState::SummaryLeaf;
@@ -773,7 +774,7 @@ impl Position {
         };
         
         match self.state {
-            PositionState::PreBlank => if self.node.props.title_display.has_blanks() {
+            PositionState::PreBlank => if self.node.props().map_or(false, |p| p.title_display.has_blanks()) {
                 TokenGenerationResult::Ok(token::BlankLine {
                     common,
                     accepts_cursor: false,
@@ -813,7 +814,7 @@ impl Position {
                 kind: token::PunctuationKind::OpenBracket,
             }.into()),
             PositionState::SummaryLabel(i) => {
-                let ch = &self.node.children[i];
+                let ch = &self.node.child(i);
                 let mut path = self.structure_path();
                 path.push(i);
                 TokenGenerationResult::Ok(token::SummaryLabel {
@@ -826,7 +827,7 @@ impl Position {
                     },
                 }.into())
             },
-            PositionState::SummarySeparator(i) => if i < self.node.children.len() {
+            PositionState::SummarySeparator(i) => if i < self.node.num_children() {
                 TokenGenerationResult::Ok(token::SummaryPunctuation {
                     common,
                     kind: token::PunctuationKind::Comma,
@@ -844,25 +845,25 @@ impl Position {
             
             PositionState::SummaryValueBegin => TokenGenerationResult::Skip,
             PositionState::SummaryLeaf => {
-                let limit = std::cmp::min(16.into(), self.node.size);
+                let limit = std::cmp::min(16.into(), self.node.size());
                 let extent = addr::Extent::between(addr::Offset::NULL, limit);
                 
-                TokenGenerationResult::Ok(match self.node.props.content_display {
-                    structure::ContentDisplay::None => token::SummaryPunctuation {
+                TokenGenerationResult::Ok(match self.node.props().map(|p| p.content_display) {
+                    Some(structure::ContentDisplay::None) | None => token::SummaryPunctuation {
                         common,
                         kind: token::PunctuationKind::Space,
                     }.into(),
                     // Disallow hexdumps in summaries. This is a little nasty. Review later.
-                    structure::ContentDisplay::Hexdump { .. } => token::Hexstring {
+                    Some(structure::ContentDisplay::Hexdump { .. }) => token::Hexstring {
                         common,
                         extent,
                     }.into(),
                     // Disallow bindumps in summaries. This is a little nasty. Review later.
-                    structure::ContentDisplay::Bindump { .. } => token::Hexstring {
+                    Some(structure::ContentDisplay::Bindump { .. }) => token::Hexstring {
                         common,
                         extent,
                     }.into(),
-                    structure::ContentDisplay::Hexstring => token::Hexstring {
+                    Some(structure::ContentDisplay::Hexstring) => token::Hexstring {
                         common,
                         extent,
                     }.into(),
@@ -870,7 +871,7 @@ impl Position {
             },
             PositionState::SummaryValueEnd => TokenGenerationResult::Skip,
 
-            PositionState::PostBlank => if self.node.props.title_display.has_blanks() {
+            PositionState::PostBlank => if self.node.props().map_or(false, |p| p.title_display.has_blanks()) {
                 TokenGenerationResult::Ok(token::BlankLine {
                     common: common.adjust_depth(1),
                     accepts_cursor: true,
@@ -902,7 +903,7 @@ impl Position {
                 let prev_child_option = match index {
                     0 => None,
                     /* Something is seriously wrong if index was farther than one-past-the-end. */
-                    i => Some((i-1, &self.node.children[i-1]))
+                    i => Some((i-1, self.node.child(i-1)))
                 };
 
                 /* Descend, if we can. */
@@ -923,9 +924,9 @@ impl Position {
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
                     
-                    self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
-                        structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
+                    self.state = match self.node.props().map(|p| p.content_display) {
+                        Some(structure::ContentDisplay::None) | None => PositionState::Ellipsis(interstitial, index),
+                        Some(structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ }) => {
                             let line_extent = get_line_extent(offset - addr::Offset::BIT, line_pitch);
 
                             PositionState::Hexdump {
@@ -934,7 +935,7 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Bindump { line_pitch, word_size: _ } => {
+                        Some(structure::ContentDisplay::Bindump { line_pitch, word_size: _ }) => {
                             let line_extent = get_line_extent(offset - addr::Offset::BIT, line_pitch);
 
                             PositionState::Bindump {
@@ -943,8 +944,8 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Hexstring => {
-                            let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
+                        Some(structure::ContentDisplay::Hexstring) => {
+                            let pitch = self.node.props().unwrap().content_display.preferred_pitch().unwrap_or(16.into());
                             let extent = get_line_extent(offset - interstitial.begin - addr::Offset::BIT, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
                             
                             PositionState::Hexstring(extent, index)
@@ -993,10 +994,10 @@ impl Position {
                 true
             },
             PositionState::SummaryCloser => {
-                if self.node.children.is_empty() {
+                if self.node.num_children() == 0 {
                     self.state = PositionState::SummaryOpener;
                 } else {
-                    self.state = PositionState::SummarySeparator(self.node.children.len());
+                    self.state = PositionState::SummarySeparator(self.node.num_children());
                 }
                 true
             },
@@ -1016,7 +1017,7 @@ impl Position {
                 true
             },
             PositionState::SummaryValueEnd => {
-                if self.node.children.is_empty() {
+                if self.node.num_children() == 0 {
                     self.state = PositionState::SummaryLeaf;
                 } else {
                     self.state = PositionState::SummaryCloser;
@@ -1025,15 +1026,15 @@ impl Position {
             },
 
             PositionState::PostBlank => {
-                match self.node.props.children_display {
-                    structure::ChildrenDisplay::None => {
-                        self.state = PositionState::MetaContent(self.node.size, self.node.children.len());
+                match self.node.props().map(|p| p.children_display) {
+                    Some(structure::ChildrenDisplay::None) | None => {
+                        self.state = PositionState::MetaContent(self.node.size(), self.node.num_children());
                     },
-                    structure::ChildrenDisplay::Summary => {
+                    Some(structure::ChildrenDisplay::Summary) => {
                         self.state = PositionState::SummaryEpilogue;
                     },
-                    structure::ChildrenDisplay::Full => {
-                        self.state = PositionState::MetaContent(self.node.size, self.node.children.len());
+                    Some(structure::ChildrenDisplay::Full) => {
+                        self.state = PositionState::MetaContent(self.node.size(), self.node.num_children());
                     },
                 }
                 true
@@ -1054,14 +1055,14 @@ impl Position {
                 true
             },
             PositionState::Title => {
-                match self.node.props.children_display {
-                    structure::ChildrenDisplay::None => {
+                match self.node.props().map(|p| p.children_display) {
+                    Some(structure::ChildrenDisplay::None) | None => {
                         self.state = PositionState::MetaContent(addr::Offset::NULL, 0);
                     },
-                    structure::ChildrenDisplay::Summary => {
+                    Some(structure::ChildrenDisplay::Summary) => {
                         self.state = PositionState::SummaryPreamble;
                     },
-                    structure::ChildrenDisplay::Full => {
+                    Some(structure::ChildrenDisplay::Full) => {
                         self.state = PositionState::MetaContent(addr::Offset::NULL, 0);
                     },
                 }
@@ -1075,7 +1076,7 @@ impl Position {
 
             },
             PositionState::MetaContent(offset, index) => {
-                let next_child_option = self.node.children.get(index).map(|child| (index, child));
+                let next_child_option = self.node.try_get_child(index).map(|child| (index, child));
                 
                 /* Descend, if we can. */
                 if let Some((next_child_index, next_child)) = next_child_option {
@@ -1090,14 +1091,14 @@ impl Position {
                 }
 
                 /* Emit content, if we can. */
-                if offset < self.node.size {
+                if offset < self.node.size() {
                     let interstitial = get_interstitial(&self.node, index);
                     assert!(interstitial.1 > interstitial.0);
                     let interstitial = addr::Extent::between(interstitial.0, interstitial.1);
 
-                    self.state = match self.node.props.content_display {
-                        structure::ContentDisplay::None => PositionState::Ellipsis(interstitial, index),
-                        structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ } => {
+                    self.state = match self.node.props().map(|p| p.content_display) {
+                        Some(structure::ContentDisplay::None) | None => PositionState::Ellipsis(interstitial, index),
+                        Some(structure::ContentDisplay::Hexdump { line_pitch, gutter_pitch: _ }) => {
                             let line_extent = get_line_extent(offset, line_pitch);
                             
                             PositionState::Hexdump {
@@ -1106,7 +1107,7 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Bindump { line_pitch, word_size: _ } => {
+                        Some(structure::ContentDisplay::Bindump { line_pitch, word_size: _ }) => {
                             let line_extent = get_line_extent(offset, line_pitch);
                             
                             PositionState::Bindump {
@@ -1115,8 +1116,8 @@ impl Position {
                                 index
                             }
                         },
-                        structure::ContentDisplay::Hexstring => {
-                            let pitch = self.node.props.content_display.preferred_pitch().unwrap_or(16.into());
+                        Some(structure::ContentDisplay::Hexstring) => {
+                            let pitch = self.node.props().unwrap().content_display.preferred_pitch().unwrap_or(16.into());
                             let extent = get_line_extent(offset - interstitial.begin, pitch).offset(interstitial.begin).intersection(interstitial).unwrap();
                             
                             PositionState::Hexstring(extent, index)
@@ -1148,7 +1149,7 @@ impl Position {
             },
 
             PositionState::SummaryOpener => {
-                if self.node.children.is_empty() {
+                if self.node.num_children() == 0 {
                     self.state = PositionState::SummaryCloser;
                 } else {
                     self.state = PositionState::SummaryLabel(0);
@@ -1162,7 +1163,7 @@ impl Position {
                 true
             },
             PositionState::SummarySeparator(i) => {
-                if self.node.children.len() == i {
+                if self.node.num_children() == i {
                     self.state = PositionState::SummaryCloser;
                 } else {
                     self.state = PositionState::SummaryLabel(i);
@@ -1178,7 +1179,7 @@ impl Position {
             },
 
             PositionState::SummaryValueBegin => {
-                if self.node.children.is_empty() {
+                if self.node.num_children() == 0 {
                     self.state = PositionState::SummaryLeaf;
                 } else {
                     self.state = PositionState::SummaryOpener;
@@ -1347,10 +1348,10 @@ impl Position {
             PositionState::Ellipsis(_, ch) => ch,
             PositionState::SummaryLabel(ch) => ch,
             PositionState::SummarySeparator(ch) => ch,
-            PositionState::SummaryCloser => self.node.children.len(),
-            PositionState::SummaryEpilogue => self.node.children.len(),
-            PositionState::PostBlank => self.node.children.len(),
-            PositionState::End => self.node.children.len(),
+            PositionState::SummaryCloser => self.node.num_children(),
+            PositionState::SummaryEpilogue => self.node.num_children(),
+            PositionState::PostBlank => self.node.num_children(),
+            PositionState::End => self.node.num_children(),
             _ => 0,
         }
     }
@@ -1366,15 +1367,15 @@ impl Position {
             PositionState::Ellipsis(extent, _) => extent.begin,
             PositionState::SummaryPreamble => addr::Offset::NULL,
             PositionState::SummaryOpener => addr::Offset::NULL,
-            PositionState::SummaryLabel(i) => self.node.children[i].offset,
-            PositionState::SummarySeparator(i) => self.node.children[i-1].end(),
-            PositionState::SummaryCloser => self.node.size,
-            PositionState::SummaryEpilogue => self.node.size,
+            PositionState::SummaryLabel(i) => self.node.child(i).offset,
+            PositionState::SummarySeparator(i) => self.node.child(i-1).end(),
+            PositionState::SummaryCloser => self.node.size(),
+            PositionState::SummaryEpilogue => self.node.size(),
             PositionState::SummaryValueBegin => addr::Offset::NULL,
             PositionState::SummaryLeaf => addr::Offset::NULL,
-            PositionState::SummaryValueEnd => self.node.size,
-            PositionState::PostBlank => self.node.size,
-            PositionState::End => self.node.size,
+            PositionState::SummaryValueEnd => self.node.size(),
+            PositionState::PostBlank => self.node.size(),
+            PositionState::End => self.node.size(),
         }
     }
 
@@ -1428,9 +1429,9 @@ fn get_interstitial(node: &structure::Node, index: usize) -> (addr::Offset, addr
     let prev_child_option = match index {
         0 => None,
         /* Something is seriously wrong if index was farther than one-past-the-end. */
-        i => Some((i-1, &node.children[i-1]))
+        i => Some((i-1, node.child(i-1)))
     };
-    let next_child_option = node.children.get(index).map(|child| (index, child));
+    let next_child_option = node.try_get_child(index).map(|child| (index, child));
 
     /* Find the limits */
     let lower_limit = match prev_child_option {
@@ -1445,7 +1446,7 @@ fn get_interstitial(node: &structure::Node, index: usize) -> (addr::Offset, addr
         /* Can't include data from the child, so need to stop before it begins. */
         Some((_, next_child)) => next_child.offset,
         /* Can't include data that belongs to the parent, so need to stop before we end. */
-        None => node.size,
+        None => node.size(),
     };
 
     (lower_limit, upper_limit)
@@ -1457,7 +1458,10 @@ fn get_line_extent(offset: addr::Offset, pitch: addr::Offset) -> addr::Extent {
 }
 
 fn try_get_natural_line_extent(node: &structure::Node, offset: addr::Offset) -> Option<addr::Extent> {
-    node.props.content_display.preferred_pitch().map(|pitch| get_line_extent(offset, pitch))
+    node
+        .props()
+        .and_then(|p| p.content_display.preferred_pitch())
+        .map(|pitch| get_line_extent(offset, pitch))
 }
 
 /// Despite the name, this must return exactly the same boundary that move_next and move_prev would so that we don't
@@ -1479,8 +1483,8 @@ fn estimate_line_begin(node: &structure::Node, offset: Option<addr::Offset>, ind
 impl Descent {
     fn childhood(&self, node: &sync::Arc<structure::Node>) -> structure::Childhood {
         match self {
-            Descent::Child(i) => node.children[*i].clone(),
-            Descent::ChildSummary(i) => node.children[*i].clone(),
+            Descent::Child(i) => node.child(*i).into_owned(),
+            Descent::ChildSummary(i) => node.child(*i).into_owned(),
             Descent::MySummary => structure::Childhood {
                 node: node.clone(),
                 offset: addr::Offset::NULL,
@@ -1497,7 +1501,7 @@ impl Descent {
 
     fn before_state(&self, stack_entry: &StackEntry) -> PositionState {
         match self {
-            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.children[*i].offset, *i),
+            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.child(*i).offset, *i),
             Descent::ChildSummary(i) => PositionState::SummaryLabel(*i),
             Descent::MySummary => PositionState::SummaryPreamble,
         }
@@ -1505,7 +1509,7 @@ impl Descent {
 
     fn after_state(&self, stack_entry: &StackEntry) -> PositionState {
         match self {
-            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.children[*i].end(), *i+1),
+            Descent::Child(i) => PositionState::MetaContent(stack_entry.node.child(*i).end(), *i+1),
             Descent::ChildSummary(i) => PositionState::SummarySeparator(*i+1),
             Descent::MySummary => PositionState::SummaryEpilogue,
         }
@@ -1598,7 +1602,7 @@ impl PortStackState {
                     - node
                  */
                 
-                let childhood = &old_node.children[child_of_interest];
+                let childhood = &old_node.child(child_of_interest);
                 
                 self.mode = PortStackMode::Deleted {
                     node: childhood.node.clone(),
@@ -1620,7 +1624,7 @@ impl PortStackState {
         }
     }
 
-    fn destructure(&mut self, dsr: &change::DestructureApplyRecord, mut current_child: usize, childhood: &structure::Childhood) {
+    fn destructure(&mut self, dsr: &change::DestructureApplyRecord, mut current_child: usize, childhood: structure::ChildhoodRef<'_>) {
         match self.mode {
             /* Only enter destructuring mode if we're trying to descend into a child that got destructured. */
             PortStackMode::Normal | PortStackMode::Summary if current_child == dsr.child_index => {
@@ -1739,18 +1743,20 @@ impl PortStackState {
     }
     
     fn children_summarized(&self) -> bool {
-        self.summarized() || match self.node.props.children_display {
-            structure::ChildrenDisplay::None => false,
-            structure::ChildrenDisplay::Summary => true,
-            structure::ChildrenDisplay::Full => false,
+        self.summarized() || match self.node.props().map(|p| p.children_display) {
+            Some(structure::ChildrenDisplay::None) => false,
+            Some(structure::ChildrenDisplay::Summary) => true,
+            Some(structure::ChildrenDisplay::Full) => false,
+            None => false,
         }
     }
     
     fn push(&mut self, child: usize) {
-        let descent = match self.node.props.children_display {
-            structure::ChildrenDisplay::None => todo!(),
-            structure::ChildrenDisplay::Summary => { self.summarize(); Descent::ChildSummary(child) }
-            structure::ChildrenDisplay::Full => Descent::Child(child),
+        let descent = match self.node.props().map(|p| p.children_display) {
+            Some(structure::ChildrenDisplay::None) => todo!(),
+            Some(structure::ChildrenDisplay::Summary) => { self.summarize(); Descent::ChildSummary(child) }
+            Some(structure::ChildrenDisplay::Full) => Descent::Child(child),
+            None => todo!(),
         };
         
         self.push_descent(descent);
@@ -1758,10 +1764,10 @@ impl PortStackState {
 
     fn deep_descend_if_necessary(&mut self, index: &mut usize, offset: &mut addr::Offset) -> bool {
         let mut descended = false;
-        while *index > 0 && *index <= self.node.children.len() && self.node.children[*index-1].extent().includes(*offset) {
-            *offset-= self.node.children[*index-1].offset;
+        while *index > 0 && *index <= self.node.num_children() && self.node.child(*index-1).extent().includes(*offset) {
+            *offset-= self.node.child(*index-1).offset;
             self.push(*index-1);
-            *index = self.node.children.partition_point(|ch| ch.offset < *offset);
+            *index = self.node.child_index_at_offset(*offset);
             descended = true;
         }
         descended
@@ -2067,10 +2073,11 @@ pub mod xml {
     }
         
     pub fn inflate_structure(xml: roxmltree::Node, node_addr: addr::AbsoluteAddress, node_path: structure::Path, map: &mut collections::HashMap<String, (addr::AbsoluteAddress, structure::Path, sync::Arc<structure::Node>)>) -> sync::Arc<structure::Node> {
-        let node = structure::Node {
+        let name = xml.attribute("name").unwrap().to_string();
+        let node = structure::HierarchyNode {
             size: addr::Offset::parse(xml.attribute("size").unwrap(), false).unwrap(),
             props: structure::Properties {
-                name: xml.attribute("name").unwrap().to_string(),
+                name: name.clone(),
                 title_display: match xml.attribute("title") {
                     None => structure::TitleDisplay::Major,
                     Some("major") => structure::TitleDisplay::Major,
@@ -2113,8 +2120,8 @@ pub mod xml {
                 inflate_childhood(c, node_addr, path, map)
             }).collect()
         };
-        let arc = sync::Arc::new(node);
-        map.insert(arc.props.name.clone(), (node_addr, node_path, arc.clone()));
+        let arc = node.into_arc();
+        map.insert(name, (node_addr, node_path, arc.clone()));
         arc
     }
 
@@ -2390,7 +2397,7 @@ mod tests {
 
     #[test]
     fn at_path_on_summary() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x78)
             .child(0x10, |b| b
@@ -2433,19 +2440,19 @@ mod tests {
                     descent: Descent::MySummary,
                     apparent_depth: 1,
                     logical_depth: 1,
-                    node: root.children[1].node.clone(),
+                    node: root.child(1).node.clone(),
                     node_addr: 0x14.into(),
                 })),
                 descent: Descent::ChildSummary(1),
                 apparent_depth: 1,
                 logical_depth: 2, /* ! */
-                node: root.children[1].node.clone(),
+                node: root.child(1).node.clone(),
                 node_addr: 0x14.into(),
             })),
             state: PositionState::SummaryLeaf,
             apparent_depth: 2,
             logical_depth: 3,
-            node: root.children[1].node.children[1].node.clone(),
+            node: root.child(1).node.child(1).node.clone(),
             node_addr: 0x34.into(),
         });
     }
@@ -2482,7 +2489,7 @@ mod tests {
     
     #[test]
     fn port_delete_node() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x78)
             .child(0x10, |b| b
@@ -2577,7 +2584,7 @@ mod tests {
 
     #[test]
     fn port_insert_node_simple() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .build();
@@ -2585,7 +2592,7 @@ mod tests {
         let old_doc = document::Builder::new(root.clone()).build();
         let mut new_doc = old_doc.clone();
 
-        let node = sync::Arc::new(structure::Node {
+        let node = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -2598,7 +2605,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(0x30),
-        });
+        }.into_arc();
         
         new_doc.change_for_debug(old_doc.insert_node(vec![], 0, structure::Childhood::new(node.clone(), 0x12.into()))).unwrap();
 
@@ -2664,7 +2671,7 @@ mod tests {
 
     #[test]
     fn port_insert_node_deep() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .build();
@@ -2672,7 +2679,7 @@ mod tests {
         let old_doc = document::Builder::new(root.clone()).build();
         let mut new_doc = old_doc.clone();
 
-        let node = structure::Node::builder()
+        let node = structure::HierarchyNode::builder()
             .name("node0")
             .size(0x60)
             .child(0x10, |b| b
@@ -2705,7 +2712,7 @@ mod tests {
                 /* should correctly recurse into children of inserted node */
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
-                        node: node.children[1].node.clone(),
+                        node: node.child(1).node.clone(),
                         node_path: vec![0, 1],
                         node_addr: 0x30.into(),
                         node_child_index: 1,
@@ -2722,7 +2729,7 @@ mod tests {
     
     #[test]
     fn port_nest_nodes_simple() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .child(0x38, |b| b
@@ -2751,7 +2758,7 @@ mod tests {
         }, addr::Extent::sized(0x24, 0x58), props)).unwrap();
 
         let new_root = new_doc.root.clone();
-        let new_child = new_doc.root.children[0].node.clone();
+        let new_child = new_doc.root.child(0).node.clone();
         
         assert_port_functionality(&old_doc, &new_doc, &[
             /* offset 0x4 */
@@ -2813,7 +2820,7 @@ mod tests {
 
     #[test]
     fn port_root_only_summary() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .build();
@@ -2886,7 +2893,7 @@ mod tests {
 
     #[test]
     fn port_resize_node_shrink() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .child(0x42, |b| b
@@ -2906,7 +2913,7 @@ mod tests {
             (
                 token::Token::Hexdump(token::Hexdump {
                     common: token::TokenCommon {
-                        node: root.children[0].node.clone(),
+                        node: root.child(0).node.clone(),
                         node_path: vec![0],
                         node_addr: 0x42.into(),
                         node_child_index: 0,
@@ -2934,7 +2941,7 @@ mod tests {
 
     #[test]
     fn port_resize_root_node_shrink() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x400)
             .build();

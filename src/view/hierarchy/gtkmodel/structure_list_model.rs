@@ -11,6 +11,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 
@@ -96,7 +97,9 @@ impl StructureListModel {
 
         model.imp().interior.set(cell::RefCell::new(imp::StructureListModelInterior {
             path: info.path.clone(),
-            children: info.node.children[..].iter().enumerate().map(|tuple| {
+            children: match &*info.node {
+                structure::Node::Hierarchy(hierarchy) => hierarchy,
+            }.children[..].iter().enumerate().map(|tuple| {
                 let (i, ch) = tuple;
                 
                 let mut path = info.path.clone();
@@ -105,7 +108,7 @@ impl StructureListModel {
                 super::NodeItem::new(super::NodeInfo {
                     path,
                     node: ch.node.clone(),
-                    props: ch.node.props.clone(),
+                    props: ch.node.props().cloned(),
                     offset: ch.offset,
                     address: info.address + ch.offset,
                     document_host: info.document_host.clone(),
@@ -148,7 +151,7 @@ impl StructureListModel {
             change::ApplyRecord::AlterNode { path, node: new_node_from_record } if i.path.len() + 1 == path.len() && path[0..i.path.len()] == i.path[..] => {
                 let index = path[i.path.len()];
                 let child_item = &i.children[index];
-                let childhood = &new_node.children[index];
+                let childhood = &new_node.child(index);
                 let document_host = i.document_host.clone();
 
                 assert!(sync::Arc::ptr_eq(new_node_from_record, &childhood.node));
@@ -156,7 +159,7 @@ impl StructureListModel {
                 child_item.stage(super::NodeInfo {
                     path: path.clone(),
                     node: childhood.node.clone(),
-                    props: childhood.node.props.clone(),
+                    props: childhood.node.props().cloned(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -178,13 +181,13 @@ impl StructureListModel {
             
             /* Did we get a new child? */
             change::ApplyRecord::InsertNode { parent: affected_path, index: affected_index, child: _ } if affected_path[..] == i.path[..] => {
-                let childhood = &new_node.children[*affected_index];
+                let childhood = &new_node.child(*affected_index);
                 let document_host = i.document_host.clone();
 
                 i.children.insert(*affected_index, super::NodeItem::new(super::NodeInfo {
                     path: vec![], /* will be fixed up later */
                     node: childhood.node.clone(),
-                    props: childhood.node.props.clone(),
+                    props: childhood.node.props().cloned(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -197,13 +200,13 @@ impl StructureListModel {
 
             /* Were some of our children nested? */
             change::ApplyRecord::Nest { range, .. } if range.parent == i.path => {
-                let childhood = &new_node.children[range.first];
+                let childhood = &new_node.child(range.first);
                 let document_host = i.document_host.clone();
                 
                 let count_removed = i.children.splice(range.indices(), [super::NodeItem::new(super::NodeInfo {
                     path: vec![], /* will be fixed up later */
                     node: childhood.node.clone(),
-                    props: childhood.node.props.clone(),
+                    props: childhood.node.props().cloned(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -223,12 +226,12 @@ impl StructureListModel {
                 let mut highest_affected_index = dsr.child_index;
                 
                 for inserted_index in &dsr.mapping {
-                    let childhood = &new_node.children[*inserted_index];
+                    let childhood = &new_node.child(*inserted_index);
                     
                     i.children.insert(*inserted_index, super::NodeItem::new(super::NodeInfo {
                         path: vec![], /* will be fixed up later */
                         node: childhood.node.clone(),
-                        props: childhood.node.props.clone(),
+                        props: childhood.node.props().cloned(),
                         offset: childhood.offset,
                         address: addr + childhood.offset,
                         document: new_doc.clone(),
@@ -262,12 +265,12 @@ impl StructureListModel {
                 let document_host = i.document_host.clone();
 
                 for pasted_index in &par.mapping {
-                    let childhood = &new_node.children[*pasted_index];
+                    let childhood = &new_node.child(*pasted_index);
                     
                     i.children.insert(*pasted_index, super::NodeItem::new(super::NodeInfo {
                         path: vec![], /* will be fixed up later */
                         node: childhood.node.clone(),
-                        props: childhood.node.props.clone(),
+                        props: childhood.node.props().cloned(),
                         offset: childhood.offset,
                         address: addr + childhood.offset,
                         document: new_doc.clone(),
@@ -285,13 +288,13 @@ impl StructureListModel {
             change::ApplyRecord::Repeat { path, .. } if path[0..path.len()-1] == i.path[..] => {
                 let index = *path.last().unwrap();
                 let child_item = &i.children[index];
-                let childhood = &new_node.children[index];
+                let childhood = &new_node.child(index);
                 let document_host = i.document_host.clone();
 
                 child_item.stage(super::NodeInfo {
                     path: path.clone(),
                     node: childhood.node.clone(),
-                    props: childhood.node.props.clone(),
+                    props: childhood.node.props().cloned(),
                     offset: childhood.offset,
                     address: addr + childhood.offset,
                     document: new_doc.clone(),
@@ -311,7 +314,7 @@ impl StructureListModel {
                 child_info.path.splice(.., i.path.iter().cloned());
                 child_info.path.push(index);
                 child_info.document = new_doc.clone();
-                child_info.node = new_node.children[index].node.clone();
+                child_info.node = new_node.child(index).node.clone();
                 child.stage(child_info);
             }
         }
@@ -368,7 +371,7 @@ impl<'tree, 'nodeinfo> selection::tree::TreeVisitor<'tree> for AlterNodesBulkNod
             let mut info = child.imp().info.get().unwrap().borrow().clone();
 
             /* Need to fetch new props from node from *new* tree, not old tree that Selection and TreeVisitor know of */
-            info.props = self.1.children[child_index].node.props.clone();
+            info.props = self.1.child(child_index).node.props().cloned();
             
             child.stage(info);
         }
@@ -380,7 +383,7 @@ impl<'tree, 'nodeinfo> selection::tree::TreeVisitor<'tree> for AlterNodesBulkNod
         let child = &mut self.0[child_index];
         let mut info = child.imp().info.get().unwrap().borrow().clone();
 
-        info.props = self.1.children[child_index].node.props.clone();
+        info.props = self.1.child(child_index).node.props().cloned();
         
         child.stage(info);
     }

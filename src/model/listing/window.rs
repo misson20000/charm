@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn seek() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x4a0)
             .child(0x10, |b| b

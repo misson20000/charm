@@ -1,6 +1,7 @@
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::selection;
 
@@ -66,7 +67,7 @@ fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (struc
         (path, Part::Title) => {
             let adj_path = &path[0..path.len()-1];
             let mut adj_child = *path.last().unwrap();
-            let child = &document.lookup_node(adj_path).0.children[adj_child];
+            let child = &document.lookup_node(adj_path).0.child(adj_child);
             let mut adj_offset = child.offset;
 
             if is_end {
@@ -237,7 +238,7 @@ mod tests {
     #[test]
     fn rubber_band_hexdump_to_title() {
         let document = document::Builder::new(
-            structure::Node::builder()
+            structure::HierarchyNode::builder()
                 .name("root")
                 .size(0x100)
                 .child(0x40, |b| b

@@ -6,6 +6,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::listing::cursor::CursorClassExt;
 use crate::model::listing::token::TokenKind;
@@ -215,11 +216,11 @@ impl CreateArrayAction {
                     let change = match range.to_sibling_range_and_extent() {
                         Ok((sr, extent)) => activation.document.nest(sr, extent, props),
                         Err(sr) => activation.document.insert_node(sr.path, sr.begin.1, structure::Childhood::new(
-                            sync::Arc::new(structure::Node {
+                            structure::HierarchyNode {
                                 props,
                                 children: Vec::new(),
                                 size,
-                            }),
+                            }.into_arc(),
                             sr.begin.0
                         )),
                     };
@@ -243,7 +244,7 @@ impl CreateArrayAction {
                     (document, path, size)
                 },
 
-                Mode::Node { path, node } => (activation.document.clone(), path, node.size)
+                Mode::Node { path, node } => (activation.document.clone(), path, node.size())
             };
             
             if let Err((error, attempted_version)) = self.document_host.change(document.repeat(path, item_size, item_count, name_prefix, name_postfix, array_props)) {
@@ -262,15 +263,29 @@ impl CreateArrayAction {
     }
     
     pub fn activate(&self) {
+        let Some(window) = self.window.upgrade() else { return };
         let selection = self.lw.selection();
 
         let activation = match &selection.mode {
             selection::listing::Mode::Structure(selection::listing::StructureMode::Range(range)) => {
                 /* Create array from selection */
 
+                let node = match &**selection.document.lookup_node(&range.path[..]).0 {
+                    structure::Node::Hierarchy(hierarchy) => hierarchy,
+                    _ => {
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::CreateArray,
+                            trouble: error::Trouble::Other("attempted to create array from nodes that were underneath something that wasn't a hierarchy node".to_string()),
+                            level: error::Level::Error,
+                            is_bug: false,
+                        });
+                        return;
+                    }
+                };
+                
                 CreateArrayActivation {
                     document: selection.document.clone(),
-                    props: selection.document.lookup_node(&range.path[..]).0.props.clone(),
+                    props: node.props.clone(),
                     mode: Mode::Range(range.clone()),
                 }
             },
@@ -282,13 +297,29 @@ impl CreateArrayAction {
                 let cursor = self.lw.cursor();
                 match &(*cursor).class {
                     /* Explicitly forbid the root node. */
-                    cursor::CursorClass::Title(tc) if tc.get_token().node_path().len() > 0 => CreateArrayActivation {
-                        document: cursor.document(),
-                        props: tc.get_token().node().props.clone(),
-                        mode: Mode::Node {
-                            path: tc.get_token().node_path().clone(),
-                            node: tc.get_token().node().clone(),
-                        },
+                    cursor::CursorClass::Title(tc) if tc.get_token().node_path().len() > 0 => {
+                        let node = tc.get_token().node().clone();
+                        let hierarchy_node = match &*node {
+                            structure::Node::Hierarchy(hierarchy) => hierarchy,
+                            _ => {
+                                window.report_error(error::Error {
+                                    while_attempting: error::Action::CreateArray,
+                                    trouble: error::Trouble::Other("attempted to create array underneath something that wasn't a hierarchy node".to_string()),
+                                    level: error::Level::Error,
+                                    is_bug: false,
+                                });
+                                return;
+                            }
+                        };
+
+                        CreateArrayActivation {
+                            document: cursor.document(),
+                            props: hierarchy_node.props.clone(),
+                            mode: Mode::Node {
+                                path: tc.get_token().node_path().clone(),
+                                node: node.clone(),
+                            },
+                        }
                     },
                     
                     _ => {
@@ -336,7 +367,7 @@ impl CreateArrayActivation {
     fn item_size(&self) -> addr::Offset {
         match &self.mode {
             Mode::Range(range) => range.extent().len(),
-            Mode::Node { node, .. } => node.size
+            Mode::Node { node, .. } => node.size()
         }
     }
 
@@ -350,10 +381,13 @@ impl CreateArrayActivation {
     fn suggest_naming_scheme(&self) -> (String, String) {
         match &self.mode {
             Mode::Range(_) => ("[".to_string(), "]".to_string()),
-            Mode::Node { node, .. } => {
-                let mut name = node.props.name.strip_suffix("[0]").map(str::to_string).unwrap_or(node.props.name.clone());
-                name+= "[";
-                (name, "]".to_string())
+            Mode::Node { node, .. } => match node.props() {
+                Some(props) => {
+                    let mut name = props.name.strip_suffix("[0]").map(str::to_string).unwrap_or(props.name.clone());
+                    name+= "[";
+                    (name, "]".to_string())
+                },
+                None => ("[".to_string(), "]".to_string()),
             },
         }
     }

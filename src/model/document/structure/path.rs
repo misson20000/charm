@@ -24,8 +24,8 @@ impl SiblingRange {
         Self { parent, first, last }
     }
 
-    pub fn check_validity(&self, parent_node: &super::Node) -> Result<(), RangeInvalidity> {
-        if self.first >= parent_node.children.len() || self.last >= parent_node.children.len() {
+    pub fn check_validity(&self, parent_node: &impl super::NodeKind) -> Result<(), RangeInvalidity> {
+        if self.first >= parent_node.num_children() || self.last >= parent_node.num_children() {
             return Err(RangeInvalidity::IndexExceedsNumberOfChildren);
         }
 

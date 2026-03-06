@@ -2,6 +2,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::view::listing;
 
@@ -53,7 +54,7 @@ mod imp {
                 
                 match pspec.name() {
                     "name" => match self.docpath.borrow().as_ref() {
-                        Some((doc, path)) => glib::Value::from(&doc.lookup_node(path).0.props.name),
+                        Some((doc, path)) => glib::Value::from(doc.lookup_node(path).0.props().map(|p| &p.name)),
                         None => glib::Value::from_type(glib::Type::INVALID),
                     },
                     x => panic!("access to invalid property: {}", x)

@@ -3,6 +3,7 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 
 pub trait TokenKind {    
     fn kind_name(&self) -> &'static str;
@@ -313,7 +314,7 @@ impl fmt::Debug for Token {
         let mut ds = f.debug_struct("Token");
         
         let ds = ds.field("kind", &self.kind_name())
-            .field("node", &common.node.props.name)
+            .field("node", &common.node.inspect())
             .field("node_path", &common.node_path)
             .field("node_addr", &common.node_addr)
             .field("node_child_index", &common.node_child_index)
@@ -337,7 +338,7 @@ impl<'a> fmt::Debug for TokenRef<'a> {
         let mut ds = f.debug_struct("TokenRef");
         
         let ds = ds.field("kind", &self.kind_name())
-            .field("node", &common.node.props.name)
+            .field("node", &common.node.inspect())
             .field("node_path", &common.node_path)
             .field("node_addr", &common.node_addr)
             .field("node_child_index", &common.node_child_index)
@@ -357,7 +358,7 @@ impl<'a> fmt::Debug for TokenRef<'a> {
 impl fmt::Debug for TokenCommon {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenCommon")
-            .field("node", &self.node.props.name)
+            .field("node", &self.node.inspect())
             .field("depth", &self.depth)
             .finish()
     }
@@ -386,8 +387,8 @@ impl<'a> fmt::Display for TokenTestFormat<'a> {
             TokenRef::SummaryPreamble(_) => write!(f, "<summary preamble #{}>", i),
             TokenRef::SummaryEpilogue(_) => write!(f, "<summary epilogue #{}>", i),
             TokenRef::SummaryPunctuation(token) => write!(f, "(#{}) {}", i, token.kind.as_str()),
-            TokenRef::Title(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
-            TokenRef::SummaryLabel(token) => write!(f, "(#{}) {}: ", i, &token.common.node.props.name),
+            TokenRef::Title(token) => write!(f, "(#{}) {}: ", i, &token.common.node.inspect()),
+            TokenRef::SummaryLabel(token) => write!(f, "(#{}) {}: ", i, &token.common.node.inspect()),
             TokenRef::Ellipsis(_) => write!(f, "(#{}) ...", i),
             TokenRef::Hexdump(token) => {
                 write!(f, "(#{}) ", i)?;
@@ -456,8 +457,8 @@ impl Bindump {
     }
 
     pub fn word_size(&self) -> addr::Offset {
-        match self.common.node.props.content_display {
-            structure::ContentDisplay::Bindump { word_size, .. } => word_size,
+        match self.common.node.props().map(|p| p.content_display) {
+            Some(structure::ContentDisplay::Bindump { word_size, .. }) => word_size,
             /* This shouldn't happen. */
             _ => addr::Offset::BYTE,
         }

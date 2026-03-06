@@ -2,6 +2,7 @@ use std::cell;
 use std::sync;
 
 use crate::model::document;
+use crate::model::document::structure::NodeKind;
 use crate::model::versioned::Versioned;
 use crate::serialization;
 
@@ -98,7 +99,7 @@ impl Project {
 
     pub fn title(&self) -> String {
         let doc = self.document_host.borrow();
-        let root_node_name = &doc.root.props.name;
+        let root_node_name = doc.root.props().map_or("", |p| &p.name);
         
         match self.save_file.borrow().as_ref() {
             Some(f) => match f.path() {

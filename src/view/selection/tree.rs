@@ -396,7 +396,7 @@ mod tests {
             
             gtk::init().unwrap();
 
-            let root = structure::Node::builder()
+            let root = structure::HierarchyNode::builder()
                 .name("root")
                 .size(0x1000)
                 .child(0x0, |b| b
@@ -428,7 +428,7 @@ mod tests {
                 let tlr = tlm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
                 let item = tlr.item().unwrap().downcast::<hierarchy::NodeItem>().unwrap();
                 let info = item.info();
-                println!("{:?} {:?} {:?}", info.path, info.props.name, tsm.is_selected(i));
+                println!("{:?} {:?} {:?}", info.path, info.props.as_ref().map_or("(no props)", |p| &p.name), tsm.is_selected(i));
             }
             
             tsm.connect_items_changed(clone!(move |tsm, p, r, a| {
@@ -438,7 +438,7 @@ mod tests {
                     let tlr = tsm.item(i).unwrap().downcast::<gtk::TreeListRow>().unwrap();
                     let item = tlr.item().unwrap().downcast::<hierarchy::NodeItem>().unwrap();
                     let info = item.info();
-                    println!("{:?} {:?} {:?}", info.path, info.props.name, tsm.is_selected(i));
+                    println!("{:?} {:?} {:?}", info.path, info.props.as_ref().map_or("(no props)", |p| &p.name), tsm.is_selected(i));
                 }
             }));
             

@@ -5,6 +5,7 @@ use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
 use crate::model::selection;
@@ -65,11 +66,11 @@ impl BindumpBucket {
     }
     
     fn word_size(&self) -> addr::Offset {
-        match self.node.props.content_display {
-            structure::ContentDisplay::Bindump {
+        match self.node.props().map(|p| p.content_display) {
+            Some(structure::ContentDisplay::Bindump {
                 word_size: ws,
                 ..
-            } => ws,
+            }) => ws,
 
             /* This shouldn't happen. */
             _ => addr::Offset::from(1)

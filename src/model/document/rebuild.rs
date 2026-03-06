@@ -4,6 +4,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document::change;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 
 pub struct RebuiltTree<T> {
@@ -12,11 +13,15 @@ pub struct RebuiltTree<T> {
     pub output: T,
 }
 
+pub trait TargetVisitorError {
+    const ANCESTOR_NOT_HIERARCHY_NODE: Self;
+}
+
 pub trait TargetVisitor {
     type Output;
-    type Error;
+    type Error: TargetVisitorError;
     type AncestorVisitor: AncestorVisitor<Output = Self::Output, Error = Self::Error>;
-    
+
     fn visit_target(self, target: &mut structure::Node, addr: addr::AbsoluteAddress) -> Result<Self::AncestorVisitor, Self::Error>;
 }
                                                                   
@@ -30,14 +35,14 @@ pub trait AncestorVisitor {
     /// node has an ancestry of 1. By the time this function is called,
     /// ancestor.children[child_index] has already been replaced with a new
     /// childhood for the already-rebuilt part of the node tree.
-    fn visit_ancestor(&mut self, ancestor: &mut structure::Node, ancestry: usize, old_childhood: structure::Childhood, child_index: usize) -> Result<(), Self::Error>;
+    fn visit_ancestor(&mut self, ancestor: &mut structure::HierarchyNode, ancestry: usize, old_childhood: structure::Childhood, child_index: usize) -> Result<(), Self::Error>;
     
     fn finalize(self) -> Self::Output;
 }
 
 pub struct NoopAncestorVisitor<T, E>(T, PhantomData<E>);
 
-impl<T, E, F: FnOnce(&mut structure::Node, addr::AbsoluteAddress) -> Result<T, E>> TargetVisitor for F {
+impl<T, E: TargetVisitorError, F: FnOnce(&mut structure::Node, addr::AbsoluteAddress) -> Result<T, E>> TargetVisitor for F {
     type Output = T;
     type Error = E;
     type AncestorVisitor = NoopAncestorVisitor<T, E>;
@@ -51,7 +56,7 @@ impl<T, E> AncestorVisitor for NoopAncestorVisitor<T, E> {
     type Output = T;
     type Error = E;
     
-    fn visit_ancestor(&mut self, _ancestor: &mut structure::Node, _ancestry: usize, _old_childhood: structure::Childhood, _child_index: usize) -> Result<(), E> {
+    fn visit_ancestor(&mut self, _ancestor: &mut structure::HierarchyNode, _ancestry: usize, _old_childhood: structure::Childhood, _child_index: usize) -> Result<(), E> {
         Ok(())
     }
 
@@ -69,10 +74,14 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
     match path_segment.next() {
         Some(index) => {
             /* Recurse to rebuild the child, then rebuild the target with the new child. */
-            let child = &target.children[index];
+            let structure::Node::Hierarchy(target_hierarchy) = target else {
+                return Err(Visitor::Error::ANCESTOR_NOT_HIERARCHY_NODE);
+            };
+            
+            let child = &target_hierarchy.children[index];
             let (mut new_result, mut ancestry) = rebuild_partial_node_tree_visiting_path(&child.node, addr + child.offset, path_segment, visitor)?;
             ancestry+= 1;
-            let mut new_target = (*target).clone();
+            let mut new_target = target_hierarchy.clone();
             let old_childhood = std::mem::replace(&mut new_target.children[index], structure::Childhood {
                 offset: child.offset,
                 node: new_result.root
@@ -80,7 +89,7 @@ fn rebuild_partial_node_tree_visiting_path<Visitor, Iter: std::iter::Iterator<It
             new_result.output.visit_ancestor(&mut new_target, ancestry, old_childhood, index)?;
             new_target.assert_validity();
             Ok((RebuiltTree {
-                root: sync::Arc::new(new_target),
+                root: new_target.into_arc(),
                 target: new_result.target,
                 output: new_result.output,
             }, ancestry))
@@ -141,7 +150,9 @@ impl<'a, F: Fn(&mut structure::Node) -> Result<(), E>, E: 'a> selection::tree::T
         let mut new_child = (**child).clone();
         self.0(&mut new_child)?;
         new_child.assert_validity();
-        parent_context.children[child_index].node = sync::Arc::new(new_child);
+        match parent_context {
+            structure::Node::Hierarchy(h) => h.children[child_index].node = sync::Arc::new(new_child),
+        };
         Ok(())
     }
 
@@ -150,7 +161,9 @@ impl<'a, F: Fn(&mut structure::Node) -> Result<(), E>, E: 'a> selection::tree::T
     }
 
     fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize) {
-        parent.children[child_index].node = sync::Arc::new(child);
+        match parent {
+            structure::Node::Hierarchy(h) => h.children[child_index].node = sync::Arc::new(child),
+        }
     }
 }
 

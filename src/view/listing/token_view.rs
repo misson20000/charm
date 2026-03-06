@@ -4,6 +4,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::model::listing::token::AsTokenRef;
@@ -143,7 +144,7 @@ impl TokenView {
                     &render.font_bold,
                     render.config.text_color.rgba(),
                     &render.config,
-                    &token.common.node.props.name,
+                    token.common.node.props().map_or("", |p| &p.name),
                     &mut pos)
                     .cursor(has_cursor, cursor)
                     .selected(selection.mode_type_if(selection.is_total()))
@@ -163,7 +164,7 @@ impl TokenView {
                     &render.font_bold,
                     render.config.text_color.rgba(),
                     &render.config,
-                    &token.common.node.props.name,
+                    token.common.node.props().map_or("", |p| &p.name),
                     &mut pos)
                     .cursor(has_cursor, cursor)
                     .selected(selection.mode_type_if(selection.is_total()))

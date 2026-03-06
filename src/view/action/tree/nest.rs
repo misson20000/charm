@@ -9,6 +9,7 @@ use gtk::glib::clone;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::versioned::Versioned;
 use crate::view::error;
@@ -56,14 +57,34 @@ pub fn add_action(window_context: &window::WindowContext) {
 
 impl NestAction {    
     fn enabled(&self) -> bool {
-        self.selection.borrow().1.is_some()
+        /* We should have a single range and it should be within a hierarchy node. */
+        match &*self.selection.borrow() {
+            (selection, Some(range)) => match &**selection.document.lookup_node(&range.parent).0 {
+                structure::Node::Hierarchy(_) => true,
+                _ => false,
+            },
+            _ => false
+        }
     }
 
     fn activate(&self) {
         if let Some(window) = self.window.upgrade() {
             if let (selection, Some(range)) = &*self.selection.borrow() {
-                let parent_node = selection.document.lookup_node(&range.parent).0;
-                let extent = addr::Extent::between(parent_node.children[range.first].offset, parent_node.children[range.last].end());
+                let parent_node = match &**selection.document.lookup_node(&range.parent).0 {
+                    structure::Node::Hierarchy(hierarchy) => hierarchy,
+                    _ => {
+                        window.report_error(error::Error {
+                            while_attempting: error::Action::Nest,
+                            trouble: error::Trouble::Other("attempted to nest nodes that were not underneath a hierarchy node".to_string()),
+                            level: error::Level::Error,
+                            is_bug: false,
+                        });
+                        
+                        return;
+                    }
+                };
+                
+                let extent = addr::Extent::between(parent_node.child(range.first).offset, parent_node.child(range.last).end());
                 
                 let new_doc = match self.document_host.change(selection.document.nest(range.clone(), extent, parent_node.props.clone_rename("".to_string()))) {
                     Ok(new_doc) => new_doc,

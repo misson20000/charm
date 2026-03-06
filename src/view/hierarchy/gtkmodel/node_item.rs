@@ -6,6 +6,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
 use crate::model::document;
+use crate::model::document::structure::NodeKind;
 
 glib::wrapper! {
     /// GLib Object representing a single [structure::Node] within a
@@ -25,6 +26,7 @@ mod imp {
     use gtk::subclass::prelude::*;
 
     use crate::catch_panic;
+    use crate::model::document::structure::NodeKind;
 
     use super::super::NodeInfo;
 
@@ -65,12 +67,23 @@ mod imp {
                 let mut info = self.info.get().unwrap().borrow_mut();
                 let old_info = info.clone();
                 
-                match pspec.name() {
-                    "name" => info.props.name = value.get().unwrap(),
-                    _ => unimplemented!(),
+                let props_for_alter = match info.props.as_mut() {
+                    Some(props) => match pspec.name() {
+                        "name" => {
+                            props.name = value.get().unwrap();
+                            props.clone()
+                        },
+                        _ => unimplemented!(),
+                    },
+                    _ => {
+                        /* reject the change */
+                        std::mem::drop(info);
+                        self.obj().trigger_notifies();
+                        return;
+                    }
                 };
-
-                if let Err(e) = info.document_host.change(info.document.alter_node(info.path.clone(), info.props.clone())) {
+                
+                if let Err(e) = info.document_host.change(info.document.alter_node(info.path.clone(), props_for_alter)) {
                     /* roll back */
                     println!("failed to alter node: {:?}", e);
                     std::mem::drop(info);
@@ -86,9 +99,9 @@ mod imp {
                 
                 let info = self.info.get().unwrap().borrow();
                 match pspec.name() {
-                    "name" => glib::value::ToValue::to_value(&info.props.name),
+                    "name" => glib::value::ToValue::to_value(&info.props.as_ref().map(|p| &p.name)),
                     "addr" => glib::value::ToValue::to_value(&format!("{}", info.address)),
-                    "size" => glib::value::ToValue::to_value(&format!("{}", info.node.size)),
+                    "size" => glib::value::ToValue::to_value(&format!("{}", info.node.size())),
                     _ => unimplemented!(),
                 }
             }
@@ -144,10 +157,10 @@ impl NodeItem {
         if let Some(new_info) = self.imp().staged_info.borrow_mut().take() {
             let mut info = self.imp().info.get().unwrap().borrow_mut();
 
-            let changed_name = info.props.name != new_info.props.name;
+            let changed_name = info.props.as_ref().map(|p| &p.name) != new_info.props.as_ref().map(|p| &p.name);
             let changed_offset = info.offset != new_info.offset;
             let changed_address = info.address != new_info.address;
-            let changed_size = info.node.size != new_info.node.size;
+            let changed_size = info.node.size() != new_info.node.size();
 
             *info = new_info;
 

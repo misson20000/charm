@@ -18,7 +18,7 @@ pub struct NodeInfo {
     
     /* when we update a gobject property, it needs to be reflected immediately,
      * before document update happens. */
-    pub props: structure::Properties,
+    pub props: Option<structure::Properties>,
     
     pub path: structure::Path,
     pub offset: addr::Offset,

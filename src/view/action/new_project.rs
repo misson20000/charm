@@ -4,12 +4,12 @@ use gtk::glib::clone;
 use gtk::gio;
 
 use std::rc;
-use std::sync;
 use std::vec;
 
 use crate::catch_panic;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::space;
 use crate::view::error;
 use crate::view::helpers;
@@ -97,7 +97,7 @@ impl NewProjectAction {
         
         let space = std::sync::Arc::new(fas.into());
 
-        let root = sync::Arc::new(structure::Node {
+        let root = structure::HierarchyNode {
             props: structure::Properties {
                 name: dn.to_string(),
                 title_display: structure::TitleDisplay::default(),
@@ -107,7 +107,7 @@ impl NewProjectAction {
             },
             size: size.into(),
             children: vec::Vec::new(),
-        });
+        }.into_arc();
 
         Ok(document::Builder::new(root)
             .load_space(space, Some(size))

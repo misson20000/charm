@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Default)]
 pub struct StructureBuilder {
-    node: Node
+    node: HierarchyNode
 }
 
 impl StructureBuilder {
@@ -64,11 +64,11 @@ impl StructureBuilder {
 
     pub fn build(&self) -> sync::Arc<Node> {
         self.node.assert_validity();
-        sync::Arc::new(self.node.clone())
+        self.node.clone().into_arc()
     }
 
     pub fn build_child<T: Into<addr::Offset>>(&self, offset: T) -> Childhood {
         self.node.assert_validity();
-        Childhood::new(sync::Arc::new(self.node.clone()), offset.into())
+        Childhood::new(self.node.clone().into_arc(), offset.into())
     }
 }

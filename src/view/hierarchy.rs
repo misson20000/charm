@@ -33,6 +33,7 @@ mod tests {
     use rusty_fork::rusty_fork_test;
 
     use crate::model::document::structure;
+    use crate::model::document::structure::NodeKind;
     
     fn assert_tlr_node_correct(document: &sync::Arc<document::Document>, node: &sync::Arc<structure::Node>, iter: &mut impl std::iter::Iterator<Item = gtk::TreeListRow>, path: &mut structure::Path) {
         let tlr = iter.next().expect("tree list model ended early");
@@ -41,14 +42,16 @@ mod tests {
 
         assert_eq!(&info.path, path);
         assert!(sync::Arc::ptr_eq(&info.document, document), "expected node info document to be up to date");
-        assert!(sync::Arc::ptr_eq(&info.node, node), "expected to see '{}', but saw '{}' (path {:?})", node.props.name, info.props.name, info.path);
-        assert_eq!(info.props, node.props, "(path {:?})", info.path);
+        assert!(sync::Arc::ptr_eq(&info.node, node), "expected to see '{}', but saw '{}' (path {:?})", node.inspect(), info.props.as_ref().map_or("(no props)", |p| &p.name), info.path);
+        assert_eq!(info.props.as_ref(), node.props(), "(path {:?})", info.path);
 
         if tlr.is_expanded() {
-            for (i, childhood) in node.children.iter().enumerate() {
-                path.push(i);
-                assert_tlr_node_correct(document, &childhood.node, iter, path);
-                path.pop();
+            match &**node {
+                structure::Node::Hierarchy(hierarchy) => for (i, childhood) in hierarchy.children.iter().enumerate() {
+                    path.push(i);
+                    assert_tlr_node_correct(document, &childhood.node, iter, path);
+                    path.pop();
+                }
             }
         }
     }
@@ -72,7 +75,7 @@ mod tests {
         fn test_reexpand() {
             gtk::init().unwrap();
 
-            let root = structure::Node::builder()
+            let root = structure::HierarchyNode::builder()
                 .name("root")
                 .size(0x40)
                 .child(0x0, |b| b
@@ -107,7 +110,7 @@ mod tests {
         fn test_alter_node() {
             gtk::init().unwrap();
 
-            let root = structure::Node::builder()
+            let root = structure::HierarchyNode::builder()
                 .name("root")
                 .size(0x40)
                 .child(0x0, |b| b

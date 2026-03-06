@@ -4,6 +4,7 @@ use std::sync;
 
 use crate::model;
 use crate::model::document;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::serialization;
 
@@ -176,6 +177,8 @@ impl Error {
                         document::structure::RangeInvalidity::Inverted => "the end index was before the start index",
                     })?,
                     document::change::ApplyErrorType::InvalidParameters(message) => write!(msg, "Parameters were invalid: {}\n", message)?,
+                    document::change::ApplyErrorType::PathContainedNonHierarchyNode => write!(msg, "Attempted to modify a node underneath something that wasn't a hierarchy node\n")?,
+                    document::change::ApplyErrorType::TargetNodeTypeInvalidForOperation => write!(msg, "Attempted to perform an operation on a kind of node that was invalid for the kind of operation requested\n")?,
                     document::change::ApplyErrorType::ResizedSmallerThanChildren => write!(msg, "Attempted to resize node to be too small to contain its children.\n")?,
                     document::change::ApplyErrorType::ResizedLargerThanParent => write!(msg, "Attempted to resize a node to be larger than one of its ancestors, which was either locked, or expanding parents was disabled.\n")?,
                 };
@@ -310,15 +313,15 @@ impl<'a> std::fmt::Display for SafePathDescription<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let mut node = Some(&self.document.root);
         let mut path = self.path;
-        write!(f, "{}", self.document.root.props.name)?;
+        write!(f, "{}", self.document.root.inspect())?;
 
         while path.len() > 0 {
             write!(f, ".")?;
 
-            node = node.and_then(|node| node.children.get(path[0])).map(|childhood| &childhood.node);
+            node = node.and_then(|node| node.try_get_child(path[0])).map(|childhood| childhood.node);
 
             match node {
-                Some(node) => write!(f, "{}", node.props.name)?,
+                Some(node) => write!(f, "{}", node.inspect())?,
                 None => write!(f, "<missing {}>", path[0])?,
             }
 
@@ -343,7 +346,7 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;
             write!(msg, "Index: {}\n", index)?;
             write!(msg, "Offset: {}\n", child.offset)?;
-            write!(msg, "Properties: {:?}\n", child.node.props)?;
+            write!(msg, "Properties: {:?}\n", child.node.props())?;
         },
         document::change::ChangeType::Nest { range, extent, props } => {
             write!(msg, "Nest children under {}\n", SafePathDescription::new(document, &range.parent))?;
@@ -371,8 +374,8 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
         },
         document::change::ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index } => {
             write!(msg, "Paste:\n")?;
-            for child in &src_node.children[src_begin.1..src_end.1] {
-                write!(msg, "  - {}\n", child.node.props.name)?;
+            for i in src_begin.1..src_end.1 {
+                write!(msg, "  - {}\n", src_node.child(i).node.inspect())?;
             }
             write!(msg, "Into {}\n", SafePathDescription::new(document, dst))?;
             write!(msg, "At: {}, {}\n", dst_offset, dst_index)?;
@@ -389,7 +392,7 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
     match change_record {
         document::change::ApplyRecord::AlterNode { path, node } => {
             write!(msg, "Alter node at {}\n", SafePathDescription::new(document, &path))?;
-            write!(msg, "New properties: {:?}\n", node.props)?;
+            write!(msg, "New properties: {:?}\n", node.props())?;
         },
         document::change::ApplyRecord::AlterNodesBulk { selection: _, prop_changes } => {
             write!(msg, "Alter nodes in bulk\n")?;
@@ -399,13 +402,13 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
             write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;
             write!(msg, "Index: {}\n", index)?;
             write!(msg, "Offset: {}\n", child.offset)?;
-            write!(msg, "Properties: {:?}\n", child.node.props)?;
+            write!(msg, "Properties: {:?}\n", child.node.props())?;
         },
         document::change::ApplyRecord::Nest { range, extent, child } => {
             write!(msg, "Nest children under {}\n", SafePathDescription::new(document, &range.parent))?;
             write!(msg, "Indices: {}-{} (inclusive)\n", range.first, range.last)?;
             write!(msg, "Extent: {:?}\n", extent)?;
-            write!(msg, "Properties: {:?}\n", child.node.props)?;
+            write!(msg, "Properties: {:?}\n", child.node.props())?;
         },
         document::change::ApplyRecord::Destructure(dsr) => {
             write!(msg, "Destructuring child under {}\n", SafePathDescription::new(document, &dsr.parent))?;

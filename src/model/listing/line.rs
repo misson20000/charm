@@ -8,6 +8,7 @@ use std::sync;
 
 use crate::model::addr;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::stream;
 use crate::model::listing::token;
 use crate::model::listing::token::AsTokenRef;
@@ -248,7 +249,7 @@ impl Line {
                 if sync::Arc::ptr_eq(&token.common.node, &node)
                 && node_path == token.common.node_path
                 && node_addr == token.common.node_addr
-                && token.common.node.props.title_display.is_inline()
+                && token.common.node.props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Hexdump {
                     title: Some(token),
                     node,
@@ -308,7 +309,7 @@ impl Line {
                 if sync::Arc::ptr_eq(&token.common.node, &node)
                 && node_path == token.common.node_path
                 && node_addr == token.common.node_addr
-                && token.common.node.props.title_display.is_inline()
+                && token.common.node.props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Bindump {
                     title: Some(token),
                     node,
@@ -355,7 +356,7 @@ impl Line {
             /* A title token can occur on the same line as a hexstring if the title is inline and there isn't already a title. */
             (LineType::Hexstring { title: None, token: hexstring_token }, token::Token::Title(token))
                 if sync::Arc::ptr_eq(&token.common.node, &hexstring_token.common.node)
-                && token.common.node.props.title_display.is_inline()
+                && token.common.node.props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Hexstring {
                     title: Some(token),
                     token: hexstring_token,
@@ -370,7 +371,7 @@ impl Line {
             /* A title token can occur on the same line as an ellipsis if the title is inline and there isn't already a title. */
             (LineType::Ellipsis { title: None, token: ellipsis_token }, token::Token::Title(token))
                 if sync::Arc::ptr_eq(&token.common.node, &ellipsis_token.common.node)
-                && token.common.node.props.title_display.is_inline()
+                && token.common.node.props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Ellipsis {
                     title: Some(token),
                     token: ellipsis_token,
@@ -383,7 +384,7 @@ impl Line {
             }, LinePushResult::Accepted),
 
             (LineType::Summary { title: None, tokens }, token::Token::Title(token))
-                if token.node().props.title_display.is_inline()
+                if token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => match tokens.front() {
                     Some(token::Token::SummaryPreamble(preamble)) if sync::Arc::ptr_eq(preamble.node(), token.node()) => (LineType::Summary { title: Some(token), tokens }, LinePushResult::Accepted),
                     Some(_) => (LineType::Summary { title: None, tokens }, LinePushResult::Rejected),
@@ -441,7 +442,7 @@ impl Line {
             /* A hexdump token can occur on the same line as a title if the title is inline. */
             (LineType::Title(title_token), token::Token::Hexdump(token))
                 if sync::Arc::ptr_eq(title_token.node(), token.node())
-                && title_token.node().props.title_display.is_inline()
+                && title_token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Hexdump {
                     node: title_token.node().clone(),
                     node_path: token.node_path().clone(),
@@ -492,7 +493,7 @@ impl Line {
             /* A bindump token can occur on the same line as a title if the title is inline. */
             (LineType::Title(title_token), token::Token::Bindump(token))
                 if sync::Arc::ptr_eq(title_token.node(), token.node())
-                && title_token.node().props.title_display.is_inline()
+                && title_token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Bindump {
                     node: title_token.node().clone(),
                     node_path: token.node_path().clone(),
@@ -539,7 +540,7 @@ impl Line {
             /* A hexstring token can occur on the same line as a title if the title is inline. */
             (LineType::Title(title_token), token::Token::Hexstring(token))
                 if sync::Arc::ptr_eq(title_token.node(), token.node())
-                && title_token.node().props.title_display.is_inline()
+                && title_token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Hexstring {
                     title: Some(title_token),
                     token,
@@ -554,7 +555,7 @@ impl Line {
             /* An ellipsis token can occur on the same line as a title if the title is inline. */
             (LineType::Title(title_token), token::Token::Ellipsis(token))
                 if sync::Arc::ptr_eq(title_token.node(), token.node())
-                && title_token.node().props.title_display.is_inline()
+                && title_token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Ellipsis {
                     title: Some(title_token),
                     token,
@@ -568,7 +569,7 @@ impl Line {
             
             (LineType::Title(title_token), token::Token::SummaryPreamble(token))
                 if sync::Arc::ptr_eq(title_token.node(), token.node())
-                && title_token.node().props.title_display.is_inline()
+                && title_token.node().props().map_or(false, |p| p.title_display.is_inline())
                 => (LineType::Summary {
                     title: Some(title_token),
                     tokens: collections::VecDeque::from([token.into()]),
@@ -740,7 +741,7 @@ mod tests {
     
     #[test]
     fn test_hexstring_backwards_construction() {
-        let node = structure::Node::builder()
+        let node = structure::HierarchyNode::builder()
             .name("foo")
             .size(0x8)
             .content_display(structure::ContentDisplay::Hexstring)
@@ -773,7 +774,7 @@ mod tests {
 
     #[test]
     fn containing_position() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x78)
             .child(0x10, |b| b

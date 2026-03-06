@@ -10,6 +10,7 @@ use std::vec;
 use crate::catch_panic;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::space;
 use crate::view::error;
 use crate::view::helpers;
@@ -96,7 +97,7 @@ impl ImportFileAction {
 
         let space = std::sync::Arc::new(fas.into());
 
-        let node = sync::Arc::new(structure::Node {
+        let node = structure::HierarchyNode {
             props: structure::Properties {
                 name: dn.to_string(),
                 title_display: structure::TitleDisplay::default(),
@@ -106,7 +107,7 @@ impl ImportFileAction {
             },
             size: size.into(),
             children: vec::Vec::new(),
-        });
+        }.into_arc();
         
         let doc = cursor.insert_node(&*self.document_host, node)?;
         self.document_host.change(doc.overwrite_space(addr.bytes(), space, Some(size)))?;

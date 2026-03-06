@@ -4,6 +4,7 @@ use crate::model::addr;
 use crate::model::document;
 use crate::model::document::change as doc_change;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
@@ -258,7 +259,7 @@ impl StructureRange {
 
     pub fn single_child(document: &document::Document, parent: structure::PathSlice, child_index: usize) -> Self {
         let (parent_node, _) = document.lookup_node(parent);
-        let childhood = &parent_node.children[child_index];
+        let childhood = &parent_node.child(child_index);
         let extent = childhood.extent();
 
         StructureRange {
@@ -280,14 +281,14 @@ impl StructureRange {
 
         let begin = if path.len() < begin.parent.len() {
             /* Beginning was deeper in the hierarchy than the common prefix. Round down to the start of the child of the common prefix. */
-            (node.children[begin.parent[path.len()]].offset, begin.parent[path.len()])
+            (node.child(begin.parent[path.len()]).offset, begin.parent[path.len()])
         } else {
             (begin.offset, begin.child_index)
         };
 
         let end = if path.len() < end.parent.len() {
             /* End was deeper in the hierarchy than the common prefix. Bump out to the end of the child of the common prefix. */
-            (node.children[end.parent[path.len()]].end(), end.parent[path.len()]+1)
+            (node.child(end.parent[path.len()]).end(), end.parent[path.len()]+1)
         } else {
             (end.offset, end.child_index)
         };
@@ -322,7 +323,7 @@ impl StructureRange {
                 }
                 doc_change::ApplyRecord::InsertNode { .. } => self,
                 doc_change::ApplyRecord::Nest { range, extent: nested_extent, .. } if range.parent == self.path => {
-                    let new_child = &new_doc.lookup_node(&range.parent).0.children[range.first];
+                    let new_child = &new_doc.lookup_node(&range.parent).0.child(range.first);
                         
                     if range.contains_index(self.begin.1) && range.contains_index(self.end.1) && nested_extent.contains(self.extent()) {
                         /* The entire range was nested, so just select the same range in the child. */
@@ -410,15 +411,15 @@ impl StructureRange {
                          * subsumed the beginning of the selection when it
                          * resized. */
                         if self.begin.1 > 0 && path[self.path.len()] == self.begin.1-1 {
-                            if sel_parent.children[self.begin.1-1].end() > self.begin.0 {
-                                self.begin = (sel_parent.children[self.begin.1-1].offset, self.begin.1-1);
+                            if sel_parent.child(self.begin.1-1).end() > self.begin.0 {
+                                self.begin = (sel_parent.child(self.begin.1-1).offset, self.begin.1-1);
                             }
                         }
 
                         /* Similarly, check if a node grew and subsumed the end of the selection. */
                         if self.end.1 > 0 && path[self.path.len()] == self.end.1-1 {
-                            if sel_parent.children[self.end.1-1].end() > self.end.0 {
-                                self.end = (sel_parent.children[self.begin.1-1].end(), self.end.1);
+                            if sel_parent.child(self.end.1-1).end() > self.end.0 {
+                                self.end = (sel_parent.child(self.begin.1-1).end(), self.end.1);
                             }
                         }
 
@@ -455,12 +456,12 @@ impl StructureRange {
 
         /* If the start or end are supposed to be within a child, repair by expanding the selection. */
         let node = new_doc.lookup_node(&self.path).0;
-        if self.begin.1 > 0 && node.children[self.begin.1-1].extent().includes(self.begin.0) {
-            self.begin.0 = node.children[self.begin.1-1].offset;
+        if self.begin.1 > 0 && node.child(self.begin.1-1).extent().includes(self.begin.0) {
+            self.begin.0 = node.child(self.begin.1-1).offset;
         }
 
-        if self.end.1 > 0 && node.children[self.end.1-1].extent().includes(self.end.0) {
-            self.end.0 = node.children[self.end.1-1].end();
+        if self.end.1 > 0 && node.child(self.end.1-1).extent().includes(self.end.0) {
+            self.end.0 = node.child(self.end.1-1).end();
         }
         
         self.assert_integrity(new_doc);
@@ -474,18 +475,18 @@ impl StructureRange {
         assert!(self.begin.1 <= self.end.1, "{:?} begin index {} was greater than end index {}", self, self.begin.1, self.end.1);
         assert!(self.begin.0 <= self.end.0, "{:?} begin offset {} was greater than end offset {}", self, self.begin.0, self.end.0);
         
-        assert!(self.begin.1 <= node.children.len(), "{:?} begin index {} was too large (node has {} children)", self, self.begin.1, node.children.len());
-        assert!(self.end.1 <= node.children.len(), "{:?} end index {} was too large (node has {} children)", self, self.end.1, node.children.len());
+        assert!(self.begin.1 <= node.num_children(), "{:?} begin index {} was too large (node has {} children)", self, self.begin.1, node.num_children());
+        assert!(self.end.1 <= node.num_children(), "{:?} end index {} was too large (node has {} children)", self, self.end.1, node.num_children());
 
-        if self.begin.1 != node.children.len() {
-            assert!(self.begin.0 <= node.children[self.begin.1].offset, "{:?} begins after first indexed child (begins at {}, child at {})", self, self.begin.0, node.children[self.begin.1].offset);
+        if self.begin.1 != node.num_children() {
+            assert!(self.begin.0 <= node.child(self.begin.1).offset, "{:?} begins after first indexed child (begins at {}, child at {})", self, self.begin.0, node.child(self.begin.1).offset);
         }
         
         if self.end.1 > 0 {
-            assert!(self.end.0 >= node.children[self.end.1-1].end(), "{:?} ends before last indexed child (ends at {}, child ends at {})", self, self.end.0, node.children[self.end.1-1].end());
+            assert!(self.end.0 >= node.child(self.end.1-1).end(), "{:?} ends before last indexed child (ends at {}, child ends at {})", self, self.end.0, node.child(self.end.1-1).end());
         }
 
-        assert!(self.end.0 <= node.size, "{:?} ends after end of node (ends at {}, node size is {})", self, self.end.0, node.size);
+        assert!(self.end.0 <= node.size(), "{:?} ends after end of node (ends at {}, node size is {})", self, self.end.0, node.size());
     }
 }
 
@@ -511,16 +512,16 @@ impl StructureMode {
 
         for hit in search {
             let extent_in_node = extent.relative_to(hit.node_addr);
-            if extent_in_node.end >= hit.node.size {
+            if extent_in_node.end >= hit.node.size() {
                 continue;
             }
 
             /* This finds the first node that starts after `extent_in_node.begin`. It's possible the one before that overlaps `extent_in_node`. */
-            let mut begin = (extent_in_node.begin, hit.node.child_at_offset(extent_in_node.begin));
+            let mut begin = (extent_in_node.begin, hit.node.child_index_at_offset(extent_in_node.begin));
             if begin.1 > 0 {
                 /* If the structure range would begin in the middle of a child, we can't have that. Need to expand it to include the child. */
-                if hit.node.children[begin.1-1].end() > begin.0 {
-                    begin.0 = hit.node.children[begin.1-1].offset;
+                if hit.node.child(begin.1-1).end() > begin.0 {
+                    begin.0 = hit.node.child(begin.1-1).offset;
                     begin.1-= 1;
                 }
             }
@@ -528,11 +529,11 @@ impl StructureMode {
             /* This finds the first node that starts after `extent_in_node.end`. This is actually a little bit more
              * conservative than necessary in the case that children are overlapping. It's possible the one before that
              * overlaps `extent_in_node`. */
-            let mut end = (extent_in_node.end, hit.node.child_at_offset(extent_in_node.end));
+            let mut end = (extent_in_node.end, hit.node.child_index_at_offset(extent_in_node.end));
             if end.1 > 0 {
                 /* If the structure range would end in the middle of a child, we can't have that. Need to expand it to include the child. */
-                if hit.node.children[end.1-1].end() > end.0 {
-                    end.0 = hit.node.children[end.1-1].end();
+                if hit.node.child(end.1-1).end() > end.0 {
+                    end.0 = hit.node.child(end.1-1).end();
                 }
             }
 
@@ -578,7 +579,7 @@ impl Mode {
                 }
             }
             Mode::Address(extent) => {
-                let node_extent = addr::Extent::sized(node_addr, node.size);
+                let node_extent = addr::Extent::sized(node_addr, node.size());
 
                 if extent.contains(node_extent) {
                     NodeIntersection::TotalAddress
@@ -724,7 +725,7 @@ mod tests {
     
     #[test]
     fn test_structure_update_insert_node_after() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .build();
@@ -742,7 +743,7 @@ mod tests {
         };
 
         let (_change, record) = document.insert_node(
-            vec![], 0, structure::Node::builder()
+            vec![], 0, structure::HierarchyNode::builder()
                 .name("child")
                 .size(0x10)
                 .build_child(0x20))

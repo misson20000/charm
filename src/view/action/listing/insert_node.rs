@@ -6,6 +6,7 @@ use crate::catch_panic;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::view::addr_entry;
 use crate::view::error;
@@ -172,7 +173,18 @@ impl InsertNodeAction {
 
         self.update_dialog_preconditions();
         
-        let parent_node = activation.document.lookup_node(&activation.path).0;
+        let parent_node = match &**activation.document.lookup_node(&activation.path).0 {
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+            _ => return Err(error::Error {
+                while_attempting: error::Action::InsertNode,
+                trouble: error::Trouble::Other("attempted to insert a node underneath something that wasn't a hierarchy node".to_string()),
+                level: error::Level::Error,
+
+                /* This should get caught earlier during action activation, not during commit */
+                is_bug: true,
+            })
+        };
+        
         let props = parent_node.props.clone_rename(name);
         let index = self.order_entry.selected() as usize;
 
@@ -187,11 +199,11 @@ impl InsertNodeAction {
                 activation.path,
                 index,
                 structure::Childhood::new(
-                    sync::Arc::new(structure::Node {
+                    structure::HierarchyNode {
                         props,
                         children: Vec::new(),
                         size,
-                    }),
+                    }.into_arc(),
                     offset
                 )
             ))
@@ -272,12 +284,16 @@ impl InsertNodeAction {
         self.size_entry.set_text(&size.map(|s| format!("{}", s)).unwrap_or(String::new()));
         self.path_display.set_text(&activation.document.describe_path(&activation.path));
 
-        let (node, _) = activation.document.lookup_node(&activation.path);
+        let node = match &**activation.document.lookup_node(&activation.path).0 {
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+
+            _ => return,
+        };
 
         {
             let model = gtk::StringList::new(&[]);
             for i in &node.children {
-                model.append(&i.node.props.name);
+                model.append(&i.node.inspect());
             }
             model.append("<end>");
             self.order_entry.set_model(Some(&model));
@@ -288,7 +304,7 @@ impl InsertNodeAction {
         {
             let model = gtk::StringList::new(&[]);
             for i in &node.children {
-                model.append(&i.node.props.name);
+                model.append(&i.node.inspect());
             }
             
             self.nest_entry.set_model(Some(&model));
@@ -337,7 +353,7 @@ pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Offset>>(window
     action.connect_activate(move |_, _| catch_panic! {
         let mut cursor = lw.cursor_mut();
         
-        match cursor.insert_node(&document_host, sync::Arc::new(structure::Node {
+        match cursor.insert_node(&document_host, structure::HierarchyNode {
             props: structure::Properties {
                 name: name.clone(),
                 title_display: structure::TitleDisplay::Inline,
@@ -347,7 +363,7 @@ pub fn add_insert_fixed_size_node_at_cursor_action<S: Into<addr::Offset>>(window
             },
             children: Vec::new(),
             size,
-        })) {
+        }.into_arc()) {
             Ok(_) => {},
             Err((error, attempted_version)) => {
                 let report_error = match &error.ty {

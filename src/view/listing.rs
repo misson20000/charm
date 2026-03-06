@@ -10,6 +10,7 @@ use crate::util;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
 use crate::model::listing::token::TokenKind;
@@ -1200,7 +1201,7 @@ impl Interior {
                 ),
                 selection_mode::SelectionMode::Address => {
                     let (node, addr) = self.document.lookup_node(sel_node_path);
-                    selection::listing::Change::AssignAddress(addr::AbsoluteExtent::sized(addr, node.size))
+                    selection::listing::Change::AssignAddress(addr::AbsoluteExtent::sized(addr, node.size()))
                 },
             }) {
                 Ok(new_selection) => {

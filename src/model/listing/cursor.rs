@@ -694,6 +694,8 @@ mod tests {
     use super::*;
 
     use std::vec;
+
+    use crate::model::document::structure::NodeKind;
     
     use assert_matches::assert_matches;
     
@@ -718,7 +720,7 @@ mod tests {
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         /* insert a node */
-        let child_1 = sync::Arc::new(structure::Node {
+        let child_1 = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child_1".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -731,7 +733,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(4),
-        });
+        }.into_arc();
         cursor.insert_node(&document_host, child_1.clone()).unwrap();
         document = document_host.get();
 
@@ -753,7 +755,7 @@ mod tests {
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::ZERO && hxc.low_nybble == false);
 
         /* insert another node */
-        let child_2 = sync::Arc::new(structure::Node {
+        let child_2 = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child_2".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -766,7 +768,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(4),
-        });
+        }.into_arc();
         cursor.insert_node(&document_host, child_2.clone()).unwrap();
         document = document_host.get();
 
@@ -828,7 +830,7 @@ mod tests {
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == addr::Offset::from(4) && hxc.low_nybble == false);
 
         /* insert a node */
-        let child = sync::Arc::new(structure::Node {
+        let child = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -841,7 +843,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(4),
-        });
+        }.into_arc();
         cursor.insert_node(&document_host, child.clone()).unwrap();
         document = document_host.get();
         
@@ -882,7 +884,7 @@ mod tests {
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x4.into() && hxc.low_nybble == false);
 
-        let node = sync::Arc::new(structure::Node {
+        let node = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -895,7 +897,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(0x30),
-        });
+        }.into_arc();
         
         let document = document_host.change(document.insert_node(
             vec![],
@@ -940,7 +942,7 @@ mod tests {
         }).as_token_ref());
         assert_matches!(&cursor.class, CursorClass::Hexdump(hxc) if hxc.offset == 0x0.into() && hxc.low_nybble == false);
 
-        let node = sync::Arc::new(structure::Node {
+        let node = structure::HierarchyNode {
             props: structure::Properties {
                 name: "child".to_string(),
                 title_display: structure::TitleDisplay::Minor,
@@ -953,7 +955,7 @@ mod tests {
             },
             children: vec::Vec::new(),
             size: addr::Offset::from(0x30),
-        });
+        }.into_arc();
         
         let document = document_host.change(document.insert_node(
             vec![],
@@ -981,7 +983,7 @@ mod tests {
 
     #[test]
     fn can_place_with_no_content() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .content_display(structure::ContentDisplay::None)
@@ -994,7 +996,7 @@ mod tests {
 
     #[test]
     fn vertical_and_horizontal_movement() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x0, |b| b

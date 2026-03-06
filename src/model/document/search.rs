@@ -1,6 +1,7 @@
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 
 use std::sync;
 
@@ -47,7 +48,7 @@ pub enum SetupError {
 
 impl<'a> AddressSearch<'a> {
     pub fn new(document: &'a document::Document, needle: addr::AbsoluteAddress, traversal: Traversal) -> Result<AddressSearch<'a>, SetupError> {
-        if needle >= addr::AbsoluteAddress::NULL + document.root.size {
+        if needle >= addr::AbsoluteAddress::NULL + document.root.size() {
             return Err(SetupError::NeedleNotInHaystack);
         }
         
@@ -88,7 +89,7 @@ impl<'a> AddressSearch<'a> {
      */
 
     fn child_contains(child: &structure::Childhood, parent_node_addr: addr::AbsoluteAddress, needle: addr::AbsoluteAddress) -> bool {
-        addr::Extent::sized(parent_node_addr + child.offset, child.node.size).includes(needle)
+        addr::Extent::sized(parent_node_addr + child.offset, child.node.size()).includes(needle)
     }
     
 }
@@ -103,8 +104,8 @@ impl<'a> Iterator for AddressSearch<'a> {
                 None => return None
             };
 
-            match &mut state.child {
-                None => {
+            match (&mut state.child, &**state.node) {
+                (None, _) => {
                     state.child = Some(0);
                     
                     match self.traversal {
@@ -117,16 +118,17 @@ impl<'a> Iterator for AddressSearch<'a> {
                         _ => {}
                     };
                 },
-                Some(ref mut index) if *index < state.node.children.len() => {
+                
+                (Some(ref mut index), structure::Node::Hierarchy(hierarchy_node)) if *index < hierarchy_node.num_children() => {
                     let old_index = *index;
                     *index+= 1;
                     
-                    if Self::child_contains(&state.node.children[old_index], state.node_addr, self.needle) {
+                    if Self::child_contains(&hierarchy_node.children[old_index], state.node_addr, self.needle) {
                         state.is_leaf = false;
 
                         let entry = TraversalStackEntry {
-                            node: &state.node.children[old_index].node,
-                            node_addr: state.node_addr + state.node.children[old_index].offset,
+                            node: &hierarchy_node.children[old_index].node,
+                            node_addr: state.node_addr + hierarchy_node.children[old_index].offset,
                             is_leaf: true,
                             child: None,
                         };
@@ -134,7 +136,7 @@ impl<'a> Iterator for AddressSearch<'a> {
                         self.stack.push(entry);
                     }
                 }
-                Some(_) => {
+                (Some(_), _) => {
                     let state = self.stack.pop().unwrap();
                     
                     if match self.traversal {
@@ -176,7 +178,7 @@ mod tests {
     use std::sync;
 
     fn test_document_1() -> sync::Arc<document::Document> {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b

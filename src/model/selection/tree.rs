@@ -3,6 +3,7 @@ use std::sync;
 use crate::model::document;
 use crate::model::document::change as doc_change;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
 
@@ -22,8 +23,13 @@ pub trait TreeVisitor<'a> {
 
     /// Returning None skips descending.
     fn descend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize, child_selected: bool) -> Option<Self::NodeContext>;
+
+    /// A child of the current node is being visited, but we're not going to bother decending into it just to visit it and then ascend back out of it.
     fn visit_child<'b>(&mut self, parent_context: &'b mut Self::NodeContext, child: &'a sync::Arc<structure::Node>, child_index: usize) -> Self::VisitResult;
+
+    /// The current node is being visited (it is part of the selection). It is either the root node, or we just decended into it.
     fn visit<'b>(&mut self, context: &'b mut Self::NodeContext, node: &'a sync::Arc<structure::Node>) -> Self::VisitResult;
+    
     fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize);
 }
 
@@ -106,7 +112,7 @@ impl Selection {
                 Some(SparseNodeOrAllGrandchildren::Node(SparseNode { self_selected: _, children_selected: ChildrenMode::AllGrandchildren })) => Some(SparseNodeOrAllGrandchildren::AllGrandchildren),
                 Some(SparseNodeOrAllGrandchildren::AllGrandchildren) => Some(SparseNodeOrAllGrandchildren::AllGrandchildren),
             };
-            struct_node = &struct_node.children[*child_index].node;
+            struct_node = &struct_node.child(*child_index).node;
         }
 
         if let Some(current_sparse) = sparse_node {
@@ -271,7 +277,7 @@ impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
                 },
 
                 /* If we've reached the last child, try to pop. */
-                (Some(x), _) if x == self.current_struct.children.len() => match self.try_pop() {
+                (Some(x), _) if x == self.current_struct.num_children() => match self.try_pop() {
                     /* Reached the end of the tree! */
                     false => return None,
                     /* Continue in parent. */
@@ -299,7 +305,9 @@ impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
                     /* If neither the child nor any of its children are selected, skip as a special case. */
                     /* This is sad, but helps TreeRewritingVisitor avoid rewriting parts of the tree that it doesn't have to. */
                     let child_sparse = &vec[x];
-                    let node = &self.current_struct.children[x].node;
+                    
+                    let node = self.current_struct.child(x).node;
+                    
                     if !child_sparse.self_selected && !child_sparse.descendants_maybe_selected(node) {
                         self.child_index = Some(x + 1);
                         continue;
@@ -327,7 +335,7 @@ impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
                     }
                 )) => {
                     self.child_index = Some(x + 1);
-                    return Some(self.visitor.visit_child(&mut self.current_context, &self.current_struct.children[x].node, x));
+                    return Some(self.visitor.visit_child(&mut self.current_context, &self.current_struct.child(x).node, x));
                 },
 
                 
@@ -337,7 +345,7 @@ impl<'a, Visitor: TreeVisitor<'a>> TreeWalker<'a, Visitor> {
                         self_selected: _,
                     }
                 ) | SparseNodeOrAllGrandchildren::AllGrandchildren) => {
-                    let node = &self.current_struct.children[x].node;
+                    let node = &self.current_struct.child(x).node;
                     if let Some(new_context) = self.visitor.descend(&mut self.current_context, node, x, true) {
                         self.child_index = None;
                         self.stack.push((
@@ -558,7 +566,7 @@ impl SparseNode {
     fn new_canonical_unselected(node: &structure::Node) -> Self {
         Self {
             self_selected: false,
-            children_selected: if node.children.len() == 0 {
+            children_selected: if node.num_children() == 0 {
                 ChildrenMode::AllGrandchildren
             } else {
                 ChildrenMode::None
@@ -569,7 +577,7 @@ impl SparseNode {
     fn new_canonical_selected(node: &structure::Node) -> Self {
         Self {
             self_selected: true,
-            children_selected: if node.children.len() == 0 {
+            children_selected: if node.num_children() == 0 {
                 ChildrenMode::AllGrandchildren
             } else {
                 ChildrenMode::None
@@ -581,19 +589,23 @@ impl SparseNode {
         if remaining_path.len() == 0 {
             Self {
                 self_selected: true,
-                children_selected: if node.children.len() == 0 {
+                children_selected: if node.num_children() == 0 {
                     ChildrenMode::AllGrandchildren
                 } else {
                     ChildrenMode::None
                 },
             }
         } else {
-            let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
-            vec[remaining_path[0]] = Self::new_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+            match node {
+                structure::Node::Hierarchy(hierarchy) => {
+                    let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                    vec[remaining_path[0]] = Self::new_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
             
-            Self {
-                self_selected: false,
-                children_selected: ChildrenMode::Mixed(vec),
+                    Self {
+                        self_selected: false,
+                        children_selected: ChildrenMode::Mixed(vec),
+                    }
+                },
             }
         }
     }
@@ -608,19 +620,27 @@ impl SparseNode {
                 ChildrenMode::AllDirect if remaining_path.len() == 1 => (),
 
                 ChildrenMode::None => {
-                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
-                    vec[remaining_path[0]] = Self::new_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
-                    self.children_selected = ChildrenMode::Mixed(vec);
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                            vec[remaining_path[0]] = Self::new_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
+                            self.children_selected = ChildrenMode::Mixed(vec);
+                        },
+                    }
                 },
 
                 ChildrenMode::AllDirect => {
-                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
-                    vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
-                    self.children_selected = ChildrenMode::Mixed(vec);
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                            vec[remaining_path[0]].add_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
+                            self.children_selected = ChildrenMode::Mixed(vec);
+                        },
+                    }
                 },
 
                 ChildrenMode::Mixed(vec) => {
-                    vec[remaining_path[0]].add_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    vec[remaining_path[0]].add_single(&node.child(remaining_path[0]).node, &remaining_path[1..]);
                 },
             }
         }
@@ -638,13 +658,21 @@ impl SparseNode {
                 ChildrenMode::AllDirect if remaining_path.len() == 1 => return,
 
                 ChildrenMode::None => {
-                    vec_storage = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
-                    &mut vec_storage
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            vec_storage = hierarchy.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                            &mut vec_storage
+                        },
+                    }
                 },
 
                 ChildrenMode::AllDirect => {
-                    vec_storage = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
-                    &mut vec_storage
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            vec_storage = hierarchy.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                            &mut vec_storage
+                        },
+                    }
                 },
 
                 ChildrenMode::Mixed(ref mut vec) => {
@@ -668,19 +696,27 @@ impl SparseNode {
                 ChildrenMode::AllDirect if remaining_path.len() == 1 => (),
 
                 ChildrenMode::None => {
-                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
-                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
-                    self.children_selected = ChildrenMode::Mixed(vec);
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
+                            vec[remaining_path[0]].add_range(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
+                            self.children_selected = ChildrenMode::Mixed(vec);
+                        },
+                    }
                 },
 
                 ChildrenMode::AllDirect => {
-                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
-                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
-                    self.children_selected = ChildrenMode::Mixed(vec);
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                            vec[remaining_path[0]].add_range(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
+                            self.children_selected = ChildrenMode::Mixed(vec);
+                        },
+                    }
                 },
 
                 ChildrenMode::Mixed(vec) => {
-                    vec[remaining_path[0]].add_range(&node.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
+                    vec[remaining_path[0]].add_range(&node.child(remaining_path[0]).node, &remaining_path[1..], begin, end, include_descendants);
                 },
             }
         }
@@ -697,22 +733,26 @@ impl SparseNode {
                 ChildrenMode::None => (),
 
                 ChildrenMode::Mixed(vec) => {
-                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    vec[remaining_path[0]].remove_single(&node.child(remaining_path[0]).node, &remaining_path[1..]);
                 },
 
                 ChildrenMode::AllDirect => {
-                    let mut vec: Vec<Self> = node.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
-                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
-                    self.children_selected = ChildrenMode::Mixed(vec);
+                    match node {
+                        structure::Node::Hierarchy(hierarchy) => {
+                            let mut vec: Vec<Self> = hierarchy.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
+                            vec[remaining_path[0]].remove_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
+                            self.children_selected = ChildrenMode::Mixed(vec);
+                        },
+                    }
                 },
 
                 ChildrenMode::AllGrandchildren => {
                     let mut vec = Vec::new();
-                    vec.resize(node.children.len(), Self {
+                    vec.resize(node.num_children(), Self {
                         self_selected: true,
                         children_selected: ChildrenMode::AllGrandchildren,
                     });
-                    vec[remaining_path[0]].remove_single(&node.children[remaining_path[0]].node, &remaining_path[1..]);
+                    vec[remaining_path[0]].remove_single(&node.child(remaining_path[0]).node, &remaining_path[1..]);
                     self.children_selected = ChildrenMode::Mixed(vec);
                 },
             }
@@ -735,7 +775,7 @@ impl SparseNode {
     }
     
     fn descendants_maybe_selected(&self, node: &structure::Node) -> bool {
-        match (node.children.len(), &self.children_selected) {
+        match (node.num_children(), &self.children_selected) {
             (0, _) => false,
             (_, ChildrenMode::None) => false,
             _ => true
@@ -743,16 +783,20 @@ impl SparseNode {
     }
     
     fn canonicalize(&mut self, node: &structure::Node) {
+        let node = match node {
+            structure::Node::Hierarchy(hierarchy) => hierarchy
+        };
+        
         loop {
             match &mut self.children_selected {
                 /* If we don't have any children, then the children mode doesn't matter. Upgrade it as much as possible. */
-                _ if node.children.len() == 0 => {
+                _ if node.num_children() == 0 => {
                     self.children_selected = ChildrenMode::AllGrandchildren;
                     return;
                 }
 
                 /* If we don't have any grandchildren, upgrade AllDirect to AllGrandchildren. */
-                ChildrenMode::AllDirect if node.children.iter().all(|ch| ch.node.children.len() == 0) => {
+                ChildrenMode::AllDirect if node.children.iter().all(|ch| ch.node.num_children() == 0) => {
                     self.children_selected = ChildrenMode::AllGrandchildren;
                     return;
                 },
@@ -810,9 +854,11 @@ impl SparseNode {
     fn any_selected(&self, node: &structure::Node) -> bool {
         self.self_selected || match &self.children_selected {
             ChildrenMode::None => false,
-            ChildrenMode::Mixed(vec) => vec.iter().zip(node.children.iter()).any(|(sp, st)| sp.any_selected(&st.node)),
-            ChildrenMode::AllDirect => node.children.len() > 0,
-            ChildrenMode::AllGrandchildren => node.children.len() > 0,
+            ChildrenMode::Mixed(vec) => vec.iter().zip(match node {
+                structure::Node::Hierarchy(hierarchy) => hierarchy.children.iter()
+            }).any(|(sp, st)| sp.any_selected(&st.node)),
+            ChildrenMode::AllDirect => node.num_children() > 0,
+            ChildrenMode::AllGrandchildren => node.num_children() > 0,
         }
     }
 
@@ -821,16 +867,20 @@ impl SparseNode {
     }
 
     fn single_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::Path> {
+        let node = match node {
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+        };
+        
         match (self.self_selected, &self.children_selected) {
             (true, ChildrenMode::None) => Some(path),
-            (true, _) if node.children.len() == 0 => Some(path),
+            (true, _) if node.num_children() == 0 => Some(path),
 
-            (false, ChildrenMode::AllDirect) if node.children.len() == 1 => {
+            (false, ChildrenMode::AllDirect) if node.num_children() == 1 => {
                 path.push(0);
                 Some(path)
             },
 
-            (false, ChildrenMode::AllGrandchildren) if node.children.len() == 1 && node.children[0].node.children.len() == 0 => {
+            (false, ChildrenMode::AllGrandchildren) if node.num_children() == 1 && node.children[0].node.num_children() == 0 => {
                 path.push(0);
                 Some(path)
             },
@@ -859,13 +909,17 @@ impl SparseNode {
     }
 
     fn one_range_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::SiblingRange> {
+        let node = match node {
+            structure::Node::Hierarchy(hierarchy) => hierarchy
+        };
+        
         if self.self_selected {
             None
         } else {
             match &self.children_selected {
                 ChildrenMode::None => None,
-                ChildrenMode::AllDirect if node.children.len() == 0 => None,
-                ChildrenMode::AllGrandchildren if node.children.len() == 0 => None,
+                ChildrenMode::AllDirect if node.num_children() == 0 => None,
+                ChildrenMode::AllGrandchildren if node.num_children() == 0 => None,
                 
                 ChildrenMode::Mixed(vec) => {
                     let mut start = None;
@@ -909,7 +963,7 @@ impl SparseNode {
                                         ChildrenMode::None => !all_grandchildren,
                                         ChildrenMode::Mixed(_) => false,
                                         ChildrenMode::AllDirect => false,
-                                        ChildrenMode::AllGrandchildren => all_grandchildren || struct_child.node.children.len() == 0,
+                                        ChildrenMode::AllGrandchildren => all_grandchildren || struct_child.node.num_children() == 0,
                                     } {
                                         return None;
                                     }
@@ -924,11 +978,11 @@ impl SparseNode {
                         }
                     }
 
-                    start.map(|(begin, _)| structure::SiblingRange::new(path, begin, end.unwrap_or(node.children.len()-1)))
+                    start.map(|(begin, _)| structure::SiblingRange::new(path, begin, end.unwrap_or(node.num_children()-1)))
                 },
                 
-                ChildrenMode::AllDirect => Some(structure::SiblingRange::new(path, 0, node.children.len()-1)),
-                ChildrenMode::AllGrandchildren => Some(structure::SiblingRange::new(path, 0, node.children.len()-1)),
+                ChildrenMode::AllDirect => Some(structure::SiblingRange::new(path, 0, node.num_children()-1)),
+                ChildrenMode::AllGrandchildren => Some(structure::SiblingRange::new(path, 0, node.num_children()-1)),
             }
         }
     }
@@ -936,10 +990,14 @@ impl SparseNode {
     /// This function can mutate path, but has to put it back to the way it was before returning.
     pub fn ancestor_ranges_selected<E, F>(&self, node: &structure::Node, path: &mut structure::Path, cb: &mut F) -> Result<(), E>
     where F: FnMut(&structure::SiblingRange) -> Result<(), E> {
+        let node = match node {
+            structure::Node::Hierarchy(hierarchy) => hierarchy
+        };
+        
         match &self.children_selected {
             ChildrenMode::None => Ok(()),
-            ChildrenMode::AllDirect if node.children.len() == 0 => Ok(()),
-            ChildrenMode::AllGrandchildren if node.children.len() == 0 => Ok(()),
+            ChildrenMode::AllDirect if node.num_children() == 0 => Ok(()),
+            ChildrenMode::AllGrandchildren if node.num_children() == 0 => Ok(()),
             
             ChildrenMode::Mixed(vec) => {
                 let mut range = None;
@@ -991,7 +1049,7 @@ impl SparseNode {
             },
 
             ChildrenMode::AllDirect | ChildrenMode::AllGrandchildren => {
-                let range_obj = structure::SiblingRange::new(std::mem::replace(path, Vec::new()), 0, node.children.len()-1);
+                let range_obj = structure::SiblingRange::new(std::mem::replace(path, Vec::new()), 0, node.num_children()-1);
                 cb(&range_obj)?;
                 *path = range_obj.parent;
 
@@ -1024,7 +1082,7 @@ impl std::fmt::Debug for Selection {
                 break;
             }
 
-            f.write_fmt(format_args!("\"{}\"", node.props.name))?;
+            f.write_str(&node.inspect())?;
         }
 
         f.write_str("]")?;
@@ -1038,7 +1096,7 @@ mod tests {
     use super::*;
 
     fn create_simple_test_structure() -> sync::Arc<structure::Node> {
-        structure::Node::builder()
+        structure::HierarchyNode::builder()
             .name("root")
             .child(0x0, |b| b
                    .name("child0"))
@@ -1169,7 +1227,7 @@ mod tests {
         
         #[test]
         fn test_iter_correctness() {
-            let root = structure::Node::builder()
+            let root = structure::HierarchyNode::builder()
                 /* Selected, mixed */
                 .name("root")
                 .child(0x0, |b| b
@@ -1277,7 +1335,7 @@ mod tests {
             };
             
             itertools::assert_equal(
-                selection.node_iter().map(|node| &node.props.name),
+                selection.node_iter().map(|node| &node.props().unwrap().name),
                 &[
                     "root",
                     "child0.0",

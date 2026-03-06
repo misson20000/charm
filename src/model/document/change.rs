@@ -6,6 +6,7 @@ use crate::model::datapath;
 use crate::model::document;
 use crate::model::document::rebuild;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::model::versioned;
 use crate::model::versioned::Versioned;
@@ -261,8 +262,14 @@ pub enum ApplyErrorType {
     },
     InvalidRange(structure::RangeInvalidity),
     InvalidParameters(&'static str),
+    PathContainedNonHierarchyNode,
+    TargetNodeTypeInvalidForOperation,
     ResizedSmallerThanChildren,
     ResizedLargerThanParent,
+}
+
+impl rebuild::TargetVisitorError for ApplyErrorType {
+    const ANCESTOR_NOT_HIERARCHY_NODE: Self = Self::PathContainedNonHierarchyNode;
 }
 
 #[derive(Debug, Clone)]
@@ -340,7 +347,10 @@ impl Change {
         match &self.ty {
             ChangeType::AlterNode { path, props } => {
                 let new_tree = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, path, |target, _| {
-                    target.props = props.clone();
+                    match target.props_mut() {
+                        Some(p) => *p = props.clone(),
+                        None => return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation),
+                    };
                     Ok(())
                 })?;
 
@@ -354,7 +364,10 @@ impl Change {
                 }
                 
                 document.root = rebuild::rebuild_node_tree_visiting_tree(selection, |target| {
-                    target.props.apply_changes(prop_changes.clone());
+                    if let Some(p) = target.props_mut() {
+                        p.apply_changes(prop_changes.clone());
+                    }
+                    
                     Ok::<(), ApplyErrorType>(())
                 })?;
 
@@ -362,6 +375,10 @@ impl Change {
             },
             ChangeType::InsertNode { parent: path, index: at_child, child: childhood } => {
                 document.root = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path, |target, _| {
+                    let structure::Node::Hierarchy(target) = target else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+                    
                     /* Check at_child to make sure it's not farther than one-past the end. */
                     if *at_child > target.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"));
@@ -369,18 +386,18 @@ impl Change {
 
                     /* Check offset to make sure it's within bounds. */
                     // TODO: automatically grow parents?
-                    if childhood.offset > target.size {
+                    if childhood.offset > target.size() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to insert node beginning beyond parent's size"));
                     }
 
                     /* Check child size to make sure it's within bounds. */
                     // TODO: automatically grow parents?
-                    let end = match childhood.offset.checked_add(childhood.node.size) {
+                    let end = match childhood.offset.checked_add(childhood.node.size()) {
                         Some(end) => end,
                         None => return Err(ApplyErrorType::InvalidParameters("attempted to insert node at a place where its end would overflow"))
                     };
                     
-                    if end > target.size {
+                    if end > target.size() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to insert node extending beyond parent's size"));
                     }
                     
@@ -400,6 +417,10 @@ impl Change {
             },
             ChangeType::Nest { range, extent, props } => {
                 let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node, _| {
+                    let structure::Node::Hierarchy(parent_node) = parent_node else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -416,23 +437,27 @@ impl Change {
                         child.offset-= extent.begin;
                     }
 
-                    let new_node = &mut parent_node.children[range.first];
-                    new_node.offset = extent.begin;
-                    new_node.node = sync::Arc::new(structure::Node {
+                    let new_child = &mut parent_node.children[range.first];
+                    new_child.offset = extent.begin;
+                    new_child.node = structure::HierarchyNode {
                         size: extent.len(),
                         children: children,
                         props: props.clone(),
-                    });
+                    }.into_arc();
 
-                    Ok(())
+                    Ok(new_child.clone())
                 })?;
 
                 document.root = result.root;
 
-                Ok(ApplyRecord::Nest { range: range.clone(), extent: *extent, child: result.target.children[range.first].clone()})
+                Ok(ApplyRecord::Nest { range: range.clone(), extent: *extent, child: result.output})
             }
             ChangeType::Destructure { parent, child_index } => {
                 let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &parent, |parent_node, _| {
+                    let structure::Node::Hierarchy(parent_node) = parent_node else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+
                     /* Check that we're trying to destructure a child that actually exists. */
                     if *child_index >= parent_node.children.len() {
                         return Err(ApplyErrorType::InvalidParameters("attemped to destructure child that doesn't exist"));
@@ -440,9 +465,14 @@ impl Change {
 
                     /* Preconditions passed; do the deed. */
                     let destructured_child = parent_node.children.remove(*child_index);
+                    let structure::Node::Hierarchy(destructured_node) = &*destructured_child.node else {
+                        // TODO: review for arrays, when they get implemented?
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+                    
                     let offset = destructured_child.offset;
 
-                    let mapping = do_paste(parent_node, destructured_child.node.children.iter().cloned().map(|mut child| {
+                    let mapping = do_paste(parent_node, destructured_node.children.iter().cloned().map(|mut child| {
                         child.offset+= offset;
                         child
                     }), *child_index);
@@ -461,6 +491,10 @@ impl Change {
             },
             ChangeType::DeleteRange { range } => {
                 let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &range.parent, |parent_node, _| {
+                    let structure::Node::Hierarchy(parent_node) = parent_node else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+
                     /* Check range validity. */
                     range.check_validity(parent_node)?;
 
@@ -496,11 +530,20 @@ impl Change {
             },
             ChangeType::Paste { src_node, src_begin, src_end, dst, dst_offset, dst_index } => {
                 let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &dst, |dst_node, _| {
-                    if src_begin.0 > src_node.size || src_end.0 > src_node.size {
+                    let structure::Node::Hierarchy(src_node) = &**src_node else {
+                        // TODO: review this for arrays, when they get implemented
+                        return Err(ApplyErrorType::InvalidParameters("attempted to paste children from something that wasn't a hierarchy node"));
+                    };
+
+                    let structure::Node::Hierarchy(dst_node) = dst_node else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
+
+                    if src_begin.0 > src_node.size() || src_end.0 > src_node.size() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to paste from range outside of source node"));
                     }
 
-                    if *dst_offset + (src_end.0 - src_begin.0) > dst_node.size {
+                    if *dst_offset + (src_end.0 - src_begin.0) > dst_node.size() {
                         return Err(ApplyErrorType::InvalidParameters("attempted to paste into node that is too small"));
                     }
 
@@ -533,31 +576,35 @@ impl Change {
                 }
                 
                 let result = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, &path[0..path.len()-1], |parent_node, _| {
-                    let template_child = &mut parent_node.children[*path.last().unwrap()];
+                    let structure::Node::Hierarchy(parent_node) = parent_node else {
+                        return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+                    };
 
+                    let template_child = &mut parent_node.children[*path.last().unwrap()];
+                    
                     if template_child.end() + (*pitch * (count-1) as u64) > parent_node.size {
                         return Err(ApplyErrorType::InvalidParameters("array would be too long to fit within parent node"));
                     }
 
-                    let children: Vec<_> = (0..*count).into_iter().map(|i| {
-                        let mut props = template_child.node.props.clone();
-                        props.name = format!("{}{}{}", name_prefix, i, name_postfix);
+                    let mut children = vec![];
+                    children.reserve_exact(*count);
+                    for i in 0..*count {
+                        let mut node = (*template_child.node).clone();
 
-                        structure::Childhood {
-                            node: sync::Arc::new(structure::Node {
-                                size: template_child.node.size,
-                                children: template_child.node.children.clone(),
-                                props,
-                            }),
+                        // TODO: use try_collect when it's stable
+                        node.props_mut().ok_or(ApplyErrorType::InvalidParameters("item that was being repeated doesn't have properties"))?.name = format!("{}{}{}", name_prefix, i, name_postfix);
+
+                        children.push(structure::Childhood {
+                            node: node.into(),
                             offset: *pitch * i as u64
-                        }
-                    }).collect();
+                        });
+                    }
                     
-                    template_child.node = sync::Arc::new(structure::Node {
+                    template_child.node = structure::HierarchyNode {
                         size: children.last().unwrap().end(),
                         children,
                         props: props.clone(),
-                    });
+                    }.into_arc();
 
                     Ok(ApplyRecord::Repeat { path: path.clone(), pitch: *pitch, count: *count })
                 })?;
@@ -584,6 +631,10 @@ impl<'a> rebuild::TargetVisitor for RebuildNodeTreeVisitorForResize<'a> {
     type AncestorVisitor = Self;
 
     fn visit_target(self, target: &mut structure::Node, _addr: addr::AbsoluteAddress) -> Result<Self::AncestorVisitor, Self::Error> {
+        let structure::Node::Hierarchy(target) = target else {
+            return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation);
+        };
+        
         if target.children.iter().any(|c| c.end() > self.new_size) {
             return Err(ApplyErrorType::ResizedSmallerThanChildren);
         }
@@ -598,14 +649,14 @@ impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
     type Output = ApplyRecord;
     type Error = ApplyErrorType;
 
-    fn visit_ancestor(&mut self, ancestor: &mut structure::Node, ancestry: usize, old_childhood: structure::Childhood, child_index: usize) -> Result<(), Self::Error> {
-        if ancestor.children[child_index].node.size == old_childhood.node.size {
+    fn visit_ancestor(&mut self, ancestor: &mut structure::HierarchyNode, ancestry: usize, old_childhood: structure::Childhood, child_index: usize) -> Result<(), Self::Error> {
+        if ancestor.child(child_index).node.size() == old_childhood.node.size() {
             return Ok(());
         }
 
-        if ancestor.children[child_index].node.size > old_childhood.node.size {
+        if ancestor.child(child_index).node.size() > old_childhood.node.size() {
             /* Child was resized to be larger */
-            if ancestor.children[child_index].end() > ancestor.size {
+            if ancestor.child(child_index).end() > ancestor.size() {
                 if self.expand_parents && !ancestor.props.locked {
                     self.highest_ancestor_modified = ancestry;
                     ancestor.size = ancestor.children[child_index].end();
@@ -615,13 +666,15 @@ impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
             }
         } else {
             /* Child was shrunken. */
-            if old_childhood.end() == ancestor.size && self.truncate_parents && !ancestor.props.locked {
-                /* It's possible that if two children overlap and we shrink one of
-                 * them, the other one will now extend past the end of the shrunken
-                 * one. We wouldn't want to truncate the parent too far in that
-                 * case. */
-                self.highest_ancestor_modified = ancestry;
-                ancestor.size = ancestor.children.iter().map(structure::Childhood::end).max().expect("there should definitely be at least one child if this node is an ANCESTOR of a node we're modifying during a tree rebuild");
+            if old_childhood.end() == ancestor.size() && self.truncate_parents {
+                if !ancestor.props.locked {
+                    /* It's possible that if two children overlap and we shrink one of
+                     * them, the other one will now extend past the end of the shrunken
+                     * one. We wouldn't want to truncate the parent too far in that
+                     * case. */
+                    self.highest_ancestor_modified = ancestry;
+                    ancestor.size = ancestor.children.iter().map(structure::Childhood::end).max().expect("there should definitely be at least one child if this node is an ANCESTOR of a node we're modifying during a tree rebuild");
+                }
             }
         }
         
@@ -638,7 +691,7 @@ impl<'a> rebuild::AncestorVisitor for RebuildNodeTreeVisitorForResize<'a> {
 }
 
 /// Pastes children into a node, starting at a given destination index, interspersing them with existing children as necessary to maintain offset monotonicity. Returns a vector of the indices that each pasted child was actually placed at in the destination.
-fn do_paste(dst_node: &mut structure::Node, pastees: impl iter::ExactSizeIterator<Item = structure::Childhood>, dst_index: usize) -> Mapping {
+fn do_paste(dst_node: &mut structure::HierarchyNode, pastees: impl iter::ExactSizeIterator<Item = structure::Childhood>, dst_index: usize) -> Mapping {
     let mut pastees = pastees.peekable();
     let mut dst_siblings = dst_node.children.split_off(dst_index).into_iter().peekable();
     
@@ -870,7 +923,7 @@ impl ApplyRecord {
         match self {
             ApplyRecord::AlterNode { path, .. } => format!("Alter properties on {}", document.describe_path(path)),
             ApplyRecord::AlterNodesBulk { .. } => format!("Alter properties on multiple nodes"),
-            ApplyRecord::InsertNode { parent, child, .. } => format!("Insert '{}' under {}", child.node.props.name, document.describe_path(parent)),
+            ApplyRecord::InsertNode { parent, child, .. } => format!("Insert {} under {}", child.node.inspect(), document.describe_path(parent)),
             ApplyRecord::Nest { range, .. } => format!("Nest children under {}", document.describe_path(&range.parent)),
             ApplyRecord::Destructure(dsr) => format!("Destructure child under {}", document.describe_path(&dsr.parent)),
             ApplyRecord::DeleteRange { range, .. } => format!("Delete children under {}", document.describe_path(&range.parent)),
@@ -983,7 +1036,7 @@ mod tests {
         assert_eq!(ApplyRecord::InsertNode {
             parent: vec![1, 0],
             index: 1,
-            child: structure::Node::builder().build_child(addr::Offset::NULL),
+            child: structure::HierarchyNode::builder().build_child(addr::Offset::NULL),
         }.update_path(&mut path), UpdatePathResult::Moved);
         
         assert_eq!(path, vec![1, 0, 3]);
@@ -991,7 +1044,7 @@ mod tests {
         assert_eq!(ApplyRecord::InsertNode {
             parent: vec![1, 0],
             index: 4,
-            child: structure::Node::builder().build_child(addr::Offset::NULL)
+            child: structure::HierarchyNode::builder().build_child(addr::Offset::NULL)
         }.update_path(&mut path), UpdatePathResult::Unmoved);
 
         assert_eq!(path, vec![1, 0, 3]);
@@ -999,7 +1052,7 @@ mod tests {
         assert_eq!(ApplyRecord::InsertNode {
             parent: vec![1, 0],
             index: 3,
-            child: structure::Node::builder().build_child(addr::Offset::NULL)
+            child: structure::HierarchyNode::builder().build_child(addr::Offset::NULL)
         }.update_path(&mut path), UpdatePathResult::Moved);
 
         assert_eq!(path, vec![1, 0, 4]);
@@ -1007,7 +1060,7 @@ mod tests {
         assert_eq!(ApplyRecord::InsertNode {
             parent: vec![1, 1],
             index: 0,
-            child: structure::Node::builder().build_child(addr::Offset::NULL)
+            child: structure::HierarchyNode::builder().build_child(addr::Offset::NULL)
         }.update_path(&mut path), UpdatePathResult::Unmoved);
 
         assert_eq!(path, vec![1, 0, 4]);
@@ -1016,7 +1069,7 @@ mod tests {
     #[test]
     fn test_update_path_through_nest() {
         let extent = addr::Extent::between(addr::Offset::NULL, addr::Offset::NULL);
-        let child = structure::Node::builder().build_child(addr::Offset::NULL);
+        let child = structure::HierarchyNode::builder().build_child(addr::Offset::NULL);
         
         /* siblings before but not including the path */
         let mut path = vec![1, 0, 2];
@@ -1069,7 +1122,7 @@ mod tests {
         let record = ApplyRecord::Destructure(DestructureApplyRecord {
             parent: vec![1],
             child_index: 1,
-            childhood: structure::Node::builder().build_child(addr::Offset::NULL),
+            childhood: structure::HierarchyNode::builder().build_child(addr::Offset::NULL),
             mapping: Mapping(vec![1, 2, 4]),
         });
         
@@ -1260,7 +1313,7 @@ mod tests {
     }
     
     fn create_test_document_1() -> document::Document {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b
@@ -1284,7 +1337,7 @@ mod tests {
     }
 
     fn create_test_document_2() -> document::Document {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b
@@ -1314,7 +1367,7 @@ mod tests {
     }
 
     fn create_test_document_3() -> document::Document {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b
@@ -1359,7 +1412,7 @@ mod tests {
     fn test_structural_change_alter_node() {
         let mut doc = create_test_document_1();
         
-        let mut props = doc.lookup_node(&vec![1, 0]).0.props.clone();
+        let mut props = doc.lookup_node(&vec![1, 0]).0.props().unwrap().clone();
         assert_eq!(props.name, "child1.0");
 
         props.name = "modified".to_string();
@@ -1369,7 +1422,7 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut doc).unwrap();
 
-        assert_eq!(doc.lookup_node(&vec![1, 0]).0.props.name, "modified");
+        assert_eq!(doc.lookup_node(&vec![1, 0]).0.props().unwrap().name, "modified");
     }
 
     #[test]
@@ -1389,14 +1442,14 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut doc).unwrap();
 
-        assert_eq!(doc.root.props.name, "altered");
+        assert_eq!(doc.root.props().unwrap().name, "altered");
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[0]).0, orig_doc.lookup_node(&[0]).0));
-        assert_eq!(doc.lookup_node(&[1]).0.props, orig_doc.lookup_node(&[1]).0.props);
+        assert_eq!(doc.lookup_node(&[1]).0.props(), orig_doc.lookup_node(&[1]).0.props());
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 0]).0, orig_doc.lookup_node(&[1, 0]).0));
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 1]).0, orig_doc.lookup_node(&[1, 1]).0));
-        assert_eq!(doc.lookup_node(&vec![1, 2]).0.props.name, "altered");
+        assert_eq!(doc.lookup_node(&vec![1, 2]).0.props().unwrap().name, "altered");
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[1, 3]).0, orig_doc.lookup_node(&[1, 3]).0));
-        assert_eq!(doc.lookup_node(&vec![2]).0.props.name, "altered");
+        assert_eq!(doc.lookup_node(&vec![2]).0.props().unwrap().name, "altered");
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 0]).0, orig_doc.lookup_node(&[2, 0]).0));
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 1]).0, orig_doc.lookup_node(&[2, 1]).0));
         assert!(sync::Arc::ptr_eq(doc.lookup_node(&[2, 2]).0, orig_doc.lookup_node(&[2, 2]).0));
@@ -1407,7 +1460,7 @@ mod tests {
     fn test_structural_change_insert_node_preconditions() {
         let doc = create_test_document_1();
 
-        let builder = structure::Node::builder().size(0x10);
+        let builder = structure::HierarchyNode::builder().size(0x10);
 
         {
             let mut doc = doc.clone();
@@ -1415,7 +1468,7 @@ mod tests {
                 ty: ChangeType::InsertNode { parent: vec![], index: 4, child: builder.build_child(addr::Address::from(0x100)) },
                 generation: doc.generation(),
             }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node at out-of-bounds index"), .. }));
-            assert!(doc.lookup_node(&vec![0]).0.size < 0x21.into());
+            assert!(doc.lookup_node(&vec![0]).0.size() < 0x21.into());
         }
 
         {
@@ -1424,11 +1477,11 @@ mod tests {
                 ty: ChangeType::InsertNode { parent: vec![0], index: 0, child: builder.build_child(addr::Address::from(0x21)) },
                 generation: doc.generation(),
             }.apply(&mut doc), Err(ApplyError { ty: ApplyErrorType::InvalidParameters("attempted to insert node beginning beyond parent's size"), .. }));
-            assert_eq!(doc.lookup_node(&vec![0]).0.size, 0x20.into());
+            assert_eq!(doc.lookup_node(&vec![0]).0.size(), 0x20.into());
         }
 
         {
-            let mut doc = document::Builder::new(structure::Node::builder()
+            let mut doc = document::Builder::new(structure::HierarchyNode::builder()
                                                  .name("root")
                                                  .size(addr::Offset::MAX)
                                                  .build()).build();
@@ -1468,7 +1521,7 @@ mod tests {
     fn test_structural_change_insert_node() {
         let mut doc = create_test_document_1();
 
-        let new_child = structure::Node::builder().size(0x10).build_child(addr::Address::from(0x2));
+        let new_child = structure::HierarchyNode::builder().size(0x10).build_child(addr::Address::from(0x2));
 
         let original_child = doc.lookup_node(&vec![1, 1]).0.clone();
         
@@ -1510,7 +1563,7 @@ mod tests {
     fn test_structural_change_nest() {
         let doc = create_test_document_2();
 
-        let orig_child1 = doc.root.children[1].node.clone();
+        let orig_child1 = doc.root.child(1).node.clone();
         let mut props = structure::Properties::default();
         props.name = "nest".to_string();
 
@@ -1520,31 +1573,31 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 
-        let new_child1 = new_doc.root.children[1].node.clone();
+        let new_child1 = new_doc.root.child(1).node.clone();
 
         /* Root's other children should be unchanged. */
         {
-            assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
-            assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[2].node));
+            assert!(sync::Arc::ptr_eq(&doc.root.child(0).node, &new_doc.root.child(0).node));
+            assert!(sync::Arc::ptr_eq(&doc.root.child(2).node, &new_doc.root.child(2).node));
         }
 
         /* Child1's non-nested children should be unchanged, aside from changing index. */
         {
-            assert!(sync::Arc::ptr_eq(&orig_child1.children[0].node, &new_child1.children[0].node));
-            assert_eq!(orig_child1.children[0].offset, new_child1.children[0].offset);
+            assert!(sync::Arc::ptr_eq(&orig_child1.child(0).node, &new_child1.child(0).node));
+            assert_eq!(orig_child1.child(0).offset, new_child1.child(0).offset);
 
-            assert!(sync::Arc::ptr_eq(&orig_child1.children[3].node, &new_child1.children[2].node));
-            assert_eq!(orig_child1.children[3].offset, new_child1.children[2].offset);
+            assert!(sync::Arc::ptr_eq(&orig_child1.child(3).node, &new_child1.child(2).node));
+            assert_eq!(orig_child1.child(3).offset, new_child1.child(2).offset);
         }
 
-        let nest_child = &new_child1.children[1];
+        let nest_child = &new_child1.child(1);
         assert_eq!(nest_child.offset, 0x2.into()); /* this should come straight from the extent */
-        assert_eq!(nest_child.node.size, 0x16.into()); /* this should come straight from the extent */
-        assert_eq!(nest_child.node.children.len(), 2);
-        assert_eq!(nest_child.node.children[0].offset, 0x2.into());
-        assert!(sync::Arc::ptr_eq(&nest_child.node.children[0].node, &orig_child1.children[1].node));
-        assert_eq!(nest_child.node.children[1].offset, 0x6.into());
-        assert!(sync::Arc::ptr_eq(&nest_child.node.children[1].node, &orig_child1.children[2].node));
+        assert_eq!(nest_child.node.size(), 0x16.into()); /* this should come straight from the extent */
+        assert_eq!(nest_child.node.num_children(), 2);
+        assert_eq!(nest_child.node.child(0).offset, 0x2.into());
+        assert!(sync::Arc::ptr_eq(&nest_child.node.child(0).node, &orig_child1.child(1).node));
+        assert_eq!(nest_child.node.child(1).offset, 0x6.into());
+        assert!(sync::Arc::ptr_eq(&nest_child.node.child(1).node, &orig_child1.child(2).node));
     }
 
     #[test]
@@ -1560,7 +1613,7 @@ mod tests {
     #[test]
     fn test_structural_change_destructure() {
         let doc = create_test_document_2();
-        let orig_child1 = doc.root.children[1].node.clone();
+        let orig_child1 = doc.root.child(1).node.clone();
         
         let mut new_doc = doc.clone();
         Change {
@@ -1570,22 +1623,22 @@ mod tests {
 
         /* Root's other children should be unchanged. */
         {
-            assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
-            assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[5].node));
+            assert!(sync::Arc::ptr_eq(&doc.root.child(0).node, &new_doc.root.child(0).node));
+            assert!(sync::Arc::ptr_eq(&doc.root.child(2).node, &new_doc.root.child(5).node));
         }
 
         /* Destructured node's children should be moved to root and have offsets adjusted, but still point to the same objects. */
         for i in 0..4 {
-            assert_eq!(orig_child1.children[i].offset + 0x14, new_doc.root.children[i+1].offset);
-            assert!(sync::Arc::ptr_eq(&orig_child1.children[i].node, &new_doc.root.children[i+1].node));
+            assert_eq!(orig_child1.child(i).offset + 0x14, new_doc.root.child(i+1).offset);
+            assert!(sync::Arc::ptr_eq(&orig_child1.child(i).node, &new_doc.root.child(i+1).node));
         }
         /* Sanity check */
-        assert_eq!(new_doc.root.children[3].offset, 0x1c.into());
+        assert_eq!(new_doc.root.child(3).offset, 0x1c.into());
     }
     
     #[test]
     fn test_structural_change_destructure_interleaving() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x40)
             .child(0x10, |b| b
@@ -1653,9 +1706,9 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 
-        assert_eq!(new_doc.root.children.len(), 2);
-        assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
-        assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[1].node));
+        assert_eq!(new_doc.root.num_children(), 2);
+        assert!(sync::Arc::ptr_eq(&doc.root.child(0).node, &new_doc.root.child(0).node));
+        assert!(sync::Arc::ptr_eq(&doc.root.child(2).node, &new_doc.root.child(1).node));
 
         /* try deleting child1.1 through child1.2 */
         let mut new_doc = doc.clone();
@@ -1664,15 +1717,15 @@ mod tests {
             generation: doc.generation(),
         }.apply(&mut new_doc).unwrap();
 
-        assert_eq!(new_doc.root.children.len(), 3);
-        assert!(sync::Arc::ptr_eq(&doc.root.children[0].node, &new_doc.root.children[0].node));
-        assert!(sync::Arc::ptr_eq(&doc.root.children[2].node, &new_doc.root.children[2].node));
+        assert_eq!(new_doc.root.num_children(), 3);
+        assert!(sync::Arc::ptr_eq(&doc.root.child(0).node, &new_doc.root.child(0).node));
+        assert!(sync::Arc::ptr_eq(&doc.root.child(2).node, &new_doc.root.child(2).node));
 
-        let orig_child1 = doc.root.children[1].node.clone();
-        let new_child1 = new_doc.root.children[1].node.clone();
-        assert_eq!(new_child1.children.len(), 2);
-        assert!(sync::Arc::ptr_eq(&orig_child1.children[0].node, &new_child1.children[0].node));
-        assert!(sync::Arc::ptr_eq(&orig_child1.children[3].node, &new_child1.children[1].node));
+        let orig_child1 = doc.root.child(1).node.clone();
+        let new_child1 = new_doc.root.child(1).node.clone();
+        assert_eq!(new_child1.num_children(), 2);
+        assert!(sync::Arc::ptr_eq(&orig_child1.child(0).node, &new_child1.child(0).node));
+        assert!(sync::Arc::ptr_eq(&orig_child1.child(3).node, &new_child1.child(1).node));
     }
 
     #[test]
@@ -1687,9 +1740,9 @@ mod tests {
         }.apply(&mut new_doc).unwrap().1;
 
         assert_matches!(record, ApplyRecord::Resize { parents_resized: 2, .. });
-        assert_eq!(new_doc.root.children[1].node.children[2].node.size, 0x100.into());
-        assert_eq!(new_doc.root.children[1].node.size, 0x108.into());
-        assert_eq!(new_doc.root.size, 0x11c.into());
+        assert_eq!(new_doc.root.child(1).node.child(2).node.size(), 0x100.into());
+        assert_eq!(new_doc.root.child(1).node.size(), 0x108.into());
+        assert_eq!(new_doc.root.size(), 0x11c.into());
 
         /* Try growing a child beyond its ancestors, to make sure that gets rejected. */
         let mut new_doc = doc.clone();
@@ -1706,9 +1759,9 @@ mod tests {
         }.apply(&mut new_doc).unwrap().1;
 
         assert_matches!(record, ApplyRecord::Resize { parents_resized: 1, .. });
-        assert_eq!(new_doc.root.children[1].node.children[3].node.size, 0x8.into());
-        assert_eq!(new_doc.root.children[1].node.size, 0x18.into()); /* child 1.2 overlaps 1.3, and after shrinking 1.3, ends after 1.3 */
-        assert_eq!(new_doc.root.size, 0x40.into());
+        assert_eq!(new_doc.root.child(1).node.child(3).node.size(), 0x8.into());
+        assert_eq!(new_doc.root.child(1).node.size(), 0x18.into()); /* child 1.2 overlaps 1.3, and after shrinking 1.3, ends after 1.3 */
+        assert_eq!(new_doc.root.size(), 0x40.into());
 
         /* Try shrinking a parent smaller than its children, to make sure that gets rejected. */
         let mut new_doc = doc.clone();
@@ -1720,7 +1773,7 @@ mod tests {
     
     #[test]
     fn test_structural_change_paste() {
-        let root = structure::Node::builder()
+        let root = structure::HierarchyNode::builder()
             .name("root")
             .size(0x100)
             .child(0x20, |b| b
@@ -1731,7 +1784,7 @@ mod tests {
                    .size(0x10))
             .build();
 
-        let paste = structure::Node::builder()
+        let paste = structure::HierarchyNode::builder()
             .name("paste")
             .size(0x1000000)
             .child(0x90, |b| b
@@ -1768,14 +1821,14 @@ mod tests {
         assert_eq!(record.dst_end, (0x34.into(), 3));
         assert_eq!(record.mapping.0, vec![1, 2]);
 
-        assert!(sync::Arc::ptr_eq(&old_doc.root.children[0].node, &new_doc.root.children[0].node));
-        assert_eq!(old_doc.root.children[0].offset, new_doc.root.children[0].offset);
-        assert!(sync::Arc::ptr_eq(&paste.children[1].node, &new_doc.root.children[1].node));
-        assert_eq!(new_doc.root.children[1].offset, 0x20.into());
-        assert!(sync::Arc::ptr_eq(&paste.children[2].node, &new_doc.root.children[2].node));
-        assert_eq!(new_doc.root.children[2].offset, 0x30.into());
-        assert!(sync::Arc::ptr_eq(&old_doc.root.children[1].node, &new_doc.root.children[3].node));
-        assert_eq!(old_doc.root.children[1].offset, new_doc.root.children[3].offset);
+        assert!(sync::Arc::ptr_eq(&old_doc.root.child(0).node, &new_doc.root.child(0).node));
+        assert_eq!(old_doc.root.child(0).offset, new_doc.root.child(0).offset);
+        assert!(sync::Arc::ptr_eq(&paste.child(1).node, &new_doc.root.child(1).node));
+        assert_eq!(new_doc.root.child(1).offset, 0x20.into());
+        assert!(sync::Arc::ptr_eq(&paste.child(2).node, &new_doc.root.child(2).node));
+        assert_eq!(new_doc.root.child(2).offset, 0x30.into());
+        assert!(sync::Arc::ptr_eq(&old_doc.root.child(1).node, &new_doc.root.child(3).node));
+        assert_eq!(old_doc.root.child(1).offset, new_doc.root.child(3).offset);
     }
 
     #[test]
@@ -1818,13 +1871,19 @@ mod tests {
         };
 
         let array_node = new_doc.lookup_node(&[1]).0;
-        assert_eq!(array_node.props.name, "array");
-        assert_eq!(array_node.children[0].node.props.name, "[0]");
-        assert_eq!(array_node.children[1].node.props.name, "[1]");
-        assert_eq!(array_node.children[1].offset, 0x10.into());
+        assert_eq!(array_node.props().unwrap().name, "array");
+        assert_eq!(array_node.child(0).node.props().unwrap().name, "[0]");
+        assert_eq!(array_node.child(1).node.props().unwrap().name, "[1]");
+        assert_eq!(array_node.child(1).offset, 0x10.into());
 
         /* check that the array nodes have the same children */
-        for (l, r) in array_node.children[0].node.children.iter().zip(doc.root.children[1].node.children.iter()) {
+        fn iter_children(node: &structure::Node) -> impl std::iter::Iterator<Item = &structure::Childhood> {
+            match node {
+                structure::Node::Hierarchy(h) => h.children.iter()
+            }
+        }
+        
+        for (l, r) in iter_children(array_node.child(0).node).zip(iter_children(doc.root.child(1).node)) {
             assert_eq!(l.offset, r.offset);
             assert!(sync::Arc::ptr_eq(&l.node, &r.node));
         }

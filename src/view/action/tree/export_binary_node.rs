@@ -9,6 +9,7 @@ use std::sync;
 use crate::model::addr;
 use crate::model::document;
 use crate::model::document::structure;
+use crate::model::document::structure::NodeKind;
 use crate::model::selection;
 use crate::view::export;
 use crate::view::helpers;
@@ -74,7 +75,7 @@ impl ExportBinaryNodeAction {
             .property("application", window.application.application.clone())
             .property("transient-for", window.window.clone())
             .build();
-        dialog.set(self.document_host.clone(), addr::AbsoluteExtent::sized(addr, node.size));
+        dialog.set(self.document_host.clone(), addr::AbsoluteExtent::sized(addr, node.size()));
         dialog.show();
     }
 }

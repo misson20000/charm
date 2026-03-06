@@ -1,16 +1,17 @@
 use crate::model::addr;
+use crate::model::document::structure::NodeKind;
 
 use std::iter;
 use std::sync;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitleDisplay {
     Inline,
     Major,
     Minor,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildrenDisplay {
     None, //< fully collapsed
     Summary,
@@ -18,7 +19,7 @@ pub enum ChildrenDisplay {
     Full
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentDisplay {
     None,
     Hexdump {
@@ -161,21 +162,24 @@ impl MaybeProperties {
     }
 
     pub fn common_between<'a>(i: impl iter::Iterator<Item = &'a sync::Arc<super::Node>>) -> Option<MaybeProperties> {
-        let mut props = Option::<MaybeProperties>::None;
+        let mut current_props = Option::<MaybeProperties>::None;
 
         for node in i {
-            if let Some(props) = props.as_mut() {
-                if props.empty() {
-                    break;
+            if let Some(node_props) = node.props() {
+                if let Some(current_props) = current_props.as_mut() {
+                    if current_props.empty() {
+                        /* Nothing in common anymore. Give up. */
+                        break;
+                    }
+
+                    current_props.merge(node_props);
+                } else {
+                    current_props = Some(Self::new(node_props.clone()));
                 }
-                
-                props.merge(&node.props);
-            } else {
-                props = Some(Self::new(node.props.clone()));
             }
         }
 
-        props
+        current_props
     }
     
     pub fn new_name(name: String) -> MaybeProperties {

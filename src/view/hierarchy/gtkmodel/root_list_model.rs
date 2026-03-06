@@ -7,6 +7,7 @@ use gtk::subclass::prelude::*;
 
 use crate::model::addr;
 use crate::model::document;
+use crate::model::document::structure::NodeKind;
 
 mod imp {
     use gtk::gio;
@@ -69,7 +70,7 @@ impl RootListModel {
         model.imp().root_item.set(super::NodeItem::new(super::NodeInfo {
             path: vec![],
             node: document.root.clone(),
-            props: document.root.props.clone(),
+            props: document.root.props().cloned(),
             offset: addr::Offset::NULL,
             address: addr::AbsoluteAddress::NULL,
             document: document.clone(),
@@ -85,7 +86,7 @@ impl RootListModel {
         root_item.stage(super::NodeInfo {
             path: vec![],
             node: new_document.root.clone(),
-            props: new_document.root.props.clone(),
+            props: new_document.root.props().cloned(),
             offset: addr::Offset::NULL,
             address: addr::AbsoluteAddress::NULL,
             document: new_document.clone(),
