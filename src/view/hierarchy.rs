@@ -51,7 +51,8 @@ mod tests {
                     path.push(i);
                     assert_tlr_node_correct(document, &childhood.node, iter, path);
                     path.pop();
-                }
+                },
+                structure::Node::Comment(_) => {},
             }
         }
     }

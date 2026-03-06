@@ -78,7 +78,7 @@ pub trait NodeKind: Into<Node> {
     /// Returns the number of children the node has.
     fn num_children(&self) -> usize;
 
-    /// Gets one of the node's children. Panics if index is out of bounds.
+    /// Gets one of the node's children. Panics if index is out of bounds. Note that there is no function for retrieving an iterator over the children. Arrays can have unreasonable amounts of children, so care must be taken to never iterate over all of them.
     fn child(&self, index: usize) -> ChildhoodRef;
 
     fn try_get_child(&self, index: usize) -> Option<ChildhoodRef> {
@@ -113,60 +113,70 @@ pub trait NodeKind: Into<Node> {
 #[derive(Debug, Clone)]
 pub enum Node {
     Hierarchy(HierarchyNode),
+    Comment(CommentNode),
 }
 
 impl NodeKind for Node {
     fn inspect(&self) -> String {
         match self {
             Node::Hierarchy(h) => h.inspect(),
+            Node::Comment(c) => c.inspect(),
         }
     }
     
     fn size(&self) -> addr::Offset {
         match self {
             Node::Hierarchy(h) => h.size(),
+            Node::Comment(c) => c.size(),
         }
     }
 
     fn num_children(&self) -> usize {
         match self {
-            Node::Hierarchy(h) => h.num_children()
+            Node::Hierarchy(h) => h.num_children(),
+            Node::Comment(c) => c.num_children(),
         }
     }
 
     fn child(&self, index: usize) -> ChildhoodRef {
         match self {
-            Node::Hierarchy(h) => h.child(index)
+            Node::Hierarchy(h) => h.child(index),
+            Node::Comment(c) => c.child(index),
         }
     }
 
     fn child_index_at_offset(&self, offset: addr::Offset) -> usize {
         match self {
-            Node::Hierarchy(h) => h.child_index_at_offset(offset)
+            Node::Hierarchy(h) => h.child_index_at_offset(offset),
+            Node::Comment(c) => c.child_index_at_offset(offset),
         }
     }
     
     fn props(&self) -> Option<&Properties> {
         match self {
             Node::Hierarchy(h) => h.props(),
+            Node::Comment(c) => c.props(),
         }
     }
 
     fn props_mut(&mut self) -> Option<&mut Properties> {
         match self {
             Node::Hierarchy(h) => h.props_mut(),
+            Node::Comment(c) => c.props_mut(),
         }
     }
 
     fn successor(&self, path: &mut Path, index: usize) -> bool {
         match self {
             Node::Hierarchy(h) => h.successor(path, index),
+            Node::Comment(c) => c.successor(path, index),
         }
     }
 
     fn assert_validity(&self) {
         match self {
             Node::Hierarchy(h) => h.assert_validity(),
+            Node::Comment(c) => c.assert_validity(),
         }
     }
 }
@@ -339,12 +349,6 @@ impl Into<Node> for HierarchyNode {
     }
 }
 
-impl Default for Node {
-    fn default() -> Node {
-        Node::Hierarchy(HierarchyNode::default())
-    }
-}
-
 impl Default for HierarchyNode {
     fn default() -> HierarchyNode {
         HierarchyNode {
@@ -352,6 +356,61 @@ impl Default for HierarchyNode {
             size: addr::Offset::MAX,
             children: vec::Vec::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CommentNode {
+    pub text: String,
+}
+
+impl NodeKind for CommentNode {
+    fn inspect(&self) -> String {
+        format!("comment({})", self.text)
+    }
+
+    fn size(&self) -> addr::Offset {
+        addr::Offset::ZERO
+    }
+
+    fn num_children(&self) -> usize {
+        0
+    }
+
+    fn child(&self, _index: usize) -> ChildhoodRef {
+        panic!("attempted to retrieve child of comment node");
+    }
+
+    fn child_index_at_offset(&self, _offset: addr::Offset) -> usize {
+        0
+    }
+
+    fn props(&self) -> Option<&Properties> {
+        None
+    }
+
+    fn props_mut(&mut self) -> Option<&mut Properties> {
+        None
+    }
+
+    fn successor(&self, path: &mut Path, index: usize) -> bool {
+        assert!(path.len() == index);
+        false
+    }
+
+    fn assert_validity(&self) {
+    }
+}
+
+impl Into<Node> for CommentNode {
+    fn into(self) -> Node {
+        Node::Comment(self)
+    }
+}
+
+impl Default for Node {
+    fn default() -> Node {
+        Node::Hierarchy(HierarchyNode::default())
     }
 }
 

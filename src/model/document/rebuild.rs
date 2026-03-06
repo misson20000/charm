@@ -152,6 +152,7 @@ impl<'a, F: Fn(&mut structure::Node) -> Result<(), E>, E: 'a> selection::tree::T
         new_child.assert_validity();
         match parent_context {
             structure::Node::Hierarchy(h) => h.children[child_index].node = sync::Arc::new(new_child),
+            structure::Node::Comment(_) => panic!("attempted to visit child {} of comment node while rewriting tree", child_index),
         };
         Ok(())
     }
@@ -163,6 +164,7 @@ impl<'a, F: Fn(&mut structure::Node) -> Result<(), E>, E: 'a> selection::tree::T
     fn ascend<'b>(&mut self, parent: &'b mut Self::NodeContext, child: Self::NodeContext, child_index: usize) {
         match parent {
             structure::Node::Hierarchy(h) => h.children[child_index].node = sync::Arc::new(child),
+            structure::Node::Comment(_) => panic!("attempted to ascend out of comment node while rewriting tree"),
         }
     }
 }

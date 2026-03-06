@@ -61,7 +61,8 @@ enum ContentDisplay {
 
 #[derive(Serialize, Deserialize)]
 enum Node {
-    Hierarchy(HierarchyNode)
+    Hierarchy(HierarchyNode),
+    CommentV1(CommentNodeV1),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -84,6 +85,11 @@ struct HierarchyNode {
     props: Properties,
     size: Addr,
     children: Children,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CommentNodeV1 {
+    text: String,
 }
 
 /// This is done as a newtype so that we can use custom serialize/deserialize impls to convert between v1 and model::document::structure types at the correct time. This refers to the children of the given parent node, not that single node as a child.
@@ -293,10 +299,27 @@ impl Into<structure::HierarchyNode> for HierarchyNode {
     }
 }
 
+impl From<structure::CommentNode> for CommentNodeV1 {
+    fn from(c: structure::CommentNode) -> Self {
+        Self {
+            text: c.text.clone(),
+        }
+    }
+}
+
+impl Into<structure::CommentNode> for CommentNodeV1 {
+    fn into(self) -> structure::CommentNode {
+        structure::CommentNode {
+            text: self.text,
+        }
+    }
+}
+
 impl From<structure::Node> for Node {
     fn from(n: structure::Node) -> Self {
         match n {
             structure::Node::Hierarchy(h) => Self::Hierarchy(h.into()),
+            structure::Node::Comment(c) => Self::CommentV1(c.into()),
         }
     }
 }
@@ -305,6 +328,7 @@ impl Into<structure::Node> for Node {
     fn into(self) -> structure::Node {
         match self {
             Self::Hierarchy(h) => structure::Node::Hierarchy(h.into()),
+            Self::CommentV1(c) => structure::Node::Comment(c.into()),
         }
     }
 }

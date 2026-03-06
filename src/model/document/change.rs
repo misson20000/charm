@@ -1879,7 +1879,8 @@ mod tests {
         /* check that the array nodes have the same children */
         fn iter_children(node: &structure::Node) -> impl std::iter::Iterator<Item = &structure::Childhood> {
             match node {
-                structure::Node::Hierarchy(h) => h.children.iter()
+                structure::Node::Hierarchy(h) => h.children.iter(),
+                structure::Node::Comment(_) => [].iter(),
             }
         }
         

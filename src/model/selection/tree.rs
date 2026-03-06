@@ -606,6 +606,7 @@ impl SparseNode {
                         children_selected: ChildrenMode::Mixed(vec),
                     }
                 },
+                structure::Node::Comment(_) => panic!("attempted to create selection including child of comment node"),
             }
         }
     }
@@ -626,6 +627,7 @@ impl SparseNode {
                             vec[remaining_path[0]] = Self::new_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
                             self.children_selected = ChildrenMode::Mixed(vec);
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add child of comment node to selection"),
                     }
                 },
 
@@ -636,6 +638,7 @@ impl SparseNode {
                             vec[remaining_path[0]].add_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
                             self.children_selected = ChildrenMode::Mixed(vec);
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add child of comment node to selection"),
                     }
                 },
 
@@ -663,6 +666,7 @@ impl SparseNode {
                             vec_storage = hierarchy.children.iter().map(|childhood| Self::new_canonical_unselected(&childhood.node)).collect();
                             &mut vec_storage
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add children of comment node to selection"),
                     }
                 },
 
@@ -672,6 +676,7 @@ impl SparseNode {
                             vec_storage = hierarchy.children.iter().map(|childhood| Self::new_canonical_selected(&childhood.node)).collect();
                             &mut vec_storage
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add children of comment node to selection"),
                     }
                 },
 
@@ -702,6 +707,7 @@ impl SparseNode {
                             vec[remaining_path[0]].add_range(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
                             self.children_selected = ChildrenMode::Mixed(vec);
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add children of comment node to selection"),
                     }
                 },
 
@@ -712,6 +718,7 @@ impl SparseNode {
                             vec[remaining_path[0]].add_range(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..], begin, end, include_descendants);
                             self.children_selected = ChildrenMode::Mixed(vec);
                         },
+                        structure::Node::Comment(_) => panic!("attempted to add children of comment node to selection"),
                     }
                 },
 
@@ -743,6 +750,7 @@ impl SparseNode {
                             vec[remaining_path[0]].remove_single(&hierarchy.children[remaining_path[0]].node, &remaining_path[1..]);
                             self.children_selected = ChildrenMode::Mixed(vec);
                         },
+                        structure::Node::Comment(_) => panic!("attempted to remove children of comment node from selection"),
                     }
                 },
 
@@ -784,7 +792,11 @@ impl SparseNode {
     
     fn canonicalize(&mut self, node: &structure::Node) {
         let node = match node {
-            structure::Node::Hierarchy(hierarchy) => hierarchy
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+            structure::Node::Comment(_) => {
+                self.children_selected = ChildrenMode::AllGrandchildren;
+                return;
+            },
         };
         
         loop {
@@ -854,9 +866,11 @@ impl SparseNode {
     fn any_selected(&self, node: &structure::Node) -> bool {
         self.self_selected || match &self.children_selected {
             ChildrenMode::None => false,
-            ChildrenMode::Mixed(vec) => vec.iter().zip(match node {
-                structure::Node::Hierarchy(hierarchy) => hierarchy.children.iter()
-            }).any(|(sp, st)| sp.any_selected(&st.node)),
+            ChildrenMode::Mixed(vec) => match node {
+                structure::Node::Hierarchy(hierarchy) => vec.iter().zip(hierarchy.children.iter())
+                    .any(|(sp, st)| sp.any_selected(&st.node)),
+                structure::Node::Comment(_) => false,
+            },
             ChildrenMode::AllDirect => node.num_children() > 0,
             ChildrenMode::AllGrandchildren => node.num_children() > 0,
         }
@@ -869,6 +883,8 @@ impl SparseNode {
     fn single_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::Path> {
         let node = match node {
             structure::Node::Hierarchy(hierarchy) => hierarchy,
+            structure::Node::Comment(_) if self.self_selected => return Some(path),
+            structure::Node::Comment(_) => return None,
         };
         
         match (self.self_selected, &self.children_selected) {
@@ -910,7 +926,8 @@ impl SparseNode {
 
     fn one_range_selected(&self, node: &structure::Node, mut path: structure::Path) -> Option<structure::SiblingRange> {
         let node = match node {
-            structure::Node::Hierarchy(hierarchy) => hierarchy
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+            structure::Node::Comment(_) => return None,
         };
         
         if self.self_selected {
@@ -991,7 +1008,8 @@ impl SparseNode {
     pub fn ancestor_ranges_selected<E, F>(&self, node: &structure::Node, path: &mut structure::Path, cb: &mut F) -> Result<(), E>
     where F: FnMut(&structure::SiblingRange) -> Result<(), E> {
         let node = match node {
-            structure::Node::Hierarchy(hierarchy) => hierarchy
+            structure::Node::Hierarchy(hierarchy) => hierarchy,
+            structure::Node::Comment(_) => return Ok(()),
         };
         
         match &self.children_selected {

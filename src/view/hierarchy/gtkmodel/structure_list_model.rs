@@ -98,23 +98,24 @@ impl StructureListModel {
         model.imp().interior.set(cell::RefCell::new(imp::StructureListModelInterior {
             path: info.path.clone(),
             children: match &*info.node {
-                structure::Node::Hierarchy(hierarchy) => hierarchy,
-            }.children[..].iter().enumerate().map(|tuple| {
-                let (i, ch) = tuple;
-                
-                let mut path = info.path.clone();
-                path.push(i);
+                structure::Node::Hierarchy(hierarchy) => hierarchy.children[..].iter().enumerate().map(|tuple| {
+                    let (i, ch) = tuple;
+                    
+                    let mut path = info.path.clone();
+                    path.push(i);
 
-                super::NodeItem::new(super::NodeInfo {
-                    path,
-                    node: ch.node.clone(),
-                    props: ch.node.props().cloned(),
-                    offset: ch.offset,
-                    address: info.address + ch.offset,
-                    document_host: info.document_host.clone(),
-                    document: info.document.clone()
-                })                
-            }).collect(),
+                    super::NodeItem::new(super::NodeInfo {
+                        path,
+                        node: ch.node.clone(),
+                        props: ch.node.props().cloned(),
+                        offset: ch.offset,
+                        address: info.address + ch.offset,
+                        document_host: info.document_host.clone(),
+                        document: info.document.clone()
+                    })                
+                }).collect(),
+                structure::Node::Comment(_) => vec![],
+            },
             address: info.address,
             document_host: info.document_host.clone(),
             document: info.document.clone(),
