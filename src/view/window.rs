@@ -138,6 +138,7 @@ impl CharmWindow {
             }
             {
                 let struct_menu = gio::Menu::new();
+                struct_menu.append(Some("Insert comment at cursor"), Some("ctx.insert_comment"));
                 struct_menu.append(Some("Insert byte at cursor"), Some("ctx.insert_byte"));
                 struct_menu.append(Some("Insert word at cursor"), Some("ctx.insert_word"));
                 struct_menu.append(Some("Insert dword at cursor"), Some("ctx.insert_dword"));
@@ -539,6 +540,7 @@ impl WindowContext {
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "word", 2);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "dword", 4);
         action::listing::insert_node::add_insert_fixed_size_node_at_cursor_action(&wc, "qword", 8);
+        action::listing::insert_comment::add_action(&wc);
         action::listing::create_array::add_action(&wc);
         action::listing::goto::add_action(&wc);
         action::listing::mode::add_action(&wc);

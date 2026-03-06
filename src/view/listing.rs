@@ -171,6 +171,9 @@ impl ObjectSubclass for ListingWidgetImp {
             klass.add_shortcut(&gtk::Shortcut::new(
                 gtk::ShortcutTrigger::parse_string("P"),
                 Some(gtk::NamedAction::new("ctx.edit_props"))));
+            klass.add_shortcut(&gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string("semicolon"),
+                Some(gtk::NamedAction::new("ctx.insert_comment"))));
             
             klass.set_css_name("listing");
         }
