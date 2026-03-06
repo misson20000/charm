@@ -490,6 +490,15 @@ impl Hexstring {
     }
 }
 
+impl CommentText {
+    pub fn text(&self) -> &str {
+        match &*self.common.node {
+            structure::Node::Comment(comment) => &comment.text,
+            _ => panic!("attempted to retrieve text from CommentText token that was for a non-comment node"),
+        }
+    }
+}
+
 impl TokenCommon {
     pub fn adjust_depth(mut self, by: isize) -> Self {
         // TODO: change me if we can ever AddAssign isize to usize

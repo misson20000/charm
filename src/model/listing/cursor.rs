@@ -22,6 +22,7 @@ pub mod hexstring;
 pub mod punctuation;
 pub mod summary_label;
 pub mod ellipsis;
+pub mod comment;
 
 #[derive(Debug)]
 pub enum MovementResult {
@@ -112,6 +113,7 @@ pub enum CursorClass {
     Punctuation(punctuation::Cursor),
     SummaryLabel(summary_label::Cursor),
     Ellipsis(ellipsis::Cursor),
+    Comment(comment::Cursor),
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +122,7 @@ pub enum HorizontalPosition {
     Title,
     Hexdump(addr::Offset, bool),
     Bindump(addr::Offset),
+    Comment(usize),
 }
 
 #[derive(Debug)]
@@ -549,6 +552,7 @@ impl CursorClass {
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_placement(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::SummaryLabel(token) => summary_label::Cursor::new_placement(token, hint).map(CursorClass::SummaryLabel).map_err(Into::into),
             token::Token::Ellipsis(token) => ellipsis::Cursor::new_placement(token, hint).map(CursorClass::Ellipsis).map_err(Into::into),
+            token::Token::CommentText(token) => comment::Cursor::new_placement(token, hint).map(CursorClass::Comment).map_err(Into::into),
             _ => Err(token)
         }
     }
@@ -565,6 +569,7 @@ impl CursorClass {
             token::Token::BlankLine(token) if token.accepts_cursor => punctuation::Cursor::new_transition(token.into(), hint).map(CursorClass::Punctuation),
             token::Token::SummaryLabel(token) => summary_label::Cursor::new_transition(token, hint).map(CursorClass::SummaryLabel).map_err(Into::into),
             token::Token::Ellipsis(token) => ellipsis::Cursor::new_transition(token, hint).map(CursorClass::Ellipsis).map_err(Into::into),
+            token::Token::CommentText(token) => comment::Cursor::new_transition(token, hint).map(CursorClass::Comment).map_err(Into::into),
             _ => Err(token)
         }
     }
@@ -619,6 +624,7 @@ pub enum PlacementHint {
     Hexdump(hexdump::HexdumpPlacementHint),
     Bindump(bindump::BindumpPlacementHint),
     Hexstring(hexstring::HexstringPlacementHint),
+    Comment(comment::CommentPlacementHint),
     Title,
     Punctuation,
     Unused,

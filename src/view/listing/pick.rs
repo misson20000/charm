@@ -26,6 +26,7 @@ pub enum Part {
         index: usize,
         offset: addr::Offset,
     },
+    Comment,
 }
 
 #[derive(Clone, Debug)]
@@ -57,14 +58,15 @@ fn path_part_to_addr(document: &document::Document, tuple: &(structure::Path, Pa
         Part::Bindump { offset, .. } => offset,
         Part::Hexstring { offset, .. } => offset,
         Part::Ellipsis { offset, .. } => offset,
+        Part::Comment => addr::Offset::ZERO,
     }
 }
 
 fn path_part_to_endpoint<'a>(document: &'_ document::Document, tuple: &'a (structure::Path, Part), is_end: bool) -> Result<selection::listing::StructureEndpoint<'a>, selection::listing::StructureMode> {
     Ok(match tuple {
-        (path, Part::Title) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
+        (path, Part::Title | Part::Comment) if path.len() == 0 => return Err(selection::listing::StructureMode::All),
         
-        (path, Part::Title) => {
+        (path, Part::Title | Part::Comment) => {
             let adj_path = &path[0..path.len()-1];
             let mut adj_child = *path.last().unwrap();
             let child = &document.lookup_node(adj_path).0.child(adj_child);
@@ -147,6 +149,7 @@ impl Part {
                 low_nybble: *low_nybble
             }),
             Part::Ellipsis { .. } => cursor::PlacementHint::Unused,
+            Part::Comment => cursor::PlacementHint::Unused,
         }
     }
 
@@ -157,6 +160,7 @@ impl Part {
             Part::Bindump { offset, .. } => *offset,
             Part::Hexstring { offset, .. } => *offset,
             Part::Ellipsis { offset, .. } => *offset,
+            Part::Comment => addr::Offset::NULL,
         }
     }
 }
@@ -184,6 +188,7 @@ impl<'a> Ord for PickSort<'a> {
                 (Part::Hexstring { index: _, .. }, _) => std::cmp::Ordering::Greater,
                 (Part::Ellipsis { index: self_index, .. }, other_index) if *self_index <= other_index => std::cmp::Ordering::Less,
                 (Part::Ellipsis { index: _, .. }, _) => std::cmp::Ordering::Greater,
+                (Part::Comment, _) => panic!("should be unreachable"),
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() == prefix_length {
             return match (self.0.0[prefix_length], &other.0.1) {
@@ -196,6 +201,7 @@ impl<'a> Ord for PickSort<'a> {
                 (_, Part::Hexstring { index: _, .. }) => std::cmp::Ordering::Less,
                 (self_index, Part::Ellipsis { index: other_index, .. }) if self_index >= *other_index => std::cmp::Ordering::Greater,
                 (_, Part::Ellipsis { index: _, .. }) => std::cmp::Ordering::Less,
+                (_, Part::Comment) => panic!("should be unreachable"),
             }
         } else if self.0.0.len() > prefix_length && other.0.0.len() > prefix_length {
             return self.0.0[prefix_length].cmp(&other.0.0[prefix_length]);

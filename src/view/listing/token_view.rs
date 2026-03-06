@@ -4,7 +4,6 @@ use std::sync;
 use crate::model::addr;
 use crate::model::datapath;
 use crate::model::document;
-use crate::model::document::structure;
 use crate::model::document::structure::NodeKind;
 use crate::model::listing::cursor;
 use crate::model::listing::token;
@@ -198,7 +197,7 @@ impl TokenView {
             token::Token::Hexstring(token) => {
                 let hexstring_cursor = match &cursor.cursor.class {
                     cursor::CursorClass::Hexstring(hxc) => Some(hxc),
-                _ => None,
+                    _ => None,
                 };
                 
                 for i in 0..token.extent.len().bytes() {
@@ -237,17 +236,17 @@ impl TokenView {
                     .render(snapshot);
             },
             token::Token::CommentText(token) => {
+                let text = token.text();
+                
                 gsc::begin_text(
                     &render.pango,
                     &render.font_mono,
                     render.config.comment_color.rgba(),
                     &render.config,
-                    match &*token.common.node {
-                        structure::Node::Comment(comment) => &comment.text,
-                        _ => "<non-comment node being rendered as comment?>",
-                    },
+                    text,
                     &mut pos)
                     .selected(selection.mode_type_if(selection.is_total()))
+                    .cursor(has_cursor, cursor)
                     .render(snapshot);
             },
 
@@ -306,6 +305,8 @@ impl TokenView {
                     offset: t.extent.end,
                 }),
             }),
+            token::Token::CommentIndicator(_) => Some(listing::pick::Triplet::all3(self.token.node_path().clone(), listing::pick::Part::Comment)),
+            token::Token::CommentText(_) => Some(listing::pick::Triplet::all3(self.token.node_path().clone(), listing::pick::Part::Comment)),
 
             /* Hexdump tokens can be picked, but that's done as part of HexdumpBucket picking logic and not done here. */
             
