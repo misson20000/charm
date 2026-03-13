@@ -290,6 +290,14 @@ impl Document {
             generation: self.generation(),
         }
     }
+
+    #[must_use]
+    pub fn edit_comment(&self, path: structure::Path, new_text: String) -> change::Change {
+        change::Change {
+            ty: change::ChangeType::EditComment { path, new_text },
+            generation: self.generation(),
+        }
+    }
 }
     
 #[derive(Debug, Clone, Copy)]

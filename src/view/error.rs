@@ -22,6 +22,7 @@ pub enum Action {
     InsertNodeParseOffset,
     InsertNodeParseSize,
     InsertNode,
+    InsertOrEditComment,
     NestNodesInListing,
     Nest, /* in tree view */
     EditProperties,
@@ -111,6 +112,7 @@ impl Error {
             Action::InsertNodeParseOffset => "Failed to parse offset.",
             Action::InsertNodeParseSize => "Failed to parse size.",
             Action::InsertNode => "Failed to insert node.",
+            Action::InsertOrEditComment => "Failed to insert or edit ocmment.",
             Action::NestNodesInListing => "Failed to nest nodes.",
             Action::Nest => "Failed to nest nodes.",
             Action::EditProperties => "Failed to edit node properties.",
@@ -342,6 +344,10 @@ fn write_document_change_detail(msg: &mut String, document: &document::Document,
             write!(msg, "Alter nodes in bulk\n")?;
             write!(msg, "Property changes: {:?}\n", prop_changes)?;
         },
+        document::change::ChangeType::EditComment { path, new_text } => {
+            write!(msg, "Edit comment at {}\n", SafePathDescription::new(document, &path))?;
+            write!(msg, "New text: {:?}\n", new_text)?;
+        },
         document::change::ChangeType::InsertNode { parent, index, child } => {
             write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;
             write!(msg, "Index: {}\n", index)?;
@@ -397,6 +403,9 @@ fn write_document_change_record_detail(msg: &mut String, document: &document::Do
         document::change::ApplyRecord::AlterNodesBulk { selection: _, prop_changes } => {
             write!(msg, "Alter nodes in bulk\n")?;
             write!(msg, "Property changes: {:?}\n", prop_changes)?;
+        },
+        document::change::ApplyRecord::EditComment { path } => {
+            write!(msg, "Edit comment at {}\n", SafePathDescription::new(document, &path))?;
         },
         document::change::ApplyRecord::InsertNode { parent, index, child } => {
             write!(msg, "Insert node under {}\n", SafePathDescription::new(document, &parent))?;

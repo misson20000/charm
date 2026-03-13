@@ -309,6 +309,7 @@ impl StructureRange {
             doc_change::UpdatePathResult::Moved | doc_change::UpdatePathResult::Unmoved => match change_record {
                 doc_change::ApplyRecord::AlterNode { .. } => self,
                 doc_change::ApplyRecord::AlterNodesBulk { .. } => self,
+                doc_change::ApplyRecord::EditComment { .. } => self,
                 doc_change::ApplyRecord::StackFilter { .. } => self,
                 doc_change::ApplyRecord::InsertNode { parent: affected_path, index: insertion_index, child: childhood } if affected_path == &self.path => {
                     if self.begin.1 > *insertion_index || (self.begin.1 == *insertion_index && self.begin.0 > childhood.offset) {

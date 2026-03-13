@@ -87,6 +87,11 @@ pub enum ChangeType {
         name_postfix: String,
         props: structure::Properties,
     },
+
+    EditComment {
+        path: structure::Path,
+        new_text: String,
+    },
 }
 
 /// Some changes intersperse a number of children with existing siblings. This records the final index of each of the nodes that got inserted.
@@ -178,6 +183,10 @@ pub enum ApplyRecord {
         path: structure::Path,
         pitch: addr::Offset,
         count: usize,
+    },
+
+    EditComment {
+        path: structure::Path,
     },
 }
 
@@ -336,6 +345,10 @@ impl Change {
                         },
                         ChangeType::Paste { .. } => Err(UpdateError::NotYetImplemented),
                         ChangeType::Repeat { .. } => Err(UpdateError::NotYetImplemented),
+                        ChangeType::EditComment { ref mut path, .. } => match doc_change.update_path(path) {
+                            UpdatePathResult::Unmoved | UpdatePathResult::Moved => Ok(self.ty),
+                            UpdatePathResult::Deleted | UpdatePathResult::Destructured => Err(UpdateError::NodeDeleted),
+                        },
                     }.map_err(|e| (e, backup, Some(doc_change.clone())))?,
                     generation: to.generation()
                 })
@@ -613,6 +626,19 @@ impl Change {
 
                 Ok(result.output)
             },
+            ChangeType::EditComment { path, new_text } => {
+                let new_tree = rebuild::rebuild_node_tree_visiting_path_simple(&document.root, path, |target, _| {
+                    match target {
+                        structure::Node::Comment(comment) => comment.text = new_text.clone(),
+                        _ => return Err(ApplyErrorType::TargetNodeTypeInvalidForOperation),
+                    };
+                    Ok(())
+                })?;
+
+                document.root = new_tree.root;
+
+                Ok(ApplyRecord::EditComment { path: path.clone() })
+            },
         }
     }
 }
@@ -730,6 +756,7 @@ impl ApplyRecord {
         match self {
             ApplyRecord::AlterNode { .. } => UpdatePathResult::Unmoved,
             ApplyRecord::AlterNodesBulk { .. } => UpdatePathResult::Unmoved,
+            ApplyRecord::EditComment { .. } => UpdatePathResult::Unmoved,
             ApplyRecord::InsertNode { parent, index: affected_index, child: _ } => {
                 if path.len() > parent.len() && path[0..parent.len()] == parent[..] {
                     let path_index = &mut path[parent.len()];
@@ -843,6 +870,7 @@ impl ApplyRecord {
         match self {
             ApplyRecord::AlterNode { .. } => UpdateRangeResult::Unmoved(subject),
             ApplyRecord::AlterNodesBulk { .. } => UpdateRangeResult::Unmoved(subject),
+            ApplyRecord::EditComment { .. } => UpdateRangeResult::Unmoved(subject),
             
             ApplyRecord::InsertNode { parent, index, .. } => {
                 if subject.parent[..] == parent[..] {
@@ -923,6 +951,7 @@ impl ApplyRecord {
         match self {
             ApplyRecord::AlterNode { path, .. } => format!("Alter properties on {}", document.describe_path(path)),
             ApplyRecord::AlterNodesBulk { .. } => format!("Alter properties on multiple nodes"),
+            ApplyRecord::EditComment { path, .. } => format!("Edit comment at {}", document.describe_path(path)),
             ApplyRecord::InsertNode { parent, child, .. } => format!("Insert {} under {}", child.node.inspect(), document.describe_path(parent)),
             ApplyRecord::Nest { range, .. } => format!("Nest children under {}", document.describe_path(&range.parent)),
             ApplyRecord::Destructure(dsr) => format!("Destructure child under {}", document.describe_path(&dsr.parent)),
@@ -1890,6 +1919,47 @@ mod tests {
         }
     }
     
+    #[test]
+    fn test_structural_change_edit_comment() {
+        let root = structure::HierarchyNode::builder()
+            .name("root")
+            .size(0x40)
+            .comment(0x10, "old text")
+            .child(0x10, |b| b
+                   .name("child0")
+                   .size(0x20))
+            .child(0x14, |b| b
+                   .name("child1")
+                   .size(0x1c)
+                   .child(0x0, |b| b
+                          .name("child1.0")
+                          .size(0x4))
+                   .child(0x4, |b| b
+                          .name("child1.1")
+                          .size(0x10)))
+            .child(0x20, |b| b
+                   .name("child2")
+                   .size(0x4))
+            .build();
+
+        let mut doc = document::Builder::new(root).build();
+        
+        match &*doc.lookup_node(&vec![0]).0 {
+            structure::Node::Comment(comment) => assert_eq!(comment.text, "old text"),
+            _ => panic!("node was not comment"),
+        }
+
+        Change {
+            ty: ChangeType::EditComment { path: vec![1], new_text: "new text".to_string() },
+            generation: doc.generation(),
+        }.apply(&mut doc).unwrap();
+
+        match &*doc.lookup_node(&vec![0]).0 {
+            structure::Node::Comment(comment) => assert_eq!(comment.text, "new text"),
+            _ => panic!("node was not comment"),
+        }
+    }
+    
     /* This exists to produce errors if another ChangeType gets added without corresponding tests. */
     fn structural_change_exhaustiveness(ty: ChangeType) {
         match ty {
@@ -1903,6 +1973,7 @@ mod tests {
             ChangeType::Resize { .. } => test_structural_change_resize(),
             ChangeType::Paste { .. } => test_structural_change_paste(),
             ChangeType::Repeat { .. } => test_structural_change_repeat(),
+            ChangeType::EditComment { .. } => test_structural_change_edit_comment(),
             /* Make tests for your new ChangeType! */
         }
     }

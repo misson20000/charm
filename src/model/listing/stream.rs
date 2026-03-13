@@ -484,6 +484,7 @@ impl Position {
         match &change_record {
             change::ApplyRecord::AlterNode { .. } => {},
             change::ApplyRecord::AlterNodesBulk { .. } => {},
+            change::ApplyRecord::EditComment { .. } => {},
             change::ApplyRecord::StackFilter { .. } => {},
             
             change::ApplyRecord::InsertNode { parent: affected_path, index: affected_index, child: new_childhood } if affected_path == &stack_state.current_path => {
@@ -690,6 +691,7 @@ impl Position {
         match &change_record {
             change::ApplyRecord::AlterNode { .. } => state.push(child_index),
             change::ApplyRecord::AlterNodesBulk { .. } => state.push(child_index),
+            change::ApplyRecord::EditComment { .. } => state.push(child_index),
             change::ApplyRecord::StackFilter { .. } => state.push(child_index),
             change::ApplyRecord::Resize { .. } => state.push(child_index),
             change::ApplyRecord::InsertNode { parent: path, index: after_child, child: _ } => {

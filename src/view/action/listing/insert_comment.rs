@@ -4,6 +4,7 @@ use crate::catch_panic;
 use crate::model::document;
 use crate::model::document::structure;
 use crate::model::document::structure::NodeKind;
+use crate::model::listing::cursor;
 use crate::view::error;
 use crate::view::listing;
 use crate::view::window;
@@ -25,10 +26,23 @@ pub fn add_action(window_context: &window::WindowContext) {
 
     action.connect_activate(move |_, _| catch_panic! {
         let mut cursor = lw.cursor_mut();
-        
-        match cursor.insert_node(&document_host, structure::CommentNode {
-            text: "test comment".to_string(),
-        }.into_arc()) {
+
+        match match &cursor.class {
+            /* Edit an existing comment */
+            cursor::CursorClass::Comment(_) => {
+                document_host.change(
+                    cursor.document().edit_comment(
+                        cursor.structure_path(),
+                        "edited comment".to_string()
+                    )
+                )
+            },
+
+            /* Insert a new comment */
+            _ => cursor.insert_node(&document_host, structure::CommentNode {
+                text: "test comment".to_string(),
+            }.into_arc())
+        } {
             Ok(_) => {},
             Err((error, attempted_version)) => {
                 let report_error = match &error.ty {
@@ -40,7 +54,7 @@ pub fn add_action(window_context: &window::WindowContext) {
                 if report_error {
                     if let Some(window) = window.upgrade() {
                         window.report_error(error::Error {
-                            while_attempting: error::Action::InsertNode,
+                            while_attempting: error::Action::InsertOrEditComment,
                             trouble: error::Trouble::DocumentUpdateFailure {
                                 error,
                                 attempted_version
